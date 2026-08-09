@@ -12,6 +12,7 @@ interface Story {
   caption?: string | null;
   created_at: string;
   expires_at: string;
+  views_count?: number;
   user_profiles: { username: string; avatar_url?: string | null } | null;
 }
 
@@ -48,6 +49,11 @@ export function StoriesStrip() {
   const [showReactions, setShowReactions] = useState(false);
   const [sendingReaction, setSendingReaction] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Story Views Analytics ────────────────────────────────────────────────
+  const [showViewers, setShowViewers] = useState(false);
+  const [storyViewers, setStoryViewers] = useState<any[]>([]);
+  const [loadingViewers, setLoadingViewers] = useState(false);
 
   const REACTIONS = ['❤️', '😂', '😮', '🔥', '👏', '😍'];
 
@@ -145,15 +151,25 @@ export function StoriesStrip() {
     return () => clearInterval(iv);
   }, [viewerGroupIdx, activeStoryIdx, groups, markViewed]);
 
+  const closeViewer = () => {
+    setViewerGroupIdx(null);
+    setReplyText('');
+    setShowViewers(false);
+    setStoryViewers([]);
+  };
+
   const openViewer = (groupIdx: number) => {
     setViewerGroupIdx(groupIdx);
     setActiveStoryIdx(0);
+    setShowViewers(false);
+    setStoryViewers([]);
     const story = groups[groupIdx]?.stories[0];
     if (story && !viewedIds.has(story.id)) markViewed(story.id);
   };
 
   const advance = () => {
     setReplyText('');
+    setShowViewers(false);
     if (viewerGroupIdx === null) return;
     const g = groups[viewerGroupIdx];
     if (!g) return;
@@ -167,12 +183,13 @@ export function StoriesStrip() {
       setActiveStoryIdx(0);
       markViewed(groups[ng].stories[0].id);
     } else {
-      setViewerGroupIdx(null);
+      closeViewer();
     }
   };
 
   const retreat = () => {
     setReplyText('');
+    setShowViewers(false);
     if (viewerGroupIdx === null) return;
     if (activeStoryIdx > 0) {
       setActiveStoryIdx(prev => prev - 1);
@@ -181,6 +198,18 @@ export function StoriesStrip() {
       setViewerGroupIdx(pg);
       setActiveStoryIdx(groups[pg].stories.length - 1);
     }
+  };
+
+  const fetchStoryViewers = async (storyId: string) => {
+    setLoadingViewers(true);
+    setShowViewers(true);
+    const { data } = await supabase
+      .from('story_views')
+      .select('viewed_at, user_profiles:viewer_id(id, username, avatar_url)')
+      .eq('story_id', storyId)
+      .order('viewed_at', { ascending: false });
+    setStoryViewers(data ?? []);
+    setLoadingViewers(false);
   };
 
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -231,7 +260,6 @@ export function StoriesStrip() {
     setSendingReaction(true);
     setShowReactions(false);
     try {
-      // Send as DM reaction
       const { data: existing } = await supabase
         .from('conversations')
         .select('id')
@@ -246,13 +274,11 @@ export function StoriesStrip() {
         convId = newConv?.id;
       }
       if (!convId) throw new Error('No conversation');
-      const story = groups[viewerGroupIdx].stories[activeStoryIdx];
       await supabase.from('direct_messages').insert({
         conversation_id: convId,
         sender_id: user.id,
         content: `${emoji} Reacted to your story`,
       });
-      // Animated emoji feedback
       toast.success(`${emoji} Sent!`, { duration: 1500 });
     } catch {
       toast.error('Could not send reaction');
@@ -431,6 +457,7 @@ export function StoriesStrip() {
         if (!g) return null;
         const story = g.stories[activeStoryIdx];
         if (!story) return null;
+        const isOwn = user?.id === g.userId;
         return (
           <div
             className="fixed inset-0 z-[200] bg-black flex items-center justify-center select-none"
@@ -447,6 +474,7 @@ export function StoriesStrip() {
               if (delta < 0) advance(); else retreat();
             }}
             onClick={e => {
+              if (showViewers) return;
               if (isSwiping.current) { isSwiping.current = false; return; }
               const x = e.clientX;
               const w = (e.currentTarget as HTMLElement).clientWidth;
@@ -480,8 +508,20 @@ export function StoriesStrip() {
                 }
               </div>
               <span className="text-white font-semibold text-sm flex-1 truncate">{g.username}</span>
+
+              {/* Views analytics button — own story only */}
+              {isOwn && (
+                <button
+                  onClick={e => { e.stopPropagation(); fetchStoryViewers(story.id); }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white text-xs font-medium border border-white/20 transition-colors shrink-0"
+                >
+                  <span>👁</span>
+                  <span>{story.views_count ?? 0}</span>
+                </button>
+              )}
+
               <button
-                onClick={e => { e.stopPropagation(); setViewerGroupIdx(null); setReplyText(''); }}
+                onClick={e => { e.stopPropagation(); closeViewer(); }}
                 className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors flex-shrink-0"
                 aria-label="Close"
               >
@@ -513,8 +553,70 @@ export function StoriesStrip() {
               )
             }
 
+            {/* ── Story Viewers Analytics Sheet (own story) ── */}
+            {showViewers && isOwn && (
+              <div
+                className="absolute inset-0 z-50 flex flex-col"
+                style={{ background: 'rgba(0,0,0,0.93)' }}
+                onClick={e => e.stopPropagation()}
+              >
+                {/* Sheet header */}
+                <div className="flex items-center justify-between px-4 pt-12 pb-3 border-b border-white/10">
+                  <div>
+                    <h3 className="text-white font-bold text-base">Story Views</h3>
+                    <p className="text-white/50 text-xs mt-0.5">
+                      {loadingViewers ? 'Loading…' : `${storyViewers.length} viewer${storyViewers.length !== 1 ? 's' : ''}`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setShowViewers(false); setStoryViewers([]); }}
+                    className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+                  >
+                    <X className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+                {/* Viewer list */}
+                <div className="flex-1 overflow-y-auto">
+                  {loadingViewers ? (
+                    <div className="flex items-center justify-center py-16">
+                      <Loader2 className="w-7 h-7 animate-spin text-white/50" />
+                    </div>
+                  ) : storyViewers.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-2 text-white/40">
+                      <span className="text-4xl">👁</span>
+                      <p className="text-sm font-medium">No views yet</p>
+                      <p className="text-xs">Share your story to get views!</p>
+                    </div>
+                  ) : storyViewers.map((v: any, i: number) => {
+                    const profile = v.user_profiles ?? {};
+                    const uname = profile.username ?? 'user';
+                    const ts = v.viewed_at ? new Date(v.viewed_at) : null;
+                    const timeStr = ts ? ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                    const dateStr = ts ? ts.toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
+                    return (
+                      <div key={v.story_id + String(i)} className="flex items-center gap-3 px-4 py-3.5 border-b border-white/8">
+                        <div className="w-10 h-10 rounded-full bg-white/15 overflow-hidden shrink-0">
+                          {profile.avatar_url
+                            ? <img src={profile.avatar_url} alt={uname} className="w-full h-full object-cover" />
+                            : <div className="w-full h-full flex items-center justify-center text-white font-bold text-sm">{uname[0]?.toUpperCase()}</div>
+                          }
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-semibold text-sm truncate">{uname}</p>
+                          {(dateStr || timeStr) && (
+                            <p className="text-white/45 text-xs">{dateStr}{dateStr && timeStr ? ' · ' : ''}{timeStr}</p>
+                          )}
+                        </div>
+                        <span className="text-white/20 text-lg">👁</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* ── Emoji Reactions ── */}
-            {user && g.userId !== user.id && showReactions && (
+            {user && !isOwn && showReactions && (
               <div
                 className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-black/70 backdrop-blur-sm rounded-full px-3 py-2 border border-white/20"
                 onClick={e => e.stopPropagation()}
@@ -547,8 +649,8 @@ export function StoriesStrip() {
               </div>
             )}
 
-            {/* Story Reply Input + Reaction trigger */}
-            {user && g.userId !== user.id && (
+            {/* Story Reply Input + Reaction trigger — other user's story only */}
+            {user && !isOwn && (
               <div
                 className="absolute bottom-4 left-4 right-4 z-30 flex items-center gap-2"
                 onClick={e => e.stopPropagation()}
@@ -589,9 +691,13 @@ export function StoriesStrip() {
               </div>
             )}
 
-            {/* Navigation hit zones (invisible) */}
-            <div className="absolute inset-y-0 left-0 w-1/3 z-10" onClick={e => { e.stopPropagation(); retreat(); }} />
-            <div className="absolute inset-y-0 right-0 w-1/3 z-10" onClick={e => { e.stopPropagation(); advance(); }} />
+            {/* Navigation hit zones (invisible) — disabled when viewers sheet is open */}
+            {!showViewers && (
+              <>
+                <div className="absolute inset-y-0 left-0 w-1/3 z-10" onClick={e => { e.stopPropagation(); retreat(); }} />
+                <div className="absolute inset-y-0 right-0 w-1/3 z-10" onClick={e => { e.stopPropagation(); advance(); }} />
+              </>
+            )}
           </div>
         );
       })()}

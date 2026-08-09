@@ -32,6 +32,8 @@ export default function CreatorStudio() {
   const [weeklyViews, setWeeklyViews] = useState<any[]>([]);
   const [videoEarnings, setVideoEarnings] = useState<any[]>([]);
   const [weeklyEarnings, setWeeklyEarnings] = useState<any[]>([]);
+  const [streakDay, setStreakDay] = useState(0);
+  const [videoPostsCount, setVideoPostsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'videos' | 'earnings'>('overview');
 
@@ -42,7 +44,18 @@ export default function CreatorStudio() {
     fetchEarningsHistory();
     fetchVideoEarnings();
     fetchWeeklyEarnings();
+    fetchMilestoneData();
   }, [user]);
+
+  const fetchMilestoneData = async () => {
+    if (!user) return;
+    const [{ data: rewardData }, { data: videoPosts }] = await Promise.all([
+      supabase.from('daily_rewards').select('streak_day').eq('user_id', user.id).maybeSingle(),
+      supabase.from('posts').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_video', true),
+    ]);
+    setStreakDay(rewardData?.streak_day ?? 0);
+    setVideoPostsCount((videoPosts as any)?.count ?? 0);
+  };
 
   const fetchCreatorStats = async () => {
     if (!user) return;
@@ -271,6 +284,139 @@ export default function CreatorStudio() {
                 ))}
               </div>
             </div>
+
+            {/* ── Creator Milestone Badges ── */}
+            {(() => {
+              const milestones = [
+                {
+                  id: 'followers_100',
+                  icon: '👥',
+                  title: 'First 100 Followers',
+                  desc: 'Reach 100 followers',
+                  done: stats.total_followers >= 100,
+                  progress: Math.min(stats.total_followers, 100),
+                  total: 100,
+                  color: 'blue',
+                },
+                {
+                  id: 'first_video',
+                  icon: '🎬',
+                  title: 'First Video',
+                  desc: 'Upload your first video post',
+                  done: videoPostsCount > 0,
+                  progress: Math.min(videoPostsCount, 1),
+                  total: 1,
+                  color: 'red',
+                },
+                {
+                  id: 'first_dollar',
+                  icon: '💵',
+                  title: 'First Dollar Earned',
+                  desc: 'Earn your first $1',
+                  done: stats.total_earnings >= 1,
+                  progress: Math.min(stats.total_earnings, 1),
+                  total: 1,
+                  color: 'green',
+                },
+                {
+                  id: 'streak_7',
+                  icon: '🔥',
+                  title: '7-Day Streak',
+                  desc: 'Claim rewards 7 days in a row',
+                  done: streakDay >= 7,
+                  progress: Math.min(streakDay, 7),
+                  total: 7,
+                  color: 'orange',
+                },
+                {
+                  id: 'followers_1000',
+                  icon: '🌟',
+                  title: '1K Followers',
+                  desc: 'Reach 1,000 followers',
+                  done: stats.total_followers >= 1000,
+                  progress: Math.min(stats.total_followers, 1000),
+                  total: 1000,
+                  color: 'purple',
+                },
+                {
+                  id: 'posts_10',
+                  icon: '✍️',
+                  title: '10 Posts',
+                  desc: 'Create 10 posts',
+                  done: stats.total_posts >= 10,
+                  progress: Math.min(stats.total_posts, 10),
+                  total: 10,
+                  color: 'teal',
+                },
+              ];
+              const colorMap: Record<string, string> = {
+                blue:   'from-blue-500/10 to-blue-500/5 border-blue-500/20 text-blue-600',
+                red:    'from-red-500/10 to-red-500/5 border-red-500/20 text-red-600',
+                green:  'from-green-500/10 to-green-500/5 border-green-500/20 text-green-600',
+                orange: 'from-orange-500/10 to-orange-500/5 border-orange-500/20 text-orange-600',
+                purple: 'from-purple-500/10 to-purple-500/5 border-purple-500/20 text-purple-600',
+                teal:   'from-teal-500/10 to-teal-500/5 border-teal-500/20 text-teal-600',
+              };
+              const barColorMap: Record<string, string> = {
+                blue: 'bg-blue-500', red: 'bg-red-500', green: 'bg-green-500',
+                orange: 'bg-orange-500', purple: 'bg-purple-500', teal: 'bg-teal-500',
+              };
+              const done = milestones.filter(m => m.done).length;
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-bold">🏅 Creator Milestones</h2>
+                    <span className="text-sm text-muted-foreground font-medium">{done}/{milestones.length} completed</span>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-primary to-purple-500 rounded-full transition-all duration-700"
+                      style={{ width: `${(done / milestones.length) * 100}%` }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {milestones.map(m => (
+                      <div
+                        key={m.id}
+                        className={`relative bg-gradient-to-br border rounded-xl p-3 transition-all ${
+                          m.done
+                            ? colorMap[m.color] + ' opacity-100'
+                            : 'from-muted/30 to-muted/10 border-border opacity-70'
+                        }`}
+                      >
+                        {/* Badge status icon */}
+                        <div className="absolute top-2 right-2">
+                          {m.done
+                            ? <span className="text-sm">✅</span>
+                            : <span className="text-sm opacity-40">🔒</span>
+                          }
+                        </div>
+                        <div className="text-2xl mb-1.5">{m.icon}</div>
+                        <p className={`text-xs font-bold leading-tight mb-0.5 ${m.done ? '' : 'text-muted-foreground'}`}>
+                          {m.title}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight mb-2">{m.desc}</p>
+                        {/* Mini progress bar */}
+                        {!m.done && (
+                          <div className="w-full bg-black/10 dark:bg-white/10 rounded-full h-1 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${barColorMap[m.color]} transition-all duration-500`}
+                              style={{ width: `${m.total > 0 ? (m.progress / m.total) * 100 : 0}%` }}
+                            />
+                          </div>
+                        )}
+                        {!m.done && m.total > 1 && (
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            {m.progress.toLocaleString()} / {m.total.toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Tips */}
             <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">

@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import * as federation from '@/api/federation';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
-import { Globe, Search, Users, Rss, ExternalLink, UserPlus, Loader2, AlertCircle, Copy, CheckCircle } from 'lucide-react';
+import { Globe, Search, Users, Rss, ExternalLink, UserPlus, UserMinus, Loader2, AlertCircle, Copy, CheckCircle, Heart, Repeat2, MessageCircle, Send, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
@@ -27,8 +27,15 @@ export default function FediversePage() {
   const [federatedFollowing, setFederatedFollowing] = useState<any[]>([]);
   const [federatedFollowers, setFederatedFollowers] = useState<any[]>([]);
   const [gatewayOk, setGatewayOk] = useState<boolean | null>(null);
+  // Per-post interaction state: { [postObjectUrl]: { liked, boosted, replyOpen, replyText, sending } }
+  const [postStates, setPostStates] = useState<Record<string, { liked?: boolean; boosted?: boolean; replyOpen?: boolean; replyText?: string; sending?: boolean }>>({});
   const [myActor, setMyActor] = useState<any>(null);
   const [keysReady, setKeysReady] = useState<boolean>(false);
+  // Keyword search state
+  const [keywordQuery, setKeywordQuery] = useState('');
+  const [keywordResults, setKeywordResults] = useState<any[]>([]);
+  const [searchingKeyword, setSearchingKeyword] = useState(false);
+  const [keywordSearched, setKeywordSearched] = useState(false);
 
   useEffect(() => {
     checkGateway();
@@ -158,6 +165,76 @@ export default function FediversePage() {
     }
   };
 
+  const handleUnfollowFederated = async (remoteActorUrl: string) => {
+    if (!user) { navigate('/auth'); return; }
+    try {
+      // Remove from local federated_following table
+      await supabase.from('federated_following').delete().eq('local_user_id', user.id).eq('remote_actor_url', remoteActorUrl);
+      toast.success('Unfollowed');
+      fetchFederationStats();
+    } catch (err: any) {
+      toast.error(`Unfollow failed: ${err.message ?? ''}`);
+    }
+  };
+
+  const handleFedLike = async (post: any) => {
+    if (!user) { navigate('/auth'); return; }
+    const key = post.object_url ?? post.id;
+    if (!key) return;
+    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], liked: !prev[key]?.liked } }));
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const backendUrl = import.meta.env.VITE_SUPABASE_URL;
+      await fetch(`${backendUrl}/functions/v1/activitypub-federation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'like', object_url: key, user_id: user.id }),
+      });
+    } catch { /* optimistic — ignore errors */ }
+  };
+
+  const handleFedBoost = async (post: any) => {
+    if (!user) { navigate('/auth'); return; }
+    const key = post.object_url ?? post.id;
+    if (!key) return;
+    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], boosted: !prev[key]?.boosted } }));
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const backendUrl = import.meta.env.VITE_SUPABASE_URL;
+      await fetch(`${backendUrl}/functions/v1/activitypub-federation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'boost', object_url: key, user_id: user.id }),
+      });
+    } catch { /* optimistic */ }
+  };
+
+  const handleFedReply = async (post: any) => {
+    if (!user) { navigate('/auth'); return; }
+    const key = post.object_url ?? post.id;
+    if (!key) return;
+    const text = postStates[key]?.replyText?.trim();
+    if (!text) return;
+    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: true } }));
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const backendUrl = import.meta.env.VITE_SUPABASE_URL;
+      await fetch(`${backendUrl}/functions/v1/activitypub-federation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'reply', object_url: key, content: text, user_id: user.id }),
+      });
+      toast.success('Reply sent to the Fediverse!');
+      setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyText: '', replyOpen: false, sending: false } }));
+    } catch (err: any) {
+      toast.error(`Reply failed: ${err.message ?? ''}`);
+      setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: false } }));
+    }
+  };
+
   const handleFollow = async (account: any) => {
     if (!user) { navigate('/auth'); return; }
     setFollowing(true);
@@ -223,6 +300,45 @@ export default function FediversePage() {
       }
     } catch (err: any) {
       toast.error('Backfill error: ' + err.message);
+    }
+  };
+
+  const handleKeywordSearch = async () => {
+    const q = keywordQuery.trim();
+    if (!q) return;
+    setSearchingKeyword(true);
+    setKeywordResults([]);
+    setKeywordSearched(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const backendUrl = import.meta.env.VITE_SUPABASE_URL;
+      const res = await fetch(`${backendUrl}/functions/v1/gateway-relay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ action: 'search', query: q, type: 'statuses', limit: 20 }),
+      });
+      const data = await res.json();
+      const posts = Array.isArray(data)
+        ? data
+        : data?.statuses ?? data?.posts ?? data?.data ?? [];
+      if (posts.length === 0 && !res.ok) throw new Error(data?.error ?? 'No results');
+      setKeywordResults(posts);
+    } catch (err: any) {
+      // fallback: search remote_posts table
+      const { data: cached } = await supabase
+        .from('remote_posts')
+        .select('*')
+        .ilike('content', `%${q}%`)
+        .order('published_at', { ascending: false })
+        .limit(20);
+      setKeywordResults(cached ?? []);
+      if ((cached ?? []).length === 0) toast.error(`No results for "${q}"`);
+    } finally {
+      setSearchingKeyword(false);
     }
   };
 
@@ -300,7 +416,7 @@ export default function FediversePage() {
                 const content = p.content ?? p.text ?? '';
                 const created = p.published_at ?? p.created_at ?? p.published ?? '';
                 return (
-                  <div key={p.id ?? p.object_url ?? i} className="p-4 hover:bg-muted/5 transition-colors">
+  <div key={p.id ?? p.object_url ?? i} className="p-4 hover:bg-muted/5 transition-colors">
                     <div className="flex gap-3">
                       <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
                         {avatarUrl ? (
@@ -323,12 +439,88 @@ export default function FediversePage() {
                         </div>
                         <p className="text-xs text-muted-foreground mb-1.5">@{username}@{domain}</p>
                         <div className="text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: content }} />
-                        {p.object_url && (
-                          <a href={p.object_url} target="_blank" rel="noopener noreferrer"
-                            className="mt-1.5 flex items-center gap-1 text-xs text-primary hover:underline">
-                            <ExternalLink className="w-3 h-3" />View on {domain}
-                          </a>
-                        )}
+                        {/* ── Interaction bar ── */}
+                        {(() => {
+                          const key = p.object_url ?? p.id;
+                          const ps = key ? (postStates[key] ?? {}) : {};
+                          return (
+                            <div className="mt-2.5 flex items-center gap-1 flex-wrap">
+                              {/* Like */}
+                              <button
+                                onClick={() => handleFedLike(p)}
+                                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                                  ps.liked ? 'bg-pink-500/15 text-pink-600' : 'hover:bg-muted text-muted-foreground hover:text-pink-600'
+                                }`}
+                              >
+                                <Heart className={`w-3.5 h-3.5 ${ps.liked ? 'fill-current' : ''}`} />
+                                {(p.likes_count ?? p.favourites_count ?? 0) + (ps.liked ? 1 : 0)}
+                              </button>
+                              {/* Boost */}
+                              <button
+                                onClick={() => handleFedBoost(p)}
+                                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                                  ps.boosted ? 'bg-green-500/15 text-green-600' : 'hover:bg-muted text-muted-foreground hover:text-green-600'
+                                }`}
+                              >
+                                <Repeat2 className="w-3.5 h-3.5" />
+                                {(p.boosts_count ?? p.reblogs_count ?? 0) + (ps.boosted ? 1 : 0)}
+                              </button>
+                              {/* Reply toggle */}
+                              {user && (
+                                <button
+                                  onClick={() => {
+                                    if (!key) return;
+                                    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyOpen: !ps.replyOpen } }));
+                                  }}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
+                                >
+                                  <MessageCircle className="w-3.5 h-3.5" />
+                                  {p.replies_count ?? 0}
+                                </button>
+                              )}
+                              {/* External link */}
+                              {p.object_url && (
+                                <a href={p.object_url} target="_blank" rel="noopener noreferrer"
+                                  className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1.5 rounded-full hover:bg-muted"
+                                >
+                                  <ExternalLink className="w-3 h-3" />{domain}
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {/* Inline reply composer */}
+                        {user && (() => {
+                          const key = p.object_url ?? p.id;
+                          const ps = key ? (postStates[key] ?? {}) : {};
+                          if (!ps.replyOpen || !key) return null;
+                          return (
+                            <div className="mt-2 flex items-start gap-2" onClick={e => e.stopPropagation()}>
+                              <textarea
+                                className="flex-1 bg-muted rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary border border-border"
+                                rows={2}
+                                placeholder={`Reply to @${username}@${domain}…`}
+                                value={ps.replyText ?? ''}
+                                onChange={e => setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyText: e.target.value } }))}
+                              />
+                              <div className="flex flex-col gap-1">
+                                <button
+                                  onClick={() => handleFedReply(p)}
+                                  disabled={ps.sending || !ps.replyText?.trim()}
+                                  className="p-2 bg-primary text-primary-foreground rounded-xl disabled:opacity-50 transition-opacity hover:opacity-90"
+                                >
+                                  {ps.sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                </button>
+                                <button
+                                  onClick={() => setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyOpen: false } }))}
+                                  className="p-2 bg-muted rounded-xl text-muted-foreground hover:text-foreground"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -404,17 +596,157 @@ export default function FediversePage() {
             </div>
           )}
 
-          {/* Stats */}
+          {/* ── Keyword Post Search ─────────────────────────────────── */}
+          <div className="border border-border rounded-xl p-4 space-y-3">
+            <p className="text-sm font-semibold flex items-center gap-2">
+              <Search className="w-4 h-4 text-primary" />
+              Search Fediverse Posts
+            </p>
+            <div className="flex gap-2">
+              <input
+                className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="Search by keyword, hashtag…"
+                value={keywordQuery}
+                onChange={e => setKeywordQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleKeywordSearch()}
+              />
+              <button
+                onClick={handleKeywordSearch}
+                disabled={searchingKeyword || !keywordQuery.trim()}
+                className="px-4 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+              >
+                {searchingKeyword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                {searchingKeyword ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+
+            {/* Results */}
+            {keywordResults.length > 0 && (
+              <div className="divide-y divide-border rounded-xl border border-border overflow-hidden">
+                {keywordResults.map((p: any, i: number) => {
+                  const actor = p.remote_accounts ?? p.actor ?? p.account ?? {};
+                  const username = actor.preferredUsername ?? actor.username ?? actor.acct?.split('@')[0] ?? 'unknown';
+                  const domain = actor.domain ?? (p.actor_url ? (() => { try { return new URL(p.actor_url).hostname; } catch { return ''; } })() : (actor.acct?.includes('@') ? actor.acct.split('@')[1] : ''));
+                  const avatarUrl = actor.avatar_url ?? actor.icon?.url ?? actor.avatar ?? actor.avatar_static;
+                  const content = p.content ?? p.text ?? '';
+                  const created = p.published_at ?? p.created_at ?? p.published ?? '';
+                  const key = p.object_url ?? p.uri ?? p.url ?? p.id ?? String(i);
+                  const ps = postStates[key] ?? {};
+                  return (
+                    <div key={key} className="p-3 hover:bg-muted/10 transition-colors bg-background">
+                      <div className="flex gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                          {avatarUrl
+                            ? <img src={avatarUrl} alt={username} className="w-full h-full object-cover" />
+                            : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{username[0]?.toUpperCase()}</div>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                            <span className="font-semibold text-xs">{actor.display_name ?? username}</span>
+                            <span className="text-xs text-purple-500 flex items-center gap-0.5"><Globe className="w-2.5 h-2.5" />{domain}</span>
+                            {created && <span className="text-xs text-muted-foreground">· {formatDistanceToNow(new Date(created), { addSuffix: true })}</span>}
+                          </div>
+                          <div className="text-xs leading-relaxed text-foreground/90 line-clamp-3" dangerouslySetInnerHTML={{ __html: content }} />
+                          <div className="mt-1.5 flex items-center gap-1">
+                            <button
+                              onClick={() => handleFedLike({ ...p, object_url: key })}
+                              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${ps.liked ? 'bg-pink-500/15 text-pink-600' : 'hover:bg-muted text-muted-foreground hover:text-pink-600'}`}
+                            >
+                              <Heart className={`w-3 h-3 ${ps.liked ? 'fill-current' : ''}`} />
+                              {(p.likes_count ?? p.favourites_count ?? 0) + (ps.liked ? 1 : 0)}
+                            </button>
+                            <button
+                              onClick={() => handleFedBoost({ ...p, object_url: key })}
+                              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${ps.boosted ? 'bg-green-500/15 text-green-600' : 'hover:bg-muted text-muted-foreground hover:text-green-600'}`}
+                            >
+                              <Repeat2 className="w-3 h-3" />
+                              {(p.boosts_count ?? p.reblogs_count ?? 0) + (ps.boosted ? 1 : 0)}
+                            </button>
+                            {user && (
+                              <button
+                                onClick={() => setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyOpen: !ps.replyOpen } }))}
+                                className="flex items-center gap-1 px-2 py-1 rounded-full text-xs hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
+                              >
+                                <MessageCircle className="w-3 h-3" />{p.replies_count ?? 0}
+                              </button>
+                            )}
+                            {(p.object_url ?? p.uri ?? p.url) && (
+                              <a href={p.object_url ?? p.uri ?? p.url} target="_blank" rel="noopener noreferrer"
+                                className="ml-auto flex items-center gap-0.5 text-xs text-muted-foreground hover:text-primary px-2 py-1 rounded-full hover:bg-muted transition-colors">
+                                <ExternalLink className="w-2.5 h-2.5" />{domain}
+                              </a>
+                            )}
+                          </div>
+                          {/* Inline reply for keyword results */}
+                          {user && ps.replyOpen && (
+                            <div className="mt-1.5 flex items-start gap-1.5">
+                              <textarea
+                                className="flex-1 bg-muted rounded-lg px-2.5 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary border border-border"
+                                rows={2}
+                                placeholder={`Reply to @${username}@${domain}…`}
+                                value={ps.replyText ?? ''}
+                                onChange={e => setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyText: e.target.value } }))}
+                              />
+                              <button
+                                onClick={() => handleFedReply({ ...p, object_url: key })}
+                                disabled={ps.sending || !ps.replyText?.trim()}
+                                className="p-1.5 bg-primary text-primary-foreground rounded-lg disabled:opacity-50"
+                              >
+                                {ps.sending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                              </button>
+                              <button onClick={() => setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyOpen: false } }))} className="p-1.5 bg-muted rounded-lg text-muted-foreground hover:text-foreground"><X className="w-3 h-3" /></button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {keywordSearched && !searchingKeyword && keywordResults.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">No posts found for "{keywordQuery}"</p>
+            )}
+          </div>
+
+          {/* Stats + Following list */}
           {user && (
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <div className="border border-border rounded-xl p-3 text-center">
-                <p className="text-2xl font-bold">{federatedFollowing.length}</p>
-                <p className="text-xs text-muted-foreground">Federated following</p>
+            <div className="space-y-3 mt-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="border border-border rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold">{federatedFollowing.length}</p>
+                  <p className="text-xs text-muted-foreground">Federated following</p>
+                </div>
+                <div className="border border-border rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold">{federatedFollowers.length}</p>
+                  <p className="text-xs text-muted-foreground">Remote followers</p>
+                </div>
               </div>
-              <div className="border border-border rounded-xl p-3 text-center">
-                <p className="text-2xl font-bold">{federatedFollowers.length}</p>
-                <p className="text-xs text-muted-foreground">Remote followers</p>
-              </div>
+              {federatedFollowing.length > 0 && (
+                <div className="border border-border rounded-xl overflow-hidden">
+                  <p className="px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b border-border">Currently Following</p>
+                  <div className="divide-y divide-border">
+                    {federatedFollowing.map((f: any) => (
+                      <div key={f.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-9 h-9 rounded-full bg-purple-500/10 flex items-center justify-center shrink-0">
+                          <Globe className="w-4 h-4 text-purple-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">{f.remote_username ?? f.remote_actor_url.split('/').pop()}</p>
+                          <p className="text-xs text-muted-foreground truncate">{f.remote_domain ?? f.remote_actor_url}</p>
+                        </div>
+                        <button
+                          onClick={() => handleUnfollowFederated(f.remote_actor_url)}
+                          className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full border border-border text-xs font-medium hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
+                        >
+                          <UserMinus className="w-3 h-3" />
+                          Unfollow
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
