@@ -1,29 +1,31 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
-  Bell, Lock, Eye, Shield, HelpCircle, FileText, LogOut,
-  Moon, Sun, Palette, User, ChevronRight, Smartphone
+  Bell, Lock, Shield, HelpCircle, FileText, LogOut,
+  Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check
 } from 'lucide-react';
+import { applyTheme, getStoredThemeChoice, type ThemeChoice } from '@/components/layout/ThemeToggle';
 import { authService } from '@/lib/auth';
-import { applyTheme } from '@/components/layout/ThemeToggle';
-
-function getStoredTheme(): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'dark';
-  const stored = localStorage.getItem('theme') as 'light' | 'dark' | null;
-  if (stored) return stored;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState(true);
   const [privateAccount, setPrivateAccount] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>(getStoredTheme);
+  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(getStoredThemeChoice);
+
+  // Listen for OS preference changes when in System mode
+  useEffect(() => {
+    if (themeChoice !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => applyTheme('system');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [themeChoice]);
 
   if (!user) {
     navigate('/auth');
@@ -36,11 +38,14 @@ export default function SettingsPage() {
     navigate('/');
   };
 
-  const toggleTheme = () => {
-    const next = theme === 'light' ? 'dark' : 'light';
-    setTheme(next);
-    applyTheme(next);
+  const selectTheme = (choice: ThemeChoice) => {
+    setThemeChoice(choice);
+    applyTheme(choice);
   };
+
+  // Detect effective theme for display
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const effectiveTheme = themeChoice === 'system' ? (systemDark ? 'dark' : 'light') : themeChoice;
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
@@ -85,66 +90,57 @@ export default function SettingsPage() {
         {/* Appearance */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Appearance</h2>
-          <div className="space-y-1">
-            {/* Theme Toggle */}
-            <div
-              onClick={toggleTheme}
-              className="flex items-center justify-between p-3 hover:bg-muted/50 rounded-xl transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-purple-500/10 flex items-center justify-center">
-                  <Palette className="w-4 h-4 text-purple-500" />
-                </div>
-                <div>
-                  <p className="font-semibold text-sm">Theme</p>
-                  <p className="text-xs text-muted-foreground capitalize">{theme} mode active</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                  theme === 'dark'
-                    ? 'bg-slate-800 border-slate-600 text-slate-200'
-                    : 'bg-yellow-50 border-yellow-200 text-yellow-700'
-                }`}>
-                  {theme === 'dark' ? (
-                    <><Moon className="w-3.5 h-3.5" /> Dark</>
-                  ) : (
-                    <><Sun className="w-3.5 h-3.5" /> Light</>
-                  )}
-                </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </div>
-            </div>
 
-            {/* Theme selection pills */}
-            <div className="px-3 pb-1">
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <button
-                  onClick={() => { setTheme('light'); applyTheme('light'); }}
-                  className={`flex items-center justify-center gap-2 p-3 border-2 rounded-xl transition-all ${
-                    theme === 'light'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <Sun className="w-5 h-5 text-yellow-500" />
-                  <span className="font-medium text-sm">Light</span>
-                  {theme === 'light' && <span className="text-primary text-xs">✓</span>}
-                </button>
-                <button
-                  onClick={() => { setTheme('dark'); applyTheme('dark'); }}
-                  className={`flex items-center justify-center gap-2 p-3 border-2 rounded-xl transition-all ${
-                    theme === 'dark'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <Moon className="w-5 h-5 text-slate-400" />
-                  <span className="font-medium text-sm">Dark</span>
-                  {theme === 'dark' && <span className="text-primary text-xs">✓</span>}
-                </button>
-              </div>
+          {/* Theme row label */}
+          <div className="flex items-center gap-3 p-3 rounded-xl mb-2">
+            <div className="w-9 h-9 rounded-full bg-purple-500/10 flex items-center justify-center shrink-0">
+              <Palette className="w-4 h-4 text-purple-500" />
             </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm">Theme</p>
+              <p className="text-xs text-muted-foreground">
+                {themeChoice === 'system'
+                  ? `System (${effectiveTheme} mode)`
+                  : `${themeChoice.charAt(0).toUpperCase() + themeChoice.slice(1)} mode active`}
+              </p>
+            </div>
+          </div>
+
+          {/* 3-pill selector */}
+          <div className="grid grid-cols-3 gap-2 px-3 pb-1">
+            {([
+              { id: 'light'  as ThemeChoice, label: 'Light',  Icon: Sun,     cls: 'text-yellow-500'  },
+              { id: 'dark'   as ThemeChoice, label: 'Dark',   Icon: Moon,    cls: 'text-slate-400'   },
+              { id: 'system' as ThemeChoice, label: 'System', Icon: Monitor, cls: 'text-blue-400'    },
+            ] as const).map(({ id, label, Icon, cls }) => {
+              const active = themeChoice === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => selectTheme(id)}
+                  className={`relative flex flex-col items-center gap-2 p-3.5 border-2 rounded-2xl transition-all ${
+                    active
+                      ? 'border-primary bg-primary/8 shadow-sm'
+                      : 'border-border hover:border-muted-foreground/30 hover:bg-muted/40'
+                  }`}
+                >
+                  <Icon className={`w-6 h-6 ${active ? 'text-primary' : cls}`} />
+                  <span className={`font-semibold text-xs ${active ? 'text-primary' : 'text-foreground'}`}>
+                    {label}
+                  </span>
+                  {active && (
+                    <span className="absolute top-2 right-2 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5 text-primary-foreground" />
+                    </span>
+                  )}
+                  {id === 'system' && (
+                    <span className="text-[9px] text-muted-foreground leading-none">
+                      {effectiveTheme === 'dark' ? '(dark)' : '(light)'}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 

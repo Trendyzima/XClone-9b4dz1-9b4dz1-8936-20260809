@@ -125,6 +125,8 @@ export default function ProfilePage() {
   const [currentMonthTips, setCurrentMonthTips] = useState(0);
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState('');
+  const [topTippers, setTopTippers] = useState<{ rank: number; amount: number }[]>([]);
+  const goalAchieved = tipGoal !== null && tipGoal > 0 && currentMonthTips >= tipGoal;
 
   const openHighlightViewer = async (h: any) => {
     if (!h.story_ids || h.story_ids.length === 0) { toast.error('No stories in this highlight'); return; }
@@ -235,42 +237,49 @@ export default function ProfilePage() {
   };
 
   const fetchTipGoal = async (userId: string) => {
+    // Read monthly_tip_goal from user_monetization
     const { data: mon } = await supabase
       .from('user_monetization')
-      .select('total_earnings')
+      .select('monthly_tip_goal')
       .eq('user_id', userId)
       .maybeSingle();
-    // We repurpose a platform_settings entry keyed by user_id for the monthly goal
-    const { data: setting } = await supabase
-      .from('platform_settings')
-      .select('setting_value')
-      .eq('setting_key', `tip_goal_${userId}`)
-      .maybeSingle();
-    setTipGoal(setting?.setting_value?.goal ?? null);
+    setTipGoal(mon?.monthly_tip_goal ?? null);
+
     // Sum this month's received tips
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
     const { data: monthTips } = await supabase
       .from('tips')
-      .select('amount')
+      .select('from_user_id, amount')
       .eq('to_user_id', userId)
-      .gte('created_at', startOfMonth.toISOString());
+      .gte('created_at', startOfMonth.toISOString())
+      .order('amount', { ascending: false });
+
     const total = (monthTips ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0);
     setCurrentMonthTips(total);
+
+    // Build top-3 anonymized tippers (aggregate by sender, take top 3)
+    const byTipper: Record<string, number> = {};
+    (monthTips ?? []).forEach((t: any) => {
+      byTipper[t.from_user_id] = (byTipper[t.from_user_id] || 0) + Number(t.amount);
+    });
+    const sorted = Object.values(byTipper).sort((a, b) => b - a).slice(0, 3);
+    setTopTippers(sorted.map((amount, i) => ({ rank: i + 1, amount })));
   };
 
   const handleSaveTipGoal = async () => {
     if (!currentUser || !profile) return;
     const goal = Number(goalInput);
     if (!goal || goal <= 0) return;
-    await supabase.from('platform_settings').upsert(
-      { setting_key: `tip_goal_${profile.id}`, setting_value: { goal } },
-      { onConflict: 'setting_key' }
+    const { error } = await supabase.from('user_monetization').upsert(
+      { user_id: profile.id, monthly_tip_goal: goal },
+      { onConflict: 'user_id' }
     );
+    if (error) { toast.error('Failed to save goal'); return; }
     setTipGoal(goal);
     setEditingGoal(false);
-    toast.success('Tip goal saved!');
+    toast.success('Tip goal saved! 🎯');
   };
 
   const fetchTipHistory = async (userId: string) => {
@@ -939,48 +948,73 @@ export default function ProfilePage() {
             );
           })()}
           {(tipGoal !== null || isOwnProfile) && (
-            <div className="mb-3">
+            <div className="mb-3 space-y-2">
               {!editingGoal ? (
-                <div className="flex items-center gap-3 p-3 rounded-2xl border border-yellow-500/20 bg-yellow-500/5">
-                  <div className="relative w-12 h-12 shrink-0">
-                    {/* SVG ring progress */}
-                    <svg className="w-12 h-12 -rotate-90" viewBox="0 0 44 44">
-                      <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/30" />
-                      <circle
-                        cx="22" cy="22" r="18" fill="none"
-                        stroke="currentColor" strokeWidth="3"
-                        className="text-yellow-500 transition-all duration-700"
-                        strokeDasharray={`${2 * Math.PI * 18}`}
-                        strokeDashoffset={`${2 * Math.PI * 18 * (1 - Math.min(tipGoal ? currentMonthTips / tipGoal : 0, 1))}`}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-yellow-600">
-                      {tipGoal ? Math.round(Math.min((currentMonthTips / tipGoal) * 100, 100)) : 0}%
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-yellow-700 dark:text-yellow-400">Monthly Tip Goal</p>
-                    <p className="text-sm font-bold text-foreground">
-                      ${currentMonthTips.toFixed(2)}
-                      {tipGoal !== null && <span className="text-muted-foreground font-normal"> / ${tipGoal.toFixed(2)}</span>}
-                    </p>
-                    {tipGoal && (
-                      <div className="w-full bg-muted rounded-full h-1 mt-1 overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-yellow-400 to-amber-500 rounded-full transition-all duration-700"
-                          style={{ width: `${Math.min((currentMonthTips / tipGoal) * 100, 100)}%` }}
+                <div className={`rounded-2xl border p-3 transition-all ${
+                  goalAchieved
+                    ? 'border-yellow-400/60 bg-gradient-to-br from-yellow-500/15 to-amber-400/10 animate-pulse'
+                    : 'border-yellow-500/20 bg-yellow-500/5'
+                }`}>
+                  {/* Goal header */}
+                  <div className="flex items-center gap-3">
+                    <div className="relative w-12 h-12 shrink-0">
+                      <svg className="w-12 h-12 -rotate-90" viewBox="0 0 44 44">
+                        <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/30" />
+                        <circle
+                          cx="22" cy="22" r="18" fill="none"
+                          stroke="currentColor" strokeWidth="3"
+                          className={`transition-all duration-700 ${goalAchieved ? 'text-amber-400' : 'text-yellow-500'}`}
+                          strokeDasharray={`${2 * Math.PI * 18}`}
+                          strokeDashoffset={`${2 * Math.PI * 18 * (1 - Math.min(tipGoal ? currentMonthTips / tipGoal : 0, 1))}`}
+                          strokeLinecap="round"
                         />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-yellow-600">
+                        {goalAchieved ? '🎉' : `${tipGoal ? Math.round(Math.min((currentMonthTips / tipGoal) * 100, 100)) : 0}%`}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-bold text-yellow-700 dark:text-yellow-400">Monthly Tip Goal</p>
+                        {goalAchieved && <span className="text-[10px] font-black bg-amber-400/20 text-amber-600 px-1.5 py-0.5 rounded-full">REACHED!</span>}
                       </div>
+                      <p className="text-sm font-bold text-foreground">
+                        ${currentMonthTips.toFixed(2)}
+                        {tipGoal !== null && <span className="text-muted-foreground font-normal"> / ${tipGoal.toFixed(2)}</span>}
+                      </p>
+                      {tipGoal !== null && tipGoal > 0 && (
+                        <div className="w-full bg-muted rounded-full h-1.5 mt-1 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ${goalAchieved ? 'bg-gradient-to-r from-amber-400 to-yellow-300' : 'bg-gradient-to-r from-yellow-400 to-amber-500'}`}
+                            style={{ width: `${Math.min((currentMonthTips / tipGoal) * 100, 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {isOwnProfile && (
+                      <button
+                        onClick={() => { setGoalInput(String(tipGoal ?? '')); setEditingGoal(true); }}
+                        className="text-xs text-yellow-600 hover:text-yellow-700 font-semibold px-2 py-1 rounded-lg hover:bg-yellow-500/10 transition-colors shrink-0"
+                      >
+                        {tipGoal ? 'Edit' : '+ Set Goal'}
+                      </button>
                     )}
                   </div>
-                  {isOwnProfile && (
-                    <button
-                      onClick={() => { setGoalInput(String(tipGoal ?? '')); setEditingGoal(true); }}
-                      className="text-xs text-yellow-600 hover:text-yellow-700 font-semibold px-2 py-1 rounded-lg hover:bg-yellow-500/10 transition-colors shrink-0"
-                    >
-                      {tipGoal ? 'Edit' : 'Set Goal'}
-                    </button>
+
+                  {/* Top-3 tippers — anonymized */}
+                  {topTippers.length > 0 && (
+                    <div className="mt-3 pt-2.5 border-t border-yellow-500/15">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mb-2">Top Supporters this month</p>
+                      <div className="flex gap-2">
+                        {topTippers.map(({ rank, amount }) => (
+                          <div key={rank} className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-xl bg-yellow-500/8 border border-yellow-500/10">
+                            <span className="text-base">{rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}</span>
+                            <span className="text-[10px] font-bold text-yellow-700 dark:text-yellow-400">${amount.toFixed(2)}</span>
+                            <span className="text-[9px] text-muted-foreground">Tipper #{rank}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               ) : (
@@ -992,7 +1026,7 @@ export default function ProfilePage() {
                     step="1"
                     value={goalInput}
                     onChange={e => setGoalInput(e.target.value)}
-                    placeholder="Monthly goal amount"
+                    placeholder="Monthly goal (USD)"
                     autoFocus
                     className="flex-1 bg-transparent text-sm focus:outline-none text-foreground placeholder:text-muted-foreground"
                     onKeyDown={e => { if (e.key === 'Enter') handleSaveTipGoal(); if (e.key === 'Escape') setEditingGoal(false); }}
