@@ -1,68 +1,86 @@
 /**
- * vite-fix-loader.mjs
+ * vite-fix-loader.mjs  v3
  *
- * Node.js ESM module load hook (registered via module.register() in vite.config.cjs).
- * Intercepts Vite's internal dep- chunks BEFORE Node.js compiles them so we can fix
- * the OnSpace patcher bug that puts `??""` into replaceDefine's parameter list —
- * producing a SyntaxError that no disk-based fix can reliably prevent.
+ * Node.js ESM load hook — registered via module.register() in vite.config.cjs.
  *
- * The hook fires on every dynamic/static import of an ESM file, giving us a window
- * to patch the source text in-memory right before V8 sees it.
+ * KEY CHANGE over v2:
+ *   We no longer call nextLoad() for Vite's own chunk files.  Instead we read
+ *   the file directly with readFileSync() and return the fixed source with
+ *   shortCircuit:true.  This eliminates the race window between hook
+ *   registration and the first ESM compilation of dep-*.js:
  *
- * v2: Uses a blanket regex so it catches the patcher's corruption in BOTH
- *   • function call positions:   replaceDefine(code??"", id, ...)
- *   • function def positions:    async function replaceDefine(code??"", id, ...)
- *   • and any other `word??""` / `word??''` patterns the patcher may produce.
+ *   v2 problem:  nextLoad() → default loader → reads disk → returns raw bytes
+ *                → hook patches → ok … but module.register() is async so the
+ *                hook thread may not be ready yet when the first import fires.
+ *
+ *   v3 solution: we never touch nextLoad for vite chunks, so Node.js compiles
+ *                exactly what WE return — always the cleaned source.
  */
 
-export async function load(url, context, nextLoad) {
-  // Fetch the raw module source from the next handler (reads disk or uses cache)
-  const result = await nextLoad(url, context);
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-  // Only target Vite's internal dep- chunk files — they must NOT legitimately
-  // contain `??` with string literals, so blanket-replacing is safe.
-  if (!url.includes('/vite/dist/node/')) {
-    return result;
+// Blanket regex: \w+??["'..."] → \w+
+// Catches corruption in function definitions AND call sites.
+const CORRUPT_RE = /\b(\w+)\s*\?\?\s*["'][^"']*["']/g;
+
+export async function load(url, context, nextLoad) {
+
+  // ── Fast pass: only intercept Vite's own node-layer chunk files ────────
+  if (
+    !url.startsWith('file:') ||
+    !url.includes('/vite/dist/node/')
+  ) {
+    return nextLoad(url, context);
   }
 
-  let { source } = result;
-  if (source === null || source === undefined) return result;
+  // ── Read the file directly so we own the source ────────────────────────
+  let source;
+  try {
+    source = readFileSync(fileURLToPath(url), 'utf8');
+  } catch (e) {
+    // Can't read — fall back to normal loading (will still error if corrupted,
+    // but at least we didn't hide a different I/O problem)
+    process.stderr.write(
+      '[vite-fix-loader] ⚠️  readFileSync failed for ' +
+      url.split('/').pop() + ': ' + e.message + '\n'
+    );
+    return nextLoad(url, context);
+  }
 
-  // Normalize TypedArray / Buffer → UTF-8 string
-  if (typeof source !== 'string') {
-    try {
-      source = Buffer.from(source).toString('utf8');
-    } catch {
-      return result; // Can't decode — leave unchanged
+  // ── Apply corruption fix if needed ─────────────────────────────────────
+  let fixed = source;
+
+  if (source.includes('??')) {
+    // Blanket fix
+    fixed = fixed.replace(CORRUPT_RE, '$1');
+
+    // Belt-and-suspenders for the known replaceDefine variants
+    if (fixed.includes('replaceDefine(code??')) {
+      fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
+      fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
+      fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
+      fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
+      fixed = fixed.replace(
+        /replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g,
+        'replaceDefine(code, '
+      );
+    }
+
+    if (fixed !== source) {
+      process.stderr.write(
+        '[vite-fix-loader] ✅ patched ?? corruption in ' +
+        url.split('/').pop() + '\n'
+      );
     }
   }
 
-  // Fast exit if no `??` corruption present
-  if (!source.includes('??')) return result;
-
-  let fixed = source;
-
-  // ── Blanket fix: \w+??["']...["'] → \w+ ────────────────────────────────
-  // Catches the patcher corruption wherever it appears (parameter, call, body).
-  // Vite's pre-compiled chunks don't use `??` with string literals legitimately.
-  fixed = fixed.replace(/\b(\w+)\s*\?\?\s*["'][^"']*["']/g, '$1');
-
-  // ── Belt-and-suspenders: explicit split/join for known variants ──────────
-  if (fixed.includes('replaceDefine(code??')) {
-    fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
-    fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
-    fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
-    fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
-    // Regex fallback for any other quoting / whitespace variant
-    fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
-  }
-
-  if (fixed !== source) {
-    process.stderr.write(
-      '[vite-fix-loader] \u2705 patched ?? corruption in ' +
-      url.split('/').pop() + '\n'
-    );
-  }
-
-  return { ...result, source: fixed };
+  // ── Return our (possibly-fixed) source, bypassing the rest of the chain ─
+  // format:'module' is correct — Vite's dist/node chunks are ESM
+  // (confirmed by the error appearing at compileSourceTextModule).
+  return {
+    shortCircuit: true,
+    format: 'module',
+    source: fixed,
+  };
 }

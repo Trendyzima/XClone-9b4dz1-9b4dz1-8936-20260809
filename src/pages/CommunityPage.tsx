@@ -9,7 +9,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import {
   Loader2, Users, TrendingUp, Lock, Globe, Shield,
-  Crown, Settings, UserPlus, MessageSquare, Image
+  Crown, Settings, UserPlus, MessageSquare, Image,
+  BookOpen, Plus, Trash2, X, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { Post } from '@/types';
 import { formatNumber } from '@/lib/utils';
@@ -54,10 +55,22 @@ export default function CommunityPage() {
   const [showMembers, setShowMembers] = useState(false);
   const [activeTab, setActiveTab] = useState<'posts' | 'members'>('posts');
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [showRulesModal, setShowRulesModal] = useState(false);
+  const [editingRules, setEditingRules] = useState(false);
+  const [rules, setRules] = useState<string[]>([]);
+  const [newRuleText, setNewRuleText] = useState('');
+  const [savingRules, setSavingRules] = useState(false);
 
   useEffect(() => {
     if (name) fetchCommunity();
   }, [name, user]);
+
+  // Sync rules from community data
+  useEffect(() => {
+    if (community?.rules) {
+      setRules(Array.isArray(community.rules) ? community.rules.map((r: any) => typeof r === 'string' ? r : r.text ?? String(r)) : []);
+    }
+  }, [community?.rules]);
 
   useEffect(() => {
     if (community && isMember) fetchPosts();
@@ -260,6 +273,25 @@ export default function CommunityPage() {
           <p className="mt-3 text-sm text-muted-foreground">{community.description}</p>
         )}
 
+        {/* Rules button */}
+        {rules.length > 0 && (
+          <button
+            onClick={() => setShowRulesModal(true)}
+            className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-full border border-border hover:bg-muted transition-colors text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            {rules.length} Community Rule{rules.length !== 1 ? 's' : ''}
+          </button>
+        )}
+        {isAdmin && rules.length === 0 && (
+          <button
+            onClick={() => { setShowRulesModal(true); setEditingRules(true); }}
+            className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-full border border-dashed border-border hover:bg-muted transition-colors text-xs font-semibold text-muted-foreground"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add Community Rules
+          </button>
+        )}
+
         {/* Stats */}
         <div className="flex items-center gap-6 mt-3 text-sm">
           <button
@@ -277,6 +309,85 @@ export default function CommunityPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Rules Modal ── */}
+      {showRulesModal && (
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-end" onClick={() => { setShowRulesModal(false); setEditingRules(false); setNewRuleText(''); }}>
+          <div className="w-full bg-background rounded-t-3xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="sticky top-0 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-primary" />
+                <h2 className="font-bold text-lg">Community Rules</h2>
+                <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{community.display_name}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <button onClick={() => setEditingRules(e => !e)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${ editingRules ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70' }`}>
+                    {editingRules ? 'Done' : 'Edit'}
+                  </button>
+                )}
+                <button onClick={() => { setShowRulesModal(false); setEditingRules(false); }} className="p-2 rounded-full hover:bg-muted">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            {/* Rules list */}
+            <div className="px-5 py-4 space-y-3">
+              {rules.length === 0 && !editingRules && (
+                <p className="text-sm text-muted-foreground text-center py-6">No rules have been set for this community.</p>
+              )}
+              {rules.map((rule, idx) => (
+                <div key={idx} className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/20">
+                  <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0">{idx + 1}</div>
+                  <p className="flex-1 text-sm leading-relaxed pt-0.5">{rule}</p>
+                  {editingRules && (
+                    <button onClick={async () => {
+                      const updated = rules.filter((_, i) => i !== idx);
+                      setSavingRules(true);
+                      await supabase.from('communities').update({ rules: updated }).eq('id', community.id);
+                      setRules(updated);
+                      setSavingRules(false);
+                    }} className="p-1 text-muted-foreground hover:text-destructive transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {/* Add new rule (edit mode, owner only) */}
+              {editingRules && isAdmin && (
+                <div className="mt-2 space-y-2">
+                  <textarea
+                    value={newRuleText}
+                    onChange={e => setNewRuleText(e.target.value)}
+                    placeholder="Describe the rule clearly…"
+                    rows={2}
+                    className="w-full px-4 py-3 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <button
+                    disabled={!newRuleText.trim() || savingRules}
+                    onClick={async () => {
+                      if (!newRuleText.trim()) return;
+                      const updated = [...rules, newRuleText.trim()];
+                      setSavingRules(true);
+                      await supabase.from('communities').update({ rules: updated }).eq('id', community.id);
+                      setRules(updated);
+                      setNewRuleText('');
+                      setSavingRules(false);
+                      toast({ title: 'Rule added' });
+                    }}
+                    className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {savingRules ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Add Rule
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="sticky top-14 z-20 bg-background border-b border-border">

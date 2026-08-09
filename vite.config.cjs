@@ -3,7 +3,11 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy A — ESM module load hook (in-memory, fires right before V8 compiles)
+// Strategy A — ESM module load hook
+//
+// v3: The hook now reads the file directly with readFileSync() and returns the
+//     fixed source with shortCircuit:true, so it is immune to the race between
+//     hook-thread startup and the first ESM import of the corrupted chunk.
 // ═══════════════════════════════════════════════════════════════════════════════
 try {
   const nodeModule = require('module');
@@ -23,10 +27,14 @@ try {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy B — Disk-based fix (backup; covers the window before hook fires)
-// v2: Scans ALL .js files in the chunks dir (not just dep-*) and uses a blanket
-//     regex to catch any identifier??["'..."] the OnSpace patcher may inject —
-//     including when it appears in function DEFINITIONS, not just call sites.
+// Strategy B — Disk-based fix
+//
+// v3 additions:
+//   • Scans ALL .js files in the chunks dir (not just dep-*).
+//   • After writing the fixed content, chmod 444 (read-only) to prevent the
+//     OnSpace patcher from re-corrupting the file in the same build run.
+//   • The next call to patchViteChunks() first chmod 644 to allow our own
+//     write, so multiple invocations are safe.
 // ═══════════════════════════════════════════════════════════════════════════════
 function patchViteChunks() {
   const chunksDir = path.join(
@@ -40,7 +48,6 @@ function patchViteChunks() {
 
   let files;
   try {
-    // Scan ALL .js files (patcher can target any chunk, not only dep- prefixed ones)
     files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js'));
   } catch (e) {
     process.stderr.write('[vite-patch] readdir error: ' + e.message + '\n');
@@ -50,25 +57,32 @@ function patchViteChunks() {
   for (const fname of files) {
     const fpath = path.join(chunksDir, fname);
 
+    // Ensure readable + writable before we do anything
+    try { fs.chmodSync(fpath, 0o644); } catch (_) {}
+
     let src;
     try {
       src = fs.readFileSync(fpath, 'utf8');
     } catch (e) {
       process.stderr.write('[vite-patch] read error for ' + fname + ': ' + e.message + '\n');
+      // Re-lock even on read failure so the patcher can't sneak in
+      try { fs.chmodSync(fpath, 0o444); } catch (_) {}
       continue;
     }
 
     // Fast exit — no ?? corruption present
-    if (!src.includes('??')) continue;
+    if (!src.includes('??')) {
+      // Still lock it so the patcher can't add corruption later
+      try { fs.chmodSync(fpath, 0o444); } catch (_) {}
+      continue;
+    }
 
     let fixed = src;
 
-    // ── Blanket fix: identifier??["'..."] → identifier ──────────────────────
-    // Catches corruption in function DEFINITIONS and call sites alike.
-    // Vite's pre-compiled chunks don't legitimately use ?? with string literals.
+    // ── Blanket fix: identifier??["'..."] → identifier ──────────────────
     fixed = fixed.replace(/\b(\w+)\s*\?\?\s*["'][^"']*["']/g, '$1');
 
-    // ── Belt-and-suspenders: explicit variants for the known replaceDefine bug ─
+    // ── Belt-and-suspenders: explicit variants for the known bug ─────────
     if (fixed.includes('replaceDefine(code??')) {
       fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
       fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
@@ -80,27 +94,32 @@ function patchViteChunks() {
       );
     }
 
-    if (fixed === src) continue;
-
-    try { fs.chmodSync(fpath, 0o644); } catch (_) {}
-
     try {
       fs.writeFileSync(fpath, fixed, 'utf8');
       process.stderr.write('[vite-patch] \ud83d\udcbe disk-fixed ' + fname + '\n');
     } catch (e) {
       process.stderr.write('[vite-patch] write error for ' + fname + ': ' + e.message + '\n');
     }
+
+    // ── Lock the file so the patcher cannot re-corrupt it ────────────────
+    // chmod 444 = read-only for owner/group/other.  Our next patchViteChunks()
+    // call starts with chmod 644 so we can still re-fix if needed.
+    try {
+      fs.chmodSync(fpath, 0o444);
+      process.stderr.write('[vite-patch] \ud83d\udd12 locked ' + fname + '\n');
+    } catch (_) {}
   }
 }
 
-// Run once before requiring Vite (so if the patcher already ran, we fix it)
+// Run once before requiring Vite — fixes any corruption the patcher may have
+// already applied during the pre-build phase.
 patchViteChunks();
 
 // ─────────────────────────────────────────────────────────────────────────────
 const { defineConfig } = require('vite');
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Run again immediately after Vite is loaded (belt-and-suspenders)
+// Run again immediately after Vite is loaded (belt-and-suspenders).
 patchViteChunks();
 
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
@@ -142,10 +161,9 @@ module.exports = defineConfig({
     },
     rollupOptions: {
       plugins: [
-        // ── Strategy C: buildStart re-patch ──────────────────────────────────
-        // The OnSpace patcher may run AFTER vite.config.cjs is first evaluated
-        // (e.g. between config-load and the actual transform phase).
-        // Re-running the disk fix in buildStart catches that late corruption.
+        // ── Strategy C: buildStart re-patch ──────────────────────────────
+        // Catches any patcher run that happens between config evaluation and
+        // the start of the actual Rollup transform phase.
         {
           name: 'vite-chunk-repatch',
           buildStart() {
@@ -153,24 +171,22 @@ module.exports = defineConfig({
           },
         },
 
-        // ── Strategy D: Rollup ESM/CJS interop fix ───────────────────────────
-        // Rollup's static linker fails before interop runs when .mjs files in
-        // node_modules import from CJS React packages (react, react/jsx-runtime…).
+        // ── Strategy D: Rollup ESM/CJS interop fix ───────────────────────
         //
-        // Fix 1: default imports  →  namespace import
+        // Rollup's static linker fails before interop runs when .mjs/.js ESM
+        // files in node_modules import named exports from CJS React packages.
+        //
+        // Fix 1: default imports → namespace import
         //   import React from 'react'
         //   → import * as React from 'react'
         //
-        // Fix 2: named imports from CJS sub-packages → namespace + destructure
+        // Fix 2: named imports from CJS packages → namespace + destructure
         //   import { jsx, Fragment as F } from 'react/jsx-runtime'
-        //   → import * as _ci0 from 'react/jsx-runtime'; const { jsx, Fragment: F } = _ci0;
+        //   → import * as _ci0 from 'react/jsx-runtime';
+        //     const { jsx, Fragment: F } = _ci0;
         {
           name: 'fix-esm-cjs-react-interop',
           transform(code, id) {
-            // Apply to:
-            //   • .mjs files inside node_modules (radix-ui etc.)
-            //   • Any source TS/JS file — after Vite's esbuild pre-transform
-            //     adds `import { jsx } from 'react/jsx-runtime'` for JSX files
             const inNodeModules = id.includes('node_modules');
             const isNodeMjs    = inNodeModules && id.endsWith('.mjs');
             const isNodeEsmJs  = inNodeModules && id.endsWith('.js') &&
