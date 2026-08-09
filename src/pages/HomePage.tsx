@@ -60,14 +60,18 @@ export default function HomePage() {
   // Define fetchInitialFeed and fetchSponsoredContent outside useEffect to make them stable
   // or use useCallback if they depend on props/state and need to be memoized.
   // Given their usage in deps, making them stable is the goal.
+  // Only show ads that users actually created AND admin approved (status=active, payment=paid)
   const fetchSponsoredContent = async () => {
     try {
-      const { data } = await supabase.rpc('get_sponsored_posts', {
-        user_id_param: user?.id,
-        limit_param: 3,
-      });
-      if (data) setSponsoredPosts(data);
-    } catch { /* non-fatal */ }
+      const { data } = await supabase
+        .from('user_ads')
+        .select('*, user_profiles!user_ads_user_id_fkey(id, username, avatar_url, verified)')
+        .eq('status', 'active')
+        .eq('payment_status', 'paid')
+        .order('created_at', { ascending: false })
+        .limit(3);
+      setSponsoredPosts(data && data.length > 0 ? data : []);
+    } catch { setSponsoredPosts([]); }
   };
 
   // ── Cache federated posts to remote_posts table ───────────────────────────

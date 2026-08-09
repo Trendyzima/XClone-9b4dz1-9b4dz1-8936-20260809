@@ -3,14 +3,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// fixTightDoubleQuestion(src)  — shared by ALL strategies
-//
-// Character-by-character scanner that removes tight-?? injections:
-//   identifier??""     identifier??{}     identifier??[]
-//   identifier??null   identifier??undefined   identifier??false   identifier??0
-//   identifier??\n     (end-of-line injection)
-//
-// Handles ARBITRARY brace nesting depth and is string-literal aware.
+// Shared fix function (used by ALL strategies)
 // ═══════════════════════════════════════════════════════════════════════════════
 function fixTightDoubleQuestion(src) {
   const n = src.length;
@@ -24,20 +17,18 @@ function fixTightDoubleQuestion(src) {
       i > 0 && !/[\s]/.test(src[i - 1])
     ) {
       let j = i + 2;
-      while (j < n && (src[j] === ' ' || src[j] === '\t')) j++; // skip horiz whitespace
+      while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
 
       let endPos = -1;
 
       if (j >= n) {
-        endPos = i + 2;                          // ?? at end of file
+        endPos = i + 2;
       } else {
         const c = src[j];
 
         if (c === '\r' || c === '\n') {
-          endPos = i + 2;                        // ?? at end of line — remove only ??
-
+          endPos = i + 2;
         } else if (c === '{') {
-          // Brace-count with string awareness — handles arbitrary depth
           let depth = 1, k = j + 1;
           let inStr = false, strCh = '';
           while (k < n && depth > 0) {
@@ -53,18 +44,15 @@ function fixTightDoubleQuestion(src) {
             k++;
           }
           if (depth === 0) endPos = k;
-
         } else if (c === '"' || c === "'") {
           const q = c;
           let k = j + 1;
           while (k < n && src[k] !== q) { if (src[k] === '\\') k++; k++; }
           if (k < n) endPos = k + 1;
-
         } else if (c === '[') {
           let k = j + 1;
           while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
           if (k < n && src[k] === ']') endPos = k + 1;
-
         } else {
           const rest = src.slice(j);
           const m = rest.match(/^(null|undefined|false|0)(?!\w)/);
@@ -87,42 +75,24 @@ function fixTightDoubleQuestion(src) {
 function fixSource(src) {
   if (!src.includes('??')) return src;
 
-  // Pass 1: JIT character-by-character scanner
   let fixed = fixTightDoubleQuestion(src);
 
-  // Pass 2: replaceDefine-specific belt-and-suspenders
   fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
   fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
   fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
   fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
   fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
 
-  // Pass 3: regex sweep for remaining simple tight-?? patterns
   fixed = fixed.replace(
     /(?<=[^\s])\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
     ''
-  );
-
-  // Pass 4: identifier-capture fallback
-  fixed = fixed.replace(
-    /\b(\w+(?:\([^)]*\))*)\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
-    '$1'
   );
 
   return fixed;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy C — Module.prototype._compile JIT intercept  (NEW — PRIMARY DEFENSE)
-//
-// ROOT CAUSE: dep-C6uTJdX2.js is loaded via CJS require(), NOT ESM import.
-// Our ESM load hook is therefore NEVER called for this file.
-// The disk watcher loses the timing race: patcher can corrupt the file
-// between our last disk-fix pass and the moment require() reads it.
-//
-// THIS hook fires synchronously inside every CJS module compilation,
-// just BEFORE V8 parses the source — no timing race is possible.
-// It works regardless of when the patcher wrote the corruption to disk.
+// Strategy A — Module.prototype._compile JIT intercept (PRIMARY for CJS loads)
 // ═══════════════════════════════════════════════════════════════════════════════
 (function installCompileHook() {
   try {
@@ -151,7 +121,7 @@ function fixSource(src) {
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy A — ESM module load hook  (handles ESM-imported vite internals)
+// Strategy B — ESM module load hook (PRIMARY for ESM dynamic imports)
 // ═══════════════════════════════════════════════════════════════════════════════
 (function registerEsmHook() {
   try {
@@ -203,7 +173,7 @@ function fixSource(src) {
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy B — Disk-based fix + continuous file watchers  (backup layer)
+// Strategy C — Disk-based fix + continuous file watchers (backup layer)
 // ═══════════════════════════════════════════════════════════════════════════════
 const fsWatchers  = new Map();
 const pollWatched = new Set();
@@ -251,7 +221,7 @@ function watchViteChunks() {
     }
     if (!pollWatched.has(fpath)) {
       pollWatched.add(fpath);
-      fs.watchFile(fpath, { persistent: false, interval: 100 }, () => {
+      fs.watchFile(fpath, { persistent: false, interval: 80 }, () => {
         applyFixToDisk(fpath, 'poll');
       });
     }
@@ -267,12 +237,12 @@ const { defineConfig } = require('vite');
 
 patchViteChunks('post-require');
 
-// Periodic passes — belt-and-suspenders backup
+// Periodic passes — aggressive short-interval coverage
 let periodicPasses = 0;
 const periodicInterval = setInterval(() => {
   patchViteChunks('periodic-' + (++periodicPasses));
   if (periodicPasses >= 20) clearInterval(periodicInterval);
-}, 200);
+}, 150);
 
 // ────────────────────────────────────────────────────────────────────────────
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
@@ -317,7 +287,16 @@ module.exports = defineConfig({
         {
           name: 'vite-chunk-repatch',
           buildStart() {
+            // Runs after all plugins init but before bundling — last disk-fix chance
             patchViteChunks('buildStart');
+          },
+          transform(code, id) {
+            // Also fix any Vite chunks that Rollup itself might transform
+            if (id.includes('/vite/dist/node/') && code.includes('??')) {
+              const fixed = fixSource(code);
+              if (fixed !== code) return { code: fixed, map: null };
+            }
+            return null;
           },
         },
         {
