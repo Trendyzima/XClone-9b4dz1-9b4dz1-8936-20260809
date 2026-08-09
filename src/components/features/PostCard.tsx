@@ -42,6 +42,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   const [showBoostDialog, setShowBoostDialog] = useState(false);
   const [showOneClickBoost, setShowOneClickBoost] = useState(false);
   const [showRewardedBoost, setShowRewardedBoost] = useState(false);
+  const [shareCount, setShareCount] = useState(0);
 
   // Get media URLs (support both legacy single image and new multi-image)
   const mediaUrls = post.media_urls && post.media_urls.length > 0 
@@ -252,6 +253,56 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
       });
       setIsReposted(!newIsReposted);
       setRepostsCount(repostsCount);
+    }
+  };
+
+  const handleNativeShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/post/${post.id}`;
+    const shareText = `${post.content.slice(0, 150)}${post.content.length > 150 ? '\u2026' : ''}`;
+
+    const trackShare = () => {
+      setShareCount(c => c + 1);
+      // Fire-and-forget analytics increment
+      supabase.from('post_analytics')
+        .select('id, shares')
+        .eq('post_id', post.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.id) {
+            supabase.from('post_analytics')
+              .update({ shares: (data.shares || 0) + 1 })
+              .eq('id', data.id)
+              .catch(() => {});
+          } else {
+            supabase.from('post_analytics')
+              .insert({ post_id: post.id, shares: 1 })
+              .catch(() => {});
+          }
+        });
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `@${post.user_profiles?.username} on Tsocial`,
+          text: shareText,
+          url,
+        });
+        trackShare();
+      } catch (err: any) {
+        // User cancelled (AbortError) — do nothing; other errors fall back to dialog
+        if (err?.name !== 'AbortError') setShowShareDialog(true);
+      }
+    } else {
+      // No Web Share API — try clipboard first, then open dialog
+      try {
+        await navigator.clipboard.writeText(url);
+        toast({ title: 'Link copied!', description: 'Post link copied to clipboard' });
+        trackShare();
+      } catch {
+        setShowShareDialog(true);
+      }
     }
   };
 
@@ -511,14 +562,12 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
             <button 
               className="flex items-center space-x-2 text-muted-foreground hover:text-primary transition-colors group"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowShareDialog(true);
-              }}
+              onClick={handleNativeShare}
             >
               <div className="p-2 rounded-full group-hover:bg-primary/10 transition-colors">
                 <Share className="w-5 h-5" />
               </div>
+              {shareCount > 0 && <span className="text-sm tabular-nums">{shareCount}</span>}
             </button>
 
             <div onClick={(e) => e.stopPropagation()}>

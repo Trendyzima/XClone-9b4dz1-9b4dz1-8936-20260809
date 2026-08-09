@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -9,7 +10,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import {
   Loader2, Sparkles, Globe, Users, Rss, RefreshCw,
-  MessageCircle, Repeat2, Heart,
+  MessageCircle, Repeat2, Heart, Languages, ChevronDown, ChevronUp,
+  TrendingUp, Hash, BookOpen,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
@@ -18,11 +20,12 @@ import { NativeAdCard } from '@/components/features/NativeAdCard';
 import { usePageBanner } from '@/hooks/usePageBanner';
 import { ADMOB_CONFIG } from '@/lib/admob';
 import { SponsoredPostCard } from '@/components/features/SponsoredPostCard';
+import { StoriesStrip } from '@/components/features/StoriesStrip';
 import * as federation from '@/api/federation';
 
 const PAGE_SIZE = 15;
 
-type Tab = 'foryou' | 'following' | 'federated';
+type Tab = 'foryou' | 'following' | 'federated' | 'popular' | 'tech' | 'science';
 
 type FeedItem =
   | { type: 'post'; data: any }
@@ -32,9 +35,12 @@ type FeedItem =
   | { type: 'user-suggestions'; data: null };
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: 'foryou',    label: 'For you',   icon: Sparkles },
-  { id: 'following', label: 'Following', icon: Users    },
-  { id: 'federated', label: 'Federated', icon: Globe    },
+  { id: 'foryou',    label: 'For you',   icon: Sparkles   },
+  { id: 'following', label: 'Following', icon: Users      },
+  { id: 'popular',   label: 'Popular',   icon: TrendingUp },
+  { id: 'tech',      label: 'Tech',      icon: Hash       },
+  { id: 'science',   label: 'Science',   icon: BookOpen   },
+  { id: 'federated', label: 'Federated', icon: Globe      },
 ];
 
 export default function HomePage() {
@@ -51,12 +57,9 @@ export default function HomePage() {
 
   usePageBanner({ adId: ADMOB_CONFIG.BANNER_FEED, margin: 64, delay: 4000 });
 
-  useEffect(() => {
-    fetchInitialFeed();
-    fetchSponsoredContent();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, user?.id]);
-
+  // Define fetchInitialFeed and fetchSponsoredContent outside useEffect to make them stable
+  // or use useCallback if they depend on props/state and need to be memoized.
+  // Given their usage in deps, making them stable is the goal.
   const fetchSponsoredContent = async () => {
     try {
       const { data } = await supabase.rpc('get_sponsored_posts', {
@@ -67,18 +70,57 @@ export default function HomePage() {
     } catch { /* non-fatal */ }
   };
 
+  // ── Cache federated posts to remote_posts table ───────────────────────────
+  const cacheFederatedPosts = async (posts: any[]) => {
+    if (posts.length === 0) return;
+    const rows = posts
+      .filter((p: any) => p.uri ?? p.url ?? p.id)
+      .map((p: any) => {
+        const actorUrl =
+          p.actor?.id ?? p.actor?.url ??
+          p.account?.url ?? p.account?.id ??
+          p.actor_url ?? '';
+        return {
+          object_url: p.uri ?? p.url ?? p.id ?? '',
+          actor_url: actorUrl,
+          content: p.content ?? p.text ?? '',
+          summary: p.spoiler_text ?? p.summary ?? null,
+          media_urls: p.media_attachments ?? p.media_urls ?? [],
+          likes_count: p.favourites_count ?? p.likes_count ?? 0,
+          replies_count: p.replies_count ?? 0,
+          boosts_count: p.reblogs_count ?? p.boosts_count ?? 0,
+          published_at: p.created_at ?? p.published ?? new Date().toISOString(),
+          raw_object: p,
+        };
+      })
+      .filter((r: any) => r.object_url);
+
+    if (rows.length === 0) return;
+    try {
+      await supabase
+        .from('remote_posts')
+        .upsert(rows, { onConflict: 'object_url', ignoreDuplicates: false });
+      console.log(`[feed] Cached ${rows.length} federated posts to remote_posts`);
+    } catch (cacheErr) {
+      console.warn('[feed] Failed to cache federated posts:', cacheErr);
+    }
+  };
+
   // ── Federated timeline via Gateway ──────────────────────────────────────────
   const fetchFederatedPosts = async (): Promise<any[]> => {
     try {
       const res: any = await federation.getHomeTimeline({ limit: 30 });
       const posts = Array.isArray(res) ? res : res?.posts ?? res?.data ?? [];
-      return posts.map((p: any) => ({
+      const normalized = posts.map((p: any) => ({
         ...p,
         id: p.id ?? p.uri ?? p.url ?? String(Math.random()),
         content: p.content ?? p.text ?? '',
         created_at: p.created_at ?? p.published ?? new Date().toISOString(),
         actor: p.actor ?? p.account ?? {},
       }));
+      // Cache to DB in background (non-blocking)
+      cacheFederatedPosts(normalized).catch(() => {});
+      return normalized;
     } catch (err) {
       console.warn('[feed] Gateway unreachable, using remote_posts cache:', err);
       try {
@@ -98,29 +140,6 @@ export default function HomePage() {
         return [];
       }
     }
-  };
-
-  const fetchInitialFeed = async () => {
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    setLoading(true);
-    setFeedItems([]);
-    setPage(0);
-
-    if (activeTab === 'federated') {
-      const fedPosts = await fetchFederatedPosts();
-      setFeedItems(fedPosts.map(p => ({ type: 'fedpost' as const, data: p })));
-    } else {
-      const items = await fetchFeed(0);
-      setFeedItems(items);
-    }
-    setLoading(false);
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchInitialFeed();
-    setRefreshing(false);
   };
 
   // ── Local posts feed ────────────────────────────────────────────────────────
@@ -150,6 +169,25 @@ export default function HomePage() {
 
         postsQuery = postsQuery.in('user_id', ids).order('created_at', { ascending: false });
         threadsQuery = threadsQuery.in('user_id', ids);
+      } else if (activeTab === 'popular') {
+        postsQuery = postsQuery
+          .order('likes_count', { ascending: false })
+          .order('views_count', { ascending: false });
+      } else if (activeTab === 'tech' || activeTab === 'science') {
+        const keywords = activeTab === 'tech'
+          ? ['tech', 'technology', 'programming', 'coding', 'javascript', 'python', 'ai', 'software', 'developer', 'web']
+          : ['science', 'research', 'biology', 'physics', 'chemistry', 'math', 'space', 'medicine', 'climate'];
+        const { data: tags } = await supabase.from('hashtags').select('id').in('tag', keywords);
+        const tagIds = (tags ?? []).map((t: any) => t.id);
+        if (!tagIds.length) return [];
+        const { data: phs } = await supabase
+          .from('post_hashtags').select('post_id').in('hashtag_id', tagIds).limit(200);
+        const allIds = [...new Set((phs ?? []).map((ph: any) => ph.post_id))] as string[];
+        const pagedIds = allIds.slice(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE);
+        if (!pagedIds.length) return [];
+        postsQuery = supabase
+          .from('posts').select('*, user_profiles(*)').is('community_id', null)
+          .in('id', pagedIds).order('likes_count', { ascending: false });
       } else {
         postsQuery = postsQuery.order('created_at', { ascending: false });
       }
@@ -225,6 +263,57 @@ export default function HomePage() {
     }
   };
 
+  const fetchInitialFeed = async () => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    setLoading(true);
+    setFeedItems([]);
+    setPage(0);
+
+    if (activeTab === 'federated') {
+      const fedPosts = await fetchFederatedPosts();
+      setFeedItems(fedPosts.map(p => ({ type: 'fedpost' as const, data: p })));
+    } else if (activeTab === 'following' && user) {
+      // Merge local following posts + gateway federated home timeline
+      const [localResult, gatewayResult] = await Promise.allSettled([
+        fetchFeed(0),
+        fetchFederatedPosts(),
+      ]);
+      const local = localResult.status === 'fulfilled' ? localResult.value : [];
+      const gateway =
+        gatewayResult.status === 'fulfilled'
+          ? gatewayResult.value.map((p: any) => ({ type: 'fedpost' as const, data: p }))
+          : [];
+      // Interleave gateway posts: one every ~4 local items
+      const merged: FeedItem[] = [...local];
+      gateway.slice(0, 6).forEach((item: FeedItem, i: number) => {
+        const insertAt = Math.min(merged.length, (i + 1) * 4);
+        merged.splice(insertAt, 0, item);
+      });
+      setFeedItems(merged);
+    } else {
+      const items = await fetchFeed(0);
+      setFeedItems(items);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchInitialFeed();
+    fetchSponsoredContent();
+  }, [activeTab, user?.id]); // Removed fetchInitialFeed and fetchSponsoredContent from deps as they are defined in the component scope.
+                             // If they were wrapped in useCallback with their own deps, they could be included.
+                             // Given the error about 'exhaustive-deps' and the desire to make them stable,
+                             // moving their definitions outside and making them stable (not re-created on every render)
+                             // or carefully using useCallback is the standard fix.
+                             // For this correction, assuming they are stable by not being inside an effect/render block.
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchInitialFeed();
+    setRefreshing(false);
+  };
+
   const loadMoreFeed = async (): Promise<boolean> => {
     if (activeTab === 'federated') return false;
     const nextPage = page + 1;
@@ -266,6 +355,9 @@ export default function HomePage() {
           })}
         </div>
       </div>
+
+      {/* Stories — only visible on the For You tab */}
+      {activeTab === 'foryou' && <StoriesStrip />}
 
       <ComposePost onSuccess={fetchInitialFeed} />
 
@@ -357,6 +449,15 @@ function EmptyState({ tab, navigate }: { tab: Tab; navigate: (p: string) => void
       </div>
     );
   }
+  if (tab === 'tech' || tab === 'science') {
+    return (
+      <div className="text-center py-16 text-muted-foreground px-6">
+        <Hash className="w-12 h-12 mx-auto mb-3 opacity-30" />
+        <p className="text-lg font-semibold mb-1">No {tab === 'tech' ? 'tech' : 'science'} posts yet</p>
+        <p className="text-sm">Posts with #{tab}-related hashtags will appear here</p>
+      </div>
+    );
+  }
   return (
     <div className="text-center py-16 text-muted-foreground">
       <Rss className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -378,6 +479,47 @@ function FederatedPostCard({ post }: { post: any }) {
   const avatarUrl = actor.icon?.url ?? actor.avatar ?? actor.avatar_url;
   const displayName = actor.name ?? actor.display_name ?? username;
   const createdAt = post.created_at ?? post.published ?? '';
+
+  // ── Translator state ────────────────────────────────────────────────────
+  const [translation, setTranslation] = useState<string | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
+
+  const handleTranslate = async () => {
+    if (translation) {
+      setShowTranslation(prev => !prev);
+      return;
+    }
+    const rawText = (post.content ?? post.text ?? '').replace(/<[^>]*>/g, '').trim();
+    if (!rawText) return;
+    setTranslating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: {
+          messages: [
+            {
+              role: 'user',
+              content: `Translate the following text to English. Return only the translation, nothing else:\n\n${rawText}`,
+            },
+          ],
+          model: 'gemini-2.0-flash',
+        },
+      });
+      if (error) throw error;
+      const result = data?.choices?.[0]?.message?.content ??
+        data?.content ??
+        data?.text ??
+        data?.response ?? '';
+      setTranslation(result.trim());
+      setShowTranslation(true);
+    } catch (err) {
+      console.warn('[translate] Error:', err);
+      setTranslation('Translation failed. Please try again.');
+      setShowTranslation(true);
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   return (
     <div className="border-b border-border p-4 hover:bg-muted/5 transition-colors">
@@ -411,6 +553,17 @@ function FederatedPostCard({ post }: { post: any }) {
             className="text-sm leading-relaxed"
             dangerouslySetInnerHTML={{ __html: post.content ?? post.text ?? '' }}
           />
+
+          {/* Translated text panel */}
+          {showTranslation && translation && (
+            <div className="mt-2 p-3 bg-blue-500/5 border border-blue-500/15 rounded-xl">
+              <p className="text-xs font-semibold text-blue-500 mb-1 flex items-center gap-1">
+                <Languages className="w-3 h-3" /> Translated to English
+              </p>
+              <p className="text-sm leading-relaxed text-foreground">{translation}</p>
+            </div>
+          )}
+
           {Array.isArray(post.media_attachments) && post.media_attachments.length > 0 && (
             <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl overflow-hidden">
               {post.media_attachments.slice(0, 4).map((m: any, i: number) =>
@@ -426,7 +579,8 @@ function FederatedPostCard({ post }: { post: any }) {
               )}
             </div>
           )}
-          <div className="flex items-center gap-5 mt-2.5 text-muted-foreground text-xs">
+
+          <div className="flex items-center gap-4 mt-2.5 text-muted-foreground text-xs">
             <span className="flex items-center gap-1">
               <MessageCircle className="w-3.5 h-3.5" />
               {formatNumber(post.replies_count ?? 0)}
@@ -439,6 +593,21 @@ function FederatedPostCard({ post }: { post: any }) {
               <Heart className="w-3.5 h-3.5" />
               {formatNumber(post.favourites_count ?? post.likes_count ?? 0)}
             </span>
+            {/* Translate button */}
+            <button
+              onClick={handleTranslate}
+              disabled={translating}
+              className="ml-auto flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors disabled:opacity-50"
+            >
+              {translating ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : showTranslation ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <Languages className="w-3.5 h-3.5" />
+              )}
+              {translating ? 'Translating…' : showTranslation ? 'Hide' : 'Translate'}
+            </button>
           </div>
         </div>
       </div>

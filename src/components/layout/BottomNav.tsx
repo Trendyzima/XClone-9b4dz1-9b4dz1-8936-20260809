@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Search, Bell, User, Flame, Mail } from 'lucide-react';
+import { Home, Bell, User, Flame, Mail, UserSearch } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -151,8 +151,8 @@ export function BottomNav() {
   }, [location.pathname]);
 
   const navItems = [
-    { icon: Home,   label: 'Home',      path: '/',                                              badge: 0 },
-    { icon: Search, label: 'Explore',   path: '/explore',                                       badge: 0 },
+    { icon: Home,      label: 'Home',      path: '/',         badge: 0 },
+    { icon: UserSearch, label: 'Discover',  path: '/discover', badge: 0 },
     { icon: Flame,  label: 'Streak',    path: '/daily-rewards',                                badge: streakDay, badgeStyle: 'bg-orange-500', requireAuth: true },
     { icon: Mail,   label: 'Messages',  path: '/messages',   requireAuth: true,                  badge: unreadMessages },
     { icon: Bell,   label: 'Alerts',    path: '/notifications',  requireAuth: true,              badge: unreadNotifs },

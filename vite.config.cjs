@@ -35,6 +35,9 @@ module.exports = defineConfig({
 
   build: {
     rollupOptions: {
+      output: {
+        interop: 'auto',
+      },
       onwarn(warning, warn) {
         if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return;
         warn(warning);

@@ -123,7 +123,23 @@ export default function DailyRewardsPage() {
       credits: (walletCredits ?? 0) + creditsEarned,
     }, { onConflict: 'user_id' });
 
-    toast.success(`+${creditsEarned} credits earned! Day ${newStreak} streak!`);
+    // Streak milestone notification (3-day and 7-day/max milestones)
+    const STREAK_MILESTONES = [3, 7];
+    if (STREAK_MILESTONES.includes(newStreak)) {
+      const milestoneMsg =
+        newStreak === 7
+          ? '🏆 Max streak reached! 7 days in a row!'
+          : `🔥 ${newStreak}-day streak milestone!`;
+      // Insert in-app notification so it appears in Notifications page
+      supabase.from('notifications').insert({
+        user_id: user.id,
+        type: 'streak_milestone',
+        from_user_id: user.id,
+      }).catch(() => {});
+      toast.success(`+${creditsEarned} credits! ${milestoneMsg}`, { duration: 4500 });
+    } else {
+      toast.success(`+${creditsEarned} credits earned! Day ${newStreak} streak!`);
+    }
     await fetchData();
     setClaiming(false);
   };
