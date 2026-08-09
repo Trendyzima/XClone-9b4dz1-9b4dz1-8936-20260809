@@ -35,7 +35,22 @@ export function Sidebar() {
   // ── Unread counts ────────────────────────────────────────────────────────
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [pendingAdsBadge, setPendingAdsBadge] = useState(0);
   const { unreadCount: unreadFed } = useFediversePolling(user?.id);
+
+  // Check if user is admin + count pending ads
+  useEffect(() => {
+    if (!user) { setPendingAdsBadge(0); return; }
+    const checkAdminAds = async () => {
+      const { data: adminRow } = await supabase.from('admin_users').select('id').eq('user_id', user.id).maybeSingle();
+      if (!adminRow) return;
+      const { count } = await supabase.from('user_ads').select('id', { count: 'exact', head: true }).eq('status', 'pending');
+      setPendingAdsBadge(count ?? 0);
+    };
+    checkAdminAds();
+    const iv = setInterval(checkAdminAds, 30_000);
+    return () => clearInterval(iv);
+  }, [user?.id]);
 
   // Poll local notification unread count every 60s
   useEffect(() => {
@@ -143,9 +158,10 @@ export function Sidebar() {
   ];
 
   const adminTools = [
-    { icon: LineChart, label: 'Revenue Analytics', path: '/revenue-analytics', requireAuth: true },
-    { icon: TrendingUp,label: 'Admin Revenue',     path: '/admin/revenue',     requireAuth: true },
-    { icon: Shield,    label: 'Fraud Detection',   path: '/fraud-detection',   requireAuth: true },
+    { icon: LineChart,  label: 'Revenue Analytics', path: '/revenue-analytics',  requireAuth: true, badge: 0 },
+    { icon: TrendingUp, label: 'Admin Revenue',      path: '/admin/revenue',      requireAuth: true, badge: 0 },
+    { icon: Megaphone,  label: 'Ad Review',          path: '/admin/ads-review',   requireAuth: true, badge: pendingAdsBadge },
+    { icon: Shield,     label: 'Fraud Detection',    path: '/fraud-detection',    requireAuth: true, badge: 0 },
   ];
 
   const userTools = [
@@ -271,12 +287,22 @@ export function Sidebar() {
                   <button
                     key={item.path}
                     onClick={() => handleNavClick(item.path, item.requireAuth)}
-                    className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
+                    className={`relative flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
                       isActive ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted text-foreground'
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
+                    <div className="relative shrink-0">
+                      <Icon className="w-4 h-4" />
+                      {item.badge > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 bg-amber-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                          {item.badge > 99 ? '99+' : item.badge}
+                        </span>
+                      )}
+                    </div>
                     <span>{item.label}</span>
+                    {item.badge > 0 && (
+                      <span className="ml-auto text-[9px] font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-full">Review</span>
+                    )}
                   </button>
                 );
               })}

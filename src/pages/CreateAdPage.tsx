@@ -81,6 +81,20 @@ export default function CreateAdPage() {
 
       if (adError) throw adError;
       setAdId(adData.id);
+
+      // Notify all admins of the new pending ad (supplement DB trigger)
+      try {
+        const { data: adminRows } = await supabase.from('admin_users').select('user_id');
+        if (adminRows && adminRows.length > 0) {
+          const notifInserts = adminRows
+            .filter((a: any) => a.user_id !== user!.id)
+            .map((a: any) => ({ user_id: a.user_id, type: 'new_ad', from_user_id: user!.id }));
+          if (notifInserts.length > 0) {
+            await supabase.from('notifications').insert(notifInserts);
+          }
+        }
+      } catch (_) { /* non-critical */ }
+
       setStep('mpesa');
     } catch (error: any) {
       toast.error(error.message || 'Failed to create ad');
