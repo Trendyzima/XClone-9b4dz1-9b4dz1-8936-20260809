@@ -31,11 +31,19 @@ function ultraDirectFix(src) {
   s = s.split('code??""').join('code');
   s = s.split("code??''").join('code');
   // Broader: any identifier??"literal" or identifier??'literal'
-  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"([^"]*)"/g, '$1');
-  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'([^']*)'/g, '$1');
+  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"([^"\\]*)"/g, '$1');
+  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'([^'\\]*)'/g, '$1');
   // Any remaining ??"..." or ??'...'
   s = s.replace(/\?\?"[^"]*"/g, '');
   s = s.replace(/\?\?'[^']*'/g, '');
+  // ?? before method definitions — same line: replace ?? with space
+  s = s.replace(/\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]{0,80}\)\s*\{)/g, ' ');
+  // ?? before method definitions — cross-line: keep newline, drop ??
+  s = s.replace(/\?\?(\r?\n[ \t]*)(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]{0,80}\)\s*\{)/g, '$1');
+  // ?? at start of a line after newline+indent
+  s = s.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
+  // End-of-line ?? immediately before newline
+  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
   return s;
 }
 
