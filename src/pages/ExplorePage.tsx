@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
-import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check, Trophy, Gift, Clock, Hash, ChevronRight, Loader2 } from 'lucide-react';
+import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check, Trophy, Gift, Clock, Hash, ChevronRight, Loader2, BookOpen, Eye, Play, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { formatDistanceToNow, isPast } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { formatNumber } from '@/lib/utils';
@@ -29,6 +29,11 @@ export default function ExplorePage() {
   const [prefCountry, setPrefCountry] = useState('Kenya');
   const [showWhoToFollow, setShowWhoToFollow] = useState(true);
   const [activeChallenges, setActiveChallenges] = useState<any[]>([]);
+  const [exploreStories, setExploreStories] = useState<any[]>([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
+  const [activeStoryIdx, setActiveStoryIdx] = useState<number | null>(null);
+  const [storyProgress, setStoryProgress] = useState(0);
+  const storyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showCreateChallenge, setShowCreateChallenge] = useState(false);
   const [challengeForm, setChallengeForm] = useState({ title: '', description: '', prize: '', end_date: '', hashtag: '' });
   const [creatingChallenge, setCreatingChallenge] = useState(false);
@@ -48,7 +53,76 @@ export default function ExplorePage() {
   useEffect(() => {
     fetchData();
     fetchActiveChallenges();
+    fetchExploreStories();
   }, [activeTab, user?.id]);
+
+  // Story progress timer
+  useEffect(() => {
+    if (activeStoryIdx === null) {
+      if (storyTimerRef.current) clearInterval(storyTimerRef.current);
+      setStoryProgress(0);
+      return;
+    }
+    setStoryProgress(0);
+    if (storyTimerRef.current) clearInterval(storyTimerRef.current);
+    storyTimerRef.current = setInterval(() => {
+      setStoryProgress(prev => {
+        if (prev >= 100) {
+          // Auto-advance
+          setActiveStoryIdx(idx => {
+            if (idx === null) return null;
+            return idx + 1 < exploreStories.length ? idx + 1 : null;
+          });
+          return 0;
+        }
+        return prev + 2;
+      });
+    }, 60);
+    return () => { if (storyTimerRef.current) clearInterval(storyTimerRef.current); };
+  }, [activeStoryIdx, exploreStories.length]);
+
+  const fetchExploreStories = async () => {
+    setStoriesLoading(true);
+    try {
+      // Get stories from non-followed users, sorted by views_count, not expired
+      let query = supabase
+        .from('stories')
+        .select('id, media_url, media_type, caption, views_count, user_id, user_profiles(id, username, avatar_url, verified)')
+        .gt('expires_at', new Date().toISOString())
+        .order('views_count', { ascending: false })
+        .limit(30);
+
+      const { data: stories } = await query;
+
+      if (!stories) { setStoriesLoading(false); return; }
+
+      let filtered = stories;
+      if (user) {
+        // Exclude own stories
+        filtered = stories.filter((s: any) => s.user_id !== user.id);
+      }
+
+      setExploreStories(filtered);
+    } catch (err) {
+      console.warn('[explore-stories]', err);
+    } finally {
+      setStoriesLoading(false);
+    }
+  };
+
+  const openStory = async (idx: number) => {
+    setActiveStoryIdx(idx);
+    // Record view
+    const story = exploreStories[idx];
+    if (story && user) {
+      await supabase.from('story_views').upsert(
+        { story_id: story.id, viewer_id: user.id },
+        { onConflict: 'story_id,viewer_id' }
+      ).catch(() => {});
+      // Increment view count
+      await supabase.from('stories').update({ views_count: (story.views_count || 0) + 1 }).eq('id', story.id).catch(() => {});
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -313,6 +387,235 @@ export default function ExplorePage() {
       {/* ── Explore Tab ─────────────────────────────────────────────────────── */}
       {activeTab === 'Explore' && (
         <div>
+          {/* ── Stories Grid ─────────────────────────────────────────── */}
+          {(storiesLoading || exploreStories.length > 0) && (
+            <section className="border-b border-border">
+              <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                <h2 className="font-bold text-xl flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-pink-500" />
+                  Stories For You
+                </h2>
+                {exploreStories.length > 9 && (
+                  <span className="text-xs text-muted-foreground">{exploreStories.length} stories</span>
+                )}
+              </div>
+
+              {storiesLoading ? (
+                <div className="grid grid-cols-3 gap-1.5 px-4 pb-4">
+                  {[0,1,2,3,4,5].map(i => (
+                    <div key={i} className="rounded-2xl bg-muted animate-pulse" style={{ aspectRatio: '9/16' }} />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-1.5 px-4 pb-4">
+                  {exploreStories.slice(0, 12).map((story: any, idx: number) => (
+                    <button
+                      key={story.id}
+                      onClick={() => openStory(idx)}
+                      className="relative rounded-2xl overflow-hidden bg-zinc-900 hover:scale-[1.03] active:scale-[0.97] transition-transform focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      style={{ aspectRatio: '9/16' }}
+                    >
+                      {/* Media */}
+                      {story.media_type === 'video' ? (
+                        <video
+                          src={`${story.media_url}#t=0.5`}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          muted
+                          preload="metadata"
+                          playsInline
+                        />
+                      ) : (
+                        <img
+                          src={story.media_url}
+                          alt=""
+                          className="absolute inset-0 w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      )}
+
+                      {/* Gradient overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
+
+                      {/* Video play icon */}
+                      {story.media_type === 'video' && (
+                        <div className="absolute top-2 right-2">
+                          <Play className="w-3.5 h-3.5 text-white fill-white drop-shadow" />
+                        </div>
+                      )}
+
+                      {/* Views */}
+                      {story.views_count > 0 && (
+                        <div className="absolute top-2 left-2 flex items-center gap-0.5 bg-black/40 backdrop-blur-sm rounded-full px-1.5 py-0.5">
+                          <Eye className="w-2.5 h-2.5 text-white/80" />
+                          <span className="text-[9px] text-white/80 font-semibold">
+                            {formatNumber(story.views_count)}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Avatar + username */}
+                      <div className="absolute bottom-0 left-0 right-0 p-2">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-full border-2 border-primary overflow-hidden shrink-0 bg-muted">
+                            {story.user_profiles?.avatar_url ? (
+                              <img src={story.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-primary">
+                                <span className="text-[6px] font-black text-primary-foreground">
+                                  {story.user_profiles?.username?.[0]?.toUpperCase()}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-white text-[9px] font-semibold truncate leading-none">
+                            @{story.user_profiles?.username}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ── Full-screen Story Viewer ──────────────────────────────── */}
+          {activeStoryIdx !== null && exploreStories[activeStoryIdx] && (() => {
+            const story = exploreStories[activeStoryIdx];
+            const profile = story.user_profiles;
+            return (
+              <div
+                className="fixed inset-0 z-[500] bg-black flex items-center justify-center"
+                onClick={() => setActiveStoryIdx(null)}
+              >
+                {/* Media */}
+                <div className="relative w-full max-w-sm h-full" onClick={e => e.stopPropagation()}>
+                  {story.media_type === 'video' ? (
+                    <video
+                      key={story.id}
+                      src={story.media_url}
+                      autoPlay
+                      muted={false}
+                      playsInline
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : (
+                    <img
+                      key={story.id}
+                      src={story.media_url}
+                      alt=""
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  )}
+
+                  {/* Gradient overlays */}
+                  <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/50 pointer-events-none" />
+
+                  {/* Progress bars */}
+                  <div className="absolute top-3 left-3 right-3 flex gap-1 z-10 pointer-events-none">
+                    {exploreStories.slice(0, Math.min(exploreStories.length, 8)).map((_: any, pIdx: number) => (
+                      <div key={pIdx} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-white rounded-full transition-none"
+                          style={{
+                            width: pIdx < activeStoryIdx
+                              ? '100%'
+                              : pIdx === activeStoryIdx
+                                ? `${storyProgress}%`
+                                : '0%',
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Header */}
+                  <div className="absolute top-8 left-3 right-3 flex items-center justify-between z-10">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-full border-2 border-white overflow-hidden bg-muted">
+                        {profile?.avatar_url ? (
+                          <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-primary">
+                            <span className="text-xs font-black text-primary-foreground">
+                              {profile?.username?.[0]?.toUpperCase()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-white text-sm font-bold">@{profile?.username}</p>
+                        <p className="text-white/60 text-[10px]">
+                          {story.views_count} views
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveStoryIdx(null)}
+                      className="w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full"
+                    >
+                      <X className="w-4.5 h-4.5 text-white" />
+                    </button>
+                  </div>
+
+                  {/* Caption */}
+                  {story.caption && (
+                    <div className="absolute bottom-16 left-4 right-4 z-10">
+                      <p className="text-white text-sm leading-relaxed drop-shadow-lg">{story.caption}</p>
+                    </div>
+                  )}
+
+                  {/* Prev / Next tap zones */}
+                  <button
+                    className="absolute left-0 top-0 bottom-0 w-1/3 z-20"
+                    onClick={() => setActiveStoryIdx(i => (i !== null && i > 0) ? i - 1 : null)}
+                  />
+                  <button
+                    className="absolute right-0 top-0 bottom-0 w-1/3 z-20"
+                    onClick={() => setActiveStoryIdx(i => {
+                      if (i === null) return null;
+                      return i + 1 < exploreStories.length ? i + 1 : null;
+                    })}
+                  />
+
+                  {/* Nav arrows (desktop) */}
+                  <div className="absolute inset-0 flex items-center justify-between px-2 z-20 pointer-events-none">
+                    {activeStoryIdx > 0 && (
+                      <button
+                        className="pointer-events-auto w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full hover:bg-black/60"
+                        onClick={() => setActiveStoryIdx(i => (i !== null && i > 0) ? i - 1 : null)}
+                      >
+                        <ChevronLeft className="w-4 h-4 text-white" />
+                      </button>
+                    )}
+                    <div className="flex-1" />
+                    {activeStoryIdx < exploreStories.length - 1 && (
+                      <button
+                        className="pointer-events-auto w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full hover:bg-black/60"
+                        onClick={() => setActiveStoryIdx(i => (i !== null && i + 1 < exploreStories.length) ? i + 1 : null)}
+                      >
+                        <ChevronRightIcon className="w-4 h-4 text-white" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Visit profile CTA */}
+                  <div className="absolute bottom-4 left-0 right-0 flex justify-center z-10">
+                    <button
+                      onClick={() => { setActiveStoryIdx(null); navigate(`/profile/${profile?.username}`); }}
+                      className="px-5 py-2 bg-white/20 backdrop-blur-sm border border-white/30 text-white text-sm font-semibold rounded-full hover:bg-white/30 transition-colors"
+                    >
+                      View @{profile?.username}'s profile
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dismiss overlay */}
+                <div className="absolute inset-0 -z-10" />
+              </div>
+            );
+          })()}
+
           {/* Today's News */}
           {/* Hashtag Challenges */}
           {(activeChallenges.length > 0 || user?.verified) && (

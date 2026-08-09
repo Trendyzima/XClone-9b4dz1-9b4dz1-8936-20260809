@@ -14,6 +14,7 @@ import {
   TrendingUp, Hash, BookOpen, Flame, Eye, Play,
 } from 'lucide-react';
 import { TrendingVideoRow } from '@/components/features/TrendingVideoRow';
+import { CommunitySpotlightStrip } from '@/components/features/CommunitySpotlightStrip';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { DynamicAd } from '@/components/features/DynamicAd';
@@ -396,6 +397,9 @@ export default function HomePage() {
 
       {/* Trending Videos Rail */}
       {activeTab === 'foryou' && <TrendingVideoRow />}
+
+      {/* Community Spotlight Strip */}
+      {activeTab === 'foryou' && <CommunitySpotlightStrip />}
 
       <ComposePost onSuccess={fetchInitialFeed} />
 
