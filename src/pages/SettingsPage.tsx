@@ -8,8 +8,10 @@ import {
   Bell, Lock, Shield, HelpCircle, FileText, LogOut,
   Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check
 } from 'lucide-react';
-import { applyTheme, getStoredThemeChoice, type ThemeChoice } from '@/components/layout/ThemeToggle';
+import { applyTheme, getStoredThemeChoice } from '@/components/layout/ThemeToggle';
 import { authService } from '@/lib/auth';
+
+type ThemeChoice = 'light' | 'dark' | 'system';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
