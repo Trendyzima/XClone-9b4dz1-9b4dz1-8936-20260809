@@ -1,5 +1,5 @@
 {
-  "installCommand": "NODE_OPTIONS= npm install",
+  "installCommand": "env -u NODE_OPTIONS npm install",
   "buildCommand": "node _build.cjs",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

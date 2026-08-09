@@ -99,10 +99,11 @@ function patchAll(label) {
 // ─── STEP 1: Patch existing chunks immediately ───────────────────────────────
 patchAll('startup');
 
-// ─── STEP 2: ESM hook via Module.register() ────────────────────────────────────
-// Module.register() from a CJS --require preload is synchronous in Node 20.6+
-// (blocks via Atomics.wait until the hook thread is ready). The hook is active
-// before any ESM import the main process makes.
+// ─── STEP 2: ESM hook via Module.register() with SAB synchronization ───────────
+// Module.register() is inherently async — the hook worker may not be ready
+// before Vite fires its first dynamic ESM import.  We pass a SharedArrayBuffer;
+// initialize() in vite-fix-loader.mjs calls Atomics.notify, and we block here
+// via Atomics.wait (allowed on Node.js main thread) until ready.
 (function registerEsmHook() {
   if (typeof Module.register !== 'function') return; // Node < 20.6
   const loaderPath = path.join(__dirname, 'vite-fix-loader.mjs');
@@ -111,11 +112,23 @@ patchAll('startup');
     return;
   }
   try {
+    const sab = new SharedArrayBuffer(4);
+    const signal = new Int32Array(sab);
+    Atomics.store(signal, 0, 0);
+
     Module.register(
       pathToFileURL(loaderPath).href,
-      pathToFileURL(__filename).href
+      pathToFileURL(__filename).href,
+      { data: { sab } }
     );
-    process.stderr.write('[preload-fix] ✅ ESM hook registered (vite-fix-loader.mjs)\n');
+
+    // Block until hook thread signals ready (max 5 s)
+    const waitResult = Atomics.wait(signal, 0, 0, 5000);
+    if (waitResult !== 'timed-out') {
+      process.stderr.write('[preload-fix] ✅ ESM hook ready (SAB sync, result=' + waitResult + ')\n');
+    } else {
+      process.stderr.write('[preload-fix] ⚠️  ESM hook SAB timed out — hook may not be active\n');
+    }
   } catch (e) {
     process.stderr.write('[preload-fix] ⚠️  Module.register failed: ' + e.message + '\n');
   }
