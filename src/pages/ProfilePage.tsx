@@ -53,6 +53,57 @@ export default function ProfilePage() {
   const [availableStories, setAvailableStories] = useState<any[]>([]);
   const [creatingHighlight, setCreatingHighlight] = useState(false);
   const [viewHighlightId, setViewHighlightId] = useState<string | null>(null);
+  // Highlight story viewer
+  const [highlightStories, setHighlightStories] = useState<any[]>([]);
+  const [highlightStoryIdx, setHighlightStoryIdx] = useState(0);
+  const [highlightProgress, setHighlightProgress] = useState(0);
+  const [loadingHighlightStories, setLoadingHighlightStories] = useState(false);
+  const [viewingHighlight, setViewingHighlight] = useState<any | null>(null);
+  // Tip history
+  const [tipHistory, setTipHistory] = useState<any[]>([]);
+  const [loadingTips, setLoadingTips] = useState(false);
+
+  const openHighlightViewer = async (h: any) => {
+    if (!h.story_ids || h.story_ids.length === 0) { toast.error('No stories in this highlight'); return; }
+    setLoadingHighlightStories(true);
+    setViewingHighlight(h);
+    const { data } = await supabase
+      .from('stories')
+      .select('*')
+      .in('id', h.story_ids);
+    setHighlightStories(data ?? []);
+    setHighlightStoryIdx(0);
+    setHighlightProgress(0);
+    setLoadingHighlightStories(false);
+  };
+
+  const closeHighlightViewer = () => {
+    setViewingHighlight(null);
+    setHighlightStories([]);
+    setHighlightStoryIdx(0);
+    setHighlightProgress(0);
+  };
+
+  const fetchTipHistory = async (userId: string) => {
+    setLoadingTips(true);
+    const { data: tips } = await supabase
+      .from('tips')
+      .select('*')
+      .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (!tips || tips.length === 0) { setTipHistory([]); setLoadingTips(false); return; }
+    // Collect unique user IDs to resolve profiles
+    const uids = [...new Set(tips.flatMap((t: any) => [t.from_user_id, t.to_user_id]))] as string[];
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('id, username, avatar_url')
+      .in('id', uids);
+    const profileMap: Record<string, any> = {};
+    (profiles ?? []).forEach((p: any) => { profileMap[p.id] = p; });
+    setTipHistory(tips.map((t: any) => ({ ...t, sender: profileMap[t.from_user_id], recipient: profileMap[t.to_user_id] })));
+    setLoadingTips(false);
+  };
 
   const handleShareProfile = async () => {
     const url = `${window.location.origin}/profile/${profile.username}`;
@@ -69,7 +120,7 @@ export default function ProfilePage() {
   // Profile page banner — shown at bottom, above bottom nav, after 2.5s
   usePageBanner({ adId: ADMOB_CONFIG.BANNER_PROFILE, margin: 64, delay: 2500 });
 
-  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Likes', 'Followers', 'Following'];
+  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Likes', 'Tips', 'Followers', 'Following'];
 
   useEffect(() => {
     if (username) {
@@ -176,6 +227,29 @@ export default function ProfilePage() {
     setTimeout(() => setTipSent(false), 3000);
   };
 
+  // ── Highlight story viewer auto-advance ───────────────────────────────
+  useEffect(() => {
+    if (!viewingHighlight || highlightStories.length === 0) { setHighlightProgress(0); return; }
+    const story = highlightStories[highlightStoryIdx];
+    if (!story || story.media_type === 'video') { setHighlightProgress(0); return; }
+    setHighlightProgress(0);
+    const start = Date.now();
+    const DURATION = 5000;
+    const iv = setInterval(() => {
+      const pct = Math.min(((Date.now() - start) / DURATION) * 100, 100);
+      setHighlightProgress(pct);
+      if (pct >= 100) {
+        clearInterval(iv);
+        if (highlightStoryIdx < highlightStories.length - 1) {
+          setHighlightStoryIdx(p => p + 1);
+        } else {
+          closeHighlightViewer();
+        }
+      }
+    }, 50);
+    return () => clearInterval(iv);
+  }, [viewingHighlight, highlightStoryIdx, highlightStories]);
+
   // Check if this profile has an ActivityPub actor
   useEffect(() => {
     if (!profile?.id) return;
@@ -213,6 +287,7 @@ export default function ProfilePage() {
         fetchFollowing(profileData.id),
         fetchProfileStats(profileData.id),
         fetchHighlights(profileData.id),
+        fetchTipHistory(profileData.id),
       ]);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -555,7 +630,7 @@ export default function ProfilePage() {
               {highlights.map((h: any) => (
                 <div key={h.id} className="flex flex-col items-center gap-1.5 shrink-0">
                   <button
-                    onClick={() => setViewHighlightId(h.id === viewHighlightId ? null : h.id)}
+                    onClick={() => openHighlightViewer(h)}
                     className="w-16 h-16 rounded-full ring-2 ring-offset-2 ring-offset-background ring-muted-foreground/20 hover:ring-primary/50 transition-all overflow-hidden bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center"
                   >
                     {h.cover_url
@@ -564,9 +639,9 @@ export default function ProfilePage() {
                   </button>
                   <span className="text-[10px] font-medium max-w-[64px] truncate text-center">{h.title}</span>
                   {/* Delete option for own profile */}
-                  {isOwnProfile && viewHighlightId === h.id && (
+                  {isOwnProfile && (
                     <button
-                      onClick={() => handleDeleteHighlight(h.id)}
+                      onClick={e => { e.stopPropagation(); handleDeleteHighlight(h.id); }}
                       className="text-[10px] text-destructive hover:underline"
                     >Remove</button>
                   )}
@@ -890,6 +965,64 @@ export default function ProfilePage() {
           )
         )}
 
+        {activeTab === 'Tips' && (
+          loadingTips ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : tipHistory.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <DollarSign className="w-12 h-12 mx-auto mb-3 opacity-20" />
+              <p className="font-semibold">No tips yet</p>
+              <p className="text-sm mt-1">Tips sent and received will appear here</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {tipHistory.map((tip: any) => {
+                const isSent = tip.from_user_id === profile.id;
+                const other = isSent ? tip.recipient : tip.sender;
+                const uname = other?.username ?? 'user';
+                return (
+                  <div key={tip.id} className="p-4 hover:bg-muted/5 transition-colors flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0 cursor-pointer"
+                      onClick={() => navigate(`/profile/${uname}`)}
+                    >
+                      {other?.avatar_url
+                        ? <img src={other.avatar_url} alt={uname} className="w-full h-full object-cover" />
+                        : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{uname[0]?.toUpperCase()}</div>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="font-semibold text-sm cursor-pointer hover:underline"
+                          onClick={() => navigate(`/profile/${uname}`)}
+                        >
+                          {isSent ? `To @${uname}` : `From @${uname}`}
+                        </span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          isSent ? 'bg-red-500/10 text-red-600' : 'bg-green-500/10 text-green-600'
+                        }`}>
+                          {isSent ? '↑ Sent' : '↓ Received'}
+                        </span>
+                      </div>
+                      {tip.message && <p className="text-xs text-muted-foreground mt-0.5 truncate">{tip.message}</p>}
+                      <p className="text-xs text-muted-foreground mt-0.5">{formatDistanceToNow(new Date(tip.created_at), { addSuffix: true })}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`text-lg font-bold ${
+                        isSent ? 'text-red-600' : 'text-green-600'
+                      }`}>
+                        {isSent ? '-' : '+'}${Number(tip.amount).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+
         {activeTab === 'Likes' && (
           likedPosts.length > 0 ? (
             likedPosts.map((post) => (
@@ -979,6 +1112,89 @@ export default function ProfilePage() {
         )}
       </div>
 
+      {/* ── Highlight Story Viewer Overlay ── */}
+      {viewingHighlight && (
+        <div className="fixed inset-0 z-[220] bg-black flex flex-col select-none">
+          {loadingHighlightStories ? (
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 className="w-10 h-10 animate-spin text-white/60" />
+            </div>
+          ) : highlightStories.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/60">
+              <Star className="w-12 h-12" />
+              <p className="text-sm">No media found for this highlight</p>
+              <button onClick={closeHighlightViewer} className="px-5 py-2 border border-white/30 rounded-full text-sm text-white">Close</button>
+            </div>
+          ) : (() => {
+            const story = highlightStories[highlightStoryIdx];
+            return (
+              <>
+                {/* Progress bars */}
+                <div className="absolute top-3 left-3 right-3 flex gap-1 z-30 pointer-events-none">
+                  {highlightStories.map((_, i) => (
+                    <div key={i} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-white rounded-full transition-none"
+                        style={{ width: i < highlightStoryIdx ? '100%' : i === highlightStoryIdx ? `${highlightProgress}%` : '0%' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                {/* Header */}
+                <div className="absolute top-8 left-3 right-3 flex items-center gap-2 z-30">
+                  <div className="w-8 h-8 rounded-full overflow-hidden bg-white/20 shrink-0">
+                    {profile.avatar_url
+                      ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center text-white font-bold text-xs">{profile.username[0]?.toUpperCase()}</div>
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-semibold text-sm truncate">{viewingHighlight.title}</p>
+                    <p className="text-white/60 text-xs">@{profile.username}</p>
+                  </div>
+                  <button
+                    onClick={closeHighlightViewer}
+                    className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                {/* Media */}
+                <div
+                  className="flex-1 flex items-center justify-center"
+                  onClick={e => {
+                    const x = e.clientX;
+                    const w = (e.currentTarget as HTMLElement).offsetWidth;
+                    if (x < w / 2) {
+                      setHighlightStoryIdx(p => Math.max(0, p - 1));
+                      setHighlightProgress(0);
+                    } else {
+                      if (highlightStoryIdx < highlightStories.length - 1) {
+                        setHighlightStoryIdx(p => p + 1);
+                        setHighlightProgress(0);
+                      } else {
+                        closeHighlightViewer();
+                      }
+                    }
+                  }}
+                >
+                  {story.media_type === 'video'
+                    ? <video key={story.id} src={story.media_url} autoPlay playsInline className="max-h-screen max-w-full object-contain" onEnded={() => { if (highlightStoryIdx < highlightStories.length - 1) { setHighlightStoryIdx(p => p + 1); setHighlightProgress(0); } else closeHighlightViewer(); }} />
+                    : <img key={story.id} src={story.media_url} alt="" className="max-h-screen max-w-full object-contain" draggable={false} />
+                  }
+                </div>
+                {story.caption && (
+                  <div className="absolute bottom-8 left-6 right-6 z-30 pointer-events-none">
+                    <p className="text-white text-sm font-medium bg-black/50 rounded-2xl px-4 py-2.5 text-center backdrop-blur-sm">{story.caption}</p>
+                  </div>
+                )}
+
+              </>
+            );
+          })()}
+        </div>
+      )}
+
       {isOwnProfile && (
         <EditProfileDialog
           open={showEditDialog}
@@ -1043,7 +1259,7 @@ export default function ProfilePage() {
               className="w-full py-3.5 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
             >
               {sendingTip ? <Loader2 className="w-5 h-5 animate-spin" /> : <DollarSign className="w-5 h-5" />}
-              {sendingTip ? 'Sending…' : `Send $${tipAmount ?? Number(customTipAmount) || '—'} Tip`}
+              {sendingTip ? 'Sending…' : `Send $${(tipAmount ?? Number(customTipAmount)) || '—'} Tip`}
             </button>
           </div>
         </div>
