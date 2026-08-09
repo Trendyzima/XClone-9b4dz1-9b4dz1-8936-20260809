@@ -116,6 +116,12 @@ patchAll('startup');
     process.stderr.write('[preload-fix] ℹ️  chunks dir absent — ESM hook skipped (postinstall context)\n');
     return;
   }
+  // Guard: if CWD is inside node_modules, we're running as a dependency's
+  // postinstall script — skip ESM hook to avoid blocking for 5 s.
+  if (process.cwd().includes('/node_modules/') || process.cwd().includes('\\node_modules\\')) {
+    process.stderr.write('[preload-fix] ℹ️  postinstall CWD detected — ESM hook skipped\n');
+    return;
+  }
   const loaderPath = path.join(__dirname, 'vite-fix-loader.mjs');
   if (!fs.existsSync(loaderPath)) {
     process.stderr.write('[preload-fix] ⚠️  vite-fix-loader.mjs not found — ESM hook skipped\n');
