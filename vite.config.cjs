@@ -1,25 +1,52 @@
 const fs   = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
-// ─── Self-heal: fix OnSpace patcher bug that corrupts replaceDefine ──────────
-// The patcher puts ??"" in the PARAMETER LIST (syntax error) instead of the
-// function body.  Scan every dep-*.js chunk, chmod it writable, then fix it.
-(function patchViteChunks() {
+// ═══════════════════════════════════════════════════════════════════════════════
+// Strategy A — ESM module load hook (in-memory, fires right before V8 compiles)
+//
+// OnSpace's patcher re-corrupts dep-*.js on disk after our previous disk-fix ran,
+// so a disk-only approach loses the race.  A Node.js load hook intercepts the
+// source text AFTER the file is read but BEFORE Node.js parses it, so it works
+// regardless of what's on disk at that moment.
+// ═══════════════════════════════════════════════════════════════════════════════
+try {
+  const nodeModule = require('module');
+  if (typeof nodeModule.register === 'function') {
+    const hookFile = path.join(__dirname, 'vite-fix-loader.mjs');
+    if (fs.existsSync(hookFile)) {
+      nodeModule.register(pathToFileURL(hookFile).href);
+      process.stderr.write('[vite-patch] ✅ ESM load hook registered\n');
+    } else {
+      process.stderr.write('[vite-patch] ⚠️  vite-fix-loader.mjs not found – skipping hook\n');
+    }
+  } else {
+    process.stderr.write('[vite-patch] ℹ️  module.register not available (Node < 20.6)\n');
+  }
+} catch (e) {
+  process.stderr.write('[vite-patch] ❌ ESM hook registration failed: ' + e.message + '\n');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Strategy B — Disk-based fix (backup; covers the window before hook fires)
+// ═══════════════════════════════════════════════════════════════════════════════
+function patchViteChunks() {
   const chunksDir = path.join(
     __dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks'
   );
 
+  if (!fs.existsSync(chunksDir)) {
+    process.stderr.write('[vite-patch] chunks dir not found: ' + chunksDir + '\n');
+    return;
+  }
+
   let files;
   try {
-    if (!fs.existsSync(chunksDir)) {
-      process.stderr.write('[vite-patch] chunks dir not found: ' + chunksDir + '\n');
-      return;
-    }
     files = fs.readdirSync(chunksDir).filter(
       f => f.startsWith('dep-') && f.endsWith('.js')
     );
   } catch (e) {
-    process.stderr.write('[vite-patch] cannot read chunks dir: ' + e.message + '\n');
+    process.stderr.write('[vite-patch] readdir error: ' + e.message + '\n');
     return;
   }
 
@@ -30,52 +57,49 @@ const path = require('path');
     try {
       src = fs.readFileSync(fpath, 'utf8');
     } catch (e) {
-      process.stderr.write('[vite-patch] cannot read ' + fname + ': ' + e.message + '\n');
+      process.stderr.write('[vite-patch] read error for ' + fname + ': ' + e.message + '\n');
       continue;
     }
 
-    // Quick escape: skip files that don't contain the corruption marker
     if (!src.includes('replaceDefine(code??')) continue;
 
-    // Simple literal replacements – more reliable than regex for exact strings
     let fixed = src;
-    // Variant 1: replaceDefine(code??"", id  (double-quote, comma+space)
     fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
-    // Variant 2: replaceDefine(code??"",id   (double-quote, comma no-space)
     fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
-    // Variant 3: single-quote variant
     fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
     fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
-
-    // Fallback: regex for any ??"..." or ??'...' in the parameter position
     if (fixed.includes('replaceDefine(code??')) {
       fixed = fixed.replace(
-        /replaceDefine\(code\s*\?\?["'][^"']*["']\s*,\s*/g,
+        /replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g,
         'replaceDefine(code, '
       );
     }
 
-    if (fixed === src) continue; // Nothing to fix
+    if (fixed === src) continue;
 
-    try {
-      // Make writable first (the file may be installed as read-only 0444)
-      fs.chmodSync(fpath, 0o644);
-    } catch (e) {
-      process.stderr.write('[vite-patch] chmod failed for ' + fname + ': ' + e.message + '\n');
+    // Make writable first (patcher may install the file as read-only 0444)
+    try { fs.chmodSync(fpath, 0o644); } catch (e) {
+      process.stderr.write('[vite-patch] chmod error for ' + fname + ': ' + e.message + '\n');
     }
 
     try {
       fs.writeFileSync(fpath, fixed, 'utf8');
-      process.stderr.write('[vite-patch] fixed ' + fname + '\n');
+      process.stderr.write('[vite-patch] 💾 disk-fixed ' + fname + '\n');
     } catch (e) {
-      process.stderr.write('[vite-patch] write failed for ' + fname + ': ' + e.message + '\n');
+      process.stderr.write('[vite-patch] write error for ' + fname + ': ' + e.message + '\n');
     }
   }
-})();
+}
+
+// Run before require('vite') in case file is already corrupted from a prior run
+patchViteChunks();
 
 // ─────────────────────────────────────────────────────────────────────────────
-
 const { defineConfig } = require('vite');
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Run again after require('vite') — the patcher may trigger during CJS loading
+patchViteChunks();
 
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
 
