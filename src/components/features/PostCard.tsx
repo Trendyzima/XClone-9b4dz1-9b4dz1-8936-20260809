@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
@@ -52,6 +52,60 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   // Edit history
   const [showEditHistory, setShowEditHistory] = useState(false);
   const editHistory: any[] = (post as any).edit_history ?? [];
+
+  // Post Translation
+  const [translatedContent, setTranslatedContent] = useState<string | null>(null);
+  const [showTranslation, setShowTranslation] = useState(false);
+  const [translating, setTranslating] = useState(false);
+
+  const handleTranslate = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (showTranslation) { setShowTranslation(false); return; }
+    if (translatedContent) { setShowTranslation(true); return; }
+    setTranslating(true);
+    try {
+      // Check cache first
+      const { data: cached } = await supabase
+        .from('post_translations')
+        .select('translated_content')
+        .eq('post_id', post.id)
+        .eq('language_code', 'en')
+        .maybeSingle();
+      if (cached?.translated_content) {
+        setTranslatedContent(cached.translated_content);
+        setShowTranslation(true);
+        setTranslating(false);
+        return;
+      }
+      // Call AI
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: {
+          messages: [{
+            role: 'user',
+            content: `Translate the following social media post to English. Return ONLY the translated text, no explanations or quotes:\n\n${post.content}`,
+          }],
+          model: 'gemini-2.0-flash',
+        },
+      });
+      if (error) throw error;
+      const translated = data?.choices?.[0]?.message?.content ??
+        data?.content ?? data?.text ?? data?.response ?? '';
+      if (translated.trim()) {
+        setTranslatedContent(translated.trim());
+        setShowTranslation(true);
+        // Cache it
+        await supabase.from('post_translations').upsert(
+          { post_id: post.id, language_code: 'en', translated_content: translated.trim() },
+          { onConflict: 'post_id,language_code' }
+        ).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[translate]', err);
+      toast({ title: 'Translation failed', description: 'Could not translate this post', variant: 'destructive' });
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const fetchAnalytics = useCallback(async () => {
     if (analytics) return; // already loaded
@@ -512,7 +566,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
           <div 
             className="post-content text-foreground mt-1 whitespace-pre-wrap break-words"
-            dangerouslySetInnerHTML={{ __html: parseContent(post.content) }}
+            dangerouslySetInnerHTML={{ __html: parseContent(showTranslation && translatedContent ? translatedContent : post.content) }}
             onClick={(e) => {
               const target = e.target as HTMLElement;
               if (target.tagName === 'A') {
@@ -520,6 +574,22 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               }
             }}
           />
+
+          {/* Translate button */}
+          {post.content && post.content.length > 20 && (
+            <button
+              onClick={handleTranslate}
+              className={`mt-1 flex items-center gap-1 text-xs font-medium transition-colors ${
+                showTranslation ? 'text-primary' : 'text-muted-foreground hover:text-primary'
+              }`}
+            >
+              {translating
+                ? <TransLoader className="w-3 h-3 animate-spin" />
+                : <Languages className="w-3 h-3" />
+              }
+              {translating ? 'Translating…' : showTranslation ? 'Show original' : 'Translate'}
+            </button>
+          )}
 
           {/* Video Player */}
           {post.is_video && post.video_url && (

@@ -49,6 +49,9 @@ export default function ProfilePage() {
   const [highlights, setHighlights] = useState<any[]>([]);
   const [showCreateHighlight, setShowCreateHighlight] = useState(false);
   const [highlightTitle, setHighlightTitle] = useState('');
+  // Highlight reorder drag state
+  const [draggingHighlightIdx, setDraggingHighlightIdx] = useState<number | null>(null);
+  const [dragOverHighlightIdx, setDragOverHighlightIdx] = useState<number | null>(null);
   const [highlightCoverUrl, setHighlightCoverUrl] = useState<string | null>(null);
   const [availableStories, setAvailableStories] = useState<any[]>([]);
   const [creatingHighlight, setCreatingHighlight] = useState(false);
@@ -271,8 +274,17 @@ export default function ProfilePage() {
       .from('user_highlights')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: true });
+      .order('sort_order', { ascending: true });
     setHighlights(data ?? []);
+  };
+
+  const updateHighlightOrder = async (newOrder: any[]) => {
+    // Persist new sort_order for each highlight
+    await Promise.all(
+      newOrder.map((h, idx) =>
+        supabase.from('user_highlights').update({ sort_order: idx }).eq('id', h.id)
+      )
+    );
   };
 
   const fetchAvailableStories = async (userId: string) => {
@@ -880,11 +892,39 @@ export default function ProfilePage() {
                   <span className="text-[10px] text-muted-foreground font-medium">New</span>
                 </button>
               )}
-              {highlights.map((h: any) => (
-                <div key={h.id} className="flex flex-col items-center gap-1.5 shrink-0">
+              {highlights.map((h: any, hIdx: number) => (
+                <div
+                  key={h.id}
+                  draggable={isOwnProfile}
+                  onDragStart={() => setDraggingHighlightIdx(hIdx)}
+                  onDragOver={e => { e.preventDefault(); setDragOverHighlightIdx(hIdx); }}
+                  onDragEnd={() => {
+                    if (
+                      draggingHighlightIdx !== null &&
+                      dragOverHighlightIdx !== null &&
+                      draggingHighlightIdx !== dragOverHighlightIdx
+                    ) {
+                      const newOrder = [...highlights];
+                      const [dragged] = newOrder.splice(draggingHighlightIdx, 1);
+                      newOrder.splice(dragOverHighlightIdx, 0, dragged);
+                      setHighlights(newOrder);
+                      updateHighlightOrder(newOrder);
+                    }
+                    setDraggingHighlightIdx(null);
+                    setDragOverHighlightIdx(null);
+                  }}
+                  className={`flex flex-col items-center gap-1.5 shrink-0 transition-all duration-150 ${
+                    draggingHighlightIdx === hIdx ? 'opacity-40 scale-90' : ''
+                  } ${
+                    dragOverHighlightIdx === hIdx && draggingHighlightIdx !== hIdx
+                      ? 'scale-110 drop-shadow-[0_0_6px_rgba(var(--primary),0.5)]'
+                      : ''
+                  }`}
+                >
                   <button
                     onClick={() => openHighlightViewer(h)}
                     className="w-16 h-16 rounded-full ring-2 ring-offset-2 ring-offset-background ring-muted-foreground/20 hover:ring-primary/50 transition-all overflow-hidden bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center"
+                    title={isOwnProfile ? 'Drag to reorder' : ''}
                   >
                     {h.cover_url
                       ? <img src={h.cover_url} alt={h.title} className="w-full h-full object-cover" />

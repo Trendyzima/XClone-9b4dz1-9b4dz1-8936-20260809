@@ -3,72 +3,105 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy A — ESM module load hook  (v5: synchronized startup)
+// Strategy A — ESM module load hook  (v6: only intercept corrupted files)
 //
-// Problem: module.register() is async. The hook worker needs time to spin up.
-// If Vite loads dep-C6uTJdX2.js during that window the hook misses it and
-// Node's default loader sees the corrupted source → SyntaxError.
-//
-// Fix: use SharedArrayBuffer + Atomics to BLOCK the main thread here until
-// the hook worker calls initialize() and signals it is ready.  After the
-// Atomics.wait() returns the hook is guaranteed to intercept every subsequent
-// ESM import, including the corrupted Vite chunks.
+// Registers vite-fix-loader.mjs as an ES module load hook.
+// Synchronisation is attempted via SharedArrayBuffer + Atomics.wait so the hook
+// worker is guaranteed to be alive before Vite loads its chunks.
+// If SharedArrayBuffer is unavailable (some container environments disable it)
+// we fall back to a 200 ms spin-wait which is sufficient on any build machine.
 // ═══════════════════════════════════════════════════════════════════════════════
-try {
-  const nodeModule = require('module');
-  if (typeof nodeModule.register === 'function') {
+(function registerEsmHook() {
+  try {
+    const nodeModule = require('module');
+    if (typeof nodeModule.register !== 'function') {
+      process.stderr.write('[vite-patch] ℹ️  module.register not available (Node < 20.6)\n');
+      return;
+    }
+
     const hookFile = path.join(__dirname, 'vite-fix-loader.mjs');
-    if (fs.existsSync(hookFile)) {
-      // Create a 4-byte shared buffer: 0 = hook not ready, 1 = hook ready
-      const sab = new SharedArrayBuffer(4);
-      const arr = new Int32Array(sab);
-      Atomics.store(arr, 0, 0);
+    if (!fs.existsSync(hookFile)) {
+      process.stderr.write('[vite-patch] ⚠️  vite-fix-loader.mjs not found — skipping hook\n');
+      return;
+    }
 
-      // Register the hook and pass the SAB so initialize() can signal us
-      nodeModule.register(
-        pathToFileURL(hookFile).href,
-        pathToFileURL(__filename).href,
-        { data: { sab } }
-      );
+    let sabData = {};
+    let usedAtomics = false;
 
-      // Block until the hook worker signals it is alive (≤ 1 000 ms)
-      const waitResult = Atomics.wait(arr, 0, 0, 1000);
-      if (waitResult === 'ok') {
-        process.stderr.write('[vite-patch] \u2705 ESM load hook registered & synchronized\n');
+    try {
+      if (typeof SharedArrayBuffer !== 'undefined') {
+        const sab = new SharedArrayBuffer(4);
+        const arr = new Int32Array(sab);
+        Atomics.store(arr, 0, 0);
+        sabData = { sab };
+        usedAtomics = true;
+      }
+    } catch (_) {
+      // SharedArrayBuffer unavailable — proceed without Atomics sync
+    }
+
+    nodeModule.register(
+      pathToFileURL(hookFile).href,
+      pathToFileURL(__filename).href,
+      { data: sabData }
+    );
+
+    if (usedAtomics) {
+      // Block until hook worker signals it is alive (≤ 2 000 ms)
+      const arr = new Int32Array(sabData.sab);
+      const result = Atomics.wait(arr, 0, 0, 2000);
+      if (result === 'ok') {
+        process.stderr.write('[vite-patch] ✅ ESM hook registered & synchronised\n');
       } else {
-        // timed-out — hook might still work, just wasn't signalled in time
-        process.stderr.write('[vite-patch] \u26a0\ufe0f  ESM hook timeout (' + waitResult + ') — proceeding anyway\n');
+        process.stderr.write('[vite-patch] ⚠️  ESM hook Atomics.wait ' + result + ' — continuing\n');
       }
     } else {
-      process.stderr.write('[vite-patch] \u26a0\ufe0f  vite-fix-loader.mjs not found \u2013 skipping hook\n');
+      // Spin-wait ≈ 200 ms to let the hook worker thread initialise
+      const t = Date.now();
+      while (Date.now() - t < 200) { /* spin */ }
+      process.stderr.write('[vite-patch] ✅ ESM hook registered (spin-wait fallback)\n');
     }
-  } else {
-    process.stderr.write('[vite-patch] \u2139\ufe0f  module.register not available (Node < 20.6)\n');
+  } catch (e) {
+    process.stderr.write('[vite-patch] ❌ ESM hook registration failed: ' + e.message + '\n');
   }
-} catch (e) {
-  process.stderr.write('[vite-patch] \u274c ESM hook registration failed: ' + e.message + '\n');
-}
+})();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy B — Disk-based fix
+// Strategy B — Disk-based fix + continuous file watcher
 //
-// Scans ALL .js files in Vite's chunks dir and removes the ?? corruption the
-// OnSpace patcher injects.  Runs three times (pre-require, post-require,
-// buildStart) to catch re-corruption by the patcher at any phase.
+// Scans every .js file in Vite's chunks dir, removes the ?? corruption the
+// OnSpace patcher injects, and writes the fix back.
 //
-// Note: chmod 444 is kept as a best-effort lock.  On systems where the patcher
-// runs as root it will be ignored, but the ESM hook (Strategy A) then acts as
-// the definitive fix.
+// patchViteChunks() runs three times (pre-require, post-require, buildStart).
+// watchViteChunks() sets up a fs.watchFile listener that immediately re-fixes
+// any file the patcher modifies after our lock — this handles the case where
+// the patcher runs as root and bypasses chmod.
+//
+// NOTE: We no longer use chmod 444 because it prevented our own re-fix writes
+//       when the patcher ran with elevated privileges (write fails silently,
+//       leaving the corruption in place).
 // ═══════════════════════════════════════════════════════════════════════════════
+
+const CORRUPT_RE = /\b(\w+(?:\([^)]*\))*)\?\?["'][^"']*["']/g;
+
+function fixSource(src) {
+  let fixed = src.replace(CORRUPT_RE, '$1');
+  fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
+  fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
+  fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
+  fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
+  fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
+  return fixed;
+}
+
+const watchedFiles = new Set();
+
 function patchViteChunks() {
   const chunksDir = path.join(
     __dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks'
   );
 
-  if (!fs.existsSync(chunksDir)) {
-    process.stderr.write('[vite-patch] chunks dir not found: ' + chunksDir + '\n');
-    return;
-  }
+  if (!fs.existsSync(chunksDir)) return;
 
   let files;
   try {
@@ -81,65 +114,70 @@ function patchViteChunks() {
   for (const fname of files) {
     const fpath = path.join(chunksDir, fname);
 
-    // Ensure readable + writable before we do anything
+    // Ensure writable so we can overwrite if needed
     try { fs.chmodSync(fpath, 0o644); } catch (_) {}
 
     let src;
-    try {
-      src = fs.readFileSync(fpath, 'utf8');
-    } catch (e) {
-      process.stderr.write('[vite-patch] read error for ' + fname + ': ' + e.message + '\n');
-      try { fs.chmodSync(fpath, 0o444); } catch (_) {}
+    try { src = fs.readFileSync(fpath, 'utf8'); } catch (e) {
+      process.stderr.write('[vite-patch] read error ' + fname + ': ' + e.message + '\n');
       continue;
     }
 
-    // Fast exit — no ?? corruption present
-    if (!src.includes('??')) {
-      try { fs.chmodSync(fpath, 0o444); } catch (_) {}
-      continue;
-    }
+    if (!src.includes('??')) continue;  // nothing to fix
 
-    let fixed = src;
-
-    // Blanket fix: identifier(optional args)??"string" → identifier(optional args)
-    // No \s* around ?? — avoids touching legitimate  value ?? "default"  patterns
-    fixed = fixed.replace(/\b(\w+(?:\([^)]*\))*)\?\?["'][^"']*["']/g, '$1');
-
-    // Belt-and-suspenders for the known replaceDefine variants
-    if (fixed.includes('replaceDefine(code??')) {
-      fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
-      fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
-      fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
-      fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
-      fixed = fixed.replace(
-        /replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g,
-        'replaceDefine(code, '
-      );
-    }
+    const fixed = fixSource(src);
+    if (fixed === src) continue;        // ?? present but regex didn't match — legit code
 
     try {
       fs.writeFileSync(fpath, fixed, 'utf8');
-      process.stderr.write('[vite-patch] \ud83d\udcbe disk-fixed ' + fname + '\n');
+      process.stderr.write('[vite-patch] 💾 disk-fixed ' + fname + '\n');
     } catch (e) {
-      process.stderr.write('[vite-patch] write error for ' + fname + ': ' + e.message + '\n');
+      process.stderr.write('[vite-patch] write error ' + fname + ': ' + e.message + '\n');
     }
-
-    // Best-effort lock (prevents non-root patcher re-corruption)
-    try {
-      fs.chmodSync(fpath, 0o444);
-      process.stderr.write('[vite-patch] \ud83d\udd12 locked ' + fname + '\n');
-    } catch (_) {}
   }
 }
 
-// Run once before requiring Vite
+function watchViteChunks() {
+  const chunksDir = path.join(
+    __dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks'
+  );
+  if (!fs.existsSync(chunksDir)) return;
+
+  let files;
+  try { files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js')); }
+  catch (_) { return; }
+
+  for (const fname of files) {
+    const fpath = path.join(chunksDir, fname);
+    if (watchedFiles.has(fpath)) continue;
+    watchedFiles.add(fpath);
+
+    fs.watchFile(fpath, { persistent: false, interval: 150 }, () => {
+      try {
+        const src = fs.readFileSync(fpath, 'utf8');
+        if (!src.includes('??')) return;
+        const fixed = fixSource(src);
+        if (fixed === src) return;
+        try { fs.chmodSync(fpath, 0o644); } catch (_) {}
+        fs.writeFileSync(fpath, fixed, 'utf8');
+        process.stderr.write('[vite-patch] 👁 watcher re-fixed ' + fname + '\n');
+      } catch (_) {}
+    });
+  }
+}
+
+// ── Run fixes ────────────────────────────────────────────────────────────────
+
+// Pass 1: before requiring Vite
 patchViteChunks();
+// Start continuous watcher so patcher re-corruptions are caught between passes
+watchViteChunks();
 
 // ─────────────────────────────────────────────────────────────────────────────
 const { defineConfig } = require('vite');
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Run again immediately after Vite is loaded
+// Pass 2: immediately after Vite is loaded (catches any re-corruption)
 patchViteChunks();
 
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
@@ -185,6 +223,7 @@ module.exports = defineConfig({
         {
           name: 'vite-chunk-repatch',
           buildStart() {
+            // Pass 3: right before rollup transform begins
             patchViteChunks();
           },
         },

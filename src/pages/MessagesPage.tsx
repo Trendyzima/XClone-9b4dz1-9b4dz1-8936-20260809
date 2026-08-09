@@ -3,7 +3,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare, X, Image as ImageIcon } from 'lucide-react';
+import { Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare, X, Image as ImageIcon, Mic, MicOff, Square } from 'lucide-react';
 import { GifPicker } from '@/components/features/GifPicker';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -27,6 +27,12 @@ export default function MessagesPage() {
   const [convFilter, setConvFilter] = useState('');
   // GIF picker
   const [showGifPicker, setShowGifPicker] = useState(false);
+  // Voice recording
+  const [isRecording, setIsRecording] = useState(false);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // In-thread message search
   const [showMsgSearch, setShowMsgSearch] = useState(false);
   const [msgSearchQuery, setMsgSearchQuery] = useState('');
@@ -224,6 +230,54 @@ export default function MessagesPage() {
     } catch (error) {
       console.error('Error searching users:', error);
     }
+  };
+
+  const startVoiceRecording = async () => {
+    if (!selectedConversation) { toast.error('Select a conversation first'); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        audioChunksRef.current = [];
+        setUploadingVoice(true);
+        try {
+          const fileName = `voice/${user!.id}/${Date.now()}.webm`;
+          const { error: upErr } = await supabase.storage.from('posts').upload(fileName, blob);
+          if (upErr) throw upErr;
+          const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(fileName);
+          await supabase.from('direct_messages').insert({
+            conversation_id: selectedConversation.id,
+            sender_id: user!.id,
+            content: publicUrl,
+          });
+          await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', selectedConversation.id);
+          fetchConversations();
+        } catch (e: any) {
+          toast.error(e.message || 'Failed to send voice message');
+        } finally {
+          setUploadingVoice(false);
+        }
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setIsRecording(true);
+      // Auto-stop at 60s
+      recordingTimerRef.current = setTimeout(() => stopVoiceRecording(), 60000);
+    } catch (e: any) {
+      toast.error(e.message || 'Microphone access denied');
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
   };
 
   const handleGifSelect = async (gifUrl: string) => {
@@ -485,19 +539,35 @@ export default function MessagesPage() {
                 )}
                 {messages.map((message) => {
                   const isGif = message.content?.startsWith('https://media.tenor.com') || message.content?.endsWith('.gif');
+                  const isVoice = message.content?.includes('/voice/') && (message.content?.endsWith('.webm') || message.content?.endsWith('.mp3') || message.content?.endsWith('.ogg'));
                   return (
                   <div
                     key={message.id}
                     className={`flex ${message.sender_id === user.id ? 'justify-end' : 'justify-start'}`}
                   >
                     <div className={`max-w-[75%] rounded-2xl overflow-hidden ${
-                      isGif ? 'bg-transparent' :
+                      isGif || isVoice ? 'bg-transparent' :
                       message.sender_id === user.id
                         ? 'px-4 py-2.5 bg-primary text-primary-foreground rounded-br-sm'
                         : 'px-4 py-2.5 bg-muted rounded-bl-sm'
                     }`}>
                       {isGif ? (
                         <img src={message.content} alt="GIF" className="rounded-2xl max-w-full max-h-56 object-contain" loading="lazy" />
+                      ) : isVoice ? (
+                        <div className={`flex items-center gap-2 px-3 py-2.5 rounded-2xl min-w-[180px] ${
+                          message.sender_id === user.id
+                            ? 'bg-primary text-primary-foreground rounded-br-sm'
+                            : 'bg-muted rounded-bl-sm'
+                        }`}>
+                          <Mic className="w-4 h-4 shrink-0 opacity-70" />
+                          <audio
+                            src={message.content}
+                            controls
+                            className="flex-1 h-8 min-w-0"
+                            style={{ accentColor: 'var(--primary)' }}
+                            onClick={e => e.stopPropagation()}
+                          />
+                        </div>
                       ) : (
                       <p className="break-words text-sm leading-relaxed">{message.content}</p>
                       )}
@@ -538,6 +608,26 @@ export default function MessagesPage() {
                     title="Send GIF"
                   >
                     <ImageIcon className="w-4 h-4" />
+                  </button>
+                  {/* Voice message button */}
+                  <button
+                    onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
+                    disabled={uploadingVoice}
+                    className={`shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
+                      isRecording
+                        ? 'bg-red-500 text-white animate-pulse'
+                        : uploadingVoice
+                          ? 'bg-muted text-muted-foreground opacity-50'
+                          : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                    }`}
+                    title={isRecording ? 'Stop recording' : 'Send voice message'}
+                  >
+                    {uploadingVoice
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : isRecording
+                        ? <Square className="w-4 h-4 fill-current" />
+                        : <Mic className="w-4 h-4" />
+                    }
                   </button>
                   <button
                     onClick={sendMessage}
