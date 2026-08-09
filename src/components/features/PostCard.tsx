@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile, DollarSign, Play } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { VideoMonetizationAd } from './VideoMonetizationAd';
 
 interface PostCardProps {
   post: Post;
@@ -220,6 +221,24 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   };
   const handleViewsMouseUp = () => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
+  };
+
+  // Video monetization pre-roll
+  const videoRef2 = useRef<HTMLVideoElement | null>(null);
+  const adShownRef = useRef(false);
+  const [showVideoAd, setShowVideoAd] = useState(false);
+
+  const handleVideoPlay = () => {
+    if ((post as any).is_monetized && !adShownRef.current) {
+      adShownRef.current = true;
+      videoRef2.current?.pause();
+      setShowVideoAd(true);
+    }
+  };
+
+  const handleAdComplete = () => {
+    setShowVideoAd(false);
+    videoRef2.current?.play().catch(() => {});
   };
 
   // Get media URLs (support both legacy single image and new multi-image)
@@ -677,14 +696,29 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             </button>
           )}
 
-          {/* Video Player */}
+          {/* Video Player with monetization pre-roll */}
           {post.is_video && post.video_url && (
-            <div className="mt-3 rounded-2xl overflow-hidden bg-black max-h-[600px]">
+            <div className="mt-3 relative rounded-2xl overflow-hidden bg-black max-h-[600px]" onClick={e => e.stopPropagation()}>
+              {showVideoAd && (
+                <VideoMonetizationAd
+                  postId={post.id}
+                  creatorUserId={post.user_id}
+                  onAdComplete={handleAdComplete}
+                  skipAfterSeconds={5}
+                />
+              )}
+              {(post as any).is_monetized && (
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-0.5 bg-black/60 backdrop-blur-sm rounded-full text-xs text-green-400 font-semibold pointer-events-none">
+                  <DollarSign className="w-3 h-3" />Monetized
+                </div>
+              )}
               <video
+                ref={videoRef2}
                 controls
                 className="w-full h-full max-h-[600px] object-contain"
                 playsInline
                 preload="metadata"
+                onPlay={handleVideoPlay}
               >
                 <source src={post.video_url} type="video/mp4" />
                 <source src={post.video_url} type="video/webm" />

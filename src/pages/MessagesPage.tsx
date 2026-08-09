@@ -5,8 +5,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare,
-  X, Image as ImageIcon, Mic, Square, Users, Plus, UserPlus, Trash2
+  X, Image as ImageIcon, Mic, Square, Users, Plus, UserPlus, Trash2,
+  Volume2, VolumeX, Edit3, Shield, UserMinus, Check
 } from 'lucide-react';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { GifPicker } from '@/components/features/GifPicker';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -56,6 +58,19 @@ export default function MessagesPage() {
   const [creatingGroup, setCreatingGroup] = useState(false);
   // Group members panel
   const [showGroupMembers, setShowGroupMembers] = useState(false);
+  // Group admin controls
+  const [showEditGroup, setShowEditGroup] = useState(false);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupAvatar, setEditGroupAvatar] = useState('');
+  const [savingGroupEdit, setSavingGroupEdit] = useState(false);
+  const [memberActionId, setMemberActionId] = useState<string | null>(null);
+
+  // Notification sounds
+  const { play: playSound, isEnabled: isSoundEnabled, setEnabled: setSoundEnabled } = useNotificationSound();
+  const [soundOn, setSoundOn] = useState(isSoundEnabled());
+  const prevMsgCountRef = useRef(0);
+  const prevGroupMsgCountRef = useRef(0);
+  const toggleSound = () => { const next = !soundOn; setSoundEnabled(next); setSoundOn(next); };
 
   // ── Voice recording state ──────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
@@ -144,7 +159,11 @@ export default function MessagesPage() {
     const { data } = await supabase.from('direct_messages')
       .select(`*, sender:user_profiles!direct_messages_sender_id_fkey(*)`)
       .eq('conversation_id', conversationId).order('created_at', { ascending: true });
-    setMessages(data || []);
+    const newMsgs = data || [];
+    const incoming = newMsgs.filter((m: any) => m.sender_id !== user?.id);
+    if (incoming.length > prevMsgCountRef.current) playSound('dm');
+    prevMsgCountRef.current = incoming.length;
+    setMessages(newMsgs);
     await supabase.from('direct_messages').update({ read: true })
       .eq('conversation_id', conversationId).eq('read', false).neq('sender_id', user!.id);
     setMessages(prev => prev.map(m => m.sender_id !== user!.id ? { ...m, read: true } : m));
@@ -191,7 +210,10 @@ export default function MessagesPage() {
     const { data } = await supabase.from('group_messages')
       .select('*, sender:user_profiles!group_messages_sender_id_fkey(id, username, avatar_url, verified)')
       .eq('group_id', groupId).order('created_at', { ascending: true });
-    setGroupMessages(data ?? []);
+    const newMsgs = data ?? [];
+    if (newMsgs.length > prevGroupMsgCountRef.current) playSound('group');
+    prevGroupMsgCountRef.current = newMsgs.length;
+    setGroupMessages(newMsgs);
   };
 
   const fetchGroupMembers = async (groupId: string) => {
@@ -242,6 +264,30 @@ export default function MessagesPage() {
     const { data } = await supabase.from('user_profiles').select('id, username, avatar_url, verified')
       .ilike('username', `%${q}%`).neq('id', user!.id).limit(8);
     setMemberResults((data ?? []).filter((u: any) => !selectedMembers.find(m => m.id === u.id)));
+  };
+
+  // ── Group admin helpers ──────────────────────────────────────────────────
+  const saveGroupEdit = async () => {
+    if (!selectedGroup || !editGroupName.trim()) return;
+    setSavingGroupEdit(true);
+    await supabase.from('group_conversations')
+      .update({ name: editGroupName.trim(), avatar_url: editGroupAvatar || null })
+      .eq('id', selectedGroup.id);
+    setSelectedGroup((g: any) => ({ ...g, name: editGroupName.trim(), avatar_url: editGroupAvatar || null }));
+    setGroups(prev => prev.map(g => g.id === selectedGroup.id ? { ...g, name: editGroupName.trim(), avatar_url: editGroupAvatar || null } : g));
+    toast.success('Group updated'); setShowEditGroup(false); setSavingGroupEdit(false);
+  };
+  const removeMember = async (memberId: string) => {
+    if (!selectedGroup) return;
+    await supabase.from('group_members').delete().eq('group_id', selectedGroup.id).eq('user_id', memberId);
+    setGroupMembers(prev => prev.filter((m: any) => m.user_id !== memberId));
+    setMemberActionId(null); toast.success('Member removed');
+  };
+  const promoteToAdmin = async (memberId: string) => {
+    if (!selectedGroup) return;
+    await supabase.from('group_members').update({ role: 'admin' }).eq('group_id', selectedGroup.id).eq('user_id', memberId);
+    setGroupMembers(prev => prev.map((m: any) => m.user_id === memberId ? { ...m, role: 'admin' } : m));
+    setMemberActionId(null); toast.success('Promoted to admin');
   };
 
   const leaveGroup = async (groupId: string) => {
@@ -607,6 +653,17 @@ export default function MessagesPage() {
                   <p className="font-bold truncate">{selectedGroup.name}</p>
                   <p className="text-xs text-muted-foreground">{selectedGroup.memberCount} members · tap to view</p>
                 </div>
+                {/* Sound toggle */}
+                <button onClick={toggleSound} className="p-2 rounded-full text-muted-foreground hover:bg-muted transition-colors" title={soundOn ? 'Mute sounds' : 'Enable sounds'}>
+                  {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                </button>
+                {/* Edit group — admin only */}
+                {user?.id === selectedGroup.creator_id && (
+                  <button onClick={() => { setEditGroupName(selectedGroup.name); setEditGroupAvatar(selectedGroup.avatar_url ?? ''); setShowEditGroup(true); }}
+                    className="p-2 rounded-full text-muted-foreground hover:bg-muted transition-colors" title="Edit group">
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                )}
                 <button onClick={() => leaveGroup(selectedGroup.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Leave group">
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -616,12 +673,29 @@ export default function MessagesPage() {
               {showGroupMembers && (
                 <div className="border-b border-border bg-muted/20 p-3 flex gap-3 overflow-x-auto scrollbar-hide shrink-0">
                   {groupMembers.map(m => (
-                    <div key={m.id} className="flex flex-col items-center gap-1 shrink-0">
-                      <div className="w-10 h-10 rounded-full bg-muted overflow-hidden ring-2 ring-offset-1 ring-offset-background ring-border">
+                    <div key={m.id} className="flex flex-col items-center gap-1 shrink-0 relative">
+                      <button
+                        onClick={() => setMemberActionId(memberActionId === m.user_id ? null : m.user_id)}
+                        className="w-10 h-10 rounded-full bg-muted overflow-hidden ring-2 ring-offset-1 ring-offset-background ring-border hover:ring-primary/40 transition-all">
                         {m.user?.avatar_url ? <img src={m.user.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-sm font-bold">{m.user?.username?.[0]?.toUpperCase()}</div>}
-                      </div>
+                      </button>
                       <span className="text-[9px] text-muted-foreground max-w-[40px] truncate">{m.user?.username}</span>
                       {m.role === 'admin' && <span className="text-[8px] bg-primary/10 text-primary px-1 rounded-full font-bold">Admin</span>}
+                      {/* Admin action menu */}
+                      {memberActionId === m.user_id && user?.id === selectedGroup.creator_id && m.user_id !== user?.id && (
+                        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 bg-background border border-border rounded-xl shadow-xl py-1 min-w-[130px]">
+                          {m.role !== 'admin' && (
+                            <button onClick={() => promoteToAdmin(m.user_id)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors">
+                              <Shield className="w-3.5 h-3.5 text-primary" />Make Admin
+                            </button>
+                          )}
+                          <button onClick={() => removeMember(m.user_id)}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 transition-colors">
+                            <UserMinus className="w-3.5 h-3.5" />Remove
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
