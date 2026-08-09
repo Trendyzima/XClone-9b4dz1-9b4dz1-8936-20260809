@@ -2,30 +2,44 @@
 /**
  * _build.cjs — Vercel build wrapper
  *
- * NODE_OPTIONS=--require ./_preload.cjs with a relative path breaks npm
- * install postinstall scripts (different CWD).  This file:
- *   1. Requires _preload.cjs via __dirname (absolute) → patches Vite chunks,
- *      writes + registers the ESM hook, installs the CJS _compile hook.
- *   2. Spawns `vite build` with NODE_OPTIONS using the ABSOLUTE preload path
- *      so the same hooks are active inside the Vite subprocess.
+ * Uses TWO layers of protection in the child vite process:
+ *
+ *  1. --require _preload.cjs   — disk patch + CJS _compile hook + file watchers
+ *  2. --experimental-loader vite-fix-loader.mjs
+ *                              — ESM load hook (loaded SYNCHRONOUSLY before any
+ *                                module, unlike Module.register() which is async)
+ *
+ * The --experimental-loader flag guarantees the hook intercepts every ESM load
+ * of a Vite chunk regardless of when the OnSpace patcher re-injects ??.
  */
 
 const path          = require('path');
 const { spawnSync } = require('child_process');
 
 // ── Step 1: run preload in THIS process ────────────────────────────────────
-process.stderr.write('[_build] running _preload.cjs (disk-patch + ESM hook + CJS hook)\n');
+process.stderr.write('[_build] running _preload.cjs (disk-patch + CJS hook)\n');
 require('./_preload.cjs');
 
 // ── Step 2: build absolute NODE_OPTIONS for the child ─────────────────────
 const preloadAbs = path.resolve(__dirname, '_preload.cjs');
+const loaderPath = path.resolve(__dirname, 'vite-fix-loader.mjs');
+// Construct a file:// URL for --experimental-loader (works on Linux/Mac/Win)
+const loaderUrl  = 'file://' + loaderPath.replace(/\\/g, '/');
 
-// Strip any stale relative refs already in NODE_OPTIONS
+// Strip any stale options already in NODE_OPTIONS
 const existingOpts = (process.env.NODE_OPTIONS || '')
   .replace(/--require\s+\S*_preload\S*/g, '')
+  .replace(/--experimental-loader\s+\S*/g, '')
+  .replace(/--loader\s+\S*/g, '')
   .trim();
 
-const nodeOpts = '--require ' + preloadAbs + (existingOpts ? ' ' + existingOpts : '');
+const nodeOpts = [
+  '--require ' + preloadAbs,
+  '--experimental-loader ' + loaderUrl,
+  '--max_old_space_size=8192',
+  existingOpts,
+].filter(Boolean).join(' ');
+
 process.stderr.write('[_build] vite build  NODE_OPTIONS=' + nodeOpts + '\n');
 
 // ── Step 3: run vite build ─────────────────────────────────────────────────
