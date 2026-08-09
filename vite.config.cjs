@@ -139,6 +139,27 @@ module.exports = defineConfig({
       transformMixedEsModules: true,
     },
     rollupOptions: {
+      plugins: [
+        // Zustand's ESM does `import React from 'react'` but React only ships CJS.
+        // Rollup's static linker fails before interop kicks in, so we rewrite
+        // the import to a namespace import (`import * as React`) which always works.
+        {
+          name: 'fix-esm-default-imports',
+          transform(code, id) {
+            if (id.includes('node_modules') && id.endsWith('.mjs') &&
+                /import [A-Za-z]+ from ['"](react)['"]/.test(code)) {
+              return {
+                code: code.replace(
+                  /import ([A-Za-z]+) from ['"](react)['"]\s*;?/g,
+                  (_, name) => `import * as ${name} from 'react';`
+                ),
+                map: null,
+              };
+            }
+            return null;
+          },
+        },
+      ],
       output: {
         interop: 'auto',
       },
