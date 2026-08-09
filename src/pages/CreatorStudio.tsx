@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +13,7 @@ import {
 import {
   TrendingUp, DollarSign, Eye, Heart, MessageCircle, Users,
   Video, FileText, BarChart3, Calendar, ShoppingBag, Sparkles,
-  ArrowUpRight, Loader2, Play, Download
+  ArrowUpRight, Loader2, Play, Download, Printer
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -81,7 +82,7 @@ export default function CreatorStudio() {
 
   const handleToggleMonetize = async (postId: string, currentValue: boolean) => {
     setTogglingMonetize(postId);
-    const { error } = await supabase.from('posts').update({ is_monetized: !currentValue }).eq('id', postId).eq('user_id', user!.id);
+    const { error } = await supabase.from('posts').update({ is_monetized: !currentValue }).eq('id', postId).eq('user!.id', user!.id);
     if (error) { toast.error(error.message); }
     else {
       setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, is_monetized: !currentValue } : p));
@@ -292,6 +293,123 @@ export default function CreatorStudio() {
       toast.error(e.message || 'Export failed');
     } finally {
       setExportingCsv(false);
+    }
+  };
+
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  const handleExportPdf = async () => {
+    if (!user) return;
+    setExportingPdf(true);
+    try {
+      // Fetch data for the report
+      const [earningsRes, weeklyRes] = await Promise.all([
+        supabase.from('creator_earnings')
+          .select('amount, source, status, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true }),
+        supabase.from('creator_earnings')
+          .select('amount, source, created_at')
+          .eq('user_id', user.id)
+          .gte('created_at', new Date(Date.now() - 7 * 86400000).toISOString())
+          .order('created_at', { ascending: true }),
+      ]);
+
+      const allEarnings = earningsRes.data ?? [];
+      const weeklyData = weeklyRes.data ?? [];
+
+      // Build monthly totals
+      const byMonth: Record<string, { paid: number; pending: number; sources: Record<string, number> }> = {};
+      allEarnings.forEach(e => {
+        const m = e.created_at.slice(0, 7);
+        if (!byMonth[m]) byMonth[m] = { paid: 0, pending: 0, sources: {} };
+        const amt = Number(e.amount);
+        if (e.status === 'paid') byMonth[m].paid += amt;
+        else byMonth[m].pending += amt;
+        byMonth[m].sources[e.source ?? 'other'] = (byMonth[m].sources[e.source ?? 'other'] ?? 0) + amt;
+      });
+
+      // Build weekly day totals
+      const days: Record<string, number> = {};
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+        days[d] = 0;
+      }
+      weeklyData.forEach(e => {
+        const d = e.created_at.split('T')[0];
+        if (days[d] !== undefined) days[d] += Number(e.amount);
+      });
+
+      // Build source totals
+      const sourceTotals: Record<string, number> = {};
+      allEarnings.forEach(e => {
+        const src = e.source ?? 'other';
+        sourceTotals[src] = (sourceTotals[src] ?? 0) + Number(e.amount);
+      });
+
+      const totalPaid = allEarnings.filter(e => e.status === 'paid').reduce((s, e) => s + Number(e.amount), 0);
+      const totalPending = allEarnings.filter(e => e.status !== 'paid').reduce((s, e) => s + Number(e.amount), 0);
+      const now = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+      const monthlyRows = Object.entries(byMonth).slice(-12).map(([month, { paid, pending }]) =>
+        `<tr><td>${month}</td><td>$${paid.toFixed(2)}</td><td>$${pending.toFixed(2)}</td><td>$${(paid + pending).toFixed(2)}</td></tr>`
+      ).join('');
+
+      const sourceRows = Object.entries(sourceTotals).sort((a, b) => b[1] - a[1]).map(([src, amt]) =>
+        `<tr><td style="text-transform:capitalize">${src.replace(/_/g, ' ')}</td><td>$${amt.toFixed(4)}</td><td>${((amt / (totalPaid + totalPending)) * 100).toFixed(1)}%</td></tr>`
+      ).join('');
+
+      const weeklyRows = Object.entries(days).map(([date, amt]) =>
+        `<tr><td>${new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td><td>$${amt.toFixed(4)}</td></tr>`
+      ).join('');
+
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Creator Revenue Report</title><style>
+        @page { margin: 20mm; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; font-size: 13px; }
+        .header { text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #e5e7eb; }
+        .header h1 { font-size: 22px; font-weight: 800; margin: 0 0 4px 0; color: #7c3aed; }
+        .header p { color: #6b7280; margin: 0; font-size: 12px; }
+        .summary { display: flex; gap: 16px; margin-bottom: 24px; }
+        .stat { flex: 1; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 16px; text-align: center; }
+        .stat .value { font-size: 20px; font-weight: 800; color: #7c3aed; }
+        .stat .label { font-size: 11px; color: #6b7280; margin-top: 2px; }
+        h2 { font-size: 14px; font-weight: 700; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; margin: 20px 0 10px 0; color: #374151; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+        th { background: #f3f4f6; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; padding: 8px 10px; text-align: left; }
+        td { padding: 7px 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
+        tr:last-child td { border-bottom: none; }
+        .footer { text-align: center; font-size: 11px; color: #9ca3af; margin-top: 32px; }
+        @media print { .no-print { display:none!important; } }
+      </style></head><body>
+        <div class="header">
+          <h1>Creator Revenue Report</h1>
+          <p>Generated ${now} · Tsocial Creator Studio</p>
+        </div>
+        <div class="summary">
+          <div class="stat"><div class="value">$${totalPaid.toFixed(2)}</div><div class="label">Total Paid</div></div>
+          <div class="stat"><div class="value">$${totalPending.toFixed(2)}</div><div class="label">Pending</div></div>
+          <div class="stat"><div class="value">${allEarnings.length}</div><div class="label">Transactions</div></div>
+          <div class="stat"><div class="value">${Object.keys(byMonth).length}</div><div class="label">Active Months</div></div>
+        </div>
+        <h2>Monthly Earnings (last 12 months)</h2>
+        <table><thead><tr><th>Month</th><th>Paid</th><th>Pending</th><th>Total</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="4" style="color:#9ca3af;text-align:center">No data</td></tr>'}</tbody></table>
+        <h2>Earnings by Source</h2>
+        <table><thead><tr><th>Source</th><th>Amount</th><th>Share</th></tr></thead><tbody>${sourceRows || '<tr><td colspan="3" style="color:#9ca3af;text-align:center">No data</td></tr>'}</tbody></table>
+        <h2>This Week's Daily Breakdown</h2>
+        <table><thead><tr><th>Day</th><th>Earnings</th></tr></thead><tbody>${weeklyRows}</tbody></table>
+        <div class="footer">Tsocial Creator Studio · Confidential · ${now}</div>
+        <script>window.onload=function(){window.print();}<\/script>
+      </body></html>`;
+
+      const win = window.open('', '_blank');
+      if (!win) { toast.error('Popup blocked — allow popups to export PDF'); return; }
+      win.document.write(html);
+      win.document.close();
+      toast.success('Print dialog opened — save as PDF');
+    } catch (e: any) {
+      toast.error(e.message || 'PDF export failed');
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -752,7 +870,7 @@ export default function CreatorStudio() {
             <div className="bg-card border border-border rounded-2xl p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Download className="w-5 h-5 text-primary" />
-                <h2 className="font-bold">Export Revenue CSV</h2>
+                <h2 className="font-bold">Export Revenue</h2>
               </div>
               <p className="text-sm text-muted-foreground mb-4">Download all earnings, tips, and ad revenue for a date range.</p>
               <div className="grid grid-cols-2 gap-3 mb-4">
@@ -775,15 +893,26 @@ export default function CreatorStudio() {
                   />
                 </div>
               </div>
-              <button
-                onClick={handleExportCsv}
-                disabled={exportingCsv}
-                className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {exportingCsv
-                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Exporting…</>
-                  : <><Download className="w-4 h-4" /> Download CSV</>}
-              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={handleExportCsv}
+                  disabled={exportingCsv}
+                  className="py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {exportingCsv
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Exporting…</>
+                    : <><Download className="w-4 h-4" /> CSV</>}
+                </button>
+                <button
+                  onClick={handleExportPdf}
+                  disabled={exportingPdf}
+                  className="py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {exportingPdf
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Opening…</>
+                    : <><Printer className="w-4 h-4" /> PDF</>}
+                </button>
+              </div>
             </div>
 
             {earningsHistory.length > 0 ? (

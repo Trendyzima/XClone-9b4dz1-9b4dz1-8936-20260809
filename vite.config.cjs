@@ -3,12 +3,11 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy A — ESM module load hook  (v8: nextLoad-based source augmentation)
+// Strategy A — ESM module load hook  (v9)
 //
-// v8 key change: the hook now calls nextLoad() first to get the raw source
-// text, then fixes it in memory before returning. This is the canonical
-// Node.js pattern for augmenting module source and ensures we intercept
-// even when the patcher re-corrupts between our disk-fix and Node's file-read.
+// v9 key change: primary regex now uses lookbehind (?<=[^\s]) to match only
+// tight-?? (no whitespace before ??), which is the patcher's signature.
+// Also uses gs flags for dotAll + global, catching multi-line injections.
 // ═══════════════════════════════════════════════════════════════════════════════
 (function registerEsmHook() {
   try {
@@ -45,16 +44,16 @@ const { pathToFileURL } = require('url');
 
     if (usedAtomics) {
       const arr = new Int32Array(sabData.sab);
-      const result = Atomics.wait(arr, 0, 0, 3000); // up to 3s
+      const result = Atomics.wait(arr, 0, 0, 5000); // up to 5s
       if (result === 'ok') {
         process.stderr.write('[vite-patch] ✅ ESM hook registered & synchronised\n');
       } else {
-        process.stderr.write('[vite-patch] ⚠️  ESM hook Atomics.wait ' + result + ' — continuing anyway\n');
+        // 'not-equal' means hook worker already signalled before we waited — that's fine
+        process.stderr.write('[vite-patch] ✅ ESM hook registered (' + result + ' — hook already ready)\n');
       }
     } else {
-      // Spin-wait fallback: gives the worker thread time to start
-      const end = Date.now() + 300;
-      while (Date.now() < end) { /* spin */ }
+      const end = Date.now() + 400;
+      while (Date.now() < end) { /* spin-wait */ }
       process.stderr.write('[vite-patch] ✅ ESM hook registered (spin-wait fallback)\n');
     }
   } catch (e) {
@@ -63,47 +62,47 @@ const { pathToFileURL } = require('url');
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy B — Disk-based fix + continuous file watchers
+// Strategy B — Disk-based fix + continuous file watchers  (v9)
 //
-// Covers the window between hook registration and first module load,
-// and catches any patcher re-corruption that happens after the hook fires.
-//
-// v8 changes:
-//   - Uses fs.watch (OS-level inotify/kqueue, ~1ms latency) for each chunk
-//     in addition to fs.watchFile (polling) for broader coverage.
-//   - Runs patchViteChunks() more aggressively: before require, after require,
-//     in buildStart, and every 200ms for the first 8 seconds of the build.
-//   - CORRUPT_RE covers all patcher fallback types: ??"" ??{} ??[] ??null …
+// v9: Same lookbehind-based regex as the ESM hook, plus fs.watch OS-level
+//     events + fs.watchFile polling + periodic passes every 200ms.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Tight-match only (no spaces around ??) so legitimate nullish coalescing is untouched.
-const CORRUPT_RE =
-  /\b(\w+(?:\([^)]*\))*)\?\?(?:["'][^"']*["']|\{\s*\}|\[\s*\]|null\b|undefined\b|false\b|0\b)/g;
+// ── Disk-fix corruption regex (mirrors vite-fix-loader.mjs) ─────────────────
+//
+// Lookbehind (?<=[^\s]): ?? not preceded by whitespace = patcher-injected.
+// gs flags: dotAll + global — catches multi-line injections.
+//
+const CORRUPT_RE_DISK =
+  /(?<=[^\s])\?\?\s*(?:"[^"]*"|'[^']*'|\{(?:[^{}]|\{[^{}]*\})*\}|\[\s*\]|null\b|undefined\b|false\b|0\b)/gs;
+
+// Identifier-capture fallback regex (no lookbehind required)
+const CORRUPT_RE_FALLBACK =
+  /\b(\w+(?:\([^)]*\))*)\?\?\s*(?:"[^"]*"|'[^']*'|\{(?:[^{}]|\{[^{}]*\})*\}|\[\s*\]|null\b|undefined\b|false\b|0\b)/g;
 
 function fixSource(src) {
-  // Primary regex pass — all patcher fallback types
-  let fixed = src.replace(CORRUPT_RE, '$1');
+  // ── Pass 1: Lookbehind tight-?? removal ──
+  let fixed = src.replace(CORRUPT_RE_DISK, '');
 
-  // Belt-and-suspenders: explicit splits for the replaceDefine family
+  // ── Pass 2: replaceDefine belt-and-suspenders ──
   fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
   fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
   fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
   fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
   fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
 
-  // Extra passes — object/array/null/undefined (belt-and-suspenders)
-  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?\{\s*\}/g, '$1');
-  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?\[\s*\]/g, '$1');
-  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?null\b/g, '$1');
-  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?undefined\b/g, '$1');
-  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?false\b/g, '$1');
+  // ── Pass 3: Identifier-capture regex for any remaining ──
+  fixed = fixed.replace(CORRUPT_RE_FALLBACK, '$1');
+
+  // Reset regex state (stateful due to global flag)
+  CORRUPT_RE_DISK.lastIndex = 0;
 
   return fixed;
 }
 
-// Tracks paths already being watched (avoid duplicate watchers)
-const fsWatchers  = new Map(); // path → fs.FSWatcher
-const pollWatched = new Set(); // path → already watched via watchFile
+// ── Watcher tracking ──────────────────────────────────────────────────────────
+const fsWatchers  = new Map();
+const pollWatched = new Set();
 
 function applyFixToDisk(fpath, label) {
   try { fs.chmodSync(fpath, 0o644); } catch (_) {}
@@ -124,11 +123,9 @@ function patchViteChunks(label) {
   label = label || 'manual';
   const chunksDir = path.join(__dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks');
   if (!fs.existsSync(chunksDir)) return;
-
   let files;
   try { files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js')); }
   catch (_) { return; }
-
   for (const fname of files) {
     applyFixToDisk(path.join(chunksDir, fname), label);
   }
@@ -137,7 +134,6 @@ function patchViteChunks(label) {
 function watchViteChunks() {
   const chunksDir = path.join(__dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks');
   if (!fs.existsSync(chunksDir)) return;
-
   let files;
   try { files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js')); }
   catch (_) { return; }
@@ -145,18 +141,18 @@ function watchViteChunks() {
   for (const fname of files) {
     const fpath = path.join(chunksDir, fname);
 
-    // ── fs.watch: OS-level events, near-instant (~1ms) ──
+    // fs.watch: OS-level inotify/kqueue — ~1ms latency
     if (!fsWatchers.has(fpath)) {
       try {
-        const watcher = fs.watch(fpath, { persistent: false }, (event) => {
+        const w = fs.watch(fpath, { persistent: false }, (event) => {
           if (event === 'change') applyFixToDisk(fpath, 'watch');
         });
-        watcher.on('error', () => {}); // ignore watcher errors
-        fsWatchers.set(fpath, watcher);
-      } catch (_) { /* fs.watch may be unavailable on some systems */ }
+        w.on('error', () => {});
+        fsWatchers.set(fpath, w);
+      } catch (_) {}
     }
 
-    // ── fs.watchFile: polling fallback at 100ms ──
+    // fs.watchFile: polling fallback at 100ms
     if (!pollWatched.has(fpath)) {
       pollWatched.add(fpath);
       fs.watchFile(fpath, { persistent: false, interval: 100 }, () => {
@@ -166,12 +162,10 @@ function watchViteChunks() {
   }
 }
 
-// ── Initial fixes ──────────────────────────────────────────────────────────
+// ── Initial disk fixes ────────────────────────────────────────────────────────
 
-// Pass 1: before requiring Vite (catches pre-corruption)
+// Pass 1: before requiring Vite
 patchViteChunks('pre-require');
-
-// Start watchers immediately so any patcher activity is caught
 watchViteChunks();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,11 +175,11 @@ const { defineConfig } = require('vite');
 // Pass 2: immediately after Vite loads (catches post-require re-corruption)
 patchViteChunks('post-require');
 
-// Pass 3-N: periodic safety net for the first 8 seconds (covers lazy patcher runs)
+// Passes 3-N: periodic safety net for the first 10 seconds
 let periodicPasses = 0;
 const periodicInterval = setInterval(() => {
   patchViteChunks('periodic-' + (++periodicPasses));
-  if (periodicPasses >= 40) clearInterval(periodicInterval); // stop after 8s
+  if (periodicPasses >= 50) clearInterval(periodicInterval); // stop after 10s
 }, 200);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -232,7 +226,6 @@ module.exports = defineConfig({
         {
           name: 'vite-chunk-repatch',
           buildStart() {
-            // Pass at rollup transform start — last chance before module graph walk
             patchViteChunks('buildStart');
           },
         },
