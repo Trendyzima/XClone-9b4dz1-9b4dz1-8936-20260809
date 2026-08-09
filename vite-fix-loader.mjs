@@ -1,28 +1,28 @@
 /**
- * vite-fix-loader.mjs  v6
+ * vite-fix-loader.mjs  v7
  *
  * Node.js ESM load hook — registered via module.register() in vite.config.cjs.
  *
- * KEY CHANGES over v5:
- *   - Only intercept files that ACTUALLY contain ?? corruption.
- *     Previously we returned shortCircuit:true for EVERY /vite/dist/node/ file,
- *     which caused Node to mis-classify format on clean/CJS chunk files, potentially
- *     breaking the hook chain silently.
- *   - Clean files now pass through to nextLoad() normally so format detection works.
- *   - Atomics signalling is kept as an optional fast-path; if SharedArrayBuffer
- *     transfer fails the hook still works (just without the sync guarantee).
- *   - Expanded CORRUPT_RE handles  identifier()??""  and  identifier(a,b)??""  patterns.
+ * KEY CHANGES over v6:
+ *   - Extended CORRUPT_RE to handle ALL patcher fallback types:
+ *       ??"string"  ??''  ??{}  ??[]  ??null  ??undefined  ??false  ??0
+ *     Previously only quoted-string fallbacks were matched, so ??{} corruption
+ *     (which causes "Unexpected token '{'" at toJSON() etc.) was not fixed.
  */
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-// Matches patcher-injected ?? corruption (no spaces around ?? to avoid touching
-// legitimate  value ?? "default"  nullish coalescing expressions):
-//   identifier??"string"           →  identifier
-//   identifier()??"string"         →  identifier()
-//   identifier(a, b)??"string"     →  identifier(a, b)
-const CORRUPT_RE = /\b(\w+(?:\([^)]*\))*)\?\?["'][^"']*["']/g;
+// Matches patcher-injected ?? corruption — tight syntax (NO spaces around ??)
+// so we never accidentally touch legitimate  value ?? "default"  expressions.
+//
+// Patcher injects these after identifiers / calls in parameter lists:
+//   identifier??"string"   identifier()??"str"   (quoted strings)
+//   identifier??{}         identifier()??{}       (empty object  — NEW in v7)
+//   identifier??[]         identifier()??[]       (empty array   — NEW in v7)
+//   identifier??null       identifier??undefined  (null/undef    — NEW in v7)
+const CORRUPT_RE =
+  /\b(\w+(?:\([^)]*\))*)\?\?(?:["'][^"']*["']|\{\s*\}|\[\s*\]|null\b|undefined\b|false\b|0\b)/g;
 
 function applyFix(source) {
   let fixed = source.replace(CORRUPT_RE, '$1');
@@ -34,6 +34,12 @@ function applyFix(source) {
   fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
   fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
   fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
+
+  // Belt-and-suspenders for ??{} variants in known problem spots
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?\{\s*\}/g, '$1');
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?\[\s*\]/g, '$1');
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?null\b/g, '$1');
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?undefined\b/g, '$1');
 
   return fixed;
 }
@@ -50,7 +56,6 @@ export function initialize(data) {
       Atomics.notify(arr, 0, Infinity);
       process.stderr.write('[vite-fix] ✅ hook worker signalled main thread\n');
     } else {
-      // No SAB passed — just log that we are alive
       process.stderr.write('[vite-fix] ✅ hook worker initialized (no SAB)\n');
     }
   } catch (e) {
@@ -66,21 +71,19 @@ export async function load(url, context, nextLoad) {
     return nextLoad(url, context);
   }
 
-  // Read the raw bytes from disk so we can inspect for corruption
+  // Read raw source from disk
   let source;
   try {
     source = readFileSync(fileURLToPath(url), 'utf8');
   } catch (e) {
-    // Can't read → let nextLoad handle it (will likely also fail, but that's the
-    // correct error to surface rather than a confusing hook failure)
     process.stderr.write('[vite-fix] ⚠️ readFileSync failed: ' + e.message + '\n');
     return nextLoad(url, context);
   }
 
-  // ── KEY CHANGE: only short-circuit when corruption is actually present ─────
-  // For clean files we call nextLoad() normally so Node can auto-detect format
-  // (CommonJS vs ESM) without us guessing wrong.
-  if (!source.includes('??')) {
+  // Only intercept when corruption is present — check for tight ?? sequences
+  // (patcher never adds spaces, so  identifier??  without spaces = corruption)
+  const hasCorruption = /\w\?\?["'{}\[n]/.test(source);
+  if (!hasCorruption) {
     return nextLoad(url, context);
   }
 
@@ -90,20 +93,18 @@ export async function load(url, context, nextLoad) {
     process.stderr.write(
       '[vite-fix] 🔧 patched ?? corruption in ' + url.split('/').pop() + '\n'
     );
-  } else {
-    // Contains '??' but our regex didn't match — might be legitimate code.
-    // Fall back to nextLoad so we don't force the wrong format.
-    process.stderr.write(
-      '[vite-fix] ℹ️  ?? found but no patcher pattern matched in ' +
-        url.split('/').pop() + ' — passing through\n'
-    );
-    return nextLoad(url, context);
+    return {
+      shortCircuit: true,
+      format: 'module',   // Vite's dist/node chunks are always ESM
+      source: fixed,
+    };
   }
 
-  // Return the in-memory fixed source, bypassing the (potentially corrupted) disk file.
-  return {
-    shortCircuit: true,
-    format: 'module',   // Vite's dist/node chunks are always ESM
-    source: fixed,
-  };
+  // Contains tight ?? but our regex didn't match → might be legit edge case.
+  // Log and fall through to nextLoad so we don't accidentally break anything.
+  process.stderr.write(
+    '[vite-fix] ℹ️  tight ?? found but no pattern matched in ' +
+      url.split('/').pop() + ' — passing through\n'
+  );
+  return nextLoad(url, context);
 }

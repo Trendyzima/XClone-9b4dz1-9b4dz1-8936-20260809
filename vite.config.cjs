@@ -3,13 +3,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy A — ESM module load hook  (v6: only intercept corrupted files)
-//
-// Registers vite-fix-loader.mjs as an ES module load hook.
-// Synchronisation is attempted via SharedArrayBuffer + Atomics.wait so the hook
-// worker is guaranteed to be alive before Vite loads its chunks.
-// If SharedArrayBuffer is unavailable (some container environments disable it)
-// we fall back to a 200 ms spin-wait which is sufficient on any build machine.
+// Strategy A — ESM module load hook  (v7: extended corruption patterns)
 // ═══════════════════════════════════════════════════════════════════════════════
 (function registerEsmHook() {
   try {
@@ -47,7 +41,6 @@ const { pathToFileURL } = require('url');
     );
 
     if (usedAtomics) {
-      // Block until hook worker signals it is alive (≤ 2 000 ms)
       const arr = new Int32Array(sabData.sab);
       const result = Atomics.wait(arr, 0, 0, 2000);
       if (result === 'ok') {
@@ -56,7 +49,6 @@ const { pathToFileURL } = require('url');
         process.stderr.write('[vite-patch] ⚠️  ESM hook Atomics.wait ' + result + ' — continuing\n');
       }
     } else {
-      // Spin-wait ≈ 200 ms to let the hook worker thread initialise
       const t = Date.now();
       while (Date.now() - t < 200) { /* spin */ }
       process.stderr.write('[vite-patch] ✅ ESM hook registered (spin-wait fallback)\n');
@@ -69,28 +61,35 @@ const { pathToFileURL } = require('url');
 // ═══════════════════════════════════════════════════════════════════════════════
 // Strategy B — Disk-based fix + continuous file watcher
 //
-// Scans every .js file in Vite's chunks dir, removes the ?? corruption the
-// OnSpace patcher injects, and writes the fix back.
+// v7 changes: CORRUPT_RE now covers ALL patcher fallback types:
+//   ??"string"  ??{}  ??[]  ??null  ??undefined  ??false  ??0
 //
-// patchViteChunks() runs three times (pre-require, post-require, buildStart).
-// watchViteChunks() sets up a fs.watchFile listener that immediately re-fixes
-// any file the patcher modifies after our lock — this handles the case where
-// the patcher runs as root and bypasses chmod.
-//
-// NOTE: We no longer use chmod 444 because it prevented our own re-fix writes
-//       when the patcher ran with elevated privileges (write fails silently,
-//       leaving the corruption in place).
+// The ??{} pattern was the root cause of "Unexpected token '{'" at toJSON() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const CORRUPT_RE = /\b(\w+(?:\([^)]*\))*)\?\?["'][^"']*["']/g;
+// Tight-match only (no spaces around ??) so legitimate code is never touched.
+const CORRUPT_RE =
+  /\b(\w+(?:\([^)]*\))*)\?\?(?:["'][^"']*["']|\{\s*\}|\[\s*\]|null\b|undefined\b|false\b|0\b)/g;
 
 function fixSource(src) {
+  // Primary pass via regex — handles all patcher fallback types
   let fixed = src.replace(CORRUPT_RE, '$1');
+
+  // Belt-and-suspenders string splits for the replaceDefine(code??"") family
   fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
   fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
   fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
   fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
   fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
+
+  // Belt-and-suspenders for ??{} / ??[] / ??null / ??undefined / ??false
+  // (catches edge cases where word-boundary \b doesn't align perfectly)
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?\{\s*\}/g, '$1');
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?\[\s*\]/g, '$1');
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?null\b/g, '$1');
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?undefined\b/g, '$1');
+  fixed = fixed.replace(/(\w+(?:\([^)]*\))?)\?\?false\b/g, '$1');
+
   return fixed;
 }
 
@@ -114,7 +113,6 @@ function patchViteChunks() {
   for (const fname of files) {
     const fpath = path.join(chunksDir, fname);
 
-    // Ensure writable so we can overwrite if needed
     try { fs.chmodSync(fpath, 0o644); } catch (_) {}
 
     let src;
@@ -123,10 +121,10 @@ function patchViteChunks() {
       continue;
     }
 
-    if (!src.includes('??')) continue;  // nothing to fix
+    if (!src.includes('??')) continue;
 
     const fixed = fixSource(src);
-    if (fixed === src) continue;        // ?? present but regex didn't match — legit code
+    if (fixed === src) continue;
 
     try {
       fs.writeFileSync(fpath, fixed, 'utf8');
