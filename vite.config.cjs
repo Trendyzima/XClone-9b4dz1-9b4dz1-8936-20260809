@@ -145,7 +145,13 @@ module.exports = defineConfig({
         {
           name: 'fix-esm-cjs-react-interop',
           transform(code, id) {
-            if (!id.includes('node_modules') || !id.endsWith('.mjs')) return null;
+            // Apply to:
+            //   • .mjs files inside node_modules (radix-ui etc.)
+            //   • Any source TS/JS file — after Vite's esbuild pre-transform
+            //     adds `import { jsx } from 'react/jsx-runtime'` for JSX files
+            const isNodeMjs    = id.includes('node_modules') && id.endsWith('.mjs');
+            const isSourceFile = !id.includes('node_modules') && /\.(tsx?|jsx?)$/.test(id);
+            if (!isNodeMjs && !isSourceFile) return null;
 
             let modified = code;
             let changed   = false;
