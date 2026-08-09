@@ -3,7 +3,155 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy A — ESM module load hook  (v10)
+// fixTightDoubleQuestion(src)  — shared by ALL strategies
+//
+// Character-by-character scanner that removes tight-?? injections:
+//   identifier??""     identifier??{}     identifier??[]
+//   identifier??null   identifier??undefined   identifier??false   identifier??0
+//   identifier??\n     (end-of-line injection)
+//
+// Handles ARBITRARY brace nesting depth and is string-literal aware.
+// ═══════════════════════════════════════════════════════════════════════════════
+function fixTightDoubleQuestion(src) {
+  const n = src.length;
+  let out = '';
+  let i = 0;
+
+  while (i < n) {
+    if (
+      src[i] === '?' &&
+      i + 1 < n && src[i + 1] === '?' &&
+      i > 0 && !/[\s]/.test(src[i - 1])
+    ) {
+      let j = i + 2;
+      while (j < n && (src[j] === ' ' || src[j] === '\t')) j++; // skip horiz whitespace
+
+      let endPos = -1;
+
+      if (j >= n) {
+        endPos = i + 2;                          // ?? at end of file
+      } else {
+        const c = src[j];
+
+        if (c === '\r' || c === '\n') {
+          endPos = i + 2;                        // ?? at end of line — remove only ??
+
+        } else if (c === '{') {
+          // Brace-count with string awareness — handles arbitrary depth
+          let depth = 1, k = j + 1;
+          let inStr = false, strCh = '';
+          while (k < n && depth > 0) {
+            const cc = src[k];
+            if (inStr) {
+              if (cc === '\\') k++;
+              else if (cc === strCh) inStr = false;
+            } else {
+              if (cc === '"' || cc === "'" || cc === '`') { inStr = true; strCh = cc; }
+              else if (cc === '{') depth++;
+              else if (cc === '}') depth--;
+            }
+            k++;
+          }
+          if (depth === 0) endPos = k;
+
+        } else if (c === '"' || c === "'") {
+          const q = c;
+          let k = j + 1;
+          while (k < n && src[k] !== q) { if (src[k] === '\\') k++; k++; }
+          if (k < n) endPos = k + 1;
+
+        } else if (c === '[') {
+          let k = j + 1;
+          while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
+          if (k < n && src[k] === ']') endPos = k + 1;
+
+        } else {
+          const rest = src.slice(j);
+          const m = rest.match(/^(null|undefined|false|0)(?!\w)/);
+          if (m) endPos = j + m[1].length;
+        }
+      }
+
+      if (endPos >= 0) { i = endPos; }
+      else { out += src[i]; i++; }
+      continue;
+    }
+
+    out += src[i];
+    i++;
+  }
+
+  return out;
+}
+
+function fixSource(src) {
+  if (!src.includes('??')) return src;
+
+  // Pass 1: JIT character-by-character scanner
+  let fixed = fixTightDoubleQuestion(src);
+
+  // Pass 2: replaceDefine-specific belt-and-suspenders
+  fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
+  fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
+  fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
+  fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
+  fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
+
+  // Pass 3: regex sweep for remaining simple tight-?? patterns
+  fixed = fixed.replace(
+    /(?<=[^\s])\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
+    ''
+  );
+
+  // Pass 4: identifier-capture fallback
+  fixed = fixed.replace(
+    /\b(\w+(?:\([^)]*\))*)\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
+    '$1'
+  );
+
+  return fixed;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Strategy C — Module.prototype._compile JIT intercept  (NEW — PRIMARY DEFENSE)
+//
+// ROOT CAUSE: dep-C6uTJdX2.js is loaded via CJS require(), NOT ESM import.
+// Our ESM load hook is therefore NEVER called for this file.
+// The disk watcher loses the timing race: patcher can corrupt the file
+// between our last disk-fix pass and the moment require() reads it.
+//
+// THIS hook fires synchronously inside every CJS module compilation,
+// just BEFORE V8 parses the source — no timing race is possible.
+// It works regardless of when the patcher wrote the corruption to disk.
+// ═══════════════════════════════════════════════════════════════════════════════
+(function installCompileHook() {
+  try {
+    const Module = require('module');
+    const _orig = Module.prototype._compile;
+    Module.prototype._compile = function _compileWithFix(content, filename) {
+      if (
+        filename &&
+        filename.includes('/vite/dist/node/') &&
+        content.includes('??')
+      ) {
+        const fixed = fixSource(content);
+        if (fixed !== content) {
+          process.stderr.write(
+            '[vite-patch] 🔧 JIT _compile patched ' + path.basename(filename) + '\n'
+          );
+          return _orig.call(this, fixed, filename);
+        }
+      }
+      return _orig.call(this, content, filename);
+    };
+    process.stderr.write('[vite-patch] ✅ Module._compile JIT hook installed\n');
+  } catch (e) {
+    process.stderr.write('[vite-patch] ❌ Module._compile hook failed: ' + e.message + '\n');
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Strategy A — ESM module load hook  (handles ESM-imported vite internals)
 // ═══════════════════════════════════════════════════════════════════════════════
 (function registerEsmHook() {
   try {
@@ -15,7 +163,7 @@ const { pathToFileURL } = require('url');
 
     const hookFile = path.join(__dirname, 'vite-fix-loader.mjs');
     if (!fs.existsSync(hookFile)) {
-      process.stderr.write('[vite-patch] ⚠️  vite-fix-loader.mjs not found — skipping hook\n');
+      process.stderr.write('[vite-patch] ⚠️  vite-fix-loader.mjs not found — skipping ESM hook\n');
       return;
     }
 
@@ -55,119 +203,8 @@ const { pathToFileURL } = require('url');
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy B — Disk-based fix + continuous file watchers  (v10)
-//
-// Uses the same character-by-character brace-counting approach as the ESM hook.
+// Strategy B — Disk-based fix + continuous file watchers  (backup layer)
 // ═══════════════════════════════════════════════════════════════════════════════
-
-// ─────────────────────────────────────────────────────────────────────────────
-// fixTightDoubleQuestion(src)
-// Mirrors the function in vite-fix-loader.mjs exactly.
-// ─────────────────────────────────────────────────────────────────────────────
-function fixTightDoubleQuestion(src) {
-  const n = src.length;
-  let out = '';
-  let i = 0;
-
-  while (i < n) {
-    if (
-      src[i] === '?' &&
-      i + 1 < n && src[i + 1] === '?' &&
-      i > 0 && !/[\s]/.test(src[i - 1])
-    ) {
-      let j = i + 2;
-      // Skip horizontal whitespace only
-      while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
-
-      let endPos = -1;
-
-      if (j >= n) {
-        endPos = i + 2; // ?? at end of file
-      } else {
-        const c = src[j];
-
-        if (c === '\r' || c === '\n') {
-          // ?? at end of line — remove only the ??
-          endPos = i + 2;
-        } else if (c === '{') {
-          // Brace counting with string awareness
-          let depth = 1, k = j + 1;
-          let inStr = false, strCh = '';
-          while (k < n && depth > 0) {
-            const cc = src[k];
-            if (inStr) {
-              if (cc === '\\') k++;
-              else if (cc === strCh) inStr = false;
-            } else {
-              if (cc === '"' || cc === "'" || cc === '`') { inStr = true; strCh = cc; }
-              else if (cc === '{') depth++;
-              else if (cc === '}') depth--;
-            }
-            k++;
-          }
-          if (depth === 0) endPos = k;
-        } else if (c === '"' || c === "'") {
-          const q = c;
-          let k = j + 1;
-          while (k < n && src[k] !== q) {
-            if (src[k] === '\\') k++;
-            k++;
-          }
-          if (k < n) endPos = k + 1;
-        } else if (c === '[') {
-          let k = j + 1;
-          while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
-          if (k < n && src[k] === ']') endPos = k + 1;
-        } else {
-          const rest = src.slice(j);
-          const m = rest.match(/^(null|undefined|false|0)(?!\w)/);
-          if (m) endPos = j + m[1].length;
-        }
-      }
-
-      if (endPos >= 0) {
-        i = endPos;
-      } else {
-        out += src[i];
-        i++;
-      }
-      continue;
-    }
-
-    out += src[i];
-    i++;
-  }
-
-  return out;
-}
-
-function fixSource(src) {
-  // Pass 1: character-by-character removal (handles arbitrary brace nesting)
-  let fixed = fixTightDoubleQuestion(src);
-
-  // Pass 2: replaceDefine belt-and-suspenders
-  fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
-  fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
-  fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
-  fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
-  fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
-
-  // Pass 3: regex sweep for any remaining simple patterns
-  fixed = fixed.replace(
-    /(?<=[^\s])\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
-    ''
-  );
-
-  // Pass 4: identifier-capture fallback
-  fixed = fixed.replace(
-    /\b(\w+(?:\([^)]*\))*)\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
-    '$1'
-  );
-
-  return fixed;
-}
-
-// ── Watcher tracking ─────────────────────────────────────────────────────────
 const fsWatchers  = new Map();
 const pollWatched = new Set();
 
@@ -191,24 +228,18 @@ function patchViteChunks(label) {
   const chunksDir = path.join(__dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks');
   if (!fs.existsSync(chunksDir)) return;
   let files;
-  try { files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js')); }
-  catch (_) { return; }
-  for (const fname of files) {
-    applyFixToDisk(path.join(chunksDir, fname), label);
-  }
+  try { files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js')); } catch (_) { return; }
+  for (const fname of files) applyFixToDisk(path.join(chunksDir, fname), label);
 }
 
 function watchViteChunks() {
   const chunksDir = path.join(__dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks');
   if (!fs.existsSync(chunksDir)) return;
   let files;
-  try { files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js')); }
-  catch (_) { return; }
+  try { files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js')); } catch (_) { return; }
 
   for (const fname of files) {
     const fpath = path.join(chunksDir, fname);
-
-    // fs.watch: OS-level inotify/kqueue (~1ms latency)
     if (!fsWatchers.has(fpath)) {
       try {
         const w = fs.watch(fpath, { persistent: false }, (event) => {
@@ -218,8 +249,6 @@ function watchViteChunks() {
         fsWatchers.set(fpath, w);
       } catch (_) {}
     }
-
-    // fs.watchFile: polling fallback at 100ms
     if (!pollWatched.has(fpath)) {
       pollWatched.add(fpath);
       fs.watchFile(fpath, { persistent: false, interval: 100 }, () => {
@@ -229,7 +258,6 @@ function watchViteChunks() {
   }
 }
 
-// ── Initial disk fixes ───────────────────────────────────────────────────────
 patchViteChunks('pre-require');
 watchViteChunks();
 
@@ -239,7 +267,7 @@ const { defineConfig } = require('vite');
 
 patchViteChunks('post-require');
 
-// Periodic passes for the first 4 seconds
+// Periodic passes — belt-and-suspenders backup
 let periodicPasses = 0;
 const periodicInterval = setInterval(() => {
   patchViteChunks('periodic-' + (++periodicPasses));
