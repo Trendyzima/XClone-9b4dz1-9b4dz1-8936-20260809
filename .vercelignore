@@ -9,4 +9,5 @@ components/
 node_modules/
 supabase/migrations/
 vite-fix-loader.mjs
+.esm-hook.mjs
 README.md
