@@ -135,6 +135,66 @@ serve(async (req) => {
       }
     }
 
+    // ── Leaderboard #1 Push Alert ─────────────────────────────────────────
+    // Check once per run whether the top-follower user has changed.
+    // Store the last-known #1 in platform_settings to avoid spam.
+    try {
+      const { data: topUsers } = await supabaseAdmin
+        .from('user_profiles')
+        .select('id, username, followers_count')
+        .order('followers_count', { ascending: false })
+        .limit(1);
+
+      const topUser = topUsers?.[0];
+      if (topUser) {
+        const settingKey = 'leaderboard_top_follower';
+        const { data: prevSetting } = await supabaseAdmin
+          .from('platform_settings')
+          .select('setting_value')
+          .eq('setting_key', settingKey)
+          .maybeSingle();
+
+        const prevTopId: string | null = prevSetting?.setting_value?.user_id ?? null;
+        const lastAlerted: string | null = prevSetting?.setting_value?.last_alerted ?? null;
+
+        // Alert if: new #1 changed, OR same #1 but hasn't been alerted in past 7 days
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const shouldAlert =
+          topUser.id !== prevTopId ||
+          !lastAlerted ||
+          lastAlerted < sevenDaysAgo;
+
+        if (shouldAlert) {
+          await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-push-notification`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            },
+            body: JSON.stringify({
+              user_id: topUser.id,
+              title: '🏆 You\'re #1 on the Leaderboard!',
+              body: `Congrats @${topUser.username}! You\'re the most-followed creator on Tsocial with ${topUser.followers_count?.toLocaleString()} followers.`,
+              data: { route: '/leaderboard', type: 'leaderboard_rank1' },
+            }),
+          });
+
+          // Persist new #1
+          await supabaseAdmin.from('platform_settings').upsert(
+            {
+              setting_key: settingKey,
+              setting_value: { user_id: topUser.id, username: topUser.username, last_alerted: now },
+            },
+            { onConflict: 'setting_key' }
+          );
+
+          console.log(`[auto-payout] 🏆 Leaderboard #1 alert sent to @${topUser.username}`);
+        }
+      }
+    } catch (lbErr: any) {
+      console.error('[auto-payout] Leaderboard alert error:', lbErr.message);
+    }
+
     return new Response(JSON.stringify({ processed, total: schedules.length, results }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

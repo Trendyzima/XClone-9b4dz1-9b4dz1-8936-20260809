@@ -149,9 +149,14 @@ module.exports = defineConfig({
             //   • .mjs files inside node_modules (radix-ui etc.)
             //   • Any source TS/JS file — after Vite's esbuild pre-transform
             //     adds `import { jsx } from 'react/jsx-runtime'` for JSX files
-            const isNodeMjs    = id.includes('node_modules') && id.endsWith('.mjs');
-            const isSourceFile = !id.includes('node_modules') && /\.(tsx?|jsx?)$/.test(id);
-            if (!isNodeMjs && !isSourceFile) return null;
+            const inNodeModules = id.includes('node_modules');
+            // ESM packages: .mjs anywhere, OR .js files inside an /esm/ subdirectory
+            // (e.g. lucide-react/dist/esm/*.js, @radix-ui/.mjs, etc.)
+            const isNodeMjs    = inNodeModules && id.endsWith('.mjs');
+            const isNodeEsmJs  = inNodeModules && id.endsWith('.js') &&
+                                  (/\/esm\//.test(id) || /\/dist\/esm/.test(id) || /\/es\//.test(id));
+            const isSourceFile = !inNodeModules && /\.(tsx?|jsx?)$/.test(id);
+            if (!isNodeMjs && !isNodeEsmJs && !isSourceFile) return null;
 
             let modified = code;
             let changed   = false;
