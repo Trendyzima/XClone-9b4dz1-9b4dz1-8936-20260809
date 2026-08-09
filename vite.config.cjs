@@ -4,11 +4,6 @@ const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Strategy A — ESM module load hook (in-memory, fires right before V8 compiles)
-//
-// OnSpace's patcher re-corrupts dep-*.js on disk after our previous disk-fix ran,
-// so a disk-only approach loses the race.  A Node.js load hook intercepts the
-// source text AFTER the file is read but BEFORE Node.js parses it, so it works
-// regardless of what's on disk at that moment.
 // ═══════════════════════════════════════════════════════════════════════════════
 try {
   const nodeModule = require('module');
@@ -16,15 +11,15 @@ try {
     const hookFile = path.join(__dirname, 'vite-fix-loader.mjs');
     if (fs.existsSync(hookFile)) {
       nodeModule.register(pathToFileURL(hookFile).href);
-      process.stderr.write('[vite-patch] ✅ ESM load hook registered\n');
+      process.stderr.write('[vite-patch] \u2705 ESM load hook registered\n');
     } else {
-      process.stderr.write('[vite-patch] ⚠️  vite-fix-loader.mjs not found – skipping hook\n');
+      process.stderr.write('[vite-patch] \u26a0\ufe0f  vite-fix-loader.mjs not found \u2013 skipping hook\n');
     }
   } else {
-    process.stderr.write('[vite-patch] ℹ️  module.register not available (Node < 20.6)\n');
+    process.stderr.write('[vite-patch] \u2139\ufe0f  module.register not available (Node < 20.6)\n');
   }
 } catch (e) {
-  process.stderr.write('[vite-patch] ❌ ESM hook registration failed: ' + e.message + '\n');
+  process.stderr.write('[vite-patch] \u274c ESM hook registration failed: ' + e.message + '\n');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -77,28 +72,25 @@ function patchViteChunks() {
 
     if (fixed === src) continue;
 
-    // Make writable first (patcher may install the file as read-only 0444)
     try { fs.chmodSync(fpath, 0o644); } catch (e) {
       process.stderr.write('[vite-patch] chmod error for ' + fname + ': ' + e.message + '\n');
     }
 
     try {
       fs.writeFileSync(fpath, fixed, 'utf8');
-      process.stderr.write('[vite-patch] 💾 disk-fixed ' + fname + '\n');
+      process.stderr.write('[vite-patch] \ud83d\udcbe disk-fixed ' + fname + '\n');
     } catch (e) {
       process.stderr.write('[vite-patch] write error for ' + fname + ': ' + e.message + '\n');
     }
   }
 }
 
-// Run before require('vite') in case file is already corrupted from a prior run
 patchViteChunks();
 
 // ─────────────────────────────────────────────────────────────────────────────
 const { defineConfig } = require('vite');
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Run again after require('vite') — the patcher may trigger during CJS loading
 patchViteChunks();
 
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
@@ -140,23 +132,71 @@ module.exports = defineConfig({
     },
     rollupOptions: {
       plugins: [
-        // Zustand's ESM does `import React from 'react'` but React only ships CJS.
-        // Rollup's static linker fails before interop kicks in, so we rewrite
-        // the import to a namespace import (`import * as React`) which always works.
+        // Rollup's static linker fails before interop runs when .mjs files in
+        // node_modules import from CJS React packages (react, react/jsx-runtime…).
+        //
+        // Fix 1: default imports  →  namespace import
+        //   import React from 'react'
+        //   → import * as React from 'react'
+        //
+        // Fix 2: named imports from CJS sub-packages → namespace + destructure
+        //   import { jsx, Fragment as F } from 'react/jsx-runtime'
+        //   → import * as _ci0 from 'react/jsx-runtime'; const { jsx, Fragment: F } = _ci0;
         {
-          name: 'fix-esm-default-imports',
+          name: 'fix-esm-cjs-react-interop',
           transform(code, id) {
-            if (id.includes('node_modules') && id.endsWith('.mjs') &&
-                /import [A-Za-z]+ from ['"](react)['"]/.test(code)) {
-              return {
-                code: code.replace(
-                  /import ([A-Za-z]+) from ['"](react)['"]\s*;?/g,
-                  (_, name) => `import * as ${name} from 'react';`
-                ),
-                map: null,
-              };
+            if (!id.includes('node_modules') || !id.endsWith('.mjs')) return null;
+
+            let modified = code;
+            let changed   = false;
+            let counter   = 0;
+
+            // ── Fix 1: default import from 'react' ──────────────────────────
+            const defaultRe = /import ([A-Za-z_$][A-Za-z0-9_$]*) from ['"]react['"]\s*;?/g;
+            if (defaultRe.test(modified)) {
+              defaultRe.lastIndex = 0;
+              modified = modified.replace(
+                defaultRe,
+                (_, name) => 'import * as ' + name + " from 'react';"
+              );
+              changed = true;
             }
-            return null;
+
+            // ── Fix 2: named imports from CJS React sub-packages ─────────────
+            const CJS_PKGS = [
+              'react/jsx-runtime',
+              'react/jsx-dev-runtime',
+              'react-dom',
+            ];
+
+            for (const pkg of CJS_PKGS) {
+              // Build regex: import { ... } from 'pkg'
+              const escapedPkg = pkg.replace(/\//g, '\\/');
+              const namedRe = new RegExp(
+                'import\\s+\\{([^}]+)\\}\\s+from\\s+[\'"]+' + escapedPkg + '[\'"]+\\s*;?',
+                'g'
+              );
+              // Use a one-shot (non-global) copy for the guard test
+              if (!new RegExp(namedRe.source).test(modified)) continue;
+              namedRe.lastIndex = 0;
+
+              modified = modified.replace(namedRe, function(_, specifiers) {
+                var varName = '_ci' + (counter++);
+                // 'Fragment as Fragment2' → 'Fragment: Fragment2'
+                // 'jsx'                  → 'jsx'
+                var destructured = specifiers.split(',').map(function(s) {
+                  var t = s.trim();
+                  var parts = t.split(/\s+as\s+/);
+                  return parts.length === 2
+                    ? parts[0].trim() + ': ' + parts[1].trim()
+                    : t;
+                }).join(', ');
+                return 'import * as ' + varName + " from '" + pkg + "'; const { " + destructured + ' } = ' + varName + ';';
+              });
+              changed = true;
+            }
+
+            return changed ? { code: modified, map: null } : null;
           },
         },
       ],
