@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles } from 'lucide-react';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
@@ -63,6 +63,12 @@ export default function ProfilePage() {
   // Tip history
   const [tipHistory, setTipHistory] = useState<any[]>([]);
   const [loadingTips, setLoadingTips] = useState(false);
+  // Profile views analytics
+  const [profileViews7d, setProfileViews7d] = useState<number>(0);
+  // Subscription
+  const [showSubscribeDialog, setShowSubscribeDialog] = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
+  const [activeSubscription, setActiveSubscription] = useState<any | null>(null);
   // Tip goal
   const [tipGoal, setTipGoal] = useState<number | null>(null);
   const [currentMonthTips, setCurrentMonthTips] = useState(0);
@@ -88,6 +94,93 @@ export default function ProfilePage() {
     setHighlightStories([]);
     setHighlightStoryIdx(0);
     setHighlightProgress(0);
+  };
+
+  // ── Profile view tracking ──────────────────────────────────────────────────
+  const trackProfileView = async (viewedUserId: string) => {
+    if (!currentUser || currentUser.id === viewedUserId) return; // don't track own views
+    await supabase.from('browsing_history').insert({
+      user_id: currentUser.id,
+      profile_id: viewedUserId,
+      view_type: 'profile',
+    }).catch(() => {}); // non-critical
+  };
+
+  const fetchProfileViews7d = async (userId: string) => {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { count } = await supabase
+      .from('browsing_history')
+      .select('*', { count: 'exact', head: true })
+      .eq('profile_id', userId)
+      .eq('view_type', 'profile')
+      .gte('created_at', sevenDaysAgo);
+    setProfileViews7d(count ?? 0);
+  };
+
+  // ── Subscription helpers ─────────────────────────────────────────────────
+  const fetchSubscription = async (creatorId: string) => {
+    if (!currentUser) return;
+    const { data } = await supabase
+      .from('creator_subscriptions')
+      .select('*')
+      .eq('creator_id', creatorId)
+      .eq('subscriber_id', currentUser.id)
+      .eq('status', 'active')
+      .maybeSingle();
+    setActiveSubscription(data ?? null);
+  };
+
+  const handleSubscribe = async (tier: string, price: number) => {
+    if (!currentUser) { navigate('/auth'); return; }
+    setSubscribing(true);
+    // Deduct from wallet
+    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', {
+      p_user_id: currentUser.id,
+      p_amount: price,
+    });
+    if (deductErr) {
+      toast.error('Insufficient wallet balance. Top up your wallet first.');
+      setSubscribing(false);
+      return;
+    }
+    const expiresAt = new Date();
+    expiresAt.setMonth(expiresAt.getMonth() + 1);
+    const { error } = await supabase.from('creator_subscriptions').upsert({
+      creator_id: profile.id,
+      subscriber_id: currentUser.id,
+      tier,
+      price,
+      status: 'active',
+      expires_at: expiresAt.toISOString(),
+    }, { onConflict: 'creator_id,subscriber_id' });
+    if (error) { toast.error('Subscription failed'); setSubscribing(false); return; }
+    // Credit creator earnings
+    await supabase.from('creator_earnings').insert({
+      user_id: profile.id,
+      source: 'subscription',
+      amount: price,
+      status: 'paid',
+    }).catch(() => {});
+    // Notify creator
+    await supabase.from('notifications').insert({
+      user_id: profile.id,
+      type: 'follow',
+      from_user_id: currentUser.id,
+    }).catch(() => {});
+    toast.success(`Subscribed to @${profile.username} on ${tier} tier!`);
+    setActiveSubscription({ tier, price, status: 'active' });
+    setShowSubscribeDialog(false);
+    setSubscribing(false);
+  };
+
+  const handleUnsubscribe = async () => {
+    if (!currentUser || !profile) return;
+    await supabase.from('creator_subscriptions')
+      .update({ status: 'cancelled' })
+      .eq('creator_id', profile.id)
+      .eq('subscriber_id', currentUser.id);
+    setActiveSubscription(null);
+    toast.success('Subscription cancelled');
   };
 
   const fetchTipGoal = async (userId: string) => {
@@ -358,6 +451,9 @@ export default function ProfilePage() {
         fetchHighlights(profileData.id),
         fetchTipHistory(profileData.id),
         fetchTipGoal(profileData.id),
+        fetchProfileViews7d(profileData.id),
+        fetchSubscription(profileData.id),
+        trackProfileView(profileData.id),
       ]);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -615,7 +711,7 @@ export default function ProfilePage() {
               )}
             </div>
 
-            <div className="flex gap-2 mt-2 flex-wrap">
+            <div className="flex gap-2 mt-2 flex-wrap items-center">
               {isOwnProfile ? (
                 <>
                   <button
@@ -660,6 +756,26 @@ export default function ProfilePage() {
                   >
                     {tipSent ? <Check className="w-4 h-4 text-yellow-500" /> : <DollarSign className="w-4 h-4" />}
                   </button>
+                  {/* Subscribe button — only for creator profiles */}
+                  {profile.is_creator && (
+                    activeSubscription ? (
+                      <button
+                        onClick={handleUnsubscribe}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-600 dark:text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-colors"
+                      >
+                        <Crown className="w-3.5 h-3.5" />
+                        {activeSubscription.tier} · Cancel
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowSubscribeDialog(true)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 text-white text-xs font-bold hover:opacity-90 transition-opacity shadow"
+                      >
+                        <Crown className="w-3.5 h-3.5" />
+                        Subscribe
+                      </button>
+                    )
+                  )}
                   <button
                     onClick={handleShareProfile}
                     className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
@@ -910,6 +1026,21 @@ export default function ProfilePage() {
             </button>
           )}
 
+          {/* ── Creator subscriber count badge ── */}
+          {profile.is_creator && profile.subscriber_count > 0 && (
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 text-xs font-semibold">
+                <Sparkles className="w-3 h-3" />
+                {profile.subscriber_count.toLocaleString()} subscriber{profile.subscriber_count !== 1 ? 's' : ''}
+              </span>
+              {activeSubscription && (
+                <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-500/15 to-pink-500/15 border border-purple-500/20 text-purple-700 dark:text-purple-300 text-xs font-bold">
+                  <Crown className="w-3 h-3" />
+                  {activeSubscription.tier}
+                </span>
+              )}
+            </div>
+          )}
           {/* ── Profile Stats Card ─────────────────────────────── */}
           <div className="flex gap-2 mt-3 flex-wrap">
             {/* Follower rank */}
@@ -952,6 +1083,14 @@ export default function ProfilePage() {
                 <DollarSign className="w-3.5 h-3.5 text-green-600" />
                 <span className="text-xs font-semibold text-green-600">${Number(profile.total_earnings).toFixed(2)}</span>
                 <span className="text-xs text-muted-foreground">earned</span>
+              </div>
+            )}
+            {/* Profile Views (own profile, 7-day) */}
+            {isOwnProfile && profileViews7d > 0 && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-blue-500/30 bg-blue-500/5">
+                <Eye className="w-3.5 h-3.5 text-blue-500" />
+                <span className="text-xs font-semibold text-blue-600">{profileViews7d.toLocaleString()}</span>
+                <span className="text-xs text-muted-foreground">profile views (7d)</span>
               </div>
             )}
           </div>
@@ -1339,6 +1478,74 @@ export default function ProfilePage() {
           profile={profile}
           onSuccess={fetchProfile}
         />
+      )}
+
+      {/* ── Subscribe Dialog ── */}
+      {showSubscribeDialog && !isOwnProfile && profile.is_creator && (
+        <div className="fixed inset-0 z-[200] bg-black/60" onClick={() => setShowSubscribeDialog(false)}>
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl p-5 space-y-4 max-h-[80vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-lg">Subscribe to @{profile.username}</h2>
+                <p className="text-sm text-muted-foreground">Choose a tier — billed from your wallet monthly</p>
+              </div>
+              <button onClick={() => setShowSubscribeDialog(false)} className="p-2 rounded-full hover:bg-muted">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Subscription tiers */}
+            <div className="space-y-3">
+              {[
+                { tier: 'Basic',  price: 2,  perks: ['Early access to posts', 'Supporter badge', 'Direct message priority'] },
+                { tier: 'Fan',    price: 5,  perks: ['Everything in Basic', 'Exclusive content', 'Monthly shoutout'] },
+                { tier: 'Super',  price: 10, perks: ['Everything in Fan', 'Video calls (monthly)', 'Custom badge', 'VIP community access'] },
+              ].map(({ tier, price, perks }) => (
+                <button
+                  key={tier}
+                  onClick={() => handleSubscribe(tier, price)}
+                  disabled={subscribing}
+                  className={`w-full text-left p-4 rounded-2xl border-2 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 ${
+                    tier === 'Fan'
+                      ? 'border-purple-500 bg-gradient-to-br from-purple-500/10 to-pink-500/5'
+                      : 'border-border hover:border-purple-500/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {tier === 'Fan' && <span className="text-xs bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold">Popular</span>}
+                      <span className="font-bold text-base">{tier}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xl font-black text-purple-600">${price}</span>
+                      <span className="text-xs text-muted-foreground">/mo</span>
+                    </div>
+                  </div>
+                  <ul className="space-y-1">
+                    {perks.map(p => (
+                      <li key={p} className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Check className="w-3 h-3 text-purple-500 shrink-0" />{p}
+                      </li>
+                    ))}
+                  </ul>
+                </button>
+              ))}
+            </div>
+
+            <p className="text-xs text-muted-foreground text-center">
+              Subscription renews monthly. Cancel anytime from the creator's profile.
+            </p>
+            {subscribing && (
+              <div className="flex items-center justify-center gap-2 py-2">
+                <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
+                <span className="text-sm font-medium">Processing…</span>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Tip Dialog ── */}
