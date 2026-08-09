@@ -6,22 +6,22 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { Post } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, TrendingUp, Check } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { Loader2, TrendingUp, Check, Users } from 'lucide-react';
+import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
-import { AdMob, BannerAdSize, BannerAdPosition } from '@capacitor-community/admob';
+import { AdMob, BannerAdSize, BannerAdPosition } from '@/lib/capacitor-stub';
 
 export default function HashtagPage() {
   const { tag } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [posts, setPosts] = useState<Post[]>([]);
   const [hashtag, setHashtag] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
 
   useEffect(() => {
     if (tag) {
@@ -55,6 +55,13 @@ export default function HashtagPage() {
       if (hashtagError) throw hashtagError;
       setHashtag(hashtagData);
 
+      // Fetch follower count
+      const { count: fCount } = await supabase
+        .from('hashtag_follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('hashtag_id', hashtagData.id);
+      setFollowerCount(fCount ?? 0);
+
       const { data: postsData, error: postsError } = await supabase
         .from('post_hashtags')
         .select(`
@@ -76,11 +83,7 @@ export default function HashtagPage() {
       setPosts(formattedPosts);
     } catch (error) {
       console.error('Error fetching hashtag data:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load hashtag',
-        variant: 'destructive',
-      });
+      toast.error('Failed to load hashtag');
     } finally {
       setLoading(false);
     }
@@ -88,68 +91,38 @@ export default function HashtagPage() {
 
   const checkFollowStatus = async () => {
     if (!user || !hashtag) return;
-
-    try {
-      const { data } = await supabase
-        .from('hashtag_follows')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('hashtag_id', hashtag.id)
-        .maybeSingle();
-
-      setIsFollowing(!!data);
-    } catch (error) {
-      console.error('Error checking follow status:', error);
-    }
+    const { data } = await supabase
+      .from('hashtag_follows')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('hashtag_id', hashtag.id)
+      .maybeSingle();
+    setIsFollowing(!!data);
   };
 
   const handleFollow = async () => {
-    if (!user) {
-      navigate('/auth');
-      return;
-    }
-
+    if (!user) { navigate('/auth'); return; }
     if (!hashtag) return;
-
     setFollowLoading(true);
-
-    try {
-      if (isFollowing) {
-        await supabase
-          .from('hashtag_follows')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('hashtag_id', hashtag.id);
-
-        setIsFollowing(false);
-        toast({
-          title: 'Unfollowed',
-          description: `You unfollowed #${tag}`,
-        });
-      } else {
-        await supabase
-          .from('hashtag_follows')
-          .insert({
-            user_id: user.id,
-            hashtag_id: hashtag.id,
-          });
-
-        setIsFollowing(true);
-        toast({
-          title: 'Following',
-          description: `You'll see posts with #${tag} in your feed`,
-        });
-      }
-    } catch (error: any) {
-      console.error('Error toggling hashtag follow:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to update follow status',
-        variant: 'destructive',
+    if (isFollowing) {
+      await supabase
+        .from('hashtag_follows')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('hashtag_id', hashtag.id);
+      setIsFollowing(false);
+      setFollowerCount(c => Math.max(0, c - 1));
+      toast.success(`Unfollowed #${tag}`);
+    } else {
+      await supabase.from('hashtag_follows').insert({
+        user_id: user.id,
+        hashtag_id: hashtag.id,
       });
-    } finally {
-      setFollowLoading(false);
+      setIsFollowing(true);
+      setFollowerCount(c => c + 1);
+      toast.success(`Following #${tag} — posts will appear in your feed`);
     }
+    setFollowLoading(false);
   };
 
   if (loading) {
@@ -183,9 +156,13 @@ export default function HashtagPage() {
               <TrendingUp className="w-6 h-6 text-primary" />
               <h1 className="text-3xl font-bold">#{tag}</h1>
             </div>
-            <p className="text-muted-foreground mb-4">
-              {formatNumber(hashtag.usage_count)} posts
-            </p>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span><strong className="text-foreground">{formatNumber(hashtag.usage_count)}</strong> posts</span>
+              <span className="flex items-center gap-1">
+                <Users className="w-3.5 h-3.5" />
+                <strong className="text-foreground">{formatNumber(followerCount)}</strong> followers
+              </span>
+            </div>
           </div>
           {user && (
             <Button

@@ -9,7 +9,7 @@ import { PostCard } from '@/components/features/PostCard';
 import { formatNumber } from '@/lib/utils';
 import { usePageBanner } from '@/hooks/usePageBanner';
 import { ADMOB_CONFIG } from '@/lib/admob';
-import { BannerAdPosition } from '@capacitor-community/admob';
+import { BannerAdPosition } from '@/lib/capacitor-stub';
 
 export default function ExplorePage() {
   const [searchQuery, setSearchQuery] = useState('');

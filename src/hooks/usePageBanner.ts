@@ -7,7 +7,7 @@
  * - Auto-hide on unmount
  */
 import { useEffect } from 'react';
-import { BannerAdPosition } from '@capacitor-community/admob';
+import { BannerAdPosition } from '@/lib/capacitor-stub';
 import { showBanner, hideBanner, ADMOB_CONFIG } from '@/lib/admob';
 
 interface PageBannerOptions {

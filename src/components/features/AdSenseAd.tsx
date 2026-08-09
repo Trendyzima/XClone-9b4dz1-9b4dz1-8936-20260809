@@ -1,6 +1,6 @@
 
 import { useEffect, useRef, useState } from 'react';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor } from '@/lib/capacitor-stub';
 
 interface AdSenseAdProps {
   adSlot: string;

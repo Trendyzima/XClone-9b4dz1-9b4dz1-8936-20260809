@@ -1,33 +1,10 @@
-import { useToast } from "@/hooks/use-toast"
-import {
-  Toast,
-  ToastClose,
-  ToastDescription,
-  ToastProvider,
-  ToastTitle,
-  ToastViewport,
-} from "@/components/ui/toast"
-
+/**
+ * Toaster — shadcn/ui-compatible export.
+ * The actual toast rendering is handled by <Sonner /> already mounted in App.tsx.
+ * This component is a no-op placeholder so imports compile without errors.
+ */
 export function Toaster() {
-  const { toasts } = useToast()
-
-  return (
-    <ToastProvider>
-      {toasts.map(function ({ id, title, description, action, ...props }) {
-        return (
-          <Toast key={id} {...props}>
-            <div className="grid gap-1">
-              {title && <ToastTitle>{title}</ToastTitle>}
-              {description && (
-                <ToastDescription>{description}</ToastDescription>
-              )}
-            </div>
-            {action}
-            <ToastClose />
-          </Toast>
-        )
-      })}
-      <ToastViewport />
-    </ToastProvider>
-  )
+  // Sonner handles rendering via the <Sonner position="top-center" richColors />
+  // already mounted in App.tsx — no second mount needed here.
+  return null
 }

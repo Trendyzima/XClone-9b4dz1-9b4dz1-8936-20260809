@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor } from '@/lib/capacitor-stub';
 import { showRewarded, ADMOB_CONFIG, AD_REVENUE_SPLIT, isAdMobSupported } from '@/lib/admob';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';

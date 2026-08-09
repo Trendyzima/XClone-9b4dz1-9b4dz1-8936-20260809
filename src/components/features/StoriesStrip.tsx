@@ -1,0 +1,518 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabase';
+import { Plus, X, Loader2, Send } from 'lucide-react';
+import { toast } from 'sonner';
+
+interface Story {
+  id: string;
+  user_id: string;
+  media_url: string;
+  media_type: string;
+  caption?: string | null;
+  created_at: string;
+  expires_at: string;
+  user_profiles: { username: string; avatar_url?: string | null } | null;
+}
+
+interface StoryGroup {
+  userId: string;
+  username: string;
+  avatarUrl?: string | null;
+  stories: Story[];
+  hasUnseen: boolean;
+}
+
+export function StoriesStrip() {
+  const { user } = useAuth();
+  const [groups, setGroups] = useState<StoryGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [viewedIds, setViewedIds] = useState<Set<string>>(new Set());
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Viewer
+  const [viewerGroupIdx, setViewerGroupIdx] = useState<number | null>(null);
+  const [activeStoryIdx, setActiveStoryIdx] = useState(0);
+  const [progressPct, setProgressPct] = useState(0);
+
+  // Caption input
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingCaption, setPendingCaption] = useState('');
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+  // Swipe tracking
+  const touchStartX = useRef<number | null>(null);
+  const isSwiping = useRef(false);
+  const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+
+  const fetchStories = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('stories')
+      .select('*, user_profiles(username, avatar_url)')
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false });
+
+    const rawStories: Story[] = (data as Story[]) ?? [];
+
+    let viewedSet = new Set<string>();
+    if (user?.id) {
+      const { data: vd } = await supabase
+        .from('story_views')
+        .select('story_id')
+        .eq('viewer_id', user.id);
+      viewedSet = new Set(vd?.map((v: any) => v.story_id) ?? []);
+      setViewedIds(viewedSet);
+    }
+
+    const map: Record<string, StoryGroup> = {};
+    for (const story of rawStories) {
+      if (!map[story.user_id]) {
+        map[story.user_id] = {
+          userId: story.user_id,
+          username: story.user_profiles?.username ?? 'user',
+          avatarUrl: story.user_profiles?.avatar_url ?? null,
+          stories: [],
+          hasUnseen: false,
+        };
+      }
+      map[story.user_id].stories.push(story);
+      if (!viewedSet.has(story.id)) map[story.user_id].hasUnseen = true;
+    }
+
+    const all = Object.values(map);
+    const myGroup = all.find(g => g.userId === user?.id);
+    const others = all.filter(g => g.userId !== user?.id);
+    setGroups([
+      ...(myGroup ? [myGroup] : []),
+      ...others.filter(g => g.hasUnseen),
+      ...others.filter(g => !g.hasUnseen),
+    ]);
+    setLoading(false);
+  }, [user?.id]);
+
+  useEffect(() => { fetchStories(); }, [fetchStories]);
+
+  const markViewed = useCallback(async (storyId: string) => {
+    if (!user?.id) return;
+    setViewedIds(prev => new Set([...prev, storyId]));
+    await supabase.from('story_views').upsert(
+      { story_id: storyId, viewer_id: user.id },
+      { onConflict: 'story_id,viewer_id' }
+    );
+  }, [user?.id]);
+
+  // Auto-advance with smooth progress bar
+  useEffect(() => {
+    if (viewerGroupIdx === null) { setProgressPct(0); return; }
+    const g = groups[viewerGroupIdx];
+    if (!g) return;
+    const story = g.stories[activeStoryIdx];
+    if (!story || story.media_type === 'video') { setProgressPct(0); return; }
+
+    setProgressPct(0);
+    const start = Date.now();
+    const DURATION = 5000;
+
+    const iv = setInterval(() => {
+      const pct = Math.min(((Date.now() - start) / DURATION) * 100, 100);
+      setProgressPct(pct);
+      if (pct >= 100) {
+        clearInterval(iv);
+        if (activeStoryIdx < g.stories.length - 1) {
+          const ni = activeStoryIdx + 1;
+          setActiveStoryIdx(ni);
+          markViewed(g.stories[ni].id);
+        } else {
+          const ng = viewerGroupIdx + 1;
+          if (ng < groups.length) {
+            setViewerGroupIdx(ng);
+            setActiveStoryIdx(0);
+            markViewed(groups[ng].stories[0].id);
+          } else {
+            setViewerGroupIdx(null);
+          }
+        }
+      }
+    }, 50);
+
+    return () => clearInterval(iv);
+  }, [viewerGroupIdx, activeStoryIdx, groups, markViewed]);
+
+  const openViewer = (groupIdx: number) => {
+    setViewerGroupIdx(groupIdx);
+    setActiveStoryIdx(0);
+    const story = groups[groupIdx]?.stories[0];
+    if (story && !viewedIds.has(story.id)) markViewed(story.id);
+  };
+
+  const advance = () => {
+    setReplyText('');
+    if (viewerGroupIdx === null) return;
+    const g = groups[viewerGroupIdx];
+    if (!g) return;
+    if (activeStoryIdx < g.stories.length - 1) {
+      const ni = activeStoryIdx + 1;
+      setActiveStoryIdx(ni);
+      markViewed(g.stories[ni].id);
+    } else if (viewerGroupIdx < groups.length - 1) {
+      const ng = viewerGroupIdx + 1;
+      setViewerGroupIdx(ng);
+      setActiveStoryIdx(0);
+      markViewed(groups[ng].stories[0].id);
+    } else {
+      setViewerGroupIdx(null);
+    }
+  };
+
+  const retreat = () => {
+    setReplyText('');
+    if (viewerGroupIdx === null) return;
+    if (activeStoryIdx > 0) {
+      setActiveStoryIdx(prev => prev - 1);
+    } else if (viewerGroupIdx > 0) {
+      const pg = viewerGroupIdx - 1;
+      setViewerGroupIdx(pg);
+      setActiveStoryIdx(groups[pg].stories.length - 1);
+    }
+  };
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    if (file.size > 20 * 1024 * 1024) { toast.error('File must be under 20MB'); return; }
+    if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+    setPendingFile(file);
+    setPendingCaption('');
+    setPendingPreviewUrl(URL.createObjectURL(file));
+    e.target.value = '';
+  };
+
+  const cancelPending = () => {
+    if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+    setPendingFile(null);
+    setPendingCaption('');
+    setPendingPreviewUrl(null);
+  };
+
+  const doUpload = async () => {
+    if (!pendingFile || !user) return;
+    setUploading(true);
+    const ext = pendingFile.name.split('.').pop();
+    const path = `stories/${user.id}/${Date.now()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from('posts').upload(path, pendingFile);
+    if (upErr) { toast.error('Upload failed'); setUploading(false); return; }
+    const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(path);
+    const { error: insErr } = await supabase.from('stories').insert({
+      user_id: user.id,
+      media_url: publicUrl,
+      media_type: pendingFile.type.startsWith('video') ? 'video' : 'image',
+      caption: pendingCaption.trim() || null,
+    });
+    if (insErr) toast.error('Failed to post story');
+    else { toast.success('Story posted!'); await fetchStories(); }
+    if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+    setPendingFile(null);
+    setPendingCaption('');
+    setPendingPreviewUrl(null);
+    setUploading(false);
+  };
+
+  const sendStoryReply = async () => {
+    if (!replyText.trim() || !user || viewerGroupIdx === null) return;
+    const g = groups[viewerGroupIdx];
+    if (!g || g.userId === user.id) return;
+    setSendingReply(true);
+    const text = replyText.trim();
+    setReplyText('');
+    try {
+      const { data: existing } = await supabase
+        .from('conversations')
+        .select('id')
+        .or(`and(participant_1.eq.${user.id},participant_2.eq.${g.userId}),and(participant_1.eq.${g.userId},participant_2.eq.${user.id})`)
+        .maybeSingle();
+      let convId = existing?.id;
+      if (!convId) {
+        const { data: newConv, error: convErr } = await supabase
+          .from('conversations')
+          .insert({ participant_1: user.id, participant_2: g.userId })
+          .select('id').single();
+        if (convErr) throw convErr;
+        convId = newConv?.id;
+      }
+      if (!convId) throw new Error('No conversation');
+      const { error: msgErr } = await supabase.from('direct_messages').insert({
+        conversation_id: convId,
+        sender_id: user.id,
+        content: text,
+      });
+      if (msgErr) throw msgErr;
+      toast.success('Reply sent!');
+    } catch {
+      toast.error('Failed to send reply');
+      setReplyText(text);
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
+  // Skeleton while loading
+  if (loading && groups.length === 0) {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-border overflow-hidden h-[88px]">
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} className="flex flex-col items-center gap-1 flex-shrink-0">
+            <div className="w-14 h-14 rounded-full bg-muted animate-pulse" />
+            <div className="w-10 h-2 rounded bg-muted animate-pulse" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (!user && groups.length === 0) return null;
+
+  const myGroupIdx = groups.findIndex(g => g.userId === user?.id);
+  const hasMyStory = myGroupIdx !== -1;
+
+  return (
+    <>
+      {/* ── Story Strip ────────────────────────────────────── */}
+      <div className="flex items-center gap-3 px-4 py-3 overflow-x-auto scrollbar-hide border-b border-border bg-background">
+        {/* Your story */}
+        {user && (
+          <button
+            onClick={() => hasMyStory ? openViewer(myGroupIdx) : fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex flex-col items-center gap-1 flex-shrink-0 group"
+          >
+            <div className={`relative w-14 h-14 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all ${
+              hasMyStory ? 'ring-primary' : 'ring-muted-foreground/30 group-hover:ring-primary/50'
+            }`}>
+              {user.avatar
+                ? <img src={user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                : <div className="w-full h-full rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center font-bold text-primary">{user.username[0]?.toUpperCase()}</div>
+              }
+              {!hasMyStory && (
+                <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-2 border-background">
+                  {uploading
+                    ? <Loader2 className="w-3 h-3 text-white animate-spin" />
+                    : <Plus className="w-3 h-3 text-white" />
+                  }
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-muted-foreground font-medium leading-none">
+              {hasMyStory ? 'My Story' : 'Add Story'}
+            </span>
+          </button>
+        )}
+        <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFileSelected} />
+
+        {/* Other users */}
+        {groups
+          .filter(g => g.userId !== user?.id)
+          .map(g => {
+            const realIdx = groups.indexOf(g);
+            return (
+              <button
+                key={g.userId}
+                onClick={() => openViewer(realIdx)}
+                className="flex flex-col items-center gap-1 flex-shrink-0 group"
+              >
+                <div className={`w-14 h-14 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all ${
+                  g.hasUnseen
+                    ? 'ring-primary'
+                    : 'ring-muted-foreground/20 group-hover:ring-muted-foreground/40'
+                }`}>
+                  {g.avatarUrl
+                    ? <img src={g.avatarUrl} alt={g.username} className="w-full h-full rounded-full object-cover" />
+                    : <div className="w-full h-full rounded-full bg-muted flex items-center justify-center font-bold text-sm">{g.username[0]?.toUpperCase()}</div>
+                  }
+                </div>
+                <span className={`text-[10px] font-medium leading-none max-w-[56px] truncate ${g.hasUnseen ? 'text-foreground' : 'text-muted-foreground'}`}>
+                  {g.username}
+                </span>
+              </button>
+            );
+          })}
+      </div>
+
+      {/* ── Caption Input Modal ─────────────────────────── */}
+      {pendingFile && pendingPreviewUrl && (
+        <div className="fixed inset-0 z-[210] bg-black/85 flex flex-col items-center justify-center p-6 gap-4">
+          <div className="w-full max-w-sm rounded-2xl overflow-hidden">
+            {pendingFile.type.startsWith('video') ? (
+              <video src={pendingPreviewUrl} className="w-full max-h-[50vh] object-contain" muted playsInline />
+            ) : (
+              <img src={pendingPreviewUrl} alt="" className="w-full max-h-[50vh] object-contain rounded-2xl" />
+            )}
+          </div>
+          <div className="w-full max-w-sm space-y-3">
+            <p className="text-white font-semibold text-center text-sm">Add a caption (optional)</p>
+            <input
+              type="text"
+              value={pendingCaption}
+              onChange={e => setPendingCaption(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && doUpload()}
+              placeholder="Write a caption..."
+              maxLength={200}
+              autoFocus
+              className="w-full bg-white/10 text-white placeholder:text-white/40 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+            />
+            <p className="text-right text-[10px] text-white/40">{pendingCaption.length}/200</p>
+            <div className="flex gap-3">
+              <button
+                onClick={cancelPending}
+                disabled={uploading}
+                className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={doUpload}
+                disabled={uploading}
+                className="flex-1 py-3 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
+                {uploading ? 'Posting…' : 'Share Story'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Full-screen Story Viewer ────────────────────────── */}
+      {viewerGroupIdx !== null && (() => {
+        const g = groups[viewerGroupIdx];
+        if (!g) return null;
+        const story = g.stories[activeStoryIdx];
+        if (!story) return null;
+        return (
+          <div
+            className="fixed inset-0 z-[200] bg-black flex items-center justify-center select-none"
+            onTouchStart={e => { touchStartX.current = e.touches[0].clientX; isSwiping.current = false; }}
+            onTouchMove={e => {
+              if (touchStartX.current !== null && Math.abs(e.touches[0].clientX - touchStartX.current) > 10)
+                isSwiping.current = true;
+            }}
+            onTouchEnd={e => {
+              if (touchStartX.current === null) return;
+              const delta = e.changedTouches[0].clientX - touchStartX.current;
+              touchStartX.current = null;
+              if (Math.abs(delta) < 50) { isSwiping.current = false; return; }
+              if (delta < 0) advance(); else retreat();
+            }}
+            onClick={e => {
+              if (isSwiping.current) { isSwiping.current = false; return; }
+              const x = e.clientX;
+              const w = (e.currentTarget as HTMLElement).clientWidth;
+              if (x < w / 2) retreat(); else advance();
+            }}
+          >
+            {/* Progress segments */}
+            <div className="absolute top-3 left-3 right-3 flex gap-1 z-20 pointer-events-none">
+              {g.stories.map((_, i) => (
+                <div key={i} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-white rounded-full"
+                    style={{
+                      width: i < activeStoryIdx
+                        ? '100%'
+                        : i === activeStoryIdx
+                          ? story.media_type === 'video' ? '0%' : `${progressPct}%`
+                          : '0%',
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* User header */}
+            <div className="absolute top-8 left-3 right-3 flex items-center gap-2 z-20">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-white/20 flex-shrink-0">
+                {g.avatarUrl
+                  ? <img src={g.avatarUrl} alt={g.username} className="w-full h-full object-cover" />
+                  : <div className="w-full h-full flex items-center justify-center text-white font-bold text-xs">{g.username[0]?.toUpperCase()}</div>
+                }
+              </div>
+              <span className="text-white font-semibold text-sm flex-1 truncate">{g.username}</span>
+              <button
+                onClick={e => { e.stopPropagation(); setViewerGroupIdx(null); setReplyText(''); }}
+                className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors flex-shrink-0"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Media */}
+            {story.media_type === 'video'
+              ? (
+                <video
+                  key={story.id}
+                  src={story.media_url}
+                  autoPlay
+                  playsInline
+                  className="max-h-screen max-w-full object-contain"
+                  onEnded={advance}
+                  onClick={e => e.stopPropagation()}
+                />
+              )
+              : (
+                <img
+                  key={story.id}
+                  src={story.media_url}
+                  alt=""
+                  className="max-h-screen max-w-full object-contain"
+                  draggable={false}
+                />
+              )
+            }
+
+            {/* Caption */}
+            {story.caption && (
+              <div className="absolute bottom-16 left-6 right-6 z-20 pointer-events-none">
+                <p className="text-white text-sm font-medium bg-black/50 rounded-2xl px-4 py-2.5 text-center backdrop-blur-sm">
+                  {story.caption}
+                </p>
+              </div>
+            )}
+
+            {/* Story Reply Input */}
+            {user && g.userId !== user.id && (
+              <div
+                className="absolute bottom-4 left-4 right-4 z-30 flex items-center gap-2"
+                onClick={e => e.stopPropagation()}
+              >
+                <input
+                  type="text"
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') sendStoryReply(); }}
+                  placeholder={`Reply to ${g.username}…`}
+                  className="flex-1 bg-white/10 text-white placeholder:text-white/50 border border-white/20 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-white/50 backdrop-blur-sm"
+                />
+                <button
+                  onClick={e => { e.stopPropagation(); sendStoryReply(); }}
+                  disabled={sendingReply || !replyText.trim()}
+                  className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0 disabled:opacity-50 transition-opacity hover:opacity-90"
+                >
+                  {sendingReply
+                    ? <Loader2 className="w-4 h-4 text-white animate-spin" />
+                    : <Send className="w-4 h-4 text-white" />
+                  }
+                </button>
+              </div>
+            )}
+
+            {/* Navigation hit zones (invisible) */}
+            <div className="absolute inset-y-0 left-0 w-1/3 z-10" onClick={e => { e.stopPropagation(); retreat(); }} />
+            <div className="absolute inset-y-0 right-0 w-1/3 z-10" onClick={e => { e.stopPropagation(); advance(); }} />
+          </div>
+        );
+      })()}
+    </>
+  );
+}

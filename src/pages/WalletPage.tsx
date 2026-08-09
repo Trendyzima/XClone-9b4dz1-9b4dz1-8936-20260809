@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { WalletDashboard } from '@/components/features/WalletDashboard';
 import { showBanner, hideBanner, ADMOB_CONFIG } from '@/lib/admob';
-import { BannerAdPosition } from '@capacitor-community/admob';
+import { BannerAdPosition } from '@/lib/capacitor-stub';
 
 export default function WalletPage() {
 

@@ -8,7 +8,7 @@ import {
   Heart, Repeat2, UserPlus, MessageCircle, AtSign,
   BadgeCheck, Loader2, DollarSign, CheckCircle2, Smartphone,
   TrendingUp, Bell, CreditCard, ArrowDownLeft, Globe, UserCheck,
-  Star, ExternalLink, RefreshCw, Hash,
+  Star, ExternalLink, RefreshCw,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
@@ -70,6 +70,16 @@ export default function NotificationsPage() {
       .update({ read: true })
       .eq('user_id', user.id)
       .eq('read', false);
+  };
+
+  const markAllAsRead = async () => {
+    if (!user) return;
+    await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('user_id', user.id)
+      .eq('read', false);
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
   useEffect(() => {
@@ -202,20 +212,31 @@ export default function NotificationsPage() {
 
       {/* Tabs */}
       <div className="sticky top-14 z-30 bg-background border-b border-border">
-        <div className="flex overflow-x-auto scrollbar-hide">
-          {tabs.map(({ key, label }) => (
+        <div className="flex items-center">
+          <div className="flex flex-1 overflow-x-auto scrollbar-hide">
+            {tabs.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`flex-1 min-w-[80px] py-4 font-semibold transition-colors border-b-2 text-sm whitespace-nowrap ${
+                  activeTab === key
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:bg-muted/50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {activeTab !== 'fediverse' && notifications.some(n => !n.read) && (
             <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`flex-1 min-w-[80px] py-4 font-semibold transition-colors border-b-2 text-sm whitespace-nowrap ${
-                activeTab === key
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:bg-muted/50'
-              }`}
+              onClick={markAllAsRead}
+              className="shrink-0 px-3 mr-2 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 rounded-full transition-colors whitespace-nowrap flex items-center gap-1"
             >
-              {label}
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Mark all read
             </button>
-          ))}
+          )}
         </div>
       </div>
 

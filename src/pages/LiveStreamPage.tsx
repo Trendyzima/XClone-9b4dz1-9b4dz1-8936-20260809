@@ -12,8 +12,7 @@ import {
 import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
-import { AdMob, BannerAdSize, BannerAdPosition } from '@capacitor-community/admob';
-import { Capacitor } from '@capacitor/core';
+import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
 import { ADMOB_CONFIG } from '@/lib/admob';
 
 interface StreamMessage {

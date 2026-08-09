@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor } from '@/lib/capacitor-stub';
 
 interface DynamicAdProps {
   location: 'feed_top' | 'feed_inline' | 'sidebar' | 'profile' | 'explore';

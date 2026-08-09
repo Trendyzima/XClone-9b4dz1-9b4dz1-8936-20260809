@@ -1,11 +1,18 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Home, Search, Bell, Mail, User, Hash, Radio, LogOut, Plus, Users, TrendingUp, Sparkles, Bookmark, List, DollarSign, BarChart3, ShoppingBag, Calendar, Crown, Briefcase, Settings, HelpCircle, History, ChevronDown, ChevronUp, FileText, Wallet, Megaphone, Shield, LineChart, Globe } from 'lucide-react';
+import {
+  Home, Search, Bell, Mail, User, Hash, Radio, LogOut, Plus, Users,
+  TrendingUp, Sparkles, Bookmark, List, DollarSign, BarChart3,
+  ShoppingBag, Calendar, Crown, Briefcase, Settings, HelpCircle,
+  History, ChevronDown, ChevronUp, FileText, Wallet, Megaphone,
+  Shield, LineChart, Globe, Flame, Trophy, UserSearch, Gift,
+} from 'lucide-react';
 import { authService } from '@/lib/auth';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatNumber } from '@/lib/utils';
+import { useFediversePolling } from '@/hooks/useFediversePolling';
 
 interface Community {
   id: string;
@@ -25,27 +32,84 @@ export function Sidebar() {
   const [showCommunities, setShowCommunities] = useState(true);
   const [showTrending, setShowTrending] = useState(true);
 
+  // ── Unread counts ────────────────────────────────────────────────────────
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const { unreadCount: unreadFed } = useFediversePolling(user?.id);
+
+  // Poll local notification unread count every 60s
   useEffect(() => {
-    if (user) {
-      fetchUserCommunities();
-    }
+    if (!user) { setUnreadNotifs(0); setUnreadMessages(0); return; }
+    let mounted = true;
+    const fetchCounts = async () => {
+      // Notification unread count
+      const { count: notifCount } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('read', false);
+      if (mounted) setUnreadNotifs(notifCount ?? 0);
+
+      // DM unread count
+      const { data: convData } = await supabase
+        .from('conversations')
+        .select('id')
+        .or(`participant_1.eq.${user.id},participant_2.eq.${user.id}`);
+      const convIds = convData?.map((c: any) => c.id) ?? [];
+      if (convIds.length > 0) {
+        const { count: dmCount } = await supabase
+          .from('direct_messages')
+          .select('*', { count: 'exact', head: true })
+          .in('conversation_id', convIds)
+          .eq('read', false)
+          .neq('sender_id', user.id);
+        if (mounted) setUnreadMessages(dmCount ?? 0);
+      } else {
+        if (mounted) setUnreadMessages(0);
+      }
+    };
+    fetchCounts();
+    // Poll every 15s for near-real-time badges
+    const iv = setInterval(fetchCounts, 15_000);
+
+    // Real-time subscription for instant notification badge updates
+    const sub = supabase
+      .channel(`sidebar-notifs-${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, () => { if (mounted) fetchCounts(); })
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'direct_messages',
+      }, () => { if (mounted) fetchCounts(); })
+      .subscribe();
+
+    return () => { mounted = false; clearInterval(iv); supabase.removeChannel(sub); };
+  }, [user?.id]);
+
+  // Clear badges when visiting relevant pages
+  useEffect(() => {
+    if (location.pathname === '/notifications') setUnreadNotifs(0);
+    if (location.pathname === '/messages') setUnreadMessages(0);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (user) fetchUserCommunities();
     fetchTrendingCommunities();
   }, [user]);
 
   const fetchUserCommunities = async () => {
     if (!user) return;
-
     const { data } = await supabase
       .from('community_members')
-      .select(`
-        communities (*)
-      `)
+      .select('communities (*)')
       .eq('user_id', user.id)
       .limit(5);
-
-    if (data) {
-      setCommunities(data.map((d: any) => d.communities));
-    }
+    if (data) setCommunities(data.map((d: any) => d.communities));
   };
 
   const fetchTrendingCommunities = async () => {
@@ -54,52 +118,51 @@ export function Sidebar() {
       .select('*')
       .order('member_count', { ascending: false })
       .limit(5);
-
-    if (data) {
-      setTrendingCommunities(data);
-    }
+    if (data) setTrendingCommunities(data);
   };
 
+  // Nav items with badge counts
   const navItems = [
-    { icon: Home, label: 'Home', path: '/', requireAuth: false },
-    { icon: Hash, label: 'Explore', path: '/explore', requireAuth: false },
-    { icon: FileText, label: 'Threads', path: '/threads', requireAuth: false },
-    { icon: Bell, label: 'Notifications', path: '/notifications', requireAuth: true },
-    { icon: Mail, label: 'Messages', path: '/messages', requireAuth: true },
-    { icon: Radio, label: 'Spaces', path: '/spaces', requireAuth: false },
-    { icon: Sparkles, label: 'AI', path: '/ai', requireAuth: false },
-    { icon: Globe, label: 'Fediverse', path: '/fediverse', requireAuth: false },
+    { icon: Home,     label: 'Home',          path: '/',              requireAuth: false, badge: 0 },
+    { icon: Hash,     label: 'Explore',        path: '/explore',       requireAuth: false, badge: 0 },
+    { icon: FileText, label: 'Threads',         path: '/threads',       requireAuth: false, badge: 0 },
+    { icon: Bell,     label: 'Notifications',   path: '/notifications', requireAuth: true,  badge: unreadNotifs },
+    { icon: Mail,     label: 'Messages',        path: '/messages',      requireAuth: true,  badge: unreadMessages },
+    { icon: Radio,    label: 'Spaces',          path: '/spaces',        requireAuth: false, badge: 0 },
+    { icon: Sparkles, label: 'AI',              path: '/ai',            requireAuth: false, badge: 0 },
+    { icon: Globe,    label: 'Fediverse',       path: '/fediverse',     requireAuth: false, badge: unreadFed },
+    { icon: Trophy,   label: 'Leaderboard',     path: '/leaderboard',   requireAuth: false, badge: 0 },
   ];
 
   const creatorTools = [
     { icon: Briefcase, label: 'Creator Studio', path: '/creator-studio', requireAuth: true },
-    { icon: BarChart3, label: 'Analytics', path: '/analytics', requireAuth: true },
-    { icon: DollarSign, label: 'Monetization', path: '/monetization', requireAuth: true },
-    { icon: ShoppingBag, label: 'Products', path: '/products', requireAuth: true },
-    { icon: Calendar, label: 'Scheduled', path: '/scheduled', requireAuth: true },
+    { icon: BarChart3, label: 'Analytics',       path: '/analytics',      requireAuth: true },
+    { icon: DollarSign,label: 'Monetization',    path: '/monetization',   requireAuth: true },
+    { icon: ShoppingBag,label: 'Products',       path: '/products',       requireAuth: true },
+    { icon: Calendar,  label: 'Scheduled',       path: '/scheduled',      requireAuth: true },
   ];
 
   const adminTools = [
     { icon: LineChart, label: 'Revenue Analytics', path: '/revenue-analytics', requireAuth: true },
-    { icon: TrendingUp, label: 'Admin Revenue', path: '/admin/revenue', requireAuth: true },
-    { icon: Shield, label: 'Fraud Detection', path: '/fraud-detection', requireAuth: true },
+    { icon: TrendingUp,label: 'Admin Revenue',     path: '/admin/revenue',     requireAuth: true },
+    { icon: Shield,    label: 'Fraud Detection',   path: '/fraud-detection',   requireAuth: true },
   ];
 
   const userTools = [
-    { icon: Bookmark, label: 'Bookmarks', path: '/bookmarks', requireAuth: true },
-    { icon: List, label: 'Lists', path: '/lists', requireAuth: true },
-    { icon: History, label: 'History', path: '/history', requireAuth: true },
-    { icon: Wallet, label: 'Wallet', path: '/wallet', requireAuth: true },
-    { icon: DollarSign, label: 'Payouts', path: '/payouts', requireAuth: true },
-    { icon: Megaphone, label: 'My Ads', path: '/my-ads', requireAuth: true },
+    { icon: Bookmark,   label: 'Bookmarks', path: '/bookmarks', requireAuth: true },
+    { icon: List,       label: 'Lists',     path: '/lists',     requireAuth: true },
+    { icon: History,    label: 'History',   path: '/history',   requireAuth: true },
+    { icon: Flame,      label: 'Daily Rewards', path: '/daily-rewards', requireAuth: true },
+    { icon: UserSearch, label: 'Discover',   path: '/discover',  requireAuth: false },
+    { icon: Gift,       label: 'Refer & Earn', path: '/referral', requireAuth: true },
+    { icon: Wallet,     label: 'Wallet',    path: '/wallet',    requireAuth: true },
+    { icon: DollarSign, label: 'Payouts',   path: '/payouts',   requireAuth: true },
+    { icon: Megaphone,  label: 'My Ads',    path: '/my-ads',    requireAuth: true },
   ];
 
   const handleNavClick = (path: string, requireAuth?: boolean) => {
-    if (requireAuth && !user) {
-      navigate('/auth');
-    } else {
-      navigate(path);
-    }
+    if (requireAuth && !user) navigate('/auth');
+    else navigate(path);
   };
 
   const handleLogout = async () => {
@@ -121,19 +184,27 @@ export function Sidebar() {
         <div className="space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            const isActive = location.pathname === item.path ||
+              (item.path !== '/' && location.pathname.startsWith(item.path));
 
             return (
               <button
                 key={item.path}
                 onClick={() => handleNavClick(item.path, item.requireAuth)}
-                className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors w-full text-left ${
+                className={`relative flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors w-full text-left ${
                   isActive
                     ? 'bg-primary text-primary-foreground font-semibold'
                     : 'hover:bg-muted text-foreground'
                 }`}
               >
-                <Icon className="w-5 h-5" />
+                <div className="relative flex-shrink-0">
+                  <Icon className="w-5 h-5" />
+                  {item.badge > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                </div>
                 <span>{item.label}</span>
               </button>
             );
@@ -144,23 +215,18 @@ export function Sidebar() {
         {user && (
           <>
             <div className="mt-6 mb-2">
-              <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Library
-              </h3>
+              <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Library</h3>
             </div>
             <div className="space-y-1">
               {userTools.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-
                 return (
                   <button
                     key={item.path}
                     onClick={() => handleNavClick(item.path, item.requireAuth)}
                     className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
-                      isActive
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'hover:bg-muted text-foreground'
+                      isActive ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted text-foreground'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -172,23 +238,18 @@ export function Sidebar() {
 
             {/* Creator Tools */}
             <div className="mt-6 mb-2">
-              <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Creator Tools
-              </h3>
+              <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Creator Tools</h3>
             </div>
             <div className="space-y-1">
               {creatorTools.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-
                 return (
                   <button
                     key={item.path}
                     onClick={() => handleNavClick(item.path, item.requireAuth)}
                     className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
-                      isActive
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'hover:bg-muted text-foreground'
+                      isActive ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted text-foreground'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -200,23 +261,18 @@ export function Sidebar() {
 
             {/* Admin Tools */}
             <div className="mt-6 mb-2">
-              <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Admin Tools
-              </h3>
+              <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Admin Tools</h3>
             </div>
             <div className="space-y-1">
               {adminTools.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-
                 return (
                   <button
                     key={item.path}
                     onClick={() => handleNavClick(item.path, item.requireAuth)}
                     className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
-                      isActive
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'hover:bg-muted text-foreground'
+                      isActive ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted text-foreground'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -237,7 +293,7 @@ export function Sidebar() {
             <span>Communities</span>
             {showCommunities ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
-          
+
           {showCommunities && (
             <div className="mt-2 space-y-1">
               <button
@@ -247,7 +303,7 @@ export function Sidebar() {
                 <Plus className="w-4 h-4" />
                 <span>Discover Communities</span>
               </button>
-              
+
               {user && communities.length > 0 && (
                 <>
                   <div className="px-4 py-1 text-xs text-muted-foreground">Your Communities</div>
@@ -289,7 +345,7 @@ export function Sidebar() {
               </div>
               {showTrending ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
-            
+
             {showTrending && (
               <div className="mt-2 space-y-1">
                 {trendingCommunities.map((community) => (
@@ -363,32 +419,23 @@ export function Sidebar() {
             </button>
 
             {showUserMenu && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 bg-background border border-border rounded-lg shadow-lg overflow-hidden">
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-background border border-border rounded-lg shadow-lg overflow-hidden z-50">
                 <button
-                  onClick={() => {
-                    navigate(`/profile/${user.username}`);
-                    setShowUserMenu(false);
-                  }}
+                  onClick={() => { navigate(`/profile/${user.username}`); setShowUserMenu(false); }}
                   className="flex items-center gap-3 w-full p-3 hover:bg-muted text-left"
                 >
                   <User className="w-5 h-5" />
                   <span>Profile</span>
                 </button>
                 <button
-                  onClick={() => {
-                    navigate('/settings');
-                    setShowUserMenu(false);
-                  }}
+                  onClick={() => { navigate('/settings'); setShowUserMenu(false); }}
                   className="flex items-center gap-3 w-full p-3 hover:bg-muted text-left"
                 >
                   <Settings className="w-5 h-5" />
                   <span>Settings</span>
                 </button>
                 <button
-                  onClick={() => {
-                    navigate('/help');
-                    setShowUserMenu(false);
-                  }}
+                  onClick={() => { navigate('/help'); setShowUserMenu(false); }}
                   className="flex items-center gap-3 w-full p-3 hover:bg-muted text-left"
                 >
                   <HelpCircle className="w-5 h-5" />
@@ -396,10 +443,7 @@ export function Sidebar() {
                 </button>
                 <div className="border-t border-border" />
                 <button
-                  onClick={() => {
-                    handleLogout();
-                    setShowUserMenu(false);
-                  }}
+                  onClick={() => { handleLogout(); setShowUserMenu(false); }}
                   className="flex items-center gap-3 w-full p-3 hover:bg-destructive/10 text-destructive text-left"
                 >
                   <LogOut className="w-5 h-5" />
@@ -409,10 +453,7 @@ export function Sidebar() {
             )}
           </div>
         ) : (
-          <Button
-            onClick={() => navigate('/auth')}
-            className="w-full rounded-lg font-semibold"
-          >
+          <Button onClick={() => navigate('/auth')} className="w-full rounded-lg font-semibold">
             Sign in
           </Button>
         )}

@@ -532,7 +532,14 @@ export default function AdminPanel() {
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <UserCheck className="w-5 h-5 text-primary" /> Verification Requests
               </h3>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => navigate('/admin/verifications')}
+                  className="text-xs px-3 py-1.5 bg-primary/10 text-primary rounded-full font-semibold hover:bg-primary/20 transition-colors"
+                >
+                  Full View
+                </button>
+                <div className="flex gap-1">
                 {(['all', 'pending', 'approved', 'rejected'] as const).map(f => (
                   <button
                     key={f}
@@ -542,6 +549,7 @@ export default function AdminPanel() {
                     {f}
                   </button>
                 ))}
+                </div>
               </div>
             </div>
 

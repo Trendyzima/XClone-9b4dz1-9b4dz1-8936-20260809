@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ExternalLink, BadgeCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { parseContent } from '@/lib/utils';
-import { AdMob, BannerAdSize, BannerAdPosition } from '@capacitor-community/admob';
+import { AdMob, BannerAdSize, BannerAdPosition } from '@/lib/capacitor-stub';
 
 interface SponsoredPostCardProps {
   post: any;

@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { X, Volume2, VolumeX } from 'lucide-react';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor } from '@/lib/capacitor-stub';
 import { supabase } from '@/lib/supabase';
 
 interface VideoMonetizationAdProps {

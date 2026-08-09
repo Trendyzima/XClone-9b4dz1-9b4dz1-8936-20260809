@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Mic, Square, Loader2, Radio } from 'lucide-react';
-import { AdMob, BannerAdSize, BannerAdPosition } from '@capacitor-community/admob';
+import { AdMob, BannerAdSize, BannerAdPosition } from '@/lib/capacitor-stub';
 
 interface LiveAudioBroadcasterProps {
   spaceId: string;

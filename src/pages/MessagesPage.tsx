@@ -98,7 +98,13 @@ export default function MessagesPage() {
           const { data: otherUser } = await supabase.from('user_profiles').select('*').eq('id', otherUserId).single();
           const { data: lastMessage } = await supabase.from('direct_messages').select('*')
             .eq('conversation_id', conv.id).order('created_at', { ascending: false }).limit(1).single();
-          return { ...conv, otherUser, lastMessage };
+          const { count: unreadCount } = await supabase
+            .from('direct_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('conversation_id', conv.id)
+            .eq('read', false)
+            .neq('sender_id', user.id);
+          return { ...conv, otherUser, lastMessage, unreadCount: unreadCount ?? 0 };
         })
       );
       setConversations(conversationsWithUsers);
@@ -118,8 +124,15 @@ export default function MessagesPage() {
         .order('created_at', { ascending: true });
       if (error) throw error;
       setMessages(data || []);
+      // Mark unread messages from the other person as read
       await supabase.from('direct_messages').update({ read: true })
-        .eq('conversation_id', conversationId).neq('sender_id', user!.id);
+        .eq('conversation_id', conversationId)
+        .eq('read', false)
+        .neq('sender_id', user!.id);
+      // Update local state immediately so read receipts show
+      setMessages(prev => prev.map(m => m.sender_id !== user!.id ? { ...m, read: true } : m));
+      // Refresh conversation list to clear unread badge
+      fetchConversations();
     } catch (error) {
       console.error('Error fetching messages:', error);
     }
@@ -137,6 +150,26 @@ export default function MessagesPage() {
         content: text,
       });
       if (error) throw error;
+      // Fire-and-forget push notification to recipient
+      (async () => {
+        try {
+          const recipientId = selectedConversation.participant_1 === user!.id
+            ? selectedConversation.participant_2
+            : selectedConversation.participant_1;
+          const { data: tokenData } = await supabase
+            .from('fcm_tokens').select('token').eq('user_id', recipientId).maybeSingle();
+          if (tokenData?.token) {
+            await supabase.functions.invoke('send-push-notification', {
+              body: {
+                token: tokenData.token,
+                title: user!.username,
+                body: text.length > 100 ? text.slice(0, 97) + '\u2026' : text,
+                data: { type: 'dm', conversation_id: selectedConversation.id },
+              },
+            });
+          }
+        } catch { /* non-fatal */ }
+      })();
       await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', selectedConversation.id);
       fetchConversations();
     } catch (error: any) {
@@ -253,12 +286,17 @@ export default function MessagesPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1 mb-1">
-                      <span className="font-semibold truncate">{conv.otherUser?.username}</span>
+                      <span className={`truncate ${conv.unreadCount > 0 ? 'font-bold text-foreground' : 'font-semibold'}`}>{conv.otherUser?.username}</span>
                       {conv.otherUser?.verified && <BadgeCheck className="w-4 h-4 text-primary shrink-0" />}
+                      {conv.unreadCount > 0 && (
+                        <span className="ml-auto shrink-0 min-w-[18px] h-[18px] bg-primary text-primary-foreground text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                          {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+                        </span>
+                      )}
                     </div>
                     {conv.lastMessage && (
                       <>
-                        <p className="text-sm text-muted-foreground truncate">
+                        <p className={`text-sm truncate ${conv.unreadCount > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
                           {conv.lastMessage.sender_id === user.id && 'You: '}{conv.lastMessage.content}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
@@ -318,9 +356,14 @@ export default function MessagesPage() {
                         : 'bg-muted rounded-bl-sm'
                     }`}>
                       <p className="break-words text-sm leading-relaxed">{message.content}</p>
-                      <p className={`text-xs mt-1 ${message.sender_id === user.id ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
-                        {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
-                      </p>
+                      <div className={`flex items-center justify-end gap-1 mt-1 ${message.sender_id === user.id ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
+                        <span className="text-xs">
+                          {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
+                        </span>
+                        {message.sender_id === user.id && (
+                          <span className="text-[11px] font-medium">{message.read ? '✓✓' : '✓'}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}

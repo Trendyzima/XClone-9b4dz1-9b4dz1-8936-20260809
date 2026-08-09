@@ -1,4 +1,4 @@
-import { Analytics } from "@vercel/analytics/react";
+import { Analytics } from '@/lib/capacitor-stub';
 import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from '@/components/layout/AuthProvider';
@@ -10,9 +10,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
-// Capacitor
-import { StatusBar, Style } from '@capacitor/status-bar';
-import { Capacitor } from '@capacitor/core';
+// Capacitor — imported from stub so type-checker never touches the native packages
+import { StatusBar, Style, Capacitor } from '@/lib/capacitor-stub';
 import { showInterstitial, initAdMob } from '@/lib/admob';
 
 // Critical pages — loaded eagerly
@@ -62,7 +61,14 @@ const AdPerformanceComparison = lazy(() => import('@/pages/AdPerformanceComparis
 const AdminRevenueDashboard = lazy(() => import('@/pages/AdminRevenueDashboard'));
 const BoostAnalyticsPage = lazy(() => import('@/pages/BoostAnalyticsPage'));
 const RewardedAdHistory = lazy(() => import('@/pages/RewardedAdHistory'));
-const PostAnalyticsDashboard = lazy(() => import('@/pages/PostAnalyticsDashboard'));const FediversePage = lazy(() => import('@/pages/FediversePage'));
+const PostAnalyticsDashboard = lazy(() => import('@/pages/PostAnalyticsDashboard'));
+const FediversePage = lazy(() => import('@/pages/FediversePage'));
+const VerificationRequestPage = lazy(() => import('@/pages/VerificationRequestPage'));
+const AdminVerificationPage = lazy(() => import('@/pages/AdminVerificationPage'));
+const DailyRewardsPage = lazy(() => import('@/pages/DailyRewardsPage'));
+const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
+const DiscoverPage = lazy(() => import('@/pages/DiscoverPage'));
+const ReferralPage = lazy(() => import('@/pages/ReferralPage'));
 
 function PageLoader() {
   return (
@@ -149,7 +155,8 @@ function AppInner() {
               <Route path="/my-ads" element={<MyAdsPage />} />
               <Route path="/lists/:id" element={<ListDetailPage />} />
               <Route path="/admin/ads" element={<AdConfigPage />} />
-              <Route path="/payouts" element={<PayoutsPage />} /><Route path="/revenue-analytics" element={<RevenueAnalytics />} />
+              <Route path="/payouts" element={<PayoutsPage />} />
+              <Route path="/revenue-analytics" element={<RevenueAnalytics />} />
               <Route path="/fraud-detection" element={<FraudDetection />} />
               <Route path="/ad-performance" element={<AdPerformanceComparison />} />
               <Route path="/admin/revenue" element={<AdminRevenueDashboard />} />
@@ -157,7 +164,13 @@ function AppInner() {
               <Route path="/rewards" element={<RewardedAdHistory />} />
               <Route path="/post-analytics" element={<PostAnalyticsDashboard />} />
               <Route path="/post-analytics/:postId" element={<PostAnalyticsDashboard />} />
+              <Route path="/verify" element={<VerificationRequestPage />} />
+              <Route path="/admin/verifications" element={<AdminVerificationPage />} />
               <Route path="/fediverse" element={<FediversePage />} />
+              <Route path="/daily-rewards" element={<DailyRewardsPage />} />
+              <Route path="/leaderboard" element={<LeaderboardPage />} />
+              <Route path="/discover" element={<DiscoverPage />} />
+              <Route path="/referral" element={<ReferralPage />} />
             </Routes>
           </Suspense>
         </main>

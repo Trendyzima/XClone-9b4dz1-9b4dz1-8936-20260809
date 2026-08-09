@@ -3,10 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, Users, Hash, Radio, Sparkles, Plus } from 'lucide-react';
+import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { UserSuggestionsWidget } from '../features/UserSuggestionsWidget';
 import { ContentSuggestionsWidget } from '../features/ContentSuggestionsWidget';
+import { toast } from 'sonner';
+
+interface TrendingHashtag {
+  id: string;
+  tag: string;
+  usage_count: number;
+  daily_posts: number;
+  trend_score: number;
+}
 
 interface TrendingTopic {
   id: string;
@@ -39,14 +48,66 @@ export function RightSidebar() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [trending, setTrending] = useState<TrendingTopic[]>([]);
+  const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>([]);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [liveSpaces, setLiveSpaces] = useState<Space[]>([]);
+  const [followedTags, setFollowedTags] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchTrending();
+    fetchTrendingHashtags();
     fetchCommunities();
     fetchLiveSpaces();
-  }, []);
+    if (user) fetchFollowedTags();
+
+    // Auto-refresh trending hashtags every 60s
+    const iv = setInterval(fetchTrendingHashtags, 60_000);
+    return () => clearInterval(iv);
+  }, [user?.id]);
+
+  const fetchFollowedTags = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('hashtag_follows')
+      .select('hashtag_id')
+      .eq('user_id', user.id);
+    if (data) setFollowedTags(new Set(data.map((r: any) => r.hashtag_id)));
+  };
+
+  const toggleTagFollow = async (tag: TrendingHashtag, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) { navigate('/auth'); return; }
+    const isFollowing = followedTags.has(tag.id);
+    if (isFollowing) {
+      await supabase.from('hashtag_follows').delete().eq('user_id', user.id).eq('hashtag_id', tag.id);
+      setFollowedTags(prev => { const s = new Set(prev); s.delete(tag.id); return s; });
+      toast.success(`Unfollowed #${tag.tag}`);
+    } else {
+      await supabase.from('hashtag_follows').insert({ user_id: user.id, hashtag_id: tag.id });
+      setFollowedTags(prev => new Set([...prev, tag.id]));
+      toast.success(`Following #${tag.tag}`);
+    }
+  };
+
+  const fetchTrendingHashtags = async () => {
+    const { data } = await supabase
+      .from('trending_hashtags')
+      .select('hashtag_id, trend_score, daily_posts, hashtags(id, tag, usage_count)')
+      .order('trend_score', { ascending: false })
+      .limit(8);
+    if (data) {
+      const tags = data
+        .filter((row: any) => row.hashtags)
+        .map((row: any) => ({
+          id: row.hashtags.id,
+          tag: row.hashtags.tag,
+          usage_count: row.hashtags.usage_count ?? 0,
+          daily_posts: row.daily_posts ?? 0,
+          trend_score: row.trend_score ?? 0,
+        }));
+      setTrendingHashtags(tags);
+    }
+  };
 
   const fetchTrending = async () => {
     // Refresh trending from real posts
@@ -144,6 +205,52 @@ export function RightSidebar() {
           >
             View All Spaces
           </Button>
+        </div>
+      )}
+
+      {/* Trending Hashtags */}
+      {trendingHashtags.length > 0 && (
+        <div className="bg-muted/50 rounded-xl p-4 border border-border">
+          <h3 className="font-bold text-lg mb-3 flex items-center justify-between">
+            <span className="flex items-center">
+              <Hash className="w-5 h-5 mr-2 text-primary" />
+              Trending Tags
+            </span>
+            <span className="text-[10px] font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Live</span>
+          </h3>
+          <div className="space-y-1">
+            {trendingHashtags.map((tag, i) => (
+              <button
+                key={tag.id}
+                onClick={() => navigate(`/hashtag/${tag.tag}`)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted transition-colors group"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-bold text-muted-foreground w-4 shrink-0">{i + 1}</span>
+                  <span className="text-sm font-semibold text-primary truncate">#{tag.tag}</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  {tag.daily_posts > 0 && (
+                    <span className="text-[10px] text-muted-foreground">{formatNumber(tag.daily_posts)}/day</span>
+                  )}
+                  <button
+                    onClick={(e) => toggleTagFollow(tag, e)}
+                    className={`p-1 rounded-full transition-colors ${
+                      followedTags.has(tag.id)
+                        ? 'bg-primary/10 text-primary'
+                        : 'opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground'
+                    }`}
+                    title={followedTags.has(tag.id) ? 'Unfollow' : 'Follow'}
+                  >
+                    {followedTags.has(tag.id)
+                      ? <Check className="w-3 h-3" />
+                      : <Plus className="w-3 h-3" />
+                    }
+                  </button>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

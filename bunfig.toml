@@ -1,0 +1,7 @@
+[install]
+lifecycle-scripts = true
+exact = false
+
+[install.cache]
+dir = "/tmp/bun-install-cache"
+disable = false

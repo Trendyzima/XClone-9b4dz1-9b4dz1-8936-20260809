@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign } from 'lucide-react';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { usePageBanner } from '@/hooks/usePageBanner';
@@ -29,8 +29,11 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState('Posts');
   const [isFollowing, setIsFollowing] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [verifyBannerDismissed, setVerifyBannerDismissed] = useState(false);
   const [followers, setFollowers] = useState<any[]>([]);
   const [following, setFollowing] = useState<any[]>([]);
+  const [streakDay, setStreakDay] = useState(0);
+  const [followerRank, setFollowerRank] = useState<number | null>(null);
 
   // Profile page banner — shown at bottom, above bottom nav, after 2.5s
   usePageBanner({ adId: ADMOB_CONFIG.BANNER_PROFILE, margin: 64, delay: 2500 });
@@ -67,7 +70,8 @@ export default function ProfilePage() {
         fetchMedia(profileData.id),
         fetchLikedPosts(profileData.id),
         fetchFollowers(profileData.id),
-        fetchFollowing(profileData.id)
+        fetchFollowing(profileData.id),
+        fetchProfileStats(profileData.id),
       ]);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -180,6 +184,30 @@ export default function ProfilePage() {
       return;
     }
     setFollowers((data || []).map((item: any) => item.follower).filter(Boolean));
+  };
+
+  const fetchProfileStats = async (userId: string) => {
+    // Streak
+    const { data: reward } = await supabase
+      .from('daily_rewards')
+      .select('streak_day')
+      .eq('user_id', userId)
+      .maybeSingle();
+    setStreakDay(reward?.streak_day ?? 0);
+
+    // Follower rank (count users with more followers + 1)
+    const { data: profileData } = await supabase
+      .from('user_profiles')
+      .select('followers_count')
+      .eq('id', userId)
+      .maybeSingle();
+    if (profileData) {
+      const { count } = await supabase
+        .from('user_profiles')
+        .select('*', { count: 'exact', head: true })
+        .gt('followers_count', profileData.followers_count ?? 0);
+      setFollowerRank((count ?? 0) + 1);
+    }
   };
 
   const fetchFollowing = async (userId: string) => {
@@ -430,8 +458,86 @@ export default function ProfilePage() {
               <span className="text-muted-foreground">Followers</span>
             </button>
           </div>
+
+          {/* ── Profile Stats Card ─────────────────────────────── */}
+          <div className="flex gap-2 mt-3 flex-wrap">
+            {/* Follower rank */}
+            {followerRank !== null && (
+              <div
+                onClick={() => navigate('/leaderboard')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-muted/50 cursor-pointer hover:bg-muted transition-colors"
+              >
+                <Trophy className={`w-3.5 h-3.5 ${
+                  followerRank === 1 ? 'text-yellow-500' :
+                  followerRank === 2 ? 'text-slate-400' :
+                  followerRank === 3 ? 'text-amber-600' :
+                  'text-primary'
+                }`} />
+                <span className="text-xs font-semibold">
+                  {followerRank <= 3
+                    ? ['🥇','🥈','🥉'][followerRank - 1] + ` #${followerRank}`
+                    : `#${formatNumber(followerRank)}`}
+                </span>
+                <span className="text-xs text-muted-foreground">followers</span>
+              </div>
+            )}
+            {/* Streak */}
+            {streakDay > 0 && (
+              <div
+                onClick={() => navigate('/daily-rewards')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 cursor-pointer hover:bg-orange-500/10 transition-colors"
+              >
+                <Flame className="w-3.5 h-3.5 text-orange-500" />
+                <span className="text-xs font-semibold text-orange-600 dark:text-orange-400">Day {streakDay}</span>
+                <span className="text-xs text-muted-foreground">streak</span>
+              </div>
+            )}
+            {/* Earnings (own profile only) */}
+            {isOwnProfile && Number(profile.total_earnings) > 0 && (
+              <div
+                onClick={() => navigate('/monetization')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-green-500/30 bg-green-500/5 cursor-pointer hover:bg-green-500/10 transition-colors"
+              >
+                <DollarSign className="w-3.5 h-3.5 text-green-600" />
+                <span className="text-xs font-semibold text-green-600">${Number(profile.total_earnings).toFixed(2)}</span>
+                <span className="text-xs text-muted-foreground">earned</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* ── Verify Banner (own profile, unverified, not dismissed) ──────── */}
+      {isOwnProfile && !profile.verified && !verifyBannerDismissed && (
+        <div className="mx-4 mt-4 p-4 bg-gradient-to-r from-amber-500/10 via-yellow-500/10 to-transparent border border-amber-500/30 rounded-2xl">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm text-foreground">Get Verified</p>
+                <p className="text-xs text-muted-foreground">Add a blue checkmark to stand out</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => navigate('/verify')}
+                className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-full transition-colors"
+              >
+                Apply
+              </button>
+              <button
+                onClick={() => setVerifyBannerDismissed(true)}
+                className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Revenue Analytics Widget (for own profile only) */}
       {isOwnProfile && (

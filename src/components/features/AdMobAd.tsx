@@ -8,7 +8,7 @@ import {
   showBanner, hideBanner, showInterstitial, showRewarded,
   ADMOB_CONFIG
 } from '@/lib/admob';
-import { BannerAdPosition } from '@capacitor-community/admob';
+import { BannerAdPosition } from '@/lib/capacitor-stub';
 
 interface AdMobAdProps {
   adId?: string;

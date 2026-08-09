@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe } from 'lucide-react';
+import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe, Wand2, AtSign } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CreatePollDialog } from './CreatePollDialog';
 import { SchedulePostDialog } from './SchedulePostDialog';
@@ -36,6 +36,123 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const [taggedProducts, setTaggedProducts] = useState<any[]>([]);
   const [postToFediverse, setPostToFediverse] = useState(false);
   const { toast } = useToast();
+
+  // ── @Mentions Autocomplete ─────────────────────────────────────────────────
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionResults, setMentionResults] = useState<any[]>([]);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const mentionSearchRef = useRef<string | null>(null);
+
+  const handleContentChange = useCallback(async (val: string) => {
+    setContent(val);
+    // Detect @mention trigger: find the last '@' before cursor that hasn't been closed by a space
+    const ta = textareaRef.current;
+    const pos = ta?.selectionStart ?? val.length;
+    const before = val.slice(0, pos);
+    const atMatch = before.match(/@(\w*)$/);
+    if (!atMatch) {
+      setMentionQuery(null);
+      setMentionResults([]);
+      return;
+    }
+    const q = atMatch[1];
+    setMentionQuery(q);
+    setMentionIdx(0);
+    mentionSearchRef.current = q;
+    if (q.length === 0) {
+      setMentionResults([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('id, username, avatar_url')
+      .ilike('username', `${q}%`)
+      .limit(5);
+    // Only apply if query hasn't changed since we started
+    if (mentionSearchRef.current === q) {
+      setMentionResults(data ?? []);
+    }
+  }, []);
+
+  const insertMention = useCallback((username: string) => {
+    const ta = textareaRef.current;
+    const pos = ta?.selectionStart ?? content.length;
+    const before = content.slice(0, pos);
+    const after = content.slice(pos);
+    const replaced = before.replace(/@(\w*)$/, `@${username} `);
+    const newContent = replaced + after;
+    setContent(newContent);
+    setMentionQuery(null);
+    setMentionResults([]);
+    // Restore focus
+    setTimeout(() => {
+      if (ta) {
+        ta.focus();
+        const newPos = replaced.length;
+        ta.setSelectionRange(newPos, newPos);
+      }
+    }, 0);
+  }, [content]);
+
+  const handleMentionKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionResults.length === 0 || mentionQuery === null) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setMentionIdx(i => Math.min(i + 1, mentionResults.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setMentionIdx(i => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      if (mentionResults[mentionIdx]) {
+        e.preventDefault();
+        insertMention(mentionResults[mentionIdx].username);
+      }
+    } else if (e.key === 'Escape') {
+      setMentionQuery(null);
+      setMentionResults([]);
+    }
+  }, [mentionResults, mentionQuery, mentionIdx, insertMention]);
+
+  // ── AI Post Writer ────────────────────────────────────────────────────────
+  const [showAiWriter, setShowAiWriter] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiDrafts, setAiDrafts] = useState<string[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const handleAiWrite = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true);
+    setAiDrafts([]);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: {
+          messages: [{
+            role: 'user',
+            content: `Generate exactly 3 different engaging social media post drafts about: "${aiPrompt.trim()}". Each draft should be unique in style (one casual, one informative, one engaging/question-based). Keep each under 280 characters. Return ONLY the 3 drafts separated by the delimiter "|||" with no numbering, labels, or extra text.`,
+          }],
+          model: 'gemini-2.0-flash',
+        },
+      });
+      if (error) throw error;
+      const raw = data?.choices?.[0]?.message?.content ??
+        data?.content ?? data?.text ?? data?.response ?? '';
+      const drafts = raw.split('|||').map((d: string) => d.trim()).filter(Boolean).slice(0, 3);
+      setAiDrafts(drafts.length > 0 ? drafts : ['Could not generate drafts. Please try again.']);
+    } catch (err) {
+      console.warn('[ai-writer]', err);
+      setAiDrafts(['Failed to generate drafts. Please try again.']);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const applyDraft = (draft: string) => {
+    setContent(draft);
+    setAiDrafts([]);
+    setAiPrompt('');
+    setShowAiWriter(false);
+  };
 
   if (!user) {
     return (
@@ -351,6 +468,28 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
         if (tagError) console.error('Error tagging products:', tagError);
       }
 
+      // Notify @mentioned users
+      const mentionMatches = content.match(/@(\w+)/g);
+      if (mentionMatches && postData) {
+        const uniqueUsernames = [...new Set(mentionMatches.map(m => m.slice(1).toLowerCase()))];
+        const { data: mentionedUsers } = await supabase
+          .from('user_profiles')
+          .select('id, username')
+          .in('username', uniqueUsernames)
+          .neq('id', user.id); // never notify yourself
+        if (mentionedUsers && mentionedUsers.length > 0) {
+          await supabase.from('notifications').insert(
+            mentionedUsers.map(mu => ({
+              user_id: mu.id,
+              type: 'mention',
+              from_user_id: user.id,
+              post_id: postData.id,
+            }))
+          );
+          console.log(`[mentions] notified ${mentionedUsers.length} user(s)`);
+        }
+      }
+
       // Post to Fediverse if toggled
       if (postToFediverse) {
         try {
@@ -405,13 +544,42 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
           )}
         </div>
         <div className="flex-1 overflow-hidden">
-          <Textarea
-            placeholder="What's happening?"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="min-h-[80px] border-0 resize-none focus-visible:ring-0 p-0 text-lg bg-transparent w-full"
-            maxLength={700}
-          />
+          <div className="relative">
+            <Textarea
+              ref={textareaRef}
+              placeholder="What's happening?"
+              value={content}
+              onChange={(e) => handleContentChange(e.target.value)}
+              onKeyDown={handleMentionKeyDown}
+              className="min-h-[80px] border-0 resize-none focus-visible:ring-0 p-0 text-lg bg-transparent w-full"
+              maxLength={700}
+            />
+            {/* @Mentions Dropdown */}
+            {mentionQuery !== null && mentionResults.length > 0 && (
+              <div className="absolute z-50 left-0 mt-1 w-64 bg-popover border border-border rounded-xl shadow-xl overflow-hidden">
+                {mentionResults.map((u, i) => (
+                  <button
+                    key={u.id}
+                    onMouseDown={(e) => { e.preventDefault(); insertMention(u.username); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors ${
+                      i === mentionIdx ? 'bg-primary/10' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <div className="w-7 h-7 rounded-full bg-muted overflow-hidden flex-shrink-0">
+                      {u.avatar_url
+                        ? <img src={u.avatar_url} alt={u.username} className="w-full h-full object-cover" />
+                        : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{u.username[0]?.toUpperCase()}</div>
+                      }
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">@{u.username}</p>
+                    </div>
+                    <AtSign className="w-3 h-3 text-primary ml-auto flex-shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           
           {/* Multiple Images Grid */}
           {images.length > 0 && (
@@ -584,6 +752,19 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
               >
                 <ShoppingBag className="w-5 h-5" />
               </button>
+              {/* AI Write button */}
+              <button
+                onClick={() => setShowAiWriter(v => !v)}
+                disabled={loading}
+                className={`cursor-pointer p-2 rounded-full transition-colors disabled:opacity-50 flex-shrink-0 ${
+                  showAiWriter
+                    ? 'bg-purple-500/20 text-purple-600 dark:text-purple-400'
+                    : 'hover:bg-primary/10 text-muted-foreground'
+                }`}
+                title="AI Post Writer"
+              >
+                <Wand2 className="w-5 h-5" />
+              </button>
               <button
                 onClick={() => setPostToFediverse(v => !v)}
                 disabled={loading}
@@ -623,6 +804,51 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
               </Button>
             </div>
           </div>
+          {/* AI Writer Panel */}
+          {showAiWriter && (
+            <div className="mt-3 p-3 border border-purple-500/20 rounded-xl bg-purple-500/5">
+              <div className="flex items-center gap-2 mb-2">
+                <Wand2 className="w-4 h-4 text-purple-500" />
+                <span className="text-sm font-semibold text-purple-600 dark:text-purple-400">AI Post Writer</span>
+                <button onClick={() => { setShowAiWriter(false); setAiDrafts([]); setAiPrompt(''); }} className="ml-auto text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAiWrite()}
+                  placeholder="What do you want to write about?"
+                  className="flex-1 text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                  disabled={aiLoading}
+                />
+                <button
+                  onClick={handleAiWrite}
+                  disabled={aiLoading || !aiPrompt.trim()}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors flex-shrink-0"
+                >
+                  {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                  {aiLoading ? 'Writing…' : 'Write'}
+                </button>
+              </div>
+              {aiDrafts.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-muted-foreground font-medium">Choose a draft:</p>
+                  {aiDrafts.map((draft, i) => (
+                    <button
+                      key={i}
+                      onClick={() => applyDraft(draft)}
+                      className="w-full text-left text-sm p-2.5 border border-border rounded-lg hover:border-purple-500 hover:bg-purple-500/5 transition-colors leading-relaxed"
+                    >
+                      {draft}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {showGifDialog && (
             <GifPicker
               onSelect={(url) => {

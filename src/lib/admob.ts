@@ -6,8 +6,7 @@
  * Proper initialization ensures ads show on native platforms.
  */
 
-import { AdMob, BannerAdSize, BannerAdPosition, AdMobRewardItem } from '@capacitor-community/admob';
-import { Capacitor } from '@capacitor/core';
+import { AdMob, BannerAdSize, BannerAdPosition, AdMobRewardItem, Capacitor } from '@/lib/capacitor-stub';
 
 export const ADMOB_CONFIG = {
   APP_ID: 'ca-app-pub-7234579833875016~4829778821',

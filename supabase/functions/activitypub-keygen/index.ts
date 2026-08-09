@@ -36,6 +36,42 @@ serve(async (req) => {
 
     if (req.method === 'POST') {
       const body = await req.json().catch(() => ({}));
+
+      // ── Backfill mode: generate keys for all users without them ────────────
+      if (body.generate_all_missing === true) {
+        const [{ data: allUsers }, { data: existingKeys }] = await Promise.all([
+          supabaseAdmin.from('user_profiles').select('id, username').limit(500),
+          supabaseAdmin.from('activitypub_keys').select('user_id'),
+        ]);
+        const existingSet = new Set((existingKeys ?? []).map((k: any) => k.user_id));
+        const missing = (allUsers ?? []).filter((u: any) => !existingSet.has(u.id));
+        // Process up to 50 per call to stay within timeout
+        const batch = missing.slice(0, 50);
+        let generated = 0;
+        let failed = 0;
+        for (const u of batch) {
+          try {
+            await generateAndStoreKeys(supabaseAdmin, u.id, u.username ?? u.id);
+            generated++;
+          } catch (e) {
+            console.warn('[keygen] backfill failed for', u.id, e);
+            failed++;
+          }
+        }
+        console.log(`[keygen] Backfill: ${generated} generated, ${failed} failed`);
+        return new Response(
+          JSON.stringify({
+            status: 'backfill_complete',
+            total: allUsers?.length ?? 0,
+            missing: missing.length,
+            generated,
+            failed,
+            remaining: Math.max(0, missing.length - batch.length),
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       userId = body.user_id ?? null;
     }
 
@@ -72,59 +108,9 @@ serve(async (req) => {
       .maybeSingle();
 
     const username = profile?.username ?? userId;
-    const actorId = `https://${DOMAIN}/users/${username}`;
-    const keyId = `${actorId}#main-key`;
-
-    // Generate RSA-2048 key pair using Web Crypto API
-    const keyPair = await crypto.subtle.generateKey(
-      {
-        name: 'RSASSA-PKCS1-v1_5',
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash: 'SHA-256',
-      },
-      true, // extractable
-      ['sign', 'verify']
-    );
-
-    // Export keys as PEM
-    const publicKeyDer = await crypto.subtle.exportKey('spki', keyPair.publicKey);
-    const privateKeyDer = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
-
-    const publicKeyPem = toPem(publicKeyDer, 'PUBLIC KEY');
-    const privateKeyPem = toPem(privateKeyDer, 'PRIVATE KEY');
-
-    // Store keys
-    const { error: insertError } = await supabaseAdmin.from('activitypub_keys').insert({
-      user_id: userId,
-      public_key: publicKeyPem,
-      private_key: privateKeyPem,
-      key_id: keyId,
-    });
-
-    if (insertError) {
-      console.error('Insert keys error:', insertError);
-      return new Response(JSON.stringify({ error: insertError.message }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Upsert actor record
-    await supabaseAdmin.from('activitypub_actors').upsert({
-      user_id: userId,
-      actor_id: actorId,
-      inbox_url: `${actorId}/inbox`,
-      outbox_url: `${actorId}/outbox`,
-      followers_url: `${actorId}/followers`,
-      following_url: `${actorId}/following`,
-      username,
-      domain: DOMAIN,
-    }, { onConflict: 'actor_id' });
-
+    const result = await generateAndStoreKeys(supabaseAdmin, userId, username);
     console.log(`[activitypub-keygen] Keys generated for user ${userId} (${username})`);
-
-    return new Response(JSON.stringify({ status: 'created', key_id: keyId, actor_id: actorId }), {
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
@@ -135,6 +121,54 @@ serve(async (req) => {
     });
   }
 });
+
+/** Generate RSA-2048 keys and store them for a user, returning status */
+async function generateAndStoreKeys(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  userId: string,
+  username: string
+): Promise<{ status: string; key_id: string; actor_id: string }> {
+  const actorId = `https://${DOMAIN}/users/${username}`;
+  const keyId = `${actorId}#main-key`;
+
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['sign', 'verify']
+  );
+
+  const publicKeyPem = toPem(await crypto.subtle.exportKey('spki', keyPair.publicKey), 'PUBLIC KEY');
+  const privateKeyPem = toPem(await crypto.subtle.exportKey('pkcs8', keyPair.privateKey), 'PRIVATE KEY');
+
+  const { error: insertError } = await supabaseAdmin.from('activitypub_keys').insert({
+    user_id: userId,
+    public_key: publicKeyPem,
+    private_key: privateKeyPem,
+    key_id: keyId,
+  });
+  if (insertError) throw new Error(insertError.message);
+
+  await supabaseAdmin.from('activitypub_actors').upsert(
+    {
+      user_id: userId,
+      actor_id: actorId,
+      inbox_url: `${actorId}/inbox`,
+      outbox_url: `${actorId}/outbox`,
+      followers_url: `${actorId}/followers`,
+      following_url: `${actorId}/following`,
+      username,
+      domain: DOMAIN,
+    },
+    { onConflict: 'actor_id' }
+  );
+
+  return { status: 'created', key_id: keyId, actor_id: actorId };
+}
 
 /** Convert ArrayBuffer to Base64-encoded PEM string */
 function toPem(buffer: ArrayBuffer, label: string): string {
