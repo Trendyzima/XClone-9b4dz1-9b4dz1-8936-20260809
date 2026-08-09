@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
@@ -49,6 +49,9 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  // Edit history
+  const [showEditHistory, setShowEditHistory] = useState(false);
+  const editHistory: any[] = (post as any).edit_history ?? [];
 
   const fetchAnalytics = useCallback(async () => {
     if (analytics) return; // already loaded
@@ -465,6 +468,19 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                         <MoreHorizontal className="w-4 h-4" />
                         Edit post
                       </button>
+                      {editHistory.length > 0 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowEditHistory(true);
+                            setShowDeleteMenu(false);
+                          }}
+                          className="w-full text-left px-4 py-3 hover:bg-muted flex items-center gap-2"
+                        >
+                          <History className="w-4 h-4 text-blue-500" />
+                          Edit History
+                        </button>
+                      )}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -697,6 +713,62 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         onOpenChange={setShowShareDialog}
         post={post}
       />
+
+      {/* ── Edit History Bottom Sheet ── */}
+      {showEditHistory && editHistory.length > 0 && (
+        <div
+          className="fixed inset-0 z-[250] bg-black/60"
+          onClick={(e) => { e.stopPropagation(); setShowEditHistory(false); }}
+        >
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="sticky top-0 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-blue-500" />
+                <h2 className="font-bold text-base">Edit History</h2>
+                <span className="text-xs bg-blue-500/10 text-blue-600 font-semibold px-2 py-0.5 rounded-full">{editHistory.length} edit{editHistory.length !== 1 ? 's' : ''}</span>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowEditHistory(false); }}
+                className="p-2 rounded-full hover:bg-muted transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Current version */}
+            <div className="px-5 py-4 border-b border-border bg-green-500/3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-green-600 bg-green-500/10 px-2 py-0.5 rounded-full">Current</span>
+                {(post as any).edited_at && (
+                  <span className="text-xs text-muted-foreground">
+                    {new Date((post as any).edited_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap break-words text-green-800 dark:text-green-300 bg-green-500/5 rounded-xl px-3 py-2.5">{post.content}</p>
+            </div>
+            {/* Previous versions — most-recent first */}
+            {[...editHistory].reverse().map((entry: any, idx: number) => (
+              <div key={idx} className="px-5 py-4 border-b border-border last:border-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground bg-muted px-2 py-0.5 rounded-full">v{editHistory.length - idx}</span>
+                  {entry.edited_at && (
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(entry.edited_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words line-through text-muted-foreground/70 bg-red-500/3 rounded-xl px-3 py-2.5">
+                  {entry.content ?? entry.previous_content ?? '(no content saved)'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {user?.id === post.user_id && (
         <>

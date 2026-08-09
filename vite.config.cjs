@@ -195,6 +195,7 @@ module.exports = defineConfig({
 
             // Fix 2: named imports from CJS React sub-packages
             const CJS_PKGS = [
+              'react',
               'react/jsx-runtime',
               'react/jsx-dev-runtime',
               'react-dom',
