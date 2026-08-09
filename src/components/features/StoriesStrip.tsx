@@ -45,6 +45,11 @@ export function StoriesStrip() {
   const isSwiping = useRef(false);
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
+  const [sendingReaction, setSendingReaction] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const REACTIONS = ['❤️', '😂', '😮', '🔥', '👏', '😍'];
 
   const fetchStories = useCallback(async () => {
     setLoading(true);
@@ -217,6 +222,43 @@ export function StoriesStrip() {
     setPendingCaption('');
     setPendingPreviewUrl(null);
     setUploading(false);
+  };
+
+  const sendReaction = async (emoji: string) => {
+    if (!user || viewerGroupIdx === null) return;
+    const g = groups[viewerGroupIdx];
+    if (!g || g.userId === user.id) return;
+    setSendingReaction(true);
+    setShowReactions(false);
+    try {
+      // Send as DM reaction
+      const { data: existing } = await supabase
+        .from('conversations')
+        .select('id')
+        .or(`and(participant_1.eq.${user.id},participant_2.eq.${g.userId}),and(participant_1.eq.${g.userId},participant_2.eq.${user.id})`)
+        .maybeSingle();
+      let convId = existing?.id;
+      if (!convId) {
+        const { data: newConv } = await supabase
+          .from('conversations')
+          .insert({ participant_1: user.id, participant_2: g.userId })
+          .select('id').single();
+        convId = newConv?.id;
+      }
+      if (!convId) throw new Error('No conversation');
+      const story = groups[viewerGroupIdx].stories[activeStoryIdx];
+      await supabase.from('direct_messages').insert({
+        conversation_id: convId,
+        sender_id: user.id,
+        content: `${emoji} Reacted to your story`,
+      });
+      // Animated emoji feedback
+      toast.success(`${emoji} Sent!`, { duration: 1500 });
+    } catch {
+      toast.error('Could not send reaction');
+    } finally {
+      setSendingReaction(false);
+    }
   };
 
   const sendStoryReply = async () => {
@@ -471,6 +513,31 @@ export function StoriesStrip() {
               )
             }
 
+            {/* ── Emoji Reactions ── */}
+            {user && g.userId !== user.id && showReactions && (
+              <div
+                className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-black/70 backdrop-blur-sm rounded-full px-3 py-2 border border-white/20"
+                onClick={e => e.stopPropagation()}
+              >
+                {REACTIONS.map(emoji => (
+                  <button
+                    key={emoji}
+                    onClick={() => sendReaction(emoji)}
+                    disabled={sendingReaction}
+                    className="w-10 h-10 flex items-center justify-center text-2xl rounded-full hover:bg-white/20 active:scale-125 transition-all duration-150"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setShowReactions(false)}
+                  className="w-8 h-8 flex items-center justify-center text-white/60 hover:text-white ml-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             {/* Caption */}
             {story.caption && (
               <div className="absolute bottom-16 left-6 right-6 z-20 pointer-events-none">
@@ -480,12 +547,27 @@ export function StoriesStrip() {
               </div>
             )}
 
-            {/* Story Reply Input */}
+            {/* Story Reply Input + Reaction trigger */}
             {user && g.userId !== user.id && (
               <div
                 className="absolute bottom-4 left-4 right-4 z-30 flex items-center gap-2"
                 onClick={e => e.stopPropagation()}
               >
+                {/* Reaction emoji button */}
+                <button
+                  onMouseDown={() => {
+                    longPressTimer.current = setTimeout(() => setShowReactions(true), 400);
+                  }}
+                  onMouseUp={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                  onTouchStart={() => {
+                    longPressTimer.current = setTimeout(() => setShowReactions(true), 400);
+                  }}
+                  onTouchEnd={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                  onClick={() => setShowReactions(v => !v)}
+                  className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center border border-white/20 text-lg shrink-0 hover:bg-white/25 transition-colors"
+                >
+                  😊
+                </button>
                 <input
                   type="text"
                   value={replyText}

@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2 } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy } from 'lucide-react';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { usePageBanner } from '@/hooks/usePageBanner';
@@ -36,6 +36,8 @@ export default function ProfilePage() {
   const [followerRank, setFollowerRank] = useState<number | null>(null);
   const [referralCopied, setReferralCopied] = useState(false);
   const [profileShared, setProfileShared] = useState(false);
+  const [fedHandleCopied, setFedHandleCopied] = useState(false);
+  const [hasActorRecord, setHasActorRecord] = useState(false);
 
   const handleShareProfile = async () => {
     const url = `${window.location.origin}/profile/${profile.username}`;
@@ -59,6 +61,16 @@ export default function ProfilePage() {
       fetchProfile();
     }
   }, [username]);
+
+  // Check if this profile has an ActivityPub actor
+  useEffect(() => {
+    if (!profile?.id) return;
+    supabase
+      .from('activitypub_actors')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', profile.id)
+      .then(({ count }) => setHasActorRecord((count ?? 0) > 0));
+  }, [profile?.id]);
 
   useEffect(() => {
     if (profile && currentUser && profile.id !== currentUser.id) {
@@ -402,11 +414,26 @@ export default function ProfilePage() {
           </div>
 
           {profile.bio && <p className="mb-3 break-words">{profile.bio}</p>}
-          {/* Fediverse identity badge */}
-          {profile.username && (
-            <div className="mb-3">
-              <FediverseBadge username={profile.username} compact />
-            </div>
+          {/* Fediverse Actor Badge — clickable handle */}
+          {hasActorRecord && profile.username && (
+            <button
+              onClick={() => {
+                const handle = `@${profile.username}@testagram.site`;
+                navigator.clipboard.writeText(handle).then(() => {
+                  setFedHandleCopied(true);
+                  setTimeout(() => setFedHandleCopied(false), 2000);
+                });
+              }}
+              className="mb-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/5 hover:bg-purple-500/10 transition-colors"
+            >
+              <Globe className="w-3.5 h-3.5 text-purple-500" />
+              <span className="text-xs font-mono font-semibold text-purple-600 dark:text-purple-400">
+                @{profile.username}@testagram.site
+              </span>
+              {fedHandleCopied
+                ? <Check className="w-3 h-3 text-green-500" />
+                : <Copy className="w-3 h-3 text-purple-400" />}
+            </button>
           )}
 
           <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground mb-3">

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
-import { Search, TrendingUp, Globe, BadgeCheck } from 'lucide-react';
+import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -23,6 +23,13 @@ export default function ExplorePage() {
   const [whoToFollow, setWhoToFollow] = useState<any[]>([]);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [prefCategories, setPrefCategories] = useState<string[]>(['News', 'Sports', 'Entertainment', 'Politics', 'Technology']);
+  const [prefCountry, setPrefCountry] = useState('Kenya');
+  const [showWhoToFollow, setShowWhoToFollow] = useState(true);
+
+  const ALL_CATEGORIES = ['News', 'Sports', 'Entertainment', 'Politics', 'Technology', 'Music', 'Science', 'Business'];
+  const COUNTRIES = ['Kenya', 'Nigeria', 'USA', 'UK', 'India', 'South Africa', 'Tanzania', 'Uganda'];
 
   const tabs: ExploreTab[] = ['Explore', 'Trending', 'News', 'Sports', 'Entertainment'];
 
@@ -123,9 +130,92 @@ export default function ExplorePage() {
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Explore" showProfile={false} />
 
+      {/* ── Explore Settings Sheet ─────────────────────────────────────────── */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[110] bg-black/50" onClick={() => setShowSettings(false)}>
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl p-5 space-y-5 max-h-[80vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-lg">Explore Settings</h2>
+              <button onClick={() => setShowSettings(false)} className="p-2 rounded-full hover:bg-muted transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Country */}
+            <div>
+              <p className="text-sm font-semibold mb-2">Trending Region</p>
+              <div className="flex flex-wrap gap-2">
+                {COUNTRIES.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setPrefCountry(c)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                      prefCountry === c ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Categories */}
+            <div>
+              <p className="text-sm font-semibold mb-2">Show Categories</p>
+              <div className="flex flex-wrap gap-2">
+                {ALL_CATEGORIES.map(cat => {
+                  const active = prefCategories.includes(cat);
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setPrefCategories(prev => active ? prev.filter(c => c !== cat) : [...prev, cat])}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                        active ? 'bg-primary/10 text-primary border-primary/30' : 'border-border text-muted-foreground hover:bg-muted'
+                      }`}
+                    >
+                      {active && <Check className="w-3 h-3" />}
+                      {cat}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Who to follow toggle */}
+            <div className="flex items-center justify-between py-3 border-t border-border">
+              <div>
+                <p className="text-sm font-semibold">Show Who to Follow</p>
+                <p className="text-xs text-muted-foreground">Display user suggestions in feed</p>
+              </div>
+              <button
+                onClick={() => setShowWhoToFollow(v => !v)}
+                className={`w-12 h-6 rounded-full transition-colors relative ${
+                  showWhoToFollow ? 'bg-primary' : 'bg-muted-foreground/30'
+                }`}
+              >
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                  showWhoToFollow ? 'translate-x-7' : 'translate-x-1'
+                }`} />
+              </button>
+            </div>
+
+            <button
+              onClick={() => { setShowSettings(false); fetchData(); }}
+              className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-semibold"
+            >
+              Save & Refresh
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Sticky Search + Tabs ────────────────────────────────────────────── */}
       <div className="sticky top-14 z-30 bg-background border-b border-border">
-        <form onSubmit={handleSearch} className="px-3 pt-3 pb-2">
+        <div className="flex items-center gap-2 px-3 pt-3 pb-2">
+        <form onSubmit={handleSearch} className="flex-1">
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
@@ -137,6 +227,13 @@ export default function ExplorePage() {
             />
           </div>
         </form>
+        <button
+          onClick={() => setShowSettings(true)}
+          className="shrink-0 w-10 h-10 rounded-full bg-muted/80 flex items-center justify-center hover:bg-muted transition-colors"
+        >
+          <Settings className="w-4.5 h-4.5 text-muted-foreground" />
+        </button>
+        </div>
         <div className="flex overflow-x-auto scrollbar-hide">
           {tabs.map((tab) => (
             <button
@@ -210,7 +307,7 @@ export default function ExplorePage() {
           )}
 
           {/* Who to follow */}
-          {whoToFollow.length > 0 && (
+          {showWhoToFollow && whoToFollow.length > 0 && (
             <section className="border-b border-border">
               <div className="px-4 pt-4 pb-2">
                 <h2 className="font-bold text-xl">Who to follow</h2>
