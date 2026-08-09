@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
@@ -91,8 +91,10 @@ export default function PostThreadPage() {
   const [submitting, setSubmitting] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [liveReplyCount, setLiveReplyCount] = useState<number | null>(null);
+  const [newReplyCount, setNewReplyCount] = useState(0);
+  const knownReplyCount = useRef<number | null>(null);
 
-  // Poll reply count every 15s for live badge
+  // Poll reply count every 10s — show floating pill when new replies arrive
   useEffect(() => {
     if (!postId) return;
     const fetchReplyCount = async () => {
@@ -100,12 +102,25 @@ export default function PostThreadPage() {
         .from('replies')
         .select('*', { count: 'exact', head: true })
         .eq('post_id', postId);
-      if (count !== null) setLiveReplyCount(count);
+      if (count !== null) {
+        setLiveReplyCount(count);
+        if (knownReplyCount.current !== null && count > knownReplyCount.current) {
+          setNewReplyCount(count - knownReplyCount.current);
+        }
+        // Initialize base after first load completes
+        if (knownReplyCount.current === null) knownReplyCount.current = count;
+      }
     };
     fetchReplyCount();
-    const iv = setInterval(fetchReplyCount, 15_000);
+    const iv = setInterval(fetchReplyCount, 10_000);
     return () => clearInterval(iv);
   }, [postId]);
+
+  const handleViewNewReplies = () => {
+    knownReplyCount.current = liveReplyCount;
+    setNewReplyCount(0);
+    fetchPostAndReplies();
+  };
 
   const fetchPostAndReplies = async () => {
     if (!postId) return;
@@ -222,6 +237,13 @@ export default function PostThreadPage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(text + url)}`, '_blank');
   };
 
+  // Sync knownReplyCount once replies load
+  useEffect(() => {
+    if (replies.length > 0 && knownReplyCount.current === null) {
+      knownReplyCount.current = replies.length;
+    }
+  }, [replies.length]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -252,6 +274,19 @@ export default function PostThreadPage() {
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Post" showBack />
+
+      {/* ── Floating "View N new replies" pill ── */}
+      {newReplyCount > 0 && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+          <button
+            onClick={handleViewNewReplies}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-full shadow-lg shadow-primary/25 text-sm font-semibold"
+          >
+            <MessageCircle className="w-4 h-4" />
+            View {newReplyCount} new {newReplyCount === 1 ? 'reply' : 'replies'}
+          </button>
+        </div>
+      )}
 
       {/* Main post */}
       <PostCard post={post} onUpdate={fetchPostAndReplies} />

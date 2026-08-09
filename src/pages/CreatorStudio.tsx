@@ -31,6 +31,7 @@ export default function CreatorStudio() {
   const [earningsHistory, setEarningsHistory] = useState<any[]>([]);
   const [weeklyViews, setWeeklyViews] = useState<any[]>([]);
   const [videoEarnings, setVideoEarnings] = useState<any[]>([]);
+  const [weeklyEarnings, setWeeklyEarnings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'videos' | 'earnings'>('overview');
 
@@ -40,6 +41,7 @@ export default function CreatorStudio() {
     fetchRecentPosts();
     fetchEarningsHistory();
     fetchVideoEarnings();
+    fetchWeeklyEarnings();
   }, [user]);
 
   const fetchCreatorStats = async () => {
@@ -95,6 +97,34 @@ export default function CreatorStudio() {
       else byMonth[m].pending += Number(e.amount);
     });
     setEarningsHistory(Object.values(byMonth).slice(-6));
+  };
+
+  const fetchWeeklyEarnings = async () => {
+    if (!user) return;
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const { data } = await supabase
+      .from('creator_earnings')
+      .select('amount, source, created_at')
+      .eq('user_id', user.id)
+      .gte('created_at', sevenDaysAgo)
+      .order('created_at', { ascending: true });
+    if (!data) return;
+    // Group by day and source
+    const days: Record<string, { day: string; tips: number; subscriptions: number; ads: number; other: number }> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+      days[d] = { day: d.slice(5), tips: 0, subscriptions: 0, ads: 0, other: 0 };
+    }
+    data.forEach(e => {
+      const d = e.created_at.split('T')[0];
+      if (!days[d]) return;
+      const amt = Number(e.amount);
+      if (e.source === 'tips') days[d].tips += amt;
+      else if (e.source === 'subscription') days[d].subscriptions += amt;
+      else if (e.source?.includes('ad') || e.source?.includes('video')) days[d].ads += amt;
+      else days[d].other += amt;
+    });
+    setWeeklyEarnings(Object.values(days));
   };
 
   const fetchVideoEarnings = async () => {
@@ -327,6 +357,36 @@ export default function CreatorStudio() {
         {/* ── EARNINGS TAB ── */}
         {activeStudioTab === 'earnings' && (
           <div className="space-y-4">
+            {/* Weekly Earnings Chart */}
+            <div className="bg-card border border-border rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-bold flex items-center gap-2"><BarChart3 className="w-5 h-5 text-primary" />This Week's Earnings</h2>
+              </div>
+              {weeklyEarnings.some(d => d.tips + d.subscriptions + d.ads + d.other > 0) ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={weeklyEarnings} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                    <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={v => `$${v}`} />
+                    <Tooltip
+                      contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                      formatter={(v: any, name: string) => [`$${Number(v).toFixed(4)}`, name]}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="tips" name="Tips" fill="#f59e0b" stackId="a" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="subscriptions" name="Subscriptions" fill="#8b5cf6" stackId="a" />
+                    <Bar dataKey="ads" name="Ads/Videos" fill="#10b981" stackId="a" />
+                    <Bar dataKey="other" name="Other" fill="#3b82f6" stackId="a" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground">
+                  <DollarSign className="w-10 h-10 opacity-20 mb-2" />
+                  <p className="text-sm">No earnings this week yet</p>
+                </div>
+              )}
+            </div>
+
             {earningsHistory.length > 0 ? (
               <div className="bg-card border border-border rounded-2xl p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -348,10 +408,9 @@ export default function CreatorStudio() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="text-center py-16 text-muted-foreground">
-                <DollarSign className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">No earnings yet</p>
-                <p className="text-sm mt-1">Enable creator mode and start posting to earn</p>
+              <div className="text-center py-8 text-muted-foreground">
+                <DollarSign className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p className="text-sm font-medium">No monthly history yet</p>
               </div>
             )}
             <button onClick={() => navigate('/payouts')} className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity">

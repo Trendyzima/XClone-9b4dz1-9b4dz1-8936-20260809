@@ -115,6 +115,7 @@ module.exports = defineConfig({
   },
 
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@': path.resolve(__dirname, 'src'),
       '@capacitor/core':                         stub,
@@ -134,12 +135,16 @@ module.exports = defineConfig({
   },
 
   build: {
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    },
     rollupOptions: {
       output: {
         interop: 'auto',
       },
       onwarn(warning, warn) {
         if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return;
+        if (warning.code === 'MISSING_EXPORT') return;
         warn(warning);
       },
     },
