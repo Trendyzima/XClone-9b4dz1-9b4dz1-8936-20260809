@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!-- App icon favicons -->
+    <link rel="icon" type="image/jpeg" href="/app-icon.jpg" />
+    <link rel="apple-touch-icon" href="/app-icon.jpg" />
+
+    <!-- Mobile App Settings -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Testagram" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Essential SEO Meta Tags -->
+    <title>
+      Testagram – Breaking News, Social Trends & Global Conversations
+    </title>
+
+    <meta
+      name="description"
+      content="Testagram is a social platform for breaking news, trending stories, entertainment, politics, sports, and global conversations worldwide."
+    />
+
+    <meta
+      name="keywords"
+      content="testagram, breaking news, social media, trending news, entertainment, politics, global news, communities, live chat"
+    />
+
+    <meta name="robots" content="index, follow" />
+    <meta name="googlebot" content="index, follow" />
+
+    <meta name="author" content="Testagram" />
+    <meta http-equiv="content-language" content="en" />
+
+    <!-- Canonical URL -->
+    <link
+      rel="canonical"
+      href="https://testagram.site"
+    />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+
+    <meta
+      property="og:url"
+      content="https://testagram.site"
+    />
+
+    <meta
+      property="og:title"
+      content="Testagram – Breaking News, Social Trends & Global Conversations"
+    />
+
+    <meta
+      property="og:description"
+      content="Join conversations on breaking news, entertainment, politics, sports, and trending global stories on Testagram."
+    />
+
+    <meta
+      property="og:image"
+      content="https://testagram.site/og-image.jpg"
+    />
+
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <meta property="og:site_name" content="Testagram" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta
+      name="twitter:card"
+      content="summary_large_image"
+    />
+
+    <meta
+      name="twitter:url"
+      content="https://testagram.site"
+    />
+
+    <meta
+      name="twitter:title"
+      content="Testagram – Breaking News, Social Trends & Global Conversations"
+    />
+
+    <meta
+      name="twitter:description"
+      content="Join conversations on breaking news, entertainment, politics, sports, and trending global stories on Testagram."
+    />
+
+    <meta
+      name="twitter:image"
+      content="https://testagram.site/og-image.jpg"
+    />
+
+    <!-- Schema.org JSON-LD -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Testagram",
+        "url": "https://testagram.site",
+        "description": "Testagram is a social platform for breaking news, trending stories, entertainment, politics, sports, and global conversations worldwide."
+      }
+    </script>
+
+    <!-- Google AdSense -->
+    <script
+      async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7234579833875016"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+
+  <body>
+    <!-- Theme applied before React renders to prevent flash -->
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem("theme");
+
+          if (!theme) {
+            theme = window.matchMedia("(prefers-color-scheme: dark)")
+              .matches
+              ? "dark"
+              : "light";
+          }
+
+          document.documentElement.classList.add(theme);
+          document.documentElement.style.colorScheme = theme;
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+
+    <div id="root"></div>
+
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

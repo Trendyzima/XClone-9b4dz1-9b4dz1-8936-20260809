@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+  <!-- Home page -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>1.0</priority>
+  </url>
+
+  <!-- Auth / Login -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/auth</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- Explore -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/explore</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- Communities -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/communities</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Community detail (dynamic example) -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/c/sample-community</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Spaces -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/spaces</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- AI page -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/ai</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- Videos -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/videos</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- User profiles (example) -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/profile/sample-user</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- Search page -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/search</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+  <!-- Spaces detail / posts / streams -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/stream/sample-stream</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>hourly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+  <!-- Bookmarks -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/bookmarks</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+  <!-- Settings -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/settings</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+
+  <!-- Help / FAQ -->
+  <url>
+    <loc>https://4eil73rj2dzfy9rvm.onspace.app/help</loc>
+    <lastmod>2025-12-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+
+</urlset>
