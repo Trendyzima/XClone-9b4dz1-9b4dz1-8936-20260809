@@ -21,6 +21,24 @@ import { fileURLToPath } from 'node:url';
 // ─────────────────────────────────────────────────────────────────────────────
 // Nuclear targeted fixes — applied FIRST before generic scanner
 // ─────────────────────────────────────────────────────────────────────────────
+function ultraDirectFix(src) {
+  // Ultra-simple split/join replacements — no regex, no failure modes
+  let s = src;
+  s = s.split('code??"", ').join('code, ');
+  s = s.split("code??'', ").join('code, ');
+  s = s.split('code??"",').join('code,');
+  s = s.split("code??'',").join('code,');
+  s = s.split('code??""').join('code');
+  s = s.split("code??''").join('code');
+  // Broader: any identifier??"literal" or identifier??'literal'
+  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"([^"]*)"/g, '$1');
+  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'([^']*)'/g, '$1');
+  // Any remaining ??"..." or ??'...'
+  s = s.replace(/\?\?"[^"]*"/g, '');
+  s = s.replace(/\?\?'[^']*'/g, '');
+  return s;
+}
+
 function nuclearFix(src) {
   let s = src;
 
@@ -32,7 +50,7 @@ function nuclearFix(src) {
   s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"[^"]*"/g, '$1');
   s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'[^']*'/g, '$1');
 
-  // ─── v15 ULTRA-NUCLEAR: index-based ?? removal before method definitions ──
+  // ─── v16 ULTRA-NUCLEAR: index-based ?? removal before method definitions ──
   // Regex approaches have failed across 14 versions due to context sensitivity.
   // This iterative approach finds every ?? and checks if a method def follows.
   {
@@ -147,8 +165,10 @@ function fixTightDoubleQuestion(src) {
 // applyFix(source)
 // ─────────────────────────────────────────────────────────────────────────────
 function applyFix(source) {
+  // Pass -1: ultra-direct string replacements (no regex, no failure modes)
+  let fixed = ultraDirectFix(source);
   // Pass 0: nuclear targeted fixes (most specific, applied first)
-  let fixed = nuclearFix(source);
+  fixed = nuclearFix(fixed);
 
   // Pass 0.5a: remove ?? that appears after newline+whitespace (start-of-line injection).
   // The character-scanner (Pass 1) guards on src[i-1] being non-whitespace, so it

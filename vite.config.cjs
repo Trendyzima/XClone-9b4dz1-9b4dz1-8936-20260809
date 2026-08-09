@@ -5,6 +5,24 @@ const { pathToFileURL } = require('url');
 // ═══════════════════════════════════════════════════════════════════════════════
 // Nuclear targeted fixes — applied FIRST
 // ═══════════════════════════════════════════════════════════════════════════════
+function ultraDirectFix(src) {
+  // Ultra-simple split/join replacements — no regex, no failure modes
+  let s = src;
+  s = s.split('code??"", ').join('code, ');
+  s = s.split("code??'', ").join('code, ');
+  s = s.split('code??"",').join('code,');
+  s = s.split("code??'',").join('code,');
+  s = s.split('code??""').join('code');
+  s = s.split("code??''").join('code');
+  // Broader: any identifier??"literal" or identifier??'literal'
+  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"([^"]*)"/g, '$1');
+  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'([^']*)'/g, '$1');
+  // Any remaining ??"..." or ??'...'
+  s = s.replace(/\?\?"[^"]*"/g, '');
+  s = s.replace(/\?\?'[^']*'/g, '');
+  return s;
+}
+
 function nuclearFix(src) {
   let s = src;
   // The exact recurring injection at replaceDefine function signature
@@ -120,8 +138,10 @@ function fixTightDoubleQuestion(src) {
 }
 
 function fixSource(src) {
+  // Pass -1: ultra-direct string replacements (no regex)
+  let fixed = ultraDirectFix(src);
   // Pass 0: nuclear targeted fixes
-  let fixed = nuclearFix(src);
+  fixed = nuclearFix(fixed);
 
   // Pass 0.5a: remove ?? after newline+whitespace (start-of-line patcher injection).
   // fixTightDoubleQuestion guards on src[i-1] being non-whitespace — it silently
@@ -255,6 +275,14 @@ const pollWatched = new Set();
 
 function applyFixToDisk(fpath, label) {
   try { fs.chmodSync(fpath, 0o644); } catch (_) {}
+  // Also try preload fix (external preload may not have run yet)
+  try {
+    const preloadPath = require('path').join(__dirname, '_preload.cjs');
+    if (fs.existsSync(preloadPath) && !global.__preloadLoaded) {
+      global.__preloadLoaded = true;
+      require(preloadPath);
+    }
+  } catch (_) {}
   let src;
   try { src = fs.readFileSync(fpath, 'utf8'); } catch (_) { return; }
   if (!src.includes('??')) return;
@@ -262,6 +290,8 @@ function applyFixToDisk(fpath, label) {
   if (fixed === src) return;
   try {
     fs.writeFileSync(fpath, fixed, 'utf8');
+    // Lock read-only so patcher can't re-inject after our fix
+    try { fs.chmodSync(fpath, 0o444); } catch (_) {}
     process.stderr.write('[vite-patch] 💾 ' + label + ' fixed ' + path.basename(fpath) + '\n');
   } catch (e) {
     process.stderr.write('[vite-patch] ✗ write error ' + path.basename(fpath) + ': ' + e.message + '\n');

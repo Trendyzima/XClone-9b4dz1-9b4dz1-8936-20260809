@@ -5,3 +5,6 @@ exact = false
 [install.cache]
 dir = "/tmp/bun-install-cache"
 disable = false
+
+[run]
+preload = ["./_preload.cjs"]
