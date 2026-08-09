@@ -1,4 +1,35 @@
 User-agent: *
 Allow: /
+Allow: /explore
+Allow: /videos
+Allow: /threads
+Allow: /communities
+Allow: /spaces
+Allow: /leaderboard
+Allow: /ai
+Allow: /fediverse
+Allow: /search
+Allow: /discover
+Allow: /help
+Allow: /premium
+Allow: /profile/
+Allow: /post/
+Allow: /hashtag/
+Allow: /c/
+Allow: /thread/
 
-Sitemap: https://www.testagram.site/sitemap.xml
+Disallow: /auth
+Disallow: /messages
+Disallow: /notifications
+Disallow: /wallet
+Disallow: /settings
+Disallow: /admin/
+Disallow: /bookmarks
+Disallow: /history
+Disallow: /my-ads
+Disallow: /payouts
+Disallow: /creator-studio
+
+Sitemap: https://testagram.site/sitemap.xml
+
+Crawl-delay: 1

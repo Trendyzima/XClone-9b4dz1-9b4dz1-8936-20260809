@@ -82,7 +82,7 @@ export default function CreatorStudio() {
 
   const handleToggleMonetize = async (postId: string, currentValue: boolean) => {
     setTogglingMonetize(postId);
-    const { error } = await supabase.from('posts').update({ is_monetized: !currentValue }).eq('id', postId).eq('user!.id', user!.id);
+    const { error } = await supabase.from('posts').update({ is_monetized: !currentValue }).eq('id', postId).eq('user_id', user!.id);
     if (error) { toast.error(error.message); }
     else {
       setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, is_monetized: !currentValue } : p));

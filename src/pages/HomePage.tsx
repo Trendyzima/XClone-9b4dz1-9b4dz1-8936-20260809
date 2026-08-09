@@ -53,6 +53,16 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<Tab>('foryou');
   const [page, setPage] = useState(0);
   const [sponsoredPosts, setSponsoredPosts] = useState<any[]>([]);
+  const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+
+  // Fetch blocked user IDs to filter from feed
+  useEffect(() => {
+    if (!user) { setBlockedUserIds(new Set()); return; }
+    supabase.from('user_blocks').select('blocked_id').eq('blocker_id', user.id)
+      .then(({ data }) => {
+        setBlockedUserIds(new Set((data ?? []).map((r: any) => r.blocked_id)));
+      });
+  }, [user?.id]);
   const abortRef = useRef<AbortController | null>(null);
 
   usePageBanner({ adId: ADMOB_CONFIG.BANNER_FEED, margin: 64, delay: 4000 });
@@ -294,7 +304,11 @@ export default function HomePage() {
         const insertAt = Math.min(merged.length, (i + 1) * 4);
         merged.splice(insertAt, 0, item);
       });
-      setFeedItems(merged);
+      const filtered = merged.filter((item: any) => {
+        const uid = item.data?.user_id ?? item.data?.user_profiles?.id;
+        return !uid || !blockedUserIds.has(uid);
+      });
+      setFeedItems(filtered);
     } else {
       const items = await fetchFeed(0);
       setFeedItems(items);

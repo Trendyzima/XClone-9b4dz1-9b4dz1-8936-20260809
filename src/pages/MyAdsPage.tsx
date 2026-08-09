@@ -222,6 +222,17 @@ export default function MyAdsPage() {
                       ))}
                     </div>
 
+                    {/* Admin notes on rejected ads */}
+                    {ad.status === 'rejected' && ad.admin_notes && (
+                      <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+                        <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-bold text-red-700 dark:text-red-400 mb-0.5">Rejection reason:</p>
+                          <p className="text-xs text-red-700 dark:text-red-400">{ad.admin_notes}</p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Payment pending alert */}
                     {ad.payment_status === 'pending' && (
                       <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">

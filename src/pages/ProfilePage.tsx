@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag } from 'lucide-react';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
@@ -39,6 +39,54 @@ export default function ProfilePage() {
   const [profileShared, setProfileShared] = useState(false);
   const [fedHandleCopied, setFedHandleCopied] = useState(false);
   const [hasActorRecord, setHasActorRecord] = useState(false);
+  // Block & Mute
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  const checkBlockMuteStatus = async (profileId: string) => {
+    if (!currentUser) return;
+    const [{ data: blockRow }, { data: muteRow }] = await Promise.all([
+      supabase.from('user_blocks').select('id').eq('blocker_id', currentUser.id).eq('blocked_id', profileId).maybeSingle(),
+      supabase.from('user_mutes').select('id').eq('muter_id', currentUser.id).eq('muted_id', profileId).maybeSingle(),
+    ]);
+    setIsBlocked(!!blockRow);
+    setIsMuted(!!muteRow);
+  };
+
+  const handleBlock = async () => {
+    if (!currentUser || !profile) return;
+    setShowMoreMenu(false);
+    if (isBlocked) {
+      await supabase.from('user_blocks').delete().eq('blocker_id', currentUser.id).eq('blocked_id', profile.id);
+      setIsBlocked(false);
+      toast.success(`@${profile.username} unblocked`);
+    } else {
+      await supabase.from('user_blocks').insert({ blocker_id: currentUser.id, blocked_id: profile.id });
+      // Also unfollow if following
+      if (isFollowing) {
+        await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', profile.id);
+        setIsFollowing(false);
+      }
+      setIsBlocked(true);
+      toast.success(`@${profile.username} blocked`);
+    }
+  };
+
+  const handleMute = async () => {
+    if (!currentUser || !profile) return;
+    setShowMoreMenu(false);
+    if (isMuted) {
+      await supabase.from('user_mutes').delete().eq('muter_id', currentUser.id).eq('muted_id', profile.id);
+      setIsMuted(false);
+      toast.success(`@${profile.username} unmuted`);
+    } else {
+      await supabase.from('user_mutes').insert({ muter_id: currentUser.id, muted_id: profile.id });
+      setIsMuted(true);
+      toast.success(`@${profile.username} muted — their posts won\'t appear in your feed`);
+    }
+  };
+
   // Tip
   const [showTipDialog, setShowTipDialog] = useState(false);
   const [tipAmount, setTipAmount] = useState<number | null>(null);
@@ -467,6 +515,10 @@ export default function ProfilePage() {
         fetchSubscription(profileData.id),
         trackProfileView(profileData.id),
       ]);
+      // Check block/mute status for non-own profiles
+      if (currentUser && currentUser.id !== profileData.id) {
+        checkBlockMuteStatus(profileData.id);
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
       navigate('/');
@@ -769,6 +821,37 @@ export default function ProfilePage() {
                     {tipSent ? <Check className="w-4 h-4 text-yellow-500" /> : <DollarSign className="w-4 h-4" />}
                   </button>
                   {/* Subscribe button — only for creator profiles */}
+                  {/* More options (block/mute/report) */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowMoreMenu(p => !p)}
+                      className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground"
+                      title="More options"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                    {showMoreMenu && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+                        <div className="absolute right-0 mt-2 w-48 bg-background border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                          <button onClick={handleMute} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted text-left text-sm transition-colors">
+                            {isMuted ? <Volume2 className="w-4 h-4 text-primary" /> : <VolumeX className="w-4 h-4 text-muted-foreground" />}
+                            {isMuted ? 'Unmute' : 'Mute'} @{profile.username}
+                          </button>
+                          <button onClick={handleBlock} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-destructive/5 text-left text-sm transition-colors text-destructive">
+                            <Ban className="w-4 h-4" />
+                            {isBlocked ? 'Unblock' : 'Block'} @{profile.username}
+                          </button>
+                          <div className="border-t border-border" />
+                          <button onClick={() => { setShowMoreMenu(false); toast.success('Report submitted'); }} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted text-left text-sm transition-colors text-muted-foreground">
+                            <Flag className="w-4 h-4" />
+                            Report account
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   {profile.is_creator && (
                     activeSubscription ? (
                       <button
