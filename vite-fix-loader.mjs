@@ -25,33 +25,48 @@ function nuclearFix(src) {
   let s = src;
 
   // The exact recurring injection: replaceDefine(code??"",
-  // Handles any empty or non-empty string fallback after the identifier
   s = s.replace(/\basync function replaceDefine\(code\?\?"[^"]*",\s*/g, 'async function replaceDefine(code, ');
   s = s.replace(/\basync function replaceDefine\(code\?\?'[^']*',\s*/g, "async function replaceDefine(code, ");
   s = s.replace(/\breplaceDefine\(code\?\?"[^"]*",\s*/g, 'replaceDefine(code, ');
   s = s.replace(/\breplaceDefine\(code\?\?'[^']*',\s*/g, "replaceDefine(code, ");
-
-  // Generic: identifier??""  or  identifier??''  in function parameter context
-  // (identifier immediately before ?? with open-paren or comma as prior context)
   s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"[^"]*"/g, '$1');
   s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'[^']*'/g, '$1');
 
-  // ─── NEW v14 nuclear passes ────────────────────────────────────────────────
-  // SPECIFIC: ??toJSON() { — the exact recurring injection at line 3469.
-  // Replace ??<ws>toJSON with ' toJSON' so preceding token stays separated.
-  s = s.replace(/\?\?\s*toJSON(?=\s*\(\s*\)\s*\{)/g, ' toJSON');
-
-  // ACCESSOR: get??name() and set??name() patterns — patcher corrupts accessor defs.
-  s = s.replace(/\b(get|set)\?\?(?=[a-zA-Z_$])/g, '$1 ');
-
-  // GENERAL (same-line): ?? immediately before any identifier() { (method body start).
-  // This is never valid JS — the right operand of ?? can't be a method definition.
-  // Replace with a space to keep token separation (e.g. get??toJSON → get toJSON).
-  s = s.replace(/\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g, ' ');
-
-  // GENERAL (cross-line): ?? at end of line, method def on the next line.
-  // Pattern: identifier??\n   methodName() {
-  s = s.replace(/\?\?(\r?\n[ \t]*)(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g, '$1');
+  // ─── v15 ULTRA-NUCLEAR: index-based ?? removal before method definitions ──
+  // Regex approaches have failed across 14 versions due to context sensitivity.
+  // This iterative approach finds every ?? and checks if a method def follows.
+  {
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+      if (s[i] === '?' && s[i + 1] === '?') {
+        // Skip whitespace after ??
+        let j = i + 2;
+        while (j < s.length && (s[j] === ' ' || s[j] === '\t' || s[j] === '\n' || s[j] === '\r')) j++;
+        // Check if what follows is identifier() { (method definition)
+        const rem = s.slice(j, j + 120);
+        const mdef = rem.match(/^[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]{0,80}\)\s*\{/);
+        if (mdef) {
+          // Replace ?? with appropriate separator based on preceding char
+          const prev = out.length > 0 ? out[out.length - 1] : '';
+          if (prev === '}' || prev === '' || /[\n\r,{([]/.test(prev)) {
+            // After closing brace (class body) or separator: no comma needed
+            // just skip the ??
+          } else {
+            // After expression value (object literal): restore comma
+            out += ',';
+          }
+          // Preserve the whitespace between ?? and method name
+          out += s.slice(i + 2, j);
+          i = j;
+          continue;
+        }
+      }
+      out += s[i];
+      i++;
+    }
+    s = out;
+  }
 
   return s;
 }
