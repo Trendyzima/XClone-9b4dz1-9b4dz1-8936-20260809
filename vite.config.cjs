@@ -88,6 +88,21 @@ function fixSource(src) {
   // Pass 0: nuclear targeted fixes
   let fixed = nuclearFix(src);
 
+  // Pass 0.5a: remove ?? after newline+whitespace (start-of-line patcher injection).
+  // fixTightDoubleQuestion guards on src[i-1] being non-whitespace — it silently
+  // skips any ?? the patcher placed at the start of an indented line.
+  fixed = fixed.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
+
+  // Pass 0.5b: remove identifier?? immediately before a method definition.
+  // "someExpr??toJSON() {" is always a patcher corruption — strip the prefix.
+  fixed = fixed.replace(
+    /\b[a-zA-Z_$][a-zA-Z0-9_$]*\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
+    ''
+  );
+
+  // Pass 0.5c: strip bare ?? at start of any line (belt-and-suspenders)
+  fixed = fixed.replace(/^[ \t]*\?\?(?=[^\s?])/gm, '');
+
   // Pass 1: character-by-character scanner
   fixed = fixTightDoubleQuestion(fixed);
 

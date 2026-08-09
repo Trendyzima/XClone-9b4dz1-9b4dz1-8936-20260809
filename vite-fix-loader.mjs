@@ -1,5 +1,5 @@
 /**
- * vite-fix-loader.mjs  v12
+ * vite-fix-loader.mjs  v13
  *
  * Root-cause findings:
  * 1. dep-C6uTJdX2.js is loaded via ESM dynamic import() during the Vite build.
@@ -117,6 +117,23 @@ function fixTightDoubleQuestion(src) {
 function applyFix(source) {
   // Pass 0: nuclear targeted fixes (most specific, applied first)
   let fixed = nuclearFix(source);
+
+  // Pass 0.5a: remove ?? that appears after newline+whitespace (start-of-line injection).
+  // The character-scanner (Pass 1) guards on src[i-1] being non-whitespace, so it
+  // SKIPS any ?? that the patcher injected at the start of an indented line.
+  // This regex catches those before the scanner runs.
+  fixed = fixed.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
+
+  // Pass 0.5b: remove identifier?? when it immediately precedes a method definition.
+  // Pattern: someExpr??toJSON() { — "someExpr??" is never valid before a method body.
+  // The lookahead ensures we only strip this when followed by name() { (method def).
+  fixed = fixed.replace(
+    /\b[a-zA-Z_$][a-zA-Z0-9_$]*\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
+    ''
+  );
+
+  // Pass 0.5c: also strip bare ?? at absolute start of file (edge case)
+  fixed = fixed.replace(/^[ \t]*\?\?(?=[^\s?])/gm, '');
 
   // Pass 1: character-by-character scanner
   fixed = fixTightDoubleQuestion(fixed);
