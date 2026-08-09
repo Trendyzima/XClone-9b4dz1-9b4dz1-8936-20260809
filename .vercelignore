@@ -1,0 +1,12 @@
+android/
+ios/
+.git/
+*.log
+*.md
+bunfig.toml
+capacitor.config.json
+components/
+node_modules/
+supabase/migrations/
+vite-fix-loader.mjs
+README.md

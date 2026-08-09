@@ -3,7 +3,23 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Shared fix function (used by ALL strategies)
+// Nuclear targeted fixes — applied FIRST
+// ═══════════════════════════════════════════════════════════════════════════════
+function nuclearFix(src) {
+  let s = src;
+  // The exact recurring injection at replaceDefine function signature
+  s = s.replace(/\basync function replaceDefine\(code\?\?"[^"]*",\s*/g, 'async function replaceDefine(code, ');
+  s = s.replace(/\basync function replaceDefine\(code\?\?'[^']*',\s*/g, "async function replaceDefine(code, ");
+  s = s.replace(/\breplaceDefine\(code\?\?"[^"]*",\s*/g, 'replaceDefine(code, ');
+  s = s.replace(/\breplaceDefine\(code\?\?'[^']*',\s*/g, "replaceDefine(code, ");
+  // Generic: identifier??""  in function param context
+  s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"[^"]*"/g, '$1');
+  s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'[^']*'/g, '$1');
+  return s;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Shared fix function
 // ═══════════════════════════════════════════════════════════════════════════════
 function fixTightDoubleQuestion(src) {
   const n = src.length;
@@ -29,16 +45,11 @@ function fixTightDoubleQuestion(src) {
         if (c === '\r' || c === '\n') {
           endPos = i + 2;
         } else if (c === '{') {
-          // Check if empty object: ??{}
           let k = j + 1;
           while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
           if (k < n && src[k] === '}') {
-            // ??{} — empty object literal, remove whole thing
             endPos = k + 1;
           } else {
-            // ??{non-empty block} — brace counter can silently fail on regex
-            // literals like /\{/g inside method bodies, leaving ?? intact.
-            // Safer: remove just ?? and keep the { so the block is preserved.
             endPos = i + 2;
           }
         } else if (c === '"' || c === "'") {
@@ -56,9 +67,6 @@ function fixTightDoubleQuestion(src) {
           if (m) {
             endPos = j + m[1].length;
           } else if (/^[a-zA-Z_$]/.test(c)) {
-            // Identifier as right operand (e.g. ??toJSON, ??returnValue).
-            // The patcher injects ?? before method/property names in positions
-            // that break syntax.  Remove just ?? and preserve the identifier.
             endPos = i + 2;
           }
         }
@@ -77,16 +85,20 @@ function fixTightDoubleQuestion(src) {
 }
 
 function fixSource(src) {
-  if (!src.includes('??')) return src;
+  // Pass 0: nuclear targeted fixes
+  let fixed = nuclearFix(src);
 
-  let fixed = fixTightDoubleQuestion(src);
+  // Pass 1: character-by-character scanner
+  fixed = fixTightDoubleQuestion(fixed);
 
+  // Pass 2: replaceDefine variants
   fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
   fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
   fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
   fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
   fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
 
+  // Pass 3: regex sweep
   fixed = fixed.replace(
     /(?<=[^\s])\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
     ''
@@ -125,7 +137,7 @@ function fixSource(src) {
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy B — ESM module load hook (PRIMARY for ESM dynamic imports)
+// Strategy B — ESM module load hook
 // ═══════════════════════════════════════════════════════════════════════════════
 (function registerEsmHook() {
   try {
@@ -241,7 +253,7 @@ const { defineConfig } = require('vite');
 
 patchViteChunks('post-require');
 
-// Periodic passes — aggressive short-interval coverage
+// Periodic passes
 let periodicPasses = 0;
 const periodicInterval = setInterval(() => {
   patchViteChunks('periodic-' + (++periodicPasses));
@@ -291,11 +303,9 @@ module.exports = defineConfig({
         {
           name: 'vite-chunk-repatch',
           buildStart() {
-            // Runs after all plugins init but before bundling — last disk-fix chance
             patchViteChunks('buildStart');
           },
           transform(code, id) {
-            // Also fix any Vite chunks that Rollup itself might transform
             if (id.includes('/vite/dist/node/') && code.includes('??')) {
               const fixed = fixSource(code);
               if (fixed !== code) return { code: fixed, map: null };

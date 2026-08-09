@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile, DollarSign, Play } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile, DollarSign, Play, Coins } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
@@ -221,6 +221,37 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   };
   const handleViewsMouseUp = () => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
+  };
+
+  // Tip dialog state
+  const [showTipDialog, setShowTipDialog] = useState(false);
+  const [tipAmount, setTipAmount] = useState<number | null>(null);
+  const [tipMessage, setTipMessage] = useState('');
+  const [tippingLoading, setTippingLoading] = useState(false);
+
+  const handleSendTip = async () => {
+    if (!user) { navigate('/auth'); return; }
+    if (!tipAmount || tipAmount <= 0) return;
+    setTippingLoading(true);
+    try {
+      // Deduct from wallet
+      const { data: wallet } = await supabase.from('user_wallets').select('id,balance').eq('user_id', user.id).maybeSingle();
+      if (!wallet || Number(wallet.balance) < tipAmount) {
+        toast({ title: 'Insufficient balance', description: 'Top up your wallet to send tips', variant: 'destructive' }); return;
+      }
+      await supabase.from('user_wallets').update({ balance: Number(wallet.balance) - tipAmount }).eq('user_id', user.id);
+      await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: post.user_id, amount: tipAmount, message: tipMessage.trim() || null, post_id: post.id });
+      await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
+      await supabase.from('creator_earnings').insert({ user_id: post.user_id, source: 'tips', amount: tipAmount, post_id: post.id, status: 'paid' }).catch(() => {});
+      toast({ title: `Tip of $${tipAmount} sent!`, description: `You tipped @${post.user_profiles?.username}` });
+      setShowTipDialog(false);
+      setTipAmount(null);
+      setTipMessage('');
+    } catch (err: any) {
+      toast({ title: 'Tip failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setTippingLoading(false);
+    }
   };
 
   // Video monetization pre-roll
@@ -917,6 +948,19 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               <BookmarkButton postId={post.id} />
             </div>
 
+            {/* Tip button — only for other people's posts */}
+            {user && user.id !== post.user_id && (
+              <button
+                className="flex items-center space-x-2 text-muted-foreground hover:text-amber-500 transition-colors group"
+                onClick={(e) => { e.stopPropagation(); setShowTipDialog(true); }}
+                title="Send a tip"
+              >
+                <div className="p-2 rounded-full group-hover:bg-amber-500/10 transition-colors">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+              </button>
+            )}
+
             {user?.id === post.user_id && (
               <>
                 <button
@@ -1007,6 +1051,56 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 </p>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tip Dialog */}
+      {showTipDialog && (
+        <div className="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center p-4" onClick={(e) => { e.stopPropagation(); setShowTipDialog(false); }}>
+          <div className="bg-background border border-border rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full overflow-hidden bg-muted">
+                {post.user_profiles?.avatar_url
+                  ? <img src={post.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                  : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{post.user_profiles?.username?.[0]?.toUpperCase()}</div>}
+              </div>
+              <div>
+                <p className="font-bold">Tip @{post.user_profiles?.username}</p>
+                <p className="text-xs text-muted-foreground">Support this creator</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {[1, 5, 10].map(amt => (
+                <button key={amt} onClick={() => setTipAmount(tipAmount === amt ? null : amt)}
+                  className={`py-3 rounded-xl font-bold text-lg border-2 transition-all ${
+                    tipAmount === amt ? 'border-amber-500 bg-amber-500/10 text-amber-600' : 'border-border hover:border-amber-400'
+                  }`}>${amt}</button>
+              ))}
+            </div>
+            <input
+              type="number" min="0.5" step="0.5"
+              placeholder="Custom amount ($)"
+              value={tipAmount && ![1,5,10].includes(tipAmount) ? tipAmount : ''}
+              onChange={e => setTipAmount(parseFloat(e.target.value) || null)}
+              className="w-full px-3 py-2 border border-border rounded-xl text-sm bg-background mb-3 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+            />
+            <textarea
+              placeholder="Optional message…"
+              value={tipMessage}
+              onChange={e => setTipMessage(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 border border-border rounded-xl text-sm bg-background mb-4 focus:outline-none focus:ring-2 focus:ring-amber-500/30 resize-none"
+            />
+            <div className="flex gap-2">
+              <button onClick={() => { setShowTipDialog(false); setTipAmount(null); setTipMessage(''); }}
+                className="flex-1 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted">Cancel</button>
+              <button onClick={handleSendTip} disabled={!tipAmount || tippingLoading}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-1.5">
+                {tippingLoading ? <TransLoader className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+                {tipAmount ? `Send $${tipAmount}` : 'Send Tip'}
+              </button>
+            </div>
           </div>
         </div>
       )}
