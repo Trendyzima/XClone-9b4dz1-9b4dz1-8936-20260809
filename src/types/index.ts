@@ -54,7 +54,7 @@ export interface TrendingTopic {
 export interface Notification {
   id: string;
   user_id: string;
-  type: 'like' | 'repost' | 'follow' | 'reply' | 'mention';
+  type: 'like' | 'repost' | 'follow' | 'reply' | 'mention' | 'verified' | 'activity';
   from_user_id?: string;
   post_id?: string;
   read: boolean;

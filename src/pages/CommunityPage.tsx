@@ -13,8 +13,7 @@ import {
 } from 'lucide-react';
 import { Post } from '@/types';
 import { formatNumber } from '@/lib/utils';
-import { AdMob, BannerAdSize, BannerAdPosition } from '@capacitor-community/admob';
-import { Capacitor } from '@capacitor/core';
+import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
 
 interface Community {
   id: string;
