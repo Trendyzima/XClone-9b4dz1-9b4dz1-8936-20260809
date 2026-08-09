@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check } from 'lucide-react';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { usePageBanner } from '@/hooks/usePageBanner';
@@ -34,6 +34,7 @@ export default function ProfilePage() {
   const [following, setFollowing] = useState<any[]>([]);
   const [streakDay, setStreakDay] = useState(0);
   const [followerRank, setFollowerRank] = useState<number | null>(null);
+  const [referralCopied, setReferralCopied] = useState(false);
 
   // Profile page banner — shown at bottom, above bottom nav, after 2.5s
   usePageBanner({ adId: ADMOB_CONFIG.BANNER_PROFILE, margin: 64, delay: 2500 });
@@ -458,6 +459,27 @@ export default function ProfilePage() {
               <span className="text-muted-foreground">Followers</span>
             </button>
           </div>
+
+          {/* ── Referral Copy Button (own profile) ────────────── */}
+          {isOwnProfile && (
+            <button
+              onClick={() => {
+                const link = `${window.location.origin}/auth?ref=${profile.id}`;
+                navigator.clipboard.writeText(link).then(() => {
+                  setReferralCopied(true);
+                  setTimeout(() => setReferralCopied(false), 2000);
+                });
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors mt-2"
+            >
+              {referralCopied
+                ? <Check className="w-3.5 h-3.5 text-green-500" />
+                : <Gift className="w-3.5 h-3.5 text-primary" />}
+              <span className="text-xs font-semibold text-primary">
+                {referralCopied ? 'Link copied!' : 'Copy Invite Link'}
+              </span>
+            </button>
+          )}
 
           {/* ── Profile Stats Card ─────────────────────────────── */}
           <div className="flex gap-2 mt-3 flex-wrap">

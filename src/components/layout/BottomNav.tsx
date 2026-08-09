@@ -16,6 +16,7 @@ export function BottomNav() {
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [streakDay, setStreakDay] = useState(0);
+  const [hasNewSuggestions, setHasNewSuggestions] = useState(false);
   const prevNotifs = useRef(-1);
   const prevMessages = useRef(-1);
   const audioCtxRef = useRef<any>(null);
@@ -111,13 +112,21 @@ export function BottomNav() {
 
   // Fetch current streak on mount and after auth changes
   useEffect(() => {
-    if (!user) { setStreakDay(0); return; }
+    if (!user) { setStreakDay(0); setHasNewSuggestions(false); return; }
     supabase
       .from('daily_rewards')
       .select('streak_day')
       .eq('user_id', user.id)
       .maybeSingle()
       .then(({ data }) => setStreakDay(data?.streak_day ?? 0));
+
+    // Check for unread user suggestions (score > 0)
+    supabase
+      .from('user_suggestions')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gt('score', 0)
+      .then(({ count }) => setHasNewSuggestions((count ?? 0) > 0));
   }, [user?.id]);
 
   useEffect(() => {
@@ -152,7 +161,7 @@ export function BottomNav() {
 
   const navItems = [
     { icon: Home,      label: 'Home',      path: '/',         badge: 0 },
-    { icon: UserSearch, label: 'Discover',  path: '/discover', badge: 0 },
+    { icon: UserSearch, label: 'Discover',  path: '/discover', badge: 0, dot: hasNewSuggestions },
     { icon: Flame,  label: 'Streak',    path: '/daily-rewards',                                badge: streakDay, badgeStyle: 'bg-orange-500', requireAuth: true },
     { icon: Mail,   label: 'Messages',  path: '/messages',   requireAuth: true,                  badge: unreadMessages },
     { icon: Bell,   label: 'Alerts',    path: '/notifications',  requireAuth: true,              badge: unreadNotifs },
@@ -194,6 +203,9 @@ export function BottomNav() {
                   <span className={`absolute -top-0.5 -right-0.5 min-w-[16px] h-4 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none ${(item as any).badgeStyle ?? 'bg-red-500'}`}>
                     {item.badge > 99 ? '99+' : item.badge}
                   </span>
+                )}
+                {(item as any).dot && item.badge === 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-primary rounded-full border-2 border-background" />
                 )}
               </div>
               <span className={`text-[10px] mt-0.5 font-medium ${isActive ? 'text-primary' : ''}`}>{item.label}</span>

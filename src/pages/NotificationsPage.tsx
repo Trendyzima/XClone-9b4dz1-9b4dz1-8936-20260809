@@ -8,7 +8,7 @@ import {
   Heart, Repeat2, UserPlus, MessageCircle, AtSign,
   BadgeCheck, Loader2, DollarSign, CheckCircle2, Smartphone,
   TrendingUp, Bell, CreditCard, ArrowDownLeft, Globe, UserCheck,
-  Star, ExternalLink, RefreshCw,
+  Star, ExternalLink, RefreshCw, Flame, Trophy, Zap,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
@@ -123,6 +123,7 @@ export default function NotificationsPage() {
       case 'payout_sent':       return <ArrowDownLeft className="w-8 h-8 text-blue-600" />;
       case 'payment_failed':    return <CreditCard className="w-8 h-8 text-destructive" />;
       case 'boost_activated':   return <TrendingUp className="w-8 h-8 text-purple-600" />;
+      case 'streak_milestone':    return <Flame className="w-8 h-8 text-orange-500" />;
       default:                  return <Bell className="w-8 h-8 text-muted-foreground" />;
     }
   };
@@ -152,6 +153,16 @@ export default function NotificationsPage() {
         return `Payment failed — ${meta.reason ?? 'please try again'}`;
       case 'boost_activated':
         return `Your post boost is now active · Est. reach: ${(meta.estimated_reach ?? 0).toLocaleString()}`;
+      case 'streak_milestone': {
+        const day = meta?.streak_day ?? n.from_user_id ? undefined : undefined;
+        if (n.from_user_id === user?.id) {
+          // Self-generated milestone
+          return day === 7
+            ? '🏆 You hit a 7-day max streak! Keep it going!'
+            : `🔥 You hit a ${day ?? ''}‑day streak milestone! Congrats!`;
+        }
+        return '🔥 Streak milestone reached!';
+      }
       default:                  return 'New notification';
     }
   };
@@ -159,11 +170,18 @@ export default function NotificationsPage() {
   const isPaymentType = (type: string) =>
     ['payment_success', 'payment_sent', 'payment_failed', 'payout_sent', 'deposit_confirmed', 'boost_activated'].includes(type);
 
+  const getStreakMilestoneDay = (n: any): number => {
+    // Infer milestone from the notification row; we stored type='streak_milestone'
+    // and from_user_id === user.id so we check the daily_rewards table lazily via metadata
+    return n.metadata?.streak_day ?? 0;
+  };
+
   const getNotifBg = (type: string) => {
     if (['payment_success', 'deposit_confirmed'].includes(type)) return 'bg-green-50/50 dark:bg-green-900/10';
     if (['payment_sent', 'payout_sent'].includes(type)) return 'bg-blue-50/50 dark:bg-blue-900/10';
     if (type === 'payment_failed') return 'bg-red-50/50 dark:bg-red-900/10';
     if (type === 'boost_activated') return 'bg-purple-50/50 dark:bg-purple-900/10';
+    if (type === 'streak_milestone') return 'bg-orange-50/60 dark:bg-orange-900/10';
     return '';
   };
 
@@ -343,77 +361,104 @@ export default function NotificationsPage() {
           </div>
         ) : (
           <div>
-            {notifications.map((n: any, idx: number) => (
-              <div
-                key={n.id}
-                ref={idx === notifications.length - 1 ? lastElementRef : null}
-                onClick={() => {
-                  if (n.post_id) navigate(`/post/${n.post_id}`);
-                  else if (n.from_user_id && !isPaymentType(n.type))
-                    navigate(`/profile/${n.from_user?.username}`);
-                  else if (isPaymentType(n.type)) navigate('/wallet');
-                }}
-                className={`border-b border-border p-4 hover:bg-muted/5 cursor-pointer transition-colors ${getNotifBg(n.type)}`}
-              >
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 pt-1">{getIcon(n.type)}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start gap-2">
-                      {isPaymentType(n.type) ? (
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                          ['payment_success', 'deposit_confirmed'].includes(n.type)
-                            ? 'bg-green-100 dark:bg-green-900/30'
-                            : n.type === 'boost_activated'
-                            ? 'bg-purple-100 dark:bg-purple-900/30'
-                            : 'bg-blue-100 dark:bg-blue-900/30'
-                        }`}>
-                          {/* The original code had Smartphone icon here, which is fine, 
-                              but consider if other payment types warrant different icons. */}
-                          <Smartphone className="w-4 h-4 text-green-600" />
-                        </div>
-                      ) : n.from_user?.avatar_url ? (
-                        <img
-                          src={n.from_user.avatar_url}
-                          alt={n.from_user.username}
-                          className="w-8 h-8 rounded-full object-cover shrink-0"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0">
-                          {n.from_user?.username?.[0]?.toUpperCase() ?? '?'}
-                        </div>
-                      )}
-
-                      <div className="flex-1">
-                        {!isPaymentType(n.type) && (
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <span className="font-bold">{n.from_user?.username}</span>
-                            {n.from_user?.verified && (
-                              <BadgeCheck className="w-4 h-4 text-primary" fill="currentColor" />
-                            )}
-                          </div>
-                        )}
-                        <p className={`text-sm ${isPaymentType(n.type) ? 'font-medium' : 'text-muted-foreground'}`}>
-                          {getText(n)}
-                        </p>
-                        {n.post?.content && (
-                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                            {n.post.content}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
-                        </p>
+            {notifications.map((n: any, idx: number) =>
+              n.type === 'streak_milestone' ? (
+                <div
+                  key={n.id}
+                  ref={idx === notifications.length - 1 ? lastElementRef : null}
+                  onClick={() => navigate('/daily-rewards')}
+                  className="border-b border-orange-200/40 dark:border-orange-900/20 p-4 cursor-pointer transition-colors bg-gradient-to-r from-orange-500/10 via-amber-500/5 to-transparent hover:from-orange-500/15"
+                >
+                  <div className="flex gap-3 items-start">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center flex-shrink-0 shadow-sm shadow-orange-500/20">
+                      <Flame className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <Trophy className="w-3.5 h-3.5 text-yellow-500" />
+                        <span className="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wide">Streak Milestone</span>
+                        {!n.read && <span className="ml-auto w-2 h-2 bg-orange-500 rounded-full" />}
                       </div>
-
-                      {!n.read && (
-                        <div className="w-2.5 h-2.5 bg-primary rounded-full shrink-0 mt-1" />
-                      )}
+                      <p className="font-semibold text-sm text-foreground">{getText(n)}</p>
+                      <div className="flex items-center gap-3 mt-2">
+                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-orange-500/15 border border-orange-500/20">
+                          <Zap className="w-3 h-3 text-orange-500" />
+                          <span className="text-xs font-bold text-orange-600 dark:text-orange-400">Keep it up!</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-
+              ) : (
+                <div
+                  key={n.id}
+                  ref={idx === notifications.length - 1 ? lastElementRef : null}
+                  onClick={() => {
+                    if (n.post_id) navigate(`/post/${n.post_id}`);
+                    else if (n.from_user_id && !isPaymentType(n.type))
+                      navigate(`/profile/${n.from_user?.username}`);
+                    else if (isPaymentType(n.type)) navigate('/wallet');
+                  }}
+                  className={`border-b border-border p-4 hover:bg-muted/5 cursor-pointer transition-colors ${getNotifBg(n.type)}`}
+                >
+                  <div className="flex gap-3">
+                    <div className="flex-shrink-0 pt-1">{getIcon(n.type)}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-2">
+                        {isPaymentType(n.type) ? (
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                            ['payment_success', 'deposit_confirmed'].includes(n.type)
+                              ? 'bg-green-100 dark:bg-green-900/30'
+                              : n.type === 'boost_activated'
+                              ? 'bg-purple-100 dark:bg-purple-900/30'
+                              : 'bg-blue-100 dark:bg-blue-900/30'
+                          }`}>
+                            <Smartphone className="w-4 h-4 text-green-600" />
+                          </div>
+                        ) : n.from_user?.avatar_url ? (
+                          <img
+                            src={n.from_user.avatar_url}
+                            alt={n.from_user.username}
+                            className="w-8 h-8 rounded-full object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0">
+                            {n.from_user?.username?.[0]?.toUpperCase() ?? '?'}
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          {!isPaymentType(n.type) && (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className="font-bold">{n.from_user?.username}</span>
+                              {n.from_user?.verified && (
+                                <BadgeCheck className="w-4 h-4 text-primary" fill="currentColor" />
+                              )}
+                            </div>
+                          )}
+                          <p className={`text-sm ${isPaymentType(n.type) ? 'font-medium' : 'text-muted-foreground'}`}>
+                            {getText(n)}
+                          </p>
+                          {n.post?.content && (
+                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                              {n.post.content}
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                          </p>
+                        </div>
+                        {!n.read && (
+                          <div className="w-2.5 h-2.5 bg-primary rounded-full shrink-0 mt-1" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
             {loadingMore && (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin text-primary" />

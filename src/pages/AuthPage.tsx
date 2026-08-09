@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,8 @@ export default function AuthPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const referrerId = searchParams.get('ref');
+  // Capture ref param in a ref so it survives URL changes during the multi-step OTP flow
+  const referrerIdRef = useRef<string | null>(searchParams.get('ref'));
   const { login } = useAuthStore();
 
   useEffect(() => {
@@ -75,6 +76,7 @@ export default function AuthPage() {
   };
 
   const recordReferral = async (newUserId: string) => {
+    const referrerId = referrerIdRef.current;
     if (!referrerId || referrerId === newUserId) return;
     // Insert referral row (ignore duplicate errors)
     const { error } = await supabase
