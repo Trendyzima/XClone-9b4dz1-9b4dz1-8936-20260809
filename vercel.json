@@ -1,4 +1,10 @@
 {
+  "buildCommand": "node _preload.cjs && vite build",
+  "build": {
+    "env": {
+      "NODE_OPTIONS": "--require ./_preload.cjs"
+    }
+  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
 import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check, Trophy, Gift, Clock, Hash, ChevronRight, Loader2, BookOpen, Eye, Play, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { TrendingVideosSection } from '@/components/features/TrendingVideosSection';
 import { formatDistanceToNow, isPast } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { formatNumber } from '@/lib/utils';
@@ -616,8 +617,12 @@ export default function ExplorePage() {
             );
           })()}
 
-          {/* Today's News */}
-          {/* Hashtag Challenges */}
+          {/* ── Trending Videos mosaic (Explore tab) ──────────────────── */}
+          <section className="border-b border-border">
+            <TrendingVideosSection variant="full" />
+          </section>
+
+          {/* ── Hashtag Challenges ───────────────────────────────────── */}
           {(activeChallenges.length > 0 || user?.verified) && (
             <section className="border-b border-border">
               <div className="px-4 pt-4 pb-2 flex items-center justify-between">

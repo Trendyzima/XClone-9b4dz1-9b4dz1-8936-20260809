@@ -13,7 +13,7 @@ import {
   MessageCircle, Repeat2, Heart, Languages, ChevronDown, ChevronUp,
   TrendingUp, Hash, BookOpen, Flame, Eye, Play,
 } from 'lucide-react';
-import { TrendingVideoRow } from '@/components/features/TrendingVideoRow';
+import { TrendingVideosSection } from '@/components/features/TrendingVideosSection';
 import { CommunitySpotlightStrip } from '@/components/features/CommunitySpotlightStrip';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
@@ -396,7 +396,7 @@ export default function HomePage() {
       {activeTab === 'foryou' && <StoriesStrip />}
 
       {/* Trending Videos Rail */}
-      {activeTab === 'foryou' && <TrendingVideoRow />}
+      {activeTab === 'foryou' && <TrendingVideosSection variant="compact" />}
 
       {/* Community Spotlight Strip */}
       {activeTab === 'foryou' && <CommunitySpotlightStrip />}

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Calendar, Clock, Trash2, CheckCircle, XCircle,
   Image as ImageIcon, Video, FileText, Edit3, Loader2,
+  ChevronLeft, ChevronRight, AlarmClock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns';
@@ -43,6 +44,7 @@ export function ScheduledPostsPage() {
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [previewTab, setPreviewTab] = useState<'pending' | 'published' | 'failed'>('pending');
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -92,6 +94,24 @@ export function ScheduledPostsPage() {
   const filtered = posts.filter(p => p.status === previewTab);
   const pendingCount = posts.filter(p => p.status === 'pending').length;
 
+  // Build calendar day → posts map for mini-calendar
+  const calDays = (() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const map: Record<number, number> = {};
+    posts
+      .filter(p => p.status === 'pending')
+      .forEach(p => {
+        const d = new Date(p.scheduled_for);
+        if (d.getFullYear() === year && d.getMonth() === month) {
+          map[d.getDate()] = (map[d.getDate()] || 0) + 1;
+        }
+      });
+    return { year, month, firstDay, daysInMonth, map };
+  })();
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background pb-16 md:pb-0">
@@ -106,6 +126,65 @@ export function ScheduledPostsPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Scheduled Posts" showBack />
+
+      {/* ── Mini Calendar Preview ── */}
+      <div className="px-4 pt-4 pb-3 bg-gradient-to-br from-blue-500/8 to-indigo-500/5 border-b border-border">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={() => setCalendarMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="font-bold text-sm">
+            {calendarMonth.toLocaleDateString([], { month: 'long', year: 'numeric' })}
+          </span>
+          <button
+            onClick={() => setCalendarMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted transition-colors"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+        {/* Day labels */}
+        <div className="grid grid-cols-7 mb-1">
+          {['S','M','T','W','T','F','S'].map((d, i) => (
+            <div key={i} className="text-center text-[10px] font-bold text-muted-foreground py-0.5">{d}</div>
+          ))}
+        </div>
+        {/* Day cells */}
+        <div className="grid grid-cols-7 gap-y-0.5">
+          {Array.from({ length: calDays.firstDay }).map((_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: calDays.daysInMonth }).map((_, idx) => {
+            const day = idx + 1;
+            const count = calDays.map[day] || 0;
+            const isToday = new Date().getDate() === day &&
+              new Date().getMonth() === calDays.month &&
+              new Date().getFullYear() === calDays.year;
+            return (
+              <div key={day} className="flex flex-col items-center py-0.5">
+                <span className={`text-xs w-6 h-6 flex items-center justify-center rounded-full font-medium ${
+                  isToday ? 'bg-primary text-primary-foreground font-bold' :
+                  count > 0 ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-foreground'
+                }`}>{day}</span>
+                {count > 0 && (
+                  <div className="flex gap-0.5 mt-0.5">
+                    {Array.from({ length: Math.min(count, 3) }).map((_, di) => (
+                      <div key={di} className="w-1 h-1 rounded-full bg-blue-500" />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {pendingCount > 0 && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 font-semibold">
+            <AlarmClock className="w-3.5 h-3.5" />
+            {pendingCount} post{pendingCount !== 1 ? 's' : ''} scheduled this month
+          </div>
+        )}
+      </div>
 
       {/* ── Hero header ── */}
       <div className="px-4 py-5 bg-gradient-to-br from-blue-500/10 to-indigo-500/5 border-b border-border flex items-center gap-4">
