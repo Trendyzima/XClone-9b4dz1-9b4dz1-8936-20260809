@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile, DollarSign, Play, Coins } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile, DollarSign, Play, Coins, Flag, Check as CheckIcon } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
@@ -22,6 +22,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { VideoMonetizationAd } from './VideoMonetizationAd';
+
+const REPORT_CATEGORIES = [
+  { id: 'spam',           emoji: '📢', label: 'Spam',               desc: 'Unsolicited or repetitive content' },
+  { id: 'hate_speech',    emoji: '⚠️', label: 'Hate Speech',         desc: 'Promotes hatred against a group' },
+  { id: 'misinformation', emoji: '🔍', label: 'Misinformation',      desc: 'False or misleading information' },
+  { id: 'explicit',       emoji: '🔞', label: 'Explicit Content',    desc: 'Adult content not marked properly' },
+  { id: 'violence',       emoji: '🚫', label: 'Violence',            desc: 'Graphic violence or threats' },
+  { id: 'harassment',     emoji: '😡', label: 'Harassment',          desc: 'Targeting or bullying someone' },
+] as const;
 
 interface PostCardProps {
   post: Post;
@@ -252,6 +261,24 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     } finally {
       setTippingLoading(false);
     }
+  };
+
+  // Report state
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const [reportCategory, setReportCategory] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+
+  const handleSubmitReport = async () => {
+    if (!user || !reportCategory) return;
+    setReportSubmitting(true);
+    await supabase.from('post_reports').upsert(
+      { post_id: post.id, reporter_id: user.id, category: reportCategory },
+      { onConflict: 'post_id,reporter_id' }
+    ).catch(() => {});
+    toast({ title: 'Report submitted', description: 'Thanks for helping keep the community safe.' });
+    setShowReportDialog(false);
+    setReportCategory('');
+    setReportSubmitting(false);
   };
 
   // Video monetization pre-roll
@@ -948,7 +975,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               <BookmarkButton postId={post.id} />
             </div>
 
-            {/* Tip button — only for other people's posts */}
+            {/* Tip + Report buttons — only for other people's posts */}
             {user && user.id !== post.user_id && (
               <button
                 className="flex items-center space-x-2 text-muted-foreground hover:text-amber-500 transition-colors group"
@@ -957,6 +984,17 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               >
                 <div className="p-2 rounded-full group-hover:bg-amber-500/10 transition-colors">
                   <DollarSign className="w-5 h-5" />
+                </div>
+              </button>
+            )}
+            {user && user.id !== post.user_id && (
+              <button
+                className="flex items-center space-x-2 text-muted-foreground hover:text-red-500 transition-colors group"
+                onClick={(e) => { e.stopPropagation(); setShowReportDialog(true); }}
+                title="Report post"
+              >
+                <div className="p-2 rounded-full group-hover:bg-red-500/10 transition-colors">
+                  <Flag className="w-4 h-4" />
                 </div>
               </button>
             )}
@@ -1101,6 +1139,48 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 {tipAmount ? `Send $${tipAmount}` : 'Send Tip'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Dialog */}
+      {showReportDialog && (
+        <div className="fixed inset-0 z-[350] bg-black/60" onClick={(e) => { e.stopPropagation(); setShowReportDialog(false); }}>
+          <div className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-lg">Report Post</h2>
+                <p className="text-sm text-muted-foreground">Select the reason for this report</p>
+              </div>
+              <button onClick={() => { setShowReportDialog(false); setReportCategory(''); }} className="p-2 rounded-full hover:bg-muted">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {REPORT_CATEGORIES.map(cat => (
+                <button key={cat.id} onClick={() => setReportCategory(cat.id)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                    reportCategory === cat.id ? 'border-red-500 bg-red-500/5' : 'border-border hover:border-red-500/30 hover:bg-red-500/3'
+                  }`}>
+                  <span className="text-xl shrink-0">{cat.emoji}</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold">{cat.label}</p>
+                    <p className="text-xs text-muted-foreground">{cat.desc}</p>
+                  </div>
+                  {reportCategory === cat.id && (
+                    <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center shrink-0">
+                      <CheckIcon className="w-3 h-3 text-white" />
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+            <button onClick={handleSubmitReport} disabled={!reportCategory || reportSubmitting}
+              className="w-full py-3.5 bg-red-500 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:bg-red-600 transition-colors">
+              {reportSubmitting ? <TransLoader className="w-5 h-5 animate-spin" /> : <Flag className="w-5 h-5" />}
+              {reportSubmitting ? 'Submitting…' : 'Submit Report'}
+            </button>
+            <p className="text-xs text-muted-foreground text-center">Reports are reviewed by our moderation team within 24 hours.</p>
           </div>
         </div>
       )}

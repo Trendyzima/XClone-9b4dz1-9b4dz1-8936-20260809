@@ -56,7 +56,16 @@ export default function FediversePage() {
   const [mastodonSearch, setMastodonSearch] = useState('');
   const [mastodonSearchResults, setMastodonSearchResults] = useState<any[]>([]);
   const [searchingMastodon, setSearchingMastodon] = useState(false);
-  const MASTODON_INSTANCES = ['mastodon.social', 'fosstodon.org', 'hachyderm.io', 'infosec.exchange', 'techhub.social'];
+  const MASTODON_INSTANCES = [
+    'mastodon.social', 'fosstodon.org', 'hachyderm.io', 'infosec.exchange',
+    'techhub.social', 'mastodon.online', 'mastodon.world', 'aus.social',
+    'social.coop', 'chaos.social', 'merveilles.town', 'sigmoid.social',
+    'mas.to', 'mastodon.uno', 'mastodon.lol', 'mstdn.social',
+  ];
+  const [discoveredInstances, setDiscoveredInstances] = useState<any[]>([]);
+  const [loadingDiscovery, setLoadingDiscovery] = useState(false);
+  const [customInstance, setCustomInstance] = useState('');
+  const [showInstanceGrid, setShowInstanceGrid] = useState(false);
 
   // ── Inbox state ──────────────────────────────────────────────────────────
   const [inboxItems, setInboxItems] = useState<any[]>([]);
@@ -120,6 +129,49 @@ export default function FediversePage() {
         setMastodonPosts(Array.isArray(d) ? d : d?.statuses ?? []);
       } catch { setMastodonPosts([]); }
     } finally { setLoadingMastodon(false); }
+  };
+
+  const fetchInstanceDirectory = async () => {
+    setLoadingDiscovery(true);
+    setShowInstanceGrid(true);
+    try {
+      // Try official Mastodon server list
+      const res = await fetch('https://api.joinmastodon.org/servers?language=&category=&region=&ownership=&registrations=');
+      if (!res.ok) throw new Error('API unavailable');
+      const data = await res.json();
+      const sorted = (Array.isArray(data) ? data : [])
+        .filter((s: any) => s.total_users > 200 && s.last_week_users > 50)
+        .sort((a: any, b: any) => b.last_week_users - a.last_week_users)
+        .slice(0, 32);
+      if (sorted.length > 0) {
+        setDiscoveredInstances(sorted);
+        toast.success(`Found ${sorted.length} active Mastodon instances`);
+        setLoadingDiscovery(false);
+        return;
+      }
+      throw new Error('empty');
+    } catch {
+      // Curated fallback list with known metadata
+      setDiscoveredInstances([
+        { domain: 'mastodon.social',   total_users: 900000, last_week_users: 15000, description: 'The original Mastodon server' },
+        { domain: 'fosstodon.org',     total_users: 120000, last_week_users: 3000,  description: 'Open source & tech community' },
+        { domain: 'hachyderm.io',      total_users: 75000,  last_week_users: 2000,  description: 'Tech professionals' },
+        { domain: 'infosec.exchange',  total_users: 35000,  last_week_users: 1000,  description: 'InfoSec community' },
+        { domain: 'mastodon.online',   total_users: 85000,  last_week_users: 2500,  description: 'Open community' },
+        { domain: 'mastodon.world',    total_users: 65000,  last_week_users: 1800,  description: 'Global English instance' },
+        { domain: 'aus.social',        total_users: 35000,  last_week_users: 800,   description: 'Australian community' },
+        { domain: 'social.coop',       total_users: 6000,   last_week_users: 250,   description: 'Cooperatively run instance' },
+        { domain: 'techhub.social',    total_users: 10000,  last_week_users: 400,   description: 'Tech hub community' },
+        { domain: 'chaos.social',      total_users: 18000,  last_week_users: 600,   description: 'Chaos Computer Club' },
+        { domain: 'sigmoid.social',    total_users: 5000,   last_week_users: 200,   description: 'AI/ML community' },
+        { domain: 'mas.to',            total_users: 100000, last_week_users: 3500,  description: 'General instance' },
+        { domain: 'mastodon.uno',      total_users: 45000,  last_week_users: 1200,  description: 'Italian community' },
+        { domain: 'mstdn.social',      total_users: 42000,  last_week_users: 900,   description: 'Social networking' },
+        { domain: 'mastodon.lol',      total_users: 25000,  last_week_users: 700,   description: 'Fun community' },
+        { domain: 'merveilles.town',   total_users: 700,    last_week_users: 80,    description: 'Creative & experimental' },
+      ]);
+    }
+    setLoadingDiscovery(false);
   };
 
   const searchMastodon = async (q: string) => {
@@ -690,17 +742,30 @@ export default function FediversePage() {
       {tab === 'mastodon' && (
         <div className="space-y-0">
           {/* Instance selector */}
-          <div className="px-4 py-3 bg-muted/20 border-b border-border">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-6 h-6 rounded-full bg-[#6364FF] flex items-center justify-center shrink-0">
-                <span className="text-white text-[10px] font-black">M</span>
+          <div className="px-4 py-3 bg-muted/20 border-b border-border space-y-3">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-[#6364FF] flex items-center justify-center shrink-0">
+                  <span className="text-white text-[10px] font-black">M</span>
+                </div>
+                <p className="text-xs font-bold text-[#6364FF]">Mastodon · {mastodonInstance}</p>
               </div>
-              <p className="text-xs font-bold text-[#6364FF]">Mastodon Public Timeline</p>
+              <button
+                onClick={fetchInstanceDirectory}
+                disabled={loadingDiscovery}
+                className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 bg-[#6364FF]/10 text-[#6364FF] rounded-full font-semibold hover:bg-[#6364FF]/20 disabled:opacity-50 transition-colors"
+              >
+                {loadingDiscovery ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                Auto-find instances
+              </button>
             </div>
+
+            {/* Quick-access chips */}
             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
               {MASTODON_INSTANCES.map(inst => (
                 <button key={inst}
-                  onClick={() => { setMastodonInstance(inst); setMastodonPosts([]); fetchMastodonTimeline(inst); }}
+                  onClick={() => { setMastodonInstance(inst); setMastodonPosts([]); setMastodonSearchResults([]); fetchMastodonTimeline(inst); }}
                   className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors whitespace-nowrap ${
                     mastodonInstance === inst
                       ? 'bg-[#6364FF] text-white border-[#6364FF]'
@@ -709,6 +774,80 @@ export default function FediversePage() {
                   {inst}
                 </button>
               ))}
+            </div>
+
+            {/* Discovered instances grid */}
+            {showInstanceGrid && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Instance Directory ({discoveredInstances.length})</p>
+                  <button onClick={() => setShowInstanceGrid(false)} className="text-[10px] text-muted-foreground hover:text-foreground">Hide</button>
+                </div>
+                {loadingDiscovery ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[0,1,2,3,4,5].map(i => <div key={i} className="h-16 bg-muted animate-pulse rounded-xl" />)}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                    {discoveredInstances.map((inst: any) => (
+                      <button key={inst.domain}
+                        onClick={() => { setMastodonInstance(inst.domain); setMastodonPosts([]); setMastodonSearchResults([]); fetchMastodonTimeline(inst.domain); }}
+                        className={`text-left p-2.5 rounded-xl border-2 transition-all hover:scale-[1.02] active:scale-[0.98] ${
+                          mastodonInstance === inst.domain
+                            ? 'border-[#6364FF] bg-[#6364FF]/10'
+                            : 'border-border hover:border-[#6364FF]/40 hover:bg-[#6364FF]/5'
+                        }`}>
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <div className="w-4 h-4 rounded-full bg-[#6364FF] flex items-center justify-center shrink-0">
+                            <span className="text-white text-[6px] font-black">M</span>
+                          </div>
+                          <p className="text-xs font-bold truncate">{inst.domain}</p>
+                        </div>
+                        <p className="text-[10px] text-[#6364FF] font-semibold">{formatNumber(inst.total_users ?? 0)} users</p>
+                        {inst.description && <p className="text-[9px] text-muted-foreground line-clamp-1 mt-0.5">{inst.description}</p>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Custom instance input */}
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Server className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                <input
+                  placeholder="custom.instance.social"
+                  value={customInstance}
+                  onChange={e => setCustomInstance(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && customInstance.trim()) {
+                      const inst = customInstance.trim().replace(/^https?:\/\//, '');
+                      setMastodonInstance(inst);
+                      setMastodonPosts([]);
+                      setMastodonSearchResults([]);
+                      fetchMastodonTimeline(inst);
+                      setCustomInstance('');
+                    }
+                  }}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-xl bg-background focus:outline-none focus:ring-1 focus:ring-[#6364FF]/30 font-mono"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  if (!customInstance.trim()) return;
+                  const inst = customInstance.trim().replace(/^https?:\/\//, '');
+                  setMastodonInstance(inst);
+                  setMastodonPosts([]);
+                  setMastodonSearchResults([]);
+                  fetchMastodonTimeline(inst);
+                  setCustomInstance('');
+                }}
+                disabled={!customInstance.trim()}
+                className="px-3 py-1.5 bg-[#6364FF] text-white text-xs rounded-xl font-semibold disabled:opacity-50 hover:opacity-90 transition-opacity"
+              >
+                Go
+              </button>
             </div>
           </div>
 

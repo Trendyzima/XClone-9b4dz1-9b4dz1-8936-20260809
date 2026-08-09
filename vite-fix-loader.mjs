@@ -1,35 +1,46 @@
 /**
- * vite-fix-loader.mjs  v11
+ * vite-fix-loader.mjs  v12
  *
  * Root-cause findings:
- * 1. dep-C6uTJdX2.js is clean at startup; the patcher corrupts it LATER during
- *    the build (after Vite's CJS API has already been required).
- * 2. The file is then imported dynamically by Vite internals via ESM import().
- * 3. Our load hook IS called, but in older attempts we called nextLoad() to get
- *    the source — for CJS-format files, Node's ESM loader returns source=undefined
- *    and the fix was never applied.
+ * 1. dep-C6uTJdX2.js is loaded via ESM dynamic import() during the Vite build.
+ * 2. Our load hook reads the file from disk — it may be CLEAN at that moment.
+ * 3. Previous versions called `return nextLoad(url, context)` for clean files.
+ *    nextLoad re-reads the file from disk, and the patcher may have corrupted it
+ *    in the window between our readFileSync and nextLoad's read.
  *
- * Fix in v11:
- * - Read the file DIRECTLY FROM DISK (never rely on nextLoad for the source).
- * - Apply the fix in-memory.
- * - ALSO write the fixed content back to disk (so CJS require() also sees the fix).
- * - Return shortCircuit:true with format:'module' and the fixed source.
- *   (The error stack confirms the file is compiled as an ES module via
- *    compileSourceTextModule in node:internal/modules/esm.)
+ * Fix in v12:
+ * - ALWAYS return { shortCircuit: true, source: ourVersion } for Vite dist chunks.
+ *   Never call nextLoad for these files — eliminates the race entirely.
+ * - Added nuclear targeted fix for `replaceDefine(code??"",` which is the
+ *   exact injection pattern that causes the recurring SyntaxError.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Nuclear targeted fixes — applied FIRST before generic scanner
+// ─────────────────────────────────────────────────────────────────────────────
+function nuclearFix(src) {
+  let s = src;
+
+  // The exact recurring injection: replaceDefine(code??"",
+  // Handles any empty or non-empty string fallback after the identifier
+  s = s.replace(/\basync function replaceDefine\(code\?\?"[^"]*",\s*/g, 'async function replaceDefine(code, ');
+  s = s.replace(/\basync function replaceDefine\(code\?\?'[^']*',\s*/g, "async function replaceDefine(code, ");
+  s = s.replace(/\breplaceDefine\(code\?\?"[^"]*",\s*/g, 'replaceDefine(code, ');
+  s = s.replace(/\breplaceDefine\(code\?\?'[^']*',\s*/g, "replaceDefine(code, ");
+
+  // Generic: identifier??""  or  identifier??''  in function parameter context
+  // (identifier immediately before ?? with open-paren or comma as prior context)
+  s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"[^"]*"/g, '$1');
+  s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'[^']*'/g, '$1');
+
+  return s;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // fixTightDoubleQuestion(src)
-//
-// Linear O(n) scanner. Removes tight-?? injections:
-//   identifier??""   identifier??{}   identifier??[]
-//   identifier??null  identifier??undefined  identifier??false  identifier??0
-//   identifier??\n   (end-of-line injection)
-//
-// Handles ARBITRARY brace nesting depth and is string-literal aware.
 // ─────────────────────────────────────────────────────────────────────────────
 function fixTightDoubleQuestion(src) {
   const n = src.length;
@@ -56,16 +67,12 @@ function fixTightDoubleQuestion(src) {
           endPos = i + 2;
 
         } else if (c === '{') {
-          // Check if empty object: ??{}
           let k = j + 1;
           while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
           if (k < n && src[k] === '}') {
-            // ??{} — empty object literal, remove whole thing
             endPos = k + 1;
           } else {
-            // ??{non-empty block} — brace-counter can silently fail on regex
-            // literals (e.g. /\{/g) inside the body, leaving ?? intact.
-            // Just remove ?? and keep the { so the block stays valid.
+            // non-empty block — remove only ??
             endPos = i + 2;
           }
 
@@ -86,9 +93,7 @@ function fixTightDoubleQuestion(src) {
           if (m) {
             endPos = j + m[1].length;
           } else if (/^[a-zA-Z_$]/.test(c)) {
-            // Identifier as right operand (e.g. ??toJSON, ??returnValue).
-            // The patcher injects ?? before method/property names in positions
-            // that break syntax.  Remove just ?? and preserve the identifier.
+            // Identifier as right operand — remove only ??
             endPos = i + 2;
           }
         }
@@ -107,13 +112,16 @@ function fixTightDoubleQuestion(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// applyFix(source)  — multi-pass orchestrator
+// applyFix(source)
 // ─────────────────────────────────────────────────────────────────────────────
 function applyFix(source) {
-  // Pass 1: character-by-character scanner (handles arbitrary nesting)
-  let fixed = fixTightDoubleQuestion(source);
+  // Pass 0: nuclear targeted fixes (most specific, applied first)
+  let fixed = nuclearFix(source);
 
-  // Pass 2: replaceDefine variants belt-and-suspenders
+  // Pass 1: character-by-character scanner
+  fixed = fixTightDoubleQuestion(fixed);
+
+  // Pass 2: replaceDefine variants (belt-and-suspenders)
   fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
   fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
   fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
@@ -130,7 +138,7 @@ function applyFix(source) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// initialize — signals main thread that hook worker is ready
+// initialize
 // ─────────────────────────────────────────────────────────────────────────────
 export function initialize(data) {
   try {
@@ -149,70 +157,67 @@ export function initialize(data) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// load hook — intercepts Vite chunk files and fixes corruption
+// load hook
 //
-// KEY CHANGES in v11:
-// - Read directly from disk (do NOT rely on nextLoad's source — it can be
-//   undefined for CJS-format files loaded via ESM dynamic import())
-// - ALSO write the fixed content back to disk so that Module._compile and
-//   any other CJS loading path also sees the clean version
-// - Return shortCircuit:true with format:'module' and the fixed source
-//   (confirmed by error stack: compileSourceTextModule in ESM translators)
+// CRITICAL CHANGE in v12:
+//   We ALWAYS return { shortCircuit: true, source: ourVersion } for Vite dist
+//   chunks — we NEVER call nextLoad for these files.
+//
+//   Reason: nextLoad re-reads the file from disk.  Between our readFileSync
+//   and nextLoad's read, the patcher may have corrupted the file.  Returning
+//   shortCircuit:true with our own read eliminates this race entirely.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function load(url, context, nextLoad) {
-  // Fast path: only intercept Vite's own node-layer chunks
+  // Only intercept Vite's own node-layer chunks
   if (!url.startsWith('file:') || !url.includes('/vite/dist/node/')) {
     return nextLoad(url, context);
   }
 
   const fname = url.split('/').pop();
 
-  // ── Step 1: Read directly from disk ────────────────────────────────────────
+  // ── Read directly from disk ────────────────────────────────────────────────
   let src;
   try {
     src = readFileSync(fileURLToPath(url), 'utf8');
   } catch (readErr) {
     process.stderr.write('[vite-fix] ⚠️ disk-read failed for ' + fname + ': ' + String(readErr) + '\n');
+    // Only fallback to nextLoad if we can't read the file at all
     return nextLoad(url, context);
   }
 
-  // ── Step 2: Quick bail if clean ─────────────────────────────────────────────
-  if (!src.includes('??')) {
-    return nextLoad(url, context);
+  // ── Apply fix ──────────────────────────────────────────────────────────────
+  let fixed = src;
+  let wasFixed = false;
+
+  if (src.includes('??')) {
+    fixed = applyFix(src);
+    wasFixed = fixed !== src;
+
+    if (wasFixed) {
+      const removed = (src.match(/\?\?/g) || []).length - (fixed.match(/\?\?/g) || []).length;
+      process.stderr.write(
+        '[vite-fix] 🔧 fixed ' + fname + ' (' + removed + ' injections removed)\n'
+      );
+      // Write back to disk so CJS require() also gets the clean version
+      try {
+        writeFileSync(fileURLToPath(url), fixed, 'utf8');
+        process.stderr.write('[vite-fix] 💾 wrote fix to disk: ' + fname + '\n');
+      } catch (writeErr) {
+        process.stderr.write('[vite-fix] ⚠️ disk-write failed: ' + String(writeErr) + '\n');
+      }
+    } else {
+      const idx = src.indexOf('??');
+      const ctx = src.slice(Math.max(0, idx - 40), idx + 60).replace(/\n/g, '↵');
+      process.stderr.write(
+        '[vite-fix] ⚠️ ?? unfixed in ' + fname + '\n         context: …' + ctx + '…\n'
+      );
+    }
   }
 
-  // ── Step 3: Apply the fix ──────────────────────────────────────────────────
-  const fixed = applyFix(src);
-
-  if (fixed === src) {
-    // Found ?? but couldn't fix — log context and fall through
-    const idx = src.indexOf('??');
-    const ctx = src.slice(Math.max(0, idx - 40), idx + 60).replace(/\n/g, '↵');
-    process.stderr.write(
-      '[vite-fix] ⚠️ ?? unfixed in ' + fname + '\n         context: …' + ctx + '…\n'
-    );
-    return nextLoad(url, context);
-  }
-
-  const removed = (src.match(/\?\?/g) || []).length - (fixed.match(/\?\?/g) || []).length;
-  process.stderr.write(
-    '[vite-fix] 🔧 fixed ' + fname + ' (' + removed + ' injections removed)\n'
-  );
-
-  // ── Step 4: Write back to disk ─────────────────────────────────────────────
-  // This ensures Module._compile (CJS path) and any subsequent require() also
-  // gets the clean version. Even if this write races with the patcher, the
-  // source we return below is already clean for this ESM compilation.
-  try {
-    writeFileSync(fileURLToPath(url), fixed, 'utf8');
-    process.stderr.write('[vite-fix] 💾 wrote fix to disk: ' + fname + '\n');
-  } catch (writeErr) {
-    process.stderr.write('[vite-fix] ⚠️ disk-write failed: ' + String(writeErr) + '\n');
-    // Not fatal — we still return the fixed source via the hook
-  }
-
-  // ── Step 5: Return fixed source ────────────────────────────────────────────
-  // shortCircuit:true skips remaining hooks and gives Node our fixed source.
-  // format:'module' matches what compileSourceTextModule (ESM) expects.
+  // ── ALWAYS return shortCircuit:true with our version ──────────────────────
+  // This is the critical fix for the patcher race condition.
+  // nextLoad would re-read the file from disk, potentially getting the
+  // patcher-corrupted version. By returning shortCircuit:true here,
+  // Node uses our disk-read version (pre-race) regardless.
   return { shortCircuit: true, format: 'module', source: fixed };
 }

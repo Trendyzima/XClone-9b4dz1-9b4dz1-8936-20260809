@@ -5,7 +5,7 @@ import { Post } from '@/types';
 import { Loader2, Gift, X, Zap, Play, TrendingUp } from 'lucide-react';
 import { initAdMob, showInterstitial, showRewarded, ADMOB_CONFIG } from '@/lib/admob';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const AD_EVERY_N_VIDEOS = 4;
 const PRELOAD_AHEAD = 2;
@@ -14,6 +14,8 @@ const PAGE_SIZE = 20;
 export default function VideosPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkProcessed = useRef(false);
   const [videos, setVideos] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -36,6 +38,38 @@ export default function VideosPage() {
     fetchVideos(0);
     initAdMob();
   }, []);
+
+  // Deep link: scroll to specific video on load (?id=postId)
+  useEffect(() => {
+    if (deepLinkProcessed.current || videos.length === 0) return;
+    const deepId = searchParams.get('id');
+    if (!deepId) return;
+    const targetIdx = videos.findIndex(v => v.id === deepId);
+    if (targetIdx === -1) return;
+    deepLinkProcessed.current = true;
+    setTimeout(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      container.scrollTo({ top: targetIdx * window.innerHeight });
+      activeIndexRef.current = targetIdx;
+      setActiveIndex(targetIdx);
+      setPreloadMap(prev => {
+        const map = { ...prev };
+        for (let i = Math.max(0, targetIdx - 1); i <= targetIdx + PRELOAD_AHEAD && i < videos.length; i++) {
+          map[i] = true;
+        }
+        return map;
+      });
+    }, 200);
+  }, [videos]);
+
+  // Sync shareable URL as user scrolls
+  useEffect(() => {
+    const vid = videos[activeIndex];
+    if (vid?.id) {
+      setSearchParams({ id: vid.id }, { replace: true });
+    }
+  }, [activeIndex]);
 
   const fetchVideos = async (pageNum: number) => {
     try {
