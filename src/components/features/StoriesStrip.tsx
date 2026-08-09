@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
-import { Plus, X, Loader2, Send } from 'lucide-react';
+import { Plus, X, Loader2, Send, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Story {
@@ -26,6 +27,7 @@ interface StoryGroup {
 
 export function StoriesStrip() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [groups, setGroups] = useState<StoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewedIds, setViewedIds] = useState<Set<string>>(new Set());
@@ -744,6 +746,17 @@ export function StoriesStrip() {
                 className="absolute bottom-4 left-4 right-4 z-30 flex items-center gap-2"
                 onClick={e => e.stopPropagation()}
               >
+                {/* Go to DM with story preview */}
+                <button
+                  onClick={() => {
+                    const storyUrl = encodeURIComponent(story.media_url);
+                    navigate(`/messages?to=${g.username}&storyUrl=${storyUrl}`);
+                  }}
+                  className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center border border-white/20 shrink-0 hover:bg-white/25 transition-colors"
+                  title="Reply via DM"
+                >
+                  <MessageCircle className="w-4 h-4 text-white" />
+                </button>
                 {/* Reaction emoji button */}
                 <button
                   onMouseDown={() => {

@@ -811,7 +811,50 @@ export default function ProfilePage() {
           </div>
 
           {profile.bio && <p className="mb-3 break-words">{profile.bio}</p>}
-          {/* ── Tip Goal Badge ──────────────────────────────────────────────── */}
+
+          {/* ── Profile Achievements ── */}
+          {(() => {
+            const videoPosts = posts.filter(p => p.is_video).length;
+            const tipsReceived = tipHistory.filter(t => t.to_user_id === profile.id).length;
+            const ACHIEVEMENTS = [
+              { id: 'first_post',    emoji: '✍️', label: 'First Post',       unlocked: posts.length >= 1 },
+              { id: 'verified',      emoji: '✅', label: 'Verified',          unlocked: !!profile.verified },
+              { id: 'video_creator', emoji: '🎬', label: 'Video Creator',     unlocked: videoPosts >= 1 },
+              { id: 'followers_100', emoji: '👥', label: '100 Followers',     unlocked: (profile.followers_count ?? 0) >= 100 },
+              { id: 'followers_1k',  emoji: '⭐', label: '1K Followers',      unlocked: (profile.followers_count ?? 0) >= 1000 },
+              { id: 'first_dollar',  emoji: '💰', label: 'First Dollar',      unlocked: Number(profile.total_earnings ?? 0) >= 1 },
+              { id: 'streak_7',      emoji: '🔥', label: '7-Day Streak',      unlocked: streakDay >= 7 },
+              { id: 'tip_received',  emoji: '💝', label: 'Tip Received',      unlocked: tipsReceived >= 1 },
+              { id: 'posts_10',      emoji: '📝', label: '10 Posts',           unlocked: posts.length >= 10 },
+              { id: 'followers_10k', emoji: '🌟', label: '10K Followers',     unlocked: (profile.followers_count ?? 0) >= 10000 },
+            ];
+            const unlocked = ACHIEVEMENTS.filter(a => a.unlocked);
+            if (unlocked.length === 0) return null;
+            return (
+              <div className="mb-3">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Achievements</span>
+                  <span className="text-[10px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded-full">{unlocked.length}/{ACHIEVEMENTS.length}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ACHIEVEMENTS.map(a => (
+                    <div
+                      key={a.id}
+                      title={a.label}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        a.unlocked
+                          ? 'bg-primary/8 border-primary/20 text-foreground shadow-sm'
+                          : 'bg-muted/30 border-border text-muted-foreground/40 grayscale opacity-40'
+                      }`}
+                    >
+                      <span>{a.emoji}</span>
+                      <span className="hidden sm:inline">{a.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           {(tipGoal !== null || isOwnProfile) && (
             <div className="mb-3">
               {!editingGoal ? (

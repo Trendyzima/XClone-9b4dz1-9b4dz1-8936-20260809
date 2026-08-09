@@ -20,7 +20,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 
-type Tab = 'feed' | 'inbox' | 'relay' | 'analytics' | 'discover' | 'identity';
+type Tab = 'feed' | 'inbox' | 'relay' | 'analytics' | 'discover' | 'identity' | 'mastodon';
 
 const CHART_COLORS = ['#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#3b82f6'];
 
@@ -48,6 +48,15 @@ export default function FediversePage() {
   const [keywordSearched, setKeywordSearched] = useState(false);
   const [fedTrendingTags, setFedTrendingTags] = useState<any[]>([]);
   const [loadingFedTags, setLoadingFedTags] = useState(false);
+
+  // ── Mastodon tab state ───────────────────────────────────────────────────
+  const [mastodonInstance, setMastodonInstance] = useState('mastodon.social');
+  const [mastodonPosts, setMastodonPosts] = useState<any[]>([]);
+  const [loadingMastodon, setLoadingMastodon] = useState(false);
+  const [mastodonSearch, setMastodonSearch] = useState('');
+  const [mastodonSearchResults, setMastodonSearchResults] = useState<any[]>([]);
+  const [searchingMastodon, setSearchingMastodon] = useState(false);
+  const MASTODON_INSTANCES = ['mastodon.social', 'fosstodon.org', 'hachyderm.io', 'infosec.exchange', 'techhub.social'];
 
   // ── Inbox state ──────────────────────────────────────────────────────────
   const [inboxItems, setInboxItems] = useState<any[]>([]);
@@ -86,6 +95,45 @@ export default function FediversePage() {
   }, [user]);
 
   // Start inbox polling when on inbox tab
+  useEffect(() => {
+    if (tab === 'mastodon' && mastodonPosts.length === 0) fetchMastodonTimeline(mastodonInstance);
+  }, [tab]);
+
+  const fetchMastodonTimeline = async (instance: string) => {
+    setLoadingMastodon(true);
+    try {
+      const res = await fetch(`https://${instance}/api/v1/timelines/public?limit=20&local=true`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      const data = await res.json();
+      setMastodonPosts(Array.isArray(data) ? data : []);
+    } catch {
+      // fallback to gateway
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gateway-relay`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ action: 'public_timeline', instance, limit: 20 }),
+        });
+        const d = await res.json();
+        setMastodonPosts(Array.isArray(d) ? d : d?.statuses ?? []);
+      } catch { setMastodonPosts([]); }
+    } finally { setLoadingMastodon(false); }
+  };
+
+  const searchMastodon = async (q: string) => {
+    if (!q.trim()) { setMastodonSearchResults([]); return; }
+    setSearchingMastodon(true);
+    try {
+      const res = await fetch(`https://${mastodonInstance}/api/v2/search?q=${encodeURIComponent(q)}&type=statuses&limit=20`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setMastodonSearchResults(data.statuses ?? []);
+    } catch { setMastodonSearchResults([]); }
+    setSearchingMastodon(false);
+  };
+
   useEffect(() => {
     if (tab === 'inbox') {
       fetchInbox();
@@ -541,6 +589,7 @@ export default function FediversePage() {
 
   const TABS: { id: Tab; label: string; icon: React.ElementType; badge?: number }[] = [
     { id: 'feed',      label: 'Feed',       icon: Rss },
+    { id: 'mastodon',  label: 'Mastodon',   icon: Globe },
     { id: 'inbox',     label: 'Inbox',      icon: Inbox,    badge: unprocessedCount > 0 ? unprocessedCount : undefined },
     { id: 'relay',     label: 'Relay',      icon: Radio },
     { id: 'analytics', label: 'Analytics',  icon: BarChart3 },
@@ -632,6 +681,115 @@ export default function FediversePage() {
           ) : (
             <div className="divide-y divide-border">
               {remotePosts.map((p: any, i: number) => <RemotePostRow key={p.id ?? p.object_url ?? i} p={p} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════ MASTODON TAB ══════════════════ */}
+      {tab === 'mastodon' && (
+        <div className="space-y-0">
+          {/* Instance selector */}
+          <div className="px-4 py-3 bg-muted/20 border-b border-border">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-6 h-6 rounded-full bg-[#6364FF] flex items-center justify-center shrink-0">
+                <span className="text-white text-[10px] font-black">M</span>
+              </div>
+              <p className="text-xs font-bold text-[#6364FF]">Mastodon Public Timeline</p>
+            </div>
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+              {MASTODON_INSTANCES.map(inst => (
+                <button key={inst}
+                  onClick={() => { setMastodonInstance(inst); setMastodonPosts([]); fetchMastodonTimeline(inst); }}
+                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors whitespace-nowrap ${
+                    mastodonInstance === inst
+                      ? 'bg-[#6364FF] text-white border-[#6364FF]'
+                      : 'border-border text-muted-foreground hover:border-[#6364FF]/40 hover:text-[#6364FF]'
+                  }`}>
+                  {inst}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className="px-4 py-3 border-b border-border">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input value={mastodonSearch} onChange={e => setMastodonSearch(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && searchMastodon(mastodonSearch)}
+                  placeholder="Search toots on Mastodon…"
+                  className="w-full pl-9 pr-4 py-2 bg-muted rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[#6364FF]/30" />
+              </div>
+              <button onClick={() => searchMastodon(mastodonSearch)} disabled={searchingMastodon || !mastodonSearch.trim()}
+                className="px-4 py-2 bg-[#6364FF] text-white rounded-full text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5 hover:opacity-90">
+                {searchingMastodon ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Search
+              </button>
+            </div>
+          </div>
+
+          {/* Search results or timeline */}
+          {loadingMastodon ? (
+            <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-[#6364FF]" /></div>
+          ) : (
+            <div className="divide-y divide-border">
+              {(mastodonSearchResults.length > 0 ? mastodonSearchResults : mastodonPosts).map((toot: any, i: number) => {
+                const account = toot.account ?? {};
+                const username = account.acct ?? account.username ?? 'unknown';
+                const displayName = account.display_name || username;
+                const avatarUrl = account.avatar_static ?? account.avatar;
+                const content = toot.content ?? toot.text ?? '';
+                const created = toot.created_at ?? '';
+                const url = toot.url ?? toot.uri ?? '';
+                const likes = toot.favourites_count ?? 0;
+                const boosts = toot.reblogs_count ?? 0;
+                const replies = toot.replies_count ?? 0;
+                const mediaAtts = toot.media_attachments ?? [];
+                return (
+                  <div key={toot.id ?? i} className="p-4 hover:bg-muted/5 transition-colors">
+                    <div className="flex gap-3">
+                      <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
+                        {avatarUrl ? <img src={avatarUrl} alt={username} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{displayName[0]?.toUpperCase()}</div>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="font-semibold text-sm">{displayName}</span>
+                          <span className="text-xs text-[#6364FF] flex items-center gap-0.5">
+                            <span className="w-3 h-3 rounded-full bg-[#6364FF] inline-flex items-center justify-center"><span className="text-white text-[7px] font-black">M</span></span>
+                            @{username.includes('@') ? username : `${username}@${mastodonInstance}`}
+                          </span>
+                          {created && <span className="text-xs text-muted-foreground">· {formatDistanceToNow(new Date(created), { addSuffix: true })}</span>}
+                        </div>
+                        <div className="text-sm leading-relaxed line-clamp-4 mb-2" dangerouslySetInnerHTML={{ __html: content }} />
+                        {mediaAtts.length > 0 && (
+                          <div className={`mt-2 grid gap-1 rounded-xl overflow-hidden ${mediaAtts.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                            {mediaAtts.slice(0, 4).map((att: any) => (
+                              att.type === 'image' ? <img key={att.id} src={att.preview_url ?? att.url} alt={att.description ?? ''} className="w-full object-cover max-h-48" />
+                              : att.type === 'video' || att.type === 'gifv' ? <video key={att.id} src={att.url} controls className="w-full max-h-48" />
+                              : null
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-3 mt-2">
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground"><Heart className="w-3 h-3" />{likes}</span>
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground"><Repeat2 className="w-3 h-3" />{boosts}</span>
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground"><MessageCircle className="w-3 h-3" />{replies}</span>
+                          {url && <a href={url} target="_blank" rel="noopener noreferrer" className="ml-auto flex items-center gap-0.5 text-xs text-[#6364FF] hover:underline"><ExternalLink className="w-3 h-3" />View</a>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {!loadingMastodon && mastodonPosts.length === 0 && mastodonSearchResults.length === 0 && (
+                <div className="text-center py-16 text-muted-foreground">
+                  <Globe className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                  <p className="font-semibold">No toots found</p>
+                  <p className="text-sm mt-1">Try a different instance or search query</p>
+                </div>
+              )}
             </div>
           )}
         </div>
