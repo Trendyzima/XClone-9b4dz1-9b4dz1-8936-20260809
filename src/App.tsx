@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { RightSidebar } from '@/components/layout/RightSidebar';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { FloatingActionButton } from '@/components/layout/FloatingActionButton';
+import { LiveSpaceBanner } from '@/components/features/LiveSpaceBanner';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from 'sonner';
 import { Loader2 } from 'lucide-react';
@@ -184,6 +185,7 @@ function AppInner() {
         </main>
 
         <RightSidebar />
+        <LiveSpaceBanner />
         <BottomNav />
         <FloatingActionButton />
       </div>

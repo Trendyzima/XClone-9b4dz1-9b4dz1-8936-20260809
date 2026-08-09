@@ -51,10 +51,10 @@ export default function WalletPage() {
     setStep('polling');
 
     pollRef.current = setInterval(async () => {
-      elapsed += 5;
+      elapsed += 3;
       setPollSecs(elapsed);
 
-      if (elapsed >= 90) {
+      if (elapsed >= 120) {
         clearInterval(pollRef.current!);
         setStep('failed');
         setPollMsg('Verification timed out. If you paid, funds will appear shortly.');
@@ -84,7 +84,7 @@ export default function WalletPage() {
           setPollMsg('Payment was cancelled or failed. Please try again.');
         }
       } catch { /* keep polling */ }
-    }, 5000);
+    }, 3000);
   };
 
   const handleTopUp = async () => {
@@ -174,20 +174,30 @@ export default function WalletPage() {
                   {/* Amount presets */}
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Amount (USD)</p>
+                    {/* KES quick-pick presets */}
                     <div className="grid grid-cols-4 gap-2 mb-2">
-                      {[5, 10, 20, 50].map(v => (
-                        <button
-                          key={v}
-                          onClick={() => setAmount(String(v))}
-                          className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${
-                            amount === String(v)
-                              ? 'border-green-600 bg-green-600/10 text-green-700 dark:text-green-400'
-                              : 'border-border hover:border-green-600/40 hover:bg-green-600/5'
-                          }`}
-                        >
-                          ${v}
-                        </button>
-                      ))}
+                      {[
+                        { kes: 100,  usd: (100  / USD_TO_KES) },
+                        { kes: 500,  usd: (500  / USD_TO_KES) },
+                        { kes: 1000, usd: (1000 / USD_TO_KES) },
+                        { kes: 5000, usd: (5000 / USD_TO_KES) },
+                      ].map(({ kes, usd }) => {
+                        const val = usd.toFixed(2);
+                        return (
+                          <button
+                            key={kes}
+                            onClick={() => setAmount(val)}
+                            className={`py-2.5 rounded-xl font-bold text-xs border-2 transition-all flex flex-col items-center ${
+                              amount === val
+                                ? 'border-green-600 bg-green-600/10 text-green-700 dark:text-green-400'
+                                : 'border-border hover:border-green-600/40 hover:bg-green-600/5'
+                            }`}
+                          >
+                            <span className="text-[11px] font-black">KES {kes.toLocaleString()}</span>
+                            <span className="text-[9px] font-normal opacity-60">${usd.toFixed(2)}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                     <Input
                       type="number"
@@ -249,7 +259,7 @@ export default function WalletPage() {
                   <div className="text-center space-y-1">
                     <p className="font-bold text-base text-green-700 dark:text-green-400">Awaiting payment…</p>
                     <p className="text-sm text-muted-foreground">{pollMsg}</p>
-                    <p className="text-xs text-muted-foreground">{pollSecs}s elapsed · checking every 5s</p>
+                    <p className="text-xs text-muted-foreground">{pollSecs}s elapsed · checking every 3s</p>
                   </div>
                   {/* Animated progress bar */}
                   <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
