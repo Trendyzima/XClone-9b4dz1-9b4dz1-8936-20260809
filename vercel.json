@@ -1,5 +1,5 @@
 {
-  "buildCommand": "node _build.cjs",
+  "buildCommand": "npx vite build",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
