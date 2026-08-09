@@ -12,7 +12,7 @@ import {
 import {
   TrendingUp, DollarSign, Eye, Heart, MessageCircle, Users,
   Video, FileText, BarChart3, Calendar, ShoppingBag, Sparkles,
-  ArrowUpRight, Loader2, Play
+  ArrowUpRight, Loader2, Play, Download
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -36,6 +36,14 @@ export default function CreatorStudio() {
   const [videoPostsCount, setVideoPostsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'videos' | 'earnings'>('overview');
+  // CSV Export state
+  const [exportStartMonth, setExportStartMonth] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 2);
+    return d.toISOString().slice(0, 7);
+  });
+  const [exportEndMonth, setExportEndMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [exportingCsv, setExportingCsv] = useState(false);
   // Enhanced video tab state
   const [allVideoPosts, setAllVideoPosts] = useState<any[]>([]);
   const [loadingAllVideos, setLoadingAllVideos] = useState(false);
@@ -197,6 +205,94 @@ export default function CreatorStudio() {
       return { ...p, earned };
     }));
     setVideoEarnings(enriched);
+  };
+
+  const handleExportCsv = async () => {
+    if (!user) return;
+    setExportingCsv(true);
+    try {
+      const startDate = `${exportStartMonth}-01T00:00:00.000Z`;
+      const endDate = `${exportEndMonth}-31T23:59:59.999Z`;
+
+      // Fetch all three sources in parallel
+      const [earningsRes, tipsRes, adRevenueRes] = await Promise.all([
+        supabase.from('creator_earnings')
+          .select('amount, source, created_at, status, post_id')
+          .eq('user_id', user.id)
+          .gte('created_at', startDate)
+          .lte('created_at', endDate)
+          .order('created_at', { ascending: true }),
+        supabase.from('tips')
+          .select('amount, message, created_at, from_user_id')
+          .eq('to_user_id', user.id)
+          .gte('created_at', startDate)
+          .lte('created_at', endDate)
+          .order('created_at', { ascending: true }),
+        supabase.from('creator_ad_revenue')
+          .select('gross_revenue, creator_share, ad_type, created_at')
+          .eq('creator_user_id', user.id)
+          .gte('created_at', startDate)
+          .lte('created_at', endDate)
+          .order('created_at', { ascending: true }),
+      ]);
+
+      const rows: string[][] = [['Date', 'Source', 'Type', 'Amount (USD)', 'Status', 'Notes']];
+
+      // creator_earnings rows
+      for (const e of earningsRes.data ?? []) {
+        rows.push([
+          new Date(e.created_at).toISOString().split('T')[0],
+          e.source ?? 'creator_earnings',
+          'earnings',
+          Number(e.amount).toFixed(4),
+          e.status ?? 'paid',
+          e.post_id ? `post:${e.post_id}` : '',
+        ]);
+      }
+      // tips rows
+      for (const t of tipsRes.data ?? []) {
+        rows.push([
+          new Date(t.created_at).toISOString().split('T')[0],
+          'tips',
+          'tip',
+          Number(t.amount).toFixed(4),
+          'paid',
+          t.message ? t.message.slice(0, 80).replace(/,/g, ';') : '',
+        ]);
+      }
+      // ad revenue rows
+      for (const a of adRevenueRes.data ?? []) {
+        rows.push([
+          new Date(a.created_at).toISOString().split('T')[0],
+          `ad_revenue (${a.ad_type ?? 'ad'})`,
+          'ad_revenue',
+          Number(a.creator_share).toFixed(4),
+          'paid',
+          `gross:$${Number(a.gross_revenue).toFixed(4)}`,
+        ]);
+      }
+
+      // Sort all data rows by date
+      const header = rows[0];
+      const data = rows.slice(1).sort((a, b) => a[0].localeCompare(b[0]));
+      const csv = [header, ...data].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `revenue_${exportStartMonth}_to_${exportEndMonth}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${data.length} rows`);
+    } catch (e: any) {
+      toast.error(e.message || 'Export failed');
+    } finally {
+      setExportingCsv(false);
+    }
   };
 
   const enableCreatorMode = async () => {
@@ -650,6 +746,44 @@ export default function CreatorStudio() {
                   <p className="text-sm">No earnings this week yet</p>
                 </div>
               )}
+            </div>
+
+            {/* ── CSV Export ── */}
+            <div className="bg-card border border-border rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Download className="w-5 h-5 text-primary" />
+                <h2 className="font-bold">Export Revenue CSV</h2>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">Download all earnings, tips, and ad revenue for a date range.</p>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">From (month)</label>
+                  <input
+                    type="month"
+                    value={exportStartMonth}
+                    onChange={e => setExportStartMonth(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">To (month)</label>
+                  <input
+                    type="month"
+                    value={exportEndMonth}
+                    onChange={e => setExportEndMonth(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleExportCsv}
+                disabled={exportingCsv}
+                className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {exportingCsv
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Exporting…</>
+                  : <><Download className="w-4 h-4" /> Download CSV</>}
+              </button>
             </div>
 
             {earningsHistory.length > 0 ? (

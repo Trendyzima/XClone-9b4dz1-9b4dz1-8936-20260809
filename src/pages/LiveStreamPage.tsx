@@ -243,9 +243,10 @@ export default function LiveStreamPage() {
                     LIVE
                   </div>
                 )}
-                <div className="flex items-center gap-1 px-2.5 py-1 bg-black/50 rounded-full text-xs">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-black/50 rounded-full text-xs font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                   <Users className="w-3.5 h-3.5" />
-                  {formatNumber(viewerCount)}
+                  {formatNumber(viewerCount)} watching
                 </div>
               </div>
             </div>
@@ -308,21 +309,28 @@ export default function LiveStreamPage() {
         {/* Live Chat Panel */}
         {showChat && (
           <div className="w-full md:w-96 bg-background text-foreground flex flex-col border-l border-border"
-            style={{ height: 'min(400px, 45vh)', maxHeight: '100vh' }}
+            style={{ height: 'min(480px, 50vh)', maxHeight: '100vh' }}
           >
             {/* Chat header */}
-            <div className="p-3 border-b border-border flex items-center justify-between flex-shrink-0">
+            <div className="p-3 border-b border-border flex items-center justify-between flex-shrink-0 bg-background/95">
               <div className="flex items-center gap-2">
                 <MessageCircle className="w-5 h-5 text-primary" />
                 <h3 className="font-bold text-sm">Live Chat</h3>
-                <span className="text-xs text-muted-foreground">({messages.length})</span>
+                <span className="text-xs text-muted-foreground">({messages.length} msgs)</span>
               </div>
-              <button
-                onClick={() => setShowChat(false)}
-                className="text-muted-foreground hover:text-foreground text-lg leading-none"
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Compact viewer count */}
+                <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-semibold text-green-600 dark:text-green-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  {formatNumber(viewerCount)}
+                </div>
+                <button
+                  onClick={() => setShowChat(false)}
+                  className="text-muted-foreground hover:text-foreground text-lg leading-none"
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             {/* Messages */}

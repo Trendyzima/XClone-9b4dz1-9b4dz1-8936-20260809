@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import {
   Loader2, Users, TrendingUp, Lock, Globe, Shield,
   Crown, Settings, UserPlus, MessageSquare, Image,
-  BookOpen, Plus, Trash2, X, ChevronDown, ChevronUp
+  BookOpen, Plus, Trash2, X, ChevronDown, ChevronUp,
+  ShieldCheck, ShieldOff, MoreVertical, Pin, PinOff
 } from 'lucide-react';
 import { Post } from '@/types';
 import { formatNumber } from '@/lib/utils';
@@ -60,10 +61,70 @@ export default function CommunityPage() {
   const [rules, setRules] = useState<string[]>([]);
   const [newRuleText, setNewRuleText] = useState('');
   const [savingRules, setSavingRules] = useState(false);
+  // Role management
+  const [promotingMemberId, setPromotingMemberId] = useState<string | null>(null);
+  const [showRoleMenu, setShowRoleMenu] = useState<string | null>(null);
+  // Pinned posts
+  const [pinnedPostIds, setPinnedPostIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (name) fetchCommunity();
   }, [name, user]);
+
+  // Load pinned posts from community settings
+  useEffect(() => {
+    if (!community?.id) return;
+    supabase
+      .from('platform_settings')
+      .select('setting_value')
+      .eq('setting_key', `community_pinned_${community.id}`)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.setting_value?.pinned) {
+          setPinnedPostIds(new Set(data.setting_value.pinned));
+        }
+      });
+  }, [community?.id]);
+
+  const handlePromoteRole = async (memberId: string, userId: string, newRole: 'member' | 'moderator') => {
+    if (!community || !isOwner) return;
+    setPromotingMemberId(memberId);
+    const { error } = await supabase
+      .from('community_members')
+      .update({ role: newRole })
+      .eq('id', memberId)
+      .eq('community_id', community.id);
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m));
+      toast({ title: newRole === 'moderator' ? '🛡 Promoted to Moderator' : 'Role changed to Member' });
+    }
+    setPromotingMemberId(null);
+    setShowRoleMenu(null);
+  };
+
+  const handlePinPost = async (postId: string) => {
+    if (!community || !isAdmin) return;
+    const updated = new Set(pinnedPostIds);
+    if (updated.has(postId)) updated.delete(postId);
+    else updated.add(postId);
+    setPinnedPostIds(updated);
+    await supabase.from('platform_settings').upsert(
+      { setting_key: `community_pinned_${community.id}`, setting_value: { pinned: [...updated] } },
+      { onConflict: 'setting_key' }
+    );
+    toast({ title: updated.has(postId) ? 'Post pinned' : 'Post unpinned' });
+  };
+
+  const handleModDeletePost = async (postId: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm('Delete this post as moderator?')) return;
+    const { error } = await supabase.from('posts').delete().eq('id', postId);
+    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    setPosts(prev => prev.filter(p => p.id !== postId));
+    toast({ title: 'Post deleted by moderator' });
+  };
 
   // Sync rules from community data
   useEffect(() => {
@@ -481,8 +542,55 @@ export default function CommunityPage() {
                 {isMember && <p className="text-sm mt-1">Be the first to post in this community!</p>}
               </div>
             ) : (
-              posts.map(post => (
-                <PostCard key={post.id} post={post} onUpdate={fetchPosts} />
+              [...posts]
+              .sort((a, b) => {
+                const aPinned = pinnedPostIds.has(a.id) ? 1 : 0;
+                const bPinned = pinnedPostIds.has(b.id) ? 1 : 0;
+                return bPinned - aPinned;
+              })
+              .map(post => (
+                <div key={post.id} className="relative">
+                  {/* Pinned indicator */}
+                  {pinnedPostIds.has(post.id) && (
+                    <div className="flex items-center gap-1.5 px-4 pt-2 pb-0 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                      <Pin className="w-3 h-3" /> Pinned
+                    </div>
+                  )}
+                  <PostCard post={post} onUpdate={fetchPosts} />
+                  {/* Mod actions overlay */}
+                  {isAdmin && (
+                    <div className="absolute top-2 right-12 z-10">
+                      <button
+                        onClick={e => { e.stopPropagation(); setShowRoleMenu(p => p === post.id ? null : post.id); }}
+                        className="p-1.5 rounded-full bg-background/80 backdrop-blur-sm border border-border text-muted-foreground hover:text-foreground transition-colors"
+                        title="Moderator actions"
+                      >
+                        <MoreVertical className="w-3.5 h-3.5" />
+                      </button>
+                      {showRoleMenu === post.id && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setShowRoleMenu(null)} />
+                          <div className="absolute right-0 mt-1 w-44 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+                            <button
+                              onClick={e => { e.stopPropagation(); handlePinPost(post.id); setShowRoleMenu(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-muted transition-colors"
+                            >
+                              {pinnedPostIds.has(post.id)
+                                ? <><PinOff className="w-4 h-4 text-amber-500" />Unpin post</>
+                                : <><Pin className="w-4 h-4 text-amber-500" />Pin post</>}
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); handleModDeletePost(post.id); setShowRoleMenu(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-destructive/10 text-destructive transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />Delete (mod)
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
               ))
             )}
           </div>
@@ -496,11 +604,13 @@ export default function CommunityPage() {
           {members.map(member => (
             <div
               key={member.id}
-              className="flex items-center justify-between p-3 bg-card rounded-xl border border-border hover:border-primary/30 transition-colors cursor-pointer"
-              onClick={() => navigate(`/profile/${member.user_profiles?.username}`)}
+              className="flex items-center justify-between p-3 bg-card rounded-xl border border-border hover:border-primary/30 transition-colors"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-muted overflow-hidden">
+              <div
+                className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                onClick={() => navigate(`/profile/${member.user_profiles?.username}`)}
+              >
+                <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
                   {member.user_profiles?.avatar_url ? (
                     <img src={member.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
                   ) : (
@@ -509,16 +619,71 @@ export default function CommunityPage() {
                     </div>
                   )}
                 </div>
-                <div>
-                  <p className="font-semibold text-sm">{member.user_profiles?.username}</p>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-sm truncate">{member.user_profiles?.username}</p>
+                    {member.role === 'owner' && <Crown className="w-3.5 h-3.5 text-yellow-500 shrink-0" />}
+                    {member.role === 'moderator' && <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                  </div>
                   <p className="text-xs text-muted-foreground capitalize">{member.role}</p>
                 </div>
               </div>
-              {member.role === 'owner' && (
-                <Crown className="w-4 h-4 text-yellow-500" />
-              )}
-              {member.role === 'moderator' && (
-                <Shield className="w-4 h-4 text-blue-500" />
+              {/* Owner can promote/demote members */}
+              {isOwner && member.role !== 'owner' && (
+                <div className="relative ml-2 shrink-0">
+                  <button
+                    onClick={() => setShowRoleMenu(p => p === member.id ? null : member.id)}
+                    className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                    title="Manage role"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                  {showRoleMenu === member.id && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowRoleMenu(null)} />
+                      <div className="absolute right-0 mt-1 w-48 bg-background border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                        {member.role === 'member' && (
+                          <button
+                            onClick={() => handlePromoteRole(member.id, member.user_id, 'moderator')}
+                            disabled={promotingMemberId === member.id}
+                            className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-muted transition-colors text-blue-600"
+                          >
+                            {promotingMemberId === member.id
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <ShieldCheck className="w-4 h-4" />
+                            }
+                            Promote to Moderator
+                          </button>
+                        )}
+                        {member.role === 'moderator' && (
+                          <button
+                            onClick={() => handlePromoteRole(member.id, member.user_id, 'member')}
+                            disabled={promotingMemberId === member.id}
+                            className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-muted transition-colors text-orange-600"
+                          >
+                            {promotingMemberId === member.id
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <ShieldOff className="w-4 h-4" />
+                            }
+                            Remove Moderator
+                          </button>
+                        )}
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm(`Remove @${member.user_profiles?.username} from community?`)) return;
+                            await supabase.from('community_members').delete().eq('id', member.id);
+                            setMembers(prev => prev.filter(m => m.id !== member.id));
+                            setShowRoleMenu(null);
+                            toast({ title: 'Member removed' });
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-destructive/10 text-destructive transition-colors border-t border-border"
+                        >
+                          <Trash2 className="w-4 h-4" />Remove from community
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           ))}
