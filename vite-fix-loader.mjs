@@ -8,16 +8,20 @@
  *
  * The hook fires on every dynamic/static import of an ESM file, giving us a window
  * to patch the source text in-memory right before V8 sees it.
+ *
+ * v2: Uses a blanket regex so it catches the patcher's corruption in BOTH
+ *   • function call positions:   replaceDefine(code??"", id, ...)
+ *   • function def positions:    async function replaceDefine(code??"", id, ...)
+ *   • and any other `word??""` / `word??''` patterns the patcher may produce.
  */
-
-const CORRUPTION_MARKER = 'replaceDefine(code??';
 
 export async function load(url, context, nextLoad) {
   // Fetch the raw module source from the next handler (reads disk or uses cache)
   const result = await nextLoad(url, context);
 
-  // Only target Vite's internal dep- chunk files
-  if (!url.includes('/vite/dist/node/chunks/dep-')) {
+  // Only target Vite's internal dep- chunk files — they must NOT legitimately
+  // contain `??` with string literals, so blanket-replacing is safe.
+  if (!url.includes('/vite/dist/node/')) {
     return result;
   }
 
@@ -33,32 +37,29 @@ export async function load(url, context, nextLoad) {
     }
   }
 
-  // Fast exit if the corruption isn't present
-  if (!source.includes(CORRUPTION_MARKER)) return result;
+  // Fast exit if no `??` corruption present
+  if (!source.includes('??')) return result;
 
-  // ── Fix all known corruption variants ────────────────────────────────────
   let fixed = source;
 
-  // Variant 1: double-quote, space after comma  → replaceDefine(code??"", id
-  fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
-  // Variant 2: double-quote, no space           → replaceDefine(code??"",id
-  fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
-  // Variant 3: single-quote, space              → replaceDefine(code??'', id
-  fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
-  // Variant 4: single-quote, no space           → replaceDefine(code??'',id
-  fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
+  // ── Blanket fix: \w+??["']...["'] → \w+ ────────────────────────────────
+  // Catches the patcher corruption wherever it appears (parameter, call, body).
+  // Vite's pre-compiled chunks don't use `??` with string literals legitimately.
+  fixed = fixed.replace(/\b(\w+)\s*\?\?\s*["'][^"']*["']/g, '$1');
 
-  // Regex fallback for any other quoting / whitespace variant
-  if (fixed.includes(CORRUPTION_MARKER)) {
-    fixed = fixed.replace(
-      /replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g,
-      'replaceDefine(code, '
-    );
+  // ── Belt-and-suspenders: explicit split/join for known variants ──────────
+  if (fixed.includes('replaceDefine(code??')) {
+    fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
+    fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
+    fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
+    fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
+    // Regex fallback for any other quoting / whitespace variant
+    fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
   }
 
   if (fixed !== source) {
     process.stderr.write(
-      '[vite-fix-loader] \u2705 patched replaceDefine in ' +
+      '[vite-fix-loader] \u2705 patched ?? corruption in ' +
       url.split('/').pop() + '\n'
     );
   }

@@ -24,6 +24,9 @@ try {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Strategy B — Disk-based fix (backup; covers the window before hook fires)
+// v2: Scans ALL .js files in the chunks dir (not just dep-*) and uses a blanket
+//     regex to catch any identifier??["'..."] the OnSpace patcher may inject —
+//     including when it appears in function DEFINITIONS, not just call sites.
 // ═══════════════════════════════════════════════════════════════════════════════
 function patchViteChunks() {
   const chunksDir = path.join(
@@ -37,9 +40,8 @@ function patchViteChunks() {
 
   let files;
   try {
-    files = fs.readdirSync(chunksDir).filter(
-      f => f.startsWith('dep-') && f.endsWith('.js')
-    );
+    // Scan ALL .js files (patcher can target any chunk, not only dep- prefixed ones)
+    files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js'));
   } catch (e) {
     process.stderr.write('[vite-patch] readdir error: ' + e.message + '\n');
     return;
@@ -56,14 +58,22 @@ function patchViteChunks() {
       continue;
     }
 
-    if (!src.includes('replaceDefine(code??')) continue;
+    // Fast exit — no ?? corruption present
+    if (!src.includes('??')) continue;
 
     let fixed = src;
-    fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
-    fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
-    fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
-    fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
+
+    // ── Blanket fix: identifier??["'..."] → identifier ──────────────────────
+    // Catches corruption in function DEFINITIONS and call sites alike.
+    // Vite's pre-compiled chunks don't legitimately use ?? with string literals.
+    fixed = fixed.replace(/\b(\w+)\s*\?\?\s*["'][^"']*["']/g, '$1');
+
+    // ── Belt-and-suspenders: explicit variants for the known replaceDefine bug ─
     if (fixed.includes('replaceDefine(code??')) {
+      fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
+      fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
+      fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
+      fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
       fixed = fixed.replace(
         /replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g,
         'replaceDefine(code, '
@@ -72,9 +82,7 @@ function patchViteChunks() {
 
     if (fixed === src) continue;
 
-    try { fs.chmodSync(fpath, 0o644); } catch (e) {
-      process.stderr.write('[vite-patch] chmod error for ' + fname + ': ' + e.message + '\n');
-    }
+    try { fs.chmodSync(fpath, 0o644); } catch (_) {}
 
     try {
       fs.writeFileSync(fpath, fixed, 'utf8');
@@ -85,12 +93,14 @@ function patchViteChunks() {
   }
 }
 
+// Run once before requiring Vite (so if the patcher already ran, we fix it)
 patchViteChunks();
 
 // ─────────────────────────────────────────────────────────────────────────────
 const { defineConfig } = require('vite');
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Run again immediately after Vite is loaded (belt-and-suspenders)
 patchViteChunks();
 
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
@@ -132,6 +142,18 @@ module.exports = defineConfig({
     },
     rollupOptions: {
       plugins: [
+        // ── Strategy C: buildStart re-patch ──────────────────────────────────
+        // The OnSpace patcher may run AFTER vite.config.cjs is first evaluated
+        // (e.g. between config-load and the actual transform phase).
+        // Re-running the disk fix in buildStart catches that late corruption.
+        {
+          name: 'vite-chunk-repatch',
+          buildStart() {
+            patchViteChunks();
+          },
+        },
+
+        // ── Strategy D: Rollup ESM/CJS interop fix ───────────────────────────
         // Rollup's static linker fails before interop runs when .mjs files in
         // node_modules import from CJS React packages (react, react/jsx-runtime…).
         //
@@ -150,8 +172,6 @@ module.exports = defineConfig({
             //   • Any source TS/JS file — after Vite's esbuild pre-transform
             //     adds `import { jsx } from 'react/jsx-runtime'` for JSX files
             const inNodeModules = id.includes('node_modules');
-            // ESM packages: .mjs anywhere, OR .js files inside an /esm/ subdirectory
-            // (e.g. lucide-react/dist/esm/*.js, @radix-ui/.mjs, etc.)
             const isNodeMjs    = inNodeModules && id.endsWith('.mjs');
             const isNodeEsmJs  = inNodeModules && id.endsWith('.js') &&
                                   (/\/esm\//.test(id) || /\/dist\/esm/.test(id) || /\/es\//.test(id));
@@ -162,7 +182,7 @@ module.exports = defineConfig({
             let changed   = false;
             let counter   = 0;
 
-            // ── Fix 1: default import from 'react' ──────────────────────────
+            // Fix 1: default import from 'react'
             const defaultRe = /import ([A-Za-z_$][A-Za-z0-9_$]*) from ['"]react['"]\s*;?/g;
             if (defaultRe.test(modified)) {
               defaultRe.lastIndex = 0;
@@ -173,7 +193,7 @@ module.exports = defineConfig({
               changed = true;
             }
 
-            // ── Fix 2: named imports from CJS React sub-packages ─────────────
+            // Fix 2: named imports from CJS React sub-packages
             const CJS_PKGS = [
               'react/jsx-runtime',
               'react/jsx-dev-runtime',
@@ -181,20 +201,16 @@ module.exports = defineConfig({
             ];
 
             for (const pkg of CJS_PKGS) {
-              // Build regex: import { ... } from 'pkg'
               const escapedPkg = pkg.replace(/\//g, '\\/');
               const namedRe = new RegExp(
                 'import\\s+\\{([^}]+)\\}\\s+from\\s+[\'"]+' + escapedPkg + '[\'"]+\\s*;?',
                 'g'
               );
-              // Use a one-shot (non-global) copy for the guard test
               if (!new RegExp(namedRe.source).test(modified)) continue;
               namedRe.lastIndex = 0;
 
               modified = modified.replace(namedRe, function(_, specifiers) {
                 var varName = '_ci' + (counter++);
-                // 'Fragment as Fragment2' → 'Fragment: Fragment2'
-                // 'jsx'                  → 'jsx'
                 var destructured = specifiers.split(',').map(function(s) {
                   var t = s.trim();
                   var parts = t.split(/\s+as\s+/);
