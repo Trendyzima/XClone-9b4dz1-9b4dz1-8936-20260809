@@ -548,8 +548,6 @@ export default function FediversePage() {
     { id: 'identity',  label: 'Identity',   icon: Globe },
   ];
 
-  const unprocessedCount = inboxItems.filter(i => !i.processed).length;
-
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Fediverse · testagram.site" showBack />

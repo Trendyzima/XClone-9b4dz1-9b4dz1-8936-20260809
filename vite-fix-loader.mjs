@@ -1,28 +1,30 @@
 /**
- * vite-fix-loader.mjs  v3
+ * vite-fix-loader.mjs  v4
  *
  * Node.js ESM load hook — registered via module.register() in vite.config.cjs.
  *
- * KEY CHANGE over v2:
- *   We no longer call nextLoad() for Vite's own chunk files.  Instead we read
- *   the file directly with readFileSync() and return the fixed source with
- *   shortCircuit:true.  This eliminates the race window between hook
- *   registration and the first ESM compilation of dep-*.js:
+ * KEY CHANGE over v3:
+ *   Extended CORRUPT_RE to also handle  identifier(args)??"string"  patterns.
+ *   The OnSpace patcher now inserts ??"" after function-call *results* too,
+ *   e.g.  toJSON()??"" {  which makes the subsequent { unexpected.
  *
- *   v2 problem:  nextLoad() → default loader → reads disk → returns raw bytes
- *                → hook patches → ok … but module.register() is async so the
- *                hook thread may not be ready yet when the first import fires.
+ *   Old pattern only matched:  identifier??"string"
+ *   New pattern also matches:  identifier()??"string"
+ *                              identifier(arg1,arg2)??"string"
  *
- *   v3 solution: we never touch nextLoad for vite chunks, so Node.js compiles
- *                exactly what WE return — always the cleaned source.
+ *   We intentionally removed \s* around ?? so we only strip patcher-injected
+ *   tight ?? (no spaces) and leave legitimate  value ?? "default"  untouched.
  */
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-// Blanket regex: \w+??["'..."] → \w+
-// Catches corruption in function definitions AND call sites.
-const CORRUPT_RE = /\b(\w+)\s*\?\?\s*["'][^"']*["']/g;
+// Matches patcher-injected ?? corruption (tight — no spaces around ??):
+//   identifier??"string"           →  identifier
+//   identifier()??"string"         →  identifier()
+//   identifier(a, b)??"string"     →  identifier(a, b)
+// The (?:\([^)]*\))* part handles zero-or-more simple (non-nested) arg lists.
+const CORRUPT_RE = /\b(\w+(?:\([^)]*\))*)\?\?["'][^"']*["']/g;
 
 export async function load(url, context, nextLoad) {
 
