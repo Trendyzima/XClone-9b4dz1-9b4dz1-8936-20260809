@@ -63,6 +63,11 @@ export default function ProfilePage() {
   // Tip history
   const [tipHistory, setTipHistory] = useState<any[]>([]);
   const [loadingTips, setLoadingTips] = useState(false);
+  // Tip goal
+  const [tipGoal, setTipGoal] = useState<number | null>(null);
+  const [currentMonthTips, setCurrentMonthTips] = useState(0);
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
 
   const openHighlightViewer = async (h: any) => {
     if (!h.story_ids || h.story_ids.length === 0) { toast.error('No stories in this highlight'); return; }
@@ -83,6 +88,45 @@ export default function ProfilePage() {
     setHighlightStories([]);
     setHighlightStoryIdx(0);
     setHighlightProgress(0);
+  };
+
+  const fetchTipGoal = async (userId: string) => {
+    const { data: mon } = await supabase
+      .from('user_monetization')
+      .select('total_earnings')
+      .eq('user_id', userId)
+      .maybeSingle();
+    // We repurpose a platform_settings entry keyed by user_id for the monthly goal
+    const { data: setting } = await supabase
+      .from('platform_settings')
+      .select('setting_value')
+      .eq('setting_key', `tip_goal_${userId}`)
+      .maybeSingle();
+    setTipGoal(setting?.setting_value?.goal ?? null);
+    // Sum this month's received tips
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    const { data: monthTips } = await supabase
+      .from('tips')
+      .select('amount')
+      .eq('to_user_id', userId)
+      .gte('created_at', startOfMonth.toISOString());
+    const total = (monthTips ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0);
+    setCurrentMonthTips(total);
+  };
+
+  const handleSaveTipGoal = async () => {
+    if (!currentUser || !profile) return;
+    const goal = Number(goalInput);
+    if (!goal || goal <= 0) return;
+    await supabase.from('platform_settings').upsert(
+      { setting_key: `tip_goal_${profile.id}`, setting_value: { goal } },
+      { onConflict: 'setting_key' }
+    );
+    setTipGoal(goal);
+    setEditingGoal(false);
+    toast.success('Tip goal saved!');
   };
 
   const fetchTipHistory = async (userId: string) => {
@@ -313,6 +357,7 @@ export default function ProfilePage() {
         fetchProfileStats(profileData.id),
         fetchHighlights(profileData.id),
         fetchTipHistory(profileData.id),
+        fetchTipGoal(profileData.id),
       ]);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -638,6 +683,73 @@ export default function ProfilePage() {
           </div>
 
           {profile.bio && <p className="mb-3 break-words">{profile.bio}</p>}
+          {/* ── Tip Goal Badge ──────────────────────────────────────────────── */}
+          {(tipGoal !== null || isOwnProfile) && (
+            <div className="mb-3">
+              {!editingGoal ? (
+                <div className="flex items-center gap-3 p-3 rounded-2xl border border-yellow-500/20 bg-yellow-500/5">
+                  <div className="relative w-12 h-12 shrink-0">
+                    {/* SVG ring progress */}
+                    <svg className="w-12 h-12 -rotate-90" viewBox="0 0 44 44">
+                      <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/30" />
+                      <circle
+                        cx="22" cy="22" r="18" fill="none"
+                        stroke="currentColor" strokeWidth="3"
+                        className="text-yellow-500 transition-all duration-700"
+                        strokeDasharray={`${2 * Math.PI * 18}`}
+                        strokeDashoffset={`${2 * Math.PI * 18 * (1 - Math.min(tipGoal ? currentMonthTips / tipGoal : 0, 1))}`}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-yellow-600">
+                      {tipGoal ? Math.round(Math.min((currentMonthTips / tipGoal) * 100, 100)) : 0}%
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-yellow-700 dark:text-yellow-400">Monthly Tip Goal</p>
+                    <p className="text-sm font-bold text-foreground">
+                      ${currentMonthTips.toFixed(2)}
+                      {tipGoal !== null && <span className="text-muted-foreground font-normal"> / ${tipGoal.toFixed(2)}</span>}
+                    </p>
+                    {tipGoal && (
+                      <div className="w-full bg-muted rounded-full h-1 mt-1 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-yellow-400 to-amber-500 rounded-full transition-all duration-700"
+                          style={{ width: `${Math.min((currentMonthTips / tipGoal) * 100, 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  {isOwnProfile && (
+                    <button
+                      onClick={() => { setGoalInput(String(tipGoal ?? '')); setEditingGoal(true); }}
+                      className="text-xs text-yellow-600 hover:text-yellow-700 font-semibold px-2 py-1 rounded-lg hover:bg-yellow-500/10 transition-colors shrink-0"
+                    >
+                      {tipGoal ? 'Edit' : 'Set Goal'}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-3 rounded-2xl border border-yellow-500/30 bg-yellow-500/5">
+                  <span className="text-yellow-600 font-bold text-sm">$</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={goalInput}
+                    onChange={e => setGoalInput(e.target.value)}
+                    placeholder="Monthly goal amount"
+                    autoFocus
+                    className="flex-1 bg-transparent text-sm focus:outline-none text-foreground placeholder:text-muted-foreground"
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveTipGoal(); if (e.key === 'Escape') setEditingGoal(false); }}
+                  />
+                  <button onClick={handleSaveTipGoal} className="text-xs bg-yellow-500 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-yellow-600 transition-colors">Save</button>
+                  <button onClick={() => setEditingGoal(false)} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5">Cancel</button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Story Highlights strip ─────────────────────────────────────── */}
           {(highlights.length > 0 || isOwnProfile) && (
             <div className="flex items-start gap-4 py-3 overflow-x-auto scrollbar-hide">

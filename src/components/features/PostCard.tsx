@@ -1,8 +1,8 @@
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3 } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -43,6 +43,41 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   const [showOneClickBoost, setShowOneClickBoost] = useState(false);
   const [showRewardedBoost, setShowRewardedBoost] = useState(false);
   const [shareCount, setShareCount] = useState(0);
+  // Engagement tooltip
+  const [showEngagement, setShowEngagement] = useState(false);
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  const fetchAnalytics = useCallback(async () => {
+    if (analytics) return; // already loaded
+    setLoadingAnalytics(true);
+    const { data } = await supabase
+      .from('post_analytics')
+      .select('views, unique_viewers, engagement_rate, shares')
+      .eq('post_id', post.id)
+      .maybeSingle();
+    setAnalytics(data ?? { views: post.views_count ?? 0, unique_viewers: 0, engagement_rate: 0, shares: 0 });
+    setLoadingAnalytics(false);
+  }, [post.id, analytics, post.views_count]);
+
+  const openTooltip = useCallback(() => {
+    setShowEngagement(true);
+    fetchAnalytics();
+  }, [fetchAnalytics]);
+
+  const closeTooltip = useCallback(() => {
+    setShowEngagement(false);
+  }, []);
+
+  // Long-press for mobile
+  const handleViewsMouseDown = () => {
+    tooltipTimer.current = setTimeout(openTooltip, 500);
+  };
+  const handleViewsMouseUp = () => {
+    if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
+  };
 
   // Get media URLs (support both legacy single image and new multi-image)
   const mediaUrls = post.media_urls && post.media_urls.length > 0 
@@ -514,10 +549,61 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
           {poll && <PollCard poll={poll} postId={post.id} />}
 
-          {/* Views count — visible to all users */}
-          <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-            <Eye className="w-3.5 h-3.5" />
-            <span>{formatNumber(post.views_count || 0)} views</span>
+          {/* Views count with Engagement Tooltip */}
+          <div className="relative inline-block mt-2">
+            <button
+              onMouseEnter={openTooltip}
+              onMouseLeave={closeTooltip}
+              onMouseDown={handleViewsMouseDown}
+              onMouseUp={handleViewsMouseUp}
+              onTouchStart={handleViewsMouseDown}
+              onTouchEnd={handleViewsMouseUp}
+              onClick={e => e.stopPropagation()}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer select-none"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>{formatNumber(post.views_count || 0)} views</span>
+              <BarChart3 className="w-3 h-3 opacity-40" />
+            </button>
+
+            {/* Tooltip popover */}
+            {showEngagement && (
+              <div
+                ref={tooltipRef}
+                className="absolute bottom-full left-0 mb-2 z-50 w-56 bg-background/95 backdrop-blur-md border border-border rounded-2xl shadow-xl p-3 pointer-events-none"
+                onClick={e => e.stopPropagation()}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1">
+                  <BarChart3 className="w-3 h-3" /> Post Analytics
+                </p>
+                {loadingAnalytics ? (
+                  <div className="flex items-center justify-center py-3">
+                    <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : analytics ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-blue-500/8 rounded-xl p-2 text-center">
+                      <p className="text-sm font-bold text-blue-600">{formatNumber(analytics.views ?? post.views_count ?? 0)}</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5 flex items-center justify-center gap-0.5"><Eye className="w-2.5 h-2.5" />Views</p>
+                    </div>
+                    <div className="bg-purple-500/8 rounded-xl p-2 text-center">
+                      <p className="text-sm font-bold text-purple-600">{formatNumber(analytics.unique_viewers ?? 0)}</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5 flex items-center justify-center gap-0.5"><Users className="w-2.5 h-2.5" />Unique</p>
+                    </div>
+                    <div className="bg-green-500/8 rounded-xl p-2 text-center">
+                      <p className="text-sm font-bold text-green-600">{Number(analytics.engagement_rate ?? 0).toFixed(1)}%</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5 flex items-center justify-center gap-0.5"><TrendingUp className="w-2.5 h-2.5" />Engagement</p>
+                    </div>
+                    <div className="bg-orange-500/8 rounded-xl p-2 text-center">
+                      <p className="text-sm font-bold text-orange-600">{formatNumber((analytics.shares ?? 0) + shareCount)}</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5 flex items-center justify-center gap-0.5"><Share className="w-2.5 h-2.5" />Shares</p>
+                    </div>
+                  </div>
+                ) : null}
+                {/* Arrow */}
+                <div className="absolute -bottom-1.5 left-4 w-3 h-3 bg-background border-r border-b border-border rotate-45" />
+              </div>
+            )}
           </div>
 
           <div className="flex justify-between mt-3 max-w-md">
