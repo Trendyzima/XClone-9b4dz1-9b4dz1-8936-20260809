@@ -226,7 +226,7 @@ function fixSource(src) {
       return;
     }
 
-    // vite-fix-loader.mjs is now committed to the repo and NOT in .vercelignore.
+    // vite-fix-loader.mjs is committed to the repo and NOT in .vercelignore.
     // Register it directly — no need to generate a temp file at runtime.
     const loaderPath = path.join(__dirname, 'vite-fix-loader.mjs');
     if (!fs.existsSync(loaderPath)) {
@@ -234,11 +234,32 @@ function fixSource(src) {
       return;
     }
 
+    // ── SYNCHRONOUS registration via SharedArrayBuffer ──────────────────────
+    // Module.register() is inherently async — the hook worker may not be ready
+    // before the next ESM import fires (e.g. Vite's dynamic chunk imports).
+    // We pass a SAB as data, the initialize() export signals back via
+    // Atomics.notify, and we Atomics.wait here on the main thread.
+    // In Node.js (unlike browsers), Atomics.wait IS allowed on the main thread.
+    const sab = new SharedArrayBuffer(4);
+    const signal = new Int32Array(sab);
+    Atomics.store(signal, 0, 0);
+
     nodeModule.register(
       pathToFileURL(loaderPath).href,
-      pathToFileURL(__filename).href
+      pathToFileURL(__filename).href,
+      { data: { sab } }
     );
-    process.stderr.write('[vite-patch] ✅ ESM hook registered (vite-fix-loader.mjs)\n');
+
+    // Block until the hook worker signals ready (max 5 s)
+    const waitResult = Atomics.wait(signal, 0, 0, 5000);
+    // 'ok'        → woken by Atomics.notify  (hook ready)
+    // 'not-equal' → value was already ≠ 0    (hook initialized instantly)
+    // 'timed-out' → warning, continue anyway
+    if (waitResult !== 'timed-out') {
+      process.stderr.write('[vite-patch] ✅ ESM hook ready (SAB sync, result=' + waitResult + ')\n');
+    } else {
+      process.stderr.write('[vite-patch] ⚠️  ESM hook SAB timed out — hook may not be active\n');
+    }
   } catch (e) {
     process.stderr.write('[vite-patch] ❌ ESM hook registration failed: ' + e.message + '\n');
   }
