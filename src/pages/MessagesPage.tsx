@@ -3,7 +3,8 @@ import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare, X } from 'lucide-react';
+import { Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare, X, Image as ImageIcon } from 'lucide-react';
+import { GifPicker } from '@/components/features/GifPicker';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,8 @@ export default function MessagesPage() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   // Conversation list filter
   const [convFilter, setConvFilter] = useState('');
+  // GIF picker
+  const [showGifPicker, setShowGifPicker] = useState(false);
   // In-thread message search
   const [showMsgSearch, setShowMsgSearch] = useState(false);
   const [msgSearchQuery, setMsgSearchQuery] = useState('');
@@ -223,6 +226,23 @@ export default function MessagesPage() {
     }
   };
 
+  const handleGifSelect = async (gifUrl: string) => {
+    setShowGifPicker(false);
+    if (!selectedConversation) return;
+    setSending(true);
+    try {
+      await supabase.from('direct_messages').insert({
+        conversation_id: selectedConversation.id,
+        sender_id: user!.id,
+        content: gifUrl,
+      });
+      await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', selectedConversation.id);
+      fetchConversations();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to send GIF');
+    } finally { setSending(false); }
+  };
+
   if (!user) return null;
   if (loading) {
     return (
@@ -233,8 +253,10 @@ export default function MessagesPage() {
   }
 
   return (
-    // Use full viewport height and prevent the page from scrolling — only inner panels scroll
     <div className="flex flex-col bg-background" style={{ height: '100dvh' }}>
+      {showGifPicker && (
+        <GifPicker onSelect={handleGifSelect} onClose={() => setShowGifPicker(false)} />
+      )}
       {/* Only show TopBar in conversation list view on mobile */}
       {!selectedConversation && <TopBar title="Messages" />}
 
@@ -461,17 +483,24 @@ export default function MessagesPage() {
                     <p className="text-sm">Start a conversation with {selectedConversation.otherUser?.username}</p>
                   </div>
                 )}
-                {messages.map((message) => (
+                {messages.map((message) => {
+                  const isGif = message.content?.startsWith('https://media.tenor.com') || message.content?.endsWith('.gif');
+                  return (
                   <div
                     key={message.id}
                     className={`flex ${message.sender_id === user.id ? 'justify-end' : 'justify-start'}`}
                   >
-                    <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl ${
+                    <div className={`max-w-[75%] rounded-2xl overflow-hidden ${
+                      isGif ? 'bg-transparent' :
                       message.sender_id === user.id
-                        ? 'bg-primary text-primary-foreground rounded-br-sm'
-                        : 'bg-muted rounded-bl-sm'
+                        ? 'px-4 py-2.5 bg-primary text-primary-foreground rounded-br-sm'
+                        : 'px-4 py-2.5 bg-muted rounded-bl-sm'
                     }`}>
+                      {isGif ? (
+                        <img src={message.content} alt="GIF" className="rounded-2xl max-w-full max-h-56 object-contain" loading="lazy" />
+                      ) : (
                       <p className="break-words text-sm leading-relaxed">{message.content}</p>
+                      )}
                       <div className={`flex items-center justify-end gap-1 mt-1 ${message.sender_id === user.id ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
                         <span className="text-xs">
                           {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
@@ -482,7 +511,8 @@ export default function MessagesPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 <div ref={messagesEndRef} />
               </div>
 
@@ -502,6 +532,13 @@ export default function MessagesPage() {
                     }}
                     className="flex-1 bg-transparent outline-none text-sm py-2 min-w-0"
                   />
+                  <button
+                    onClick={() => setShowGifPicker(true)}
+                    className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/70 transition-colors"
+                    title="Send GIF"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                  </button>
                   <button
                     onClick={sendMessage}
                     disabled={!messageText.trim() || sending}

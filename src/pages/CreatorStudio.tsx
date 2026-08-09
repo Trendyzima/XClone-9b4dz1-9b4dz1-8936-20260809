@@ -36,6 +36,12 @@ export default function CreatorStudio() {
   const [videoPostsCount, setVideoPostsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'videos' | 'earnings'>('overview');
+  // Enhanced video tab state
+  const [allVideoPosts, setAllVideoPosts] = useState<any[]>([]);
+  const [loadingAllVideos, setLoadingAllVideos] = useState(false);
+  const [togglingMonetize, setTogglingMonetize] = useState<string | null>(null);
+  const [editingPrice, setEditingPrice] = useState<string | null>(null);
+  const [priceInput, setPriceInput] = useState('');
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -46,6 +52,47 @@ export default function CreatorStudio() {
     fetchWeeklyEarnings();
     fetchMilestoneData();
   }, [user]);
+
+  // Fetch all video posts with analytics when switching to video tab
+  useEffect(() => {
+    if (activeStudioTab === 'videos' && allVideoPosts.length === 0) fetchAllVideoPosts();
+  }, [activeStudioTab]);
+
+  const fetchAllVideoPosts = async () => {
+    if (!user) return;
+    setLoadingAllVideos(true);
+    const { data } = await supabase
+      .from('posts')
+      .select('*, post_analytics(views, unique_viewers, engagement_rate, shares)')
+      .eq('user_id', user.id)
+      .eq('is_video', true)
+      .order('created_at', { ascending: false });
+    setAllVideoPosts(data ?? []);
+    setLoadingAllVideos(false);
+  };
+
+  const handleToggleMonetize = async (postId: string, currentValue: boolean) => {
+    setTogglingMonetize(postId);
+    const { error } = await supabase.from('posts').update({ is_monetized: !currentValue }).eq('id', postId).eq('user_id', user!.id);
+    if (error) { toast.error(error.message); }
+    else {
+      setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, is_monetized: !currentValue } : p));
+      toast.success(!currentValue ? 'Monetization enabled' : 'Monetization disabled');
+    }
+    setTogglingMonetize(null);
+  };
+
+  const handleSavePrice = async (postId: string) => {
+    const price = parseFloat(priceInput);
+    if (isNaN(price) || price < 0) { toast.error('Enter a valid price'); return; }
+    const { error } = await supabase.from('posts').update({ price }).eq('id', postId).eq('user_id', user!.id);
+    if (error) { toast.error(error.message); }
+    else {
+      setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, price } : p));
+      setEditingPrice(null);
+      toast.success('Price updated');
+    }
+  };
 
   const fetchMilestoneData = async () => {
     if (!user) return;
@@ -433,68 +480,140 @@ export default function CreatorStudio() {
           </>
         )}
 
-        {/* ── VIDEO REVENUE TAB ── */}
+        {/* ── ENHANCED VIDEO TAB ── */}
         {activeStudioTab === 'videos' && (
           <div className="space-y-4">
+            {/* Summary cards */}
             <div className="bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/20 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Play className="w-5 h-5 text-red-500" />
-                <h2 className="font-bold text-lg">Video Revenue Dashboard</h2>
+                <h2 className="font-bold text-lg">Video Posts</h2>
               </div>
-              <p className="text-sm text-muted-foreground">Pre-roll ads on your videos generate 30% revenue for you</p>
-              <div className="grid grid-cols-2 gap-3 mt-3">
+              <p className="text-sm text-muted-foreground mb-3">Manage monetization and pricing for your video content</p>
+              <div className="grid grid-cols-3 gap-3">
                 <div className="bg-background/60 rounded-lg p-3 text-center">
-                  <p className="text-xl font-bold text-red-500">{formatNumber(stats.video_views)}</p>
-                  <p className="text-xs text-muted-foreground">Video Views</p>
+                  <p className="text-xl font-bold text-red-500">{allVideoPosts.length}</p>
+                  <p className="text-xs text-muted-foreground">Total Videos</p>
                 </div>
                 <div className="bg-background/60 rounded-lg p-3 text-center">
-                  <p className="text-xl font-bold text-green-600">${videoEarnings.reduce((s, v) => s + v.earned, 0).toFixed(4)}</p>
-                  <p className="text-xs text-muted-foreground">Video Earnings</p>
+                  <p className="text-xl font-bold text-purple-500">{allVideoPosts.filter(v => v.is_monetized).length}</p>
+                  <p className="text-xs text-muted-foreground">Monetized</p>
+                </div>
+                <div className="bg-background/60 rounded-lg p-3 text-center">
+                  <p className="text-xl font-bold text-green-600">{formatNumber(stats.video_views)}</p>
+                  <p className="text-xs text-muted-foreground">Total Views</p>
                 </div>
               </div>
             </div>
 
-            {videoEarnings.length > 0 ? (
-              <>
-                <div className="bg-card border border-border rounded-2xl p-4">
-                  <h3 className="font-bold mb-3 flex items-center gap-2"><DollarSign className="w-4 h-4 text-green-500" />Revenue by Video</h3>
-                  <div className="space-y-3">
-                    {videoEarnings.map((v, i) => (
-                      <div key={v.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-xl">
-                        <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center font-bold text-sm text-red-600 shrink-0">{i + 1}</div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium line-clamp-1">{v.content || 'Video post'}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1"><Eye className="w-3 h-3" />{formatNumber(v.views_count || 0)} views</p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="font-bold text-green-600 text-sm">${v.earned.toFixed(5)}</p>
-                          <p className="text-xs text-muted-foreground">your 30%</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {videoEarnings.filter(v => v.earned > 0).length > 0 && (
-                  <div className="bg-card border border-border rounded-2xl p-4">
-                    <h3 className="font-bold mb-3">Top Earning Videos</h3>
-                    <ResponsiveContainer width="100%" height={180}>
-                      <BarChart data={videoEarnings.slice(0, 5).map(v => ({ name: (v.content?.slice(0, 15) || 'Video') + '…', earned: v.earned }))} margin={{ top: 4, right: 4, left: -20, bottom: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                        <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" />
-                        <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${Number(v).toFixed(4)}`} />
-                        <Tooltip formatter={(v: any) => [`$${Number(v).toFixed(5)}`, 'Earned']} />
-                        <Bar dataKey="earned" fill="#10b981" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </>
-            ) : (
+            {/* Video list */}
+            {loadingAllVideos ? (
+              <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+            ) : allVideoPosts.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground">
                 <Video className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p className="font-medium">No video posts yet</p>
                 <p className="text-sm mt-1">Upload videos to start earning from pre-roll ads</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {allVideoPosts.map((post) => {
+                  const analytics = Array.isArray(post.post_analytics) ? post.post_analytics[0] : post.post_analytics;
+                  return (
+                    <div key={post.id} className="bg-card border border-border rounded-2xl overflow-hidden">
+                      {/* Video thumbnail row */}
+                      <div className="flex gap-3 p-3">
+                        <div
+                          className="w-20 h-14 rounded-xl bg-black overflow-hidden shrink-0 cursor-pointer"
+                          onClick={() => navigate(`/post/${post.id}`)}
+                        >
+                          <video src={post.video_url} className="w-full h-full object-cover" muted playsInline />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium line-clamp-2 leading-snug">{post.content || 'Video post'}</p>
+                          <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
+                            <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{formatNumber(analytics?.views ?? post.views_count ?? 0)}</span>
+                            <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{formatNumber(post.likes_count ?? 0)}</span>
+                            <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3" />{Number(analytics?.engagement_rate ?? 0).toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Monetize controls */}
+                      <div className="border-t border-border px-3 py-2.5 bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
+                        {/* Toggle */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleToggleMonetize(post.id, !!post.is_monetized)}
+                            disabled={togglingMonetize === post.id}
+                            className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
+                              post.is_monetized ? 'bg-green-500' : 'bg-muted'
+                            }`}
+                          >
+                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                              post.is_monetized ? 'translate-x-5' : 'translate-x-0.5'
+                            }`} />
+                            {togglingMonetize === post.id && <Loader2 className="absolute inset-0 m-auto w-3 h-3 animate-spin text-white" />}
+                          </button>
+                          <span className={`text-xs font-semibold ${
+                            post.is_monetized ? 'text-green-600' : 'text-muted-foreground'
+                          }`}>{post.is_monetized ? 'Monetized' : 'Not monetized'}</span>
+                        </div>
+
+                        {/* Price (only when monetized) */}
+                        {post.is_monetized && (
+                          editingPrice === post.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground font-bold">$</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={priceInput}
+                                onChange={e => setPriceInput(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleSavePrice(post.id); if (e.key === 'Escape') setEditingPrice(null); }}
+                                className="w-20 px-2 py-1 text-xs rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                                autoFocus
+                                placeholder="0.00"
+                              />
+                              <button onClick={() => handleSavePrice(post.id)} className="px-2 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90">Save</button>
+                              <button onClick={() => setEditingPrice(null)} className="px-2 py-1 bg-muted rounded-lg text-xs">Cancel</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setEditingPrice(post.id); setPriceInput(post.price ? String(post.price) : ''); }}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
+                            >
+                              <DollarSign className="w-3 h-3 text-green-600" />
+                              {post.price > 0 ? `$${Number(post.price).toFixed(2)}` : 'Set price'}
+                            </button>
+                          )
+                        )}
+
+                        {/* Analytics link */}
+                        <button onClick={() => navigate(`/post-analytics/${post.id}`)} className="flex items-center gap-1 text-xs text-primary hover:underline font-medium">
+                          <BarChart3 className="w-3 h-3" /> Analytics
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Revenue summary (legacy chart) */}
+            {videoEarnings.filter(v => v.earned > 0).length > 0 && (
+              <div className="bg-card border border-border rounded-2xl p-4">
+                <h3 className="font-bold mb-3 flex items-center gap-2"><DollarSign className="w-4 h-4 text-green-500" />Video Ad Revenue</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={videoEarnings.slice(0, 5).map(v => ({ name: (v.content?.slice(0, 12) || 'Video') + '…', earned: v.earned }))} margin={{ top: 4, right: 4, left: -20, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${Number(v).toFixed(3)}`} />
+                    <Tooltip formatter={(v: any) => [`$${Number(v).toFixed(5)}`, 'Earned']} />
+                    <Bar dataKey="earned" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             )}
           </div>

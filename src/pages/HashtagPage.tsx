@@ -19,6 +19,8 @@ export default function HashtagPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [hashtag, setHashtag] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [sortMode, setSortMode] = useState<'recent' | 'top'>('recent');
+  const [topPosts, setTopPosts] = useState<Post[]>([]);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [followerCount, setFollowerCount] = useState(0);
@@ -44,6 +46,24 @@ export default function HashtagPage() {
     };
   }, [tag, user]);
 
+  const fetchTopPosts = async (hashtagId: string) => {
+    // Top posts: sorted by engagement in last 7 days
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from('post_hashtags')
+      .select('post_id, posts(*, user_profiles(*))')
+      .eq('hashtag_id', hashtagId);
+    if (!data) return;
+    const allPosts = data.map((item: any) => item.posts).filter(Boolean);
+    // Sort by engagement score (likes + reposts + replies)
+    const sorted = [...allPosts].sort((a, b) => {
+      const scoreA = (a.likes_count || 0) + (a.reposts_count || 0) + (a.replies_count || 0);
+      const scoreB = (b.likes_count || 0) + (b.reposts_count || 0) + (b.replies_count || 0);
+      return scoreB - scoreA;
+    });
+    setTopPosts(sorted);
+  };
+
   const fetchHashtagAndPosts = async () => {
     try {
       const { data: hashtagData, error: hashtagError } = await supabase
@@ -56,31 +76,19 @@ export default function HashtagPage() {
       setHashtag(hashtagData);
 
       // Fetch follower count
-      const { count: fCount } = await supabase
-        .from('hashtag_follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('hashtag_id', hashtagData.id);
+      const { count: fCount } = await supabase.from('hashtag_follows').select('*', { count: 'exact', head: true }).eq('hashtag_id', hashtagData.id);
       setFollowerCount(fCount ?? 0);
 
       const { data: postsData, error: postsError } = await supabase
         .from('post_hashtags')
-        .select(`
-          post_id,
-          posts (
-            *,
-            user_profiles (*)
-          )
-        `)
+        .select('post_id, posts(*, user_profiles(*))')
         .eq('hashtag_id', hashtagData.id)
         .order('created_at', { ascending: false });
 
       if (postsError) throw postsError;
-      
-      const formattedPosts = (postsData || [])
-        .map((item: any) => item.posts)
-        .filter(Boolean);
-      
+      const formattedPosts = (postsData || []).map((item: any) => item.posts).filter(Boolean);
       setPosts(formattedPosts);
+      fetchTopPosts(hashtagData.id);
     } catch (error) {
       console.error('Error fetching hashtag data:', error);
       toast.error('Failed to load hashtag');
@@ -194,14 +202,30 @@ export default function HashtagPage() {
         )}
       </div>
 
+      {/* Sort tabs */}
+      <div className="border-b border-border flex">
+        <button
+          onClick={() => setSortMode('recent')}
+          className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors ${sortMode === 'recent' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'}`}
+        >
+          Recent
+        </button>
+        <button
+          onClick={() => setSortMode('top')}
+          className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors flex items-center justify-center gap-1.5 ${sortMode === 'top' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'}`}
+        >
+          <TrendingUp className="w-4 h-4" /> Top Posts
+        </button>
+      </div>
+
       {/* Posts */}
       <div>
-        {posts.length === 0 ? (
+        {(sortMode === 'recent' ? posts : topPosts).length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <p>No posts found with this hashtag</p>
           </div>
         ) : (
-          posts.map((post) => (
+          (sortMode === 'recent' ? posts : topPosts).map((post) => (
             <PostCard key={post.id} post={post} onUpdate={fetchHashtagAndPosts} />
           ))
         )}
