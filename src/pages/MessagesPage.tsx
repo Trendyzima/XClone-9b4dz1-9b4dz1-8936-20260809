@@ -3,7 +3,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare } from 'lucide-react';
+import { Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,13 @@ export default function MessagesPage() {
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  // Conversation list filter
+  const [convFilter, setConvFilter] = useState('');
+  // In-thread message search
+  const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [msgSearchQuery, setMsgSearchQuery] = useState('');
+  const [msgSearchResults, setMsgSearchResults] = useState<any[]>([]);
+  const [searchingMsgs, setSearchingMsgs] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -181,6 +188,28 @@ export default function MessagesPage() {
     }
   };
 
+  // Filter conversations by username client-side (fast, no extra query)
+  const filteredConversations = convFilter.trim()
+    ? conversations.filter(c =>
+        c.otherUser?.username?.toLowerCase().includes(convFilter.toLowerCase())
+      )
+    : conversations;
+
+  // Search messages in the current thread
+  const searchMessages = async (query: string) => {
+    if (!query.trim() || !selectedConversation) { setMsgSearchResults([]); return; }
+    setSearchingMsgs(true);
+    const { data } = await supabase
+      .from('direct_messages')
+      .select('*')
+      .eq('conversation_id', selectedConversation.id)
+      .ilike('content', `%${query}%`)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    setMsgSearchResults(data ?? []);
+    setSearchingMsgs(false);
+  };
+
   const searchUsers = async (query: string) => {
     if (!query.trim()) { setSearchResults([]); return; }
     try {
@@ -216,10 +245,29 @@ export default function MessagesPage() {
           ${selectedConversation ? 'hidden md:flex' : 'flex'} 
           flex-col w-full md:w-80 border-r border-border
         `}>
-          <div className="p-3 border-b border-border shrink-0">
+          <div className="p-3 border-b border-border shrink-0 space-y-2">
             <Button onClick={() => setShowUserSearch(!showUserSearch)} className="w-full rounded-full">
               New Message
             </Button>
+            {/* Conversation filter input */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Filter conversations…"
+                value={convFilter}
+                onChange={e => setConvFilter(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-muted rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground"
+              />
+              {convFilter && (
+                <button
+                  onClick={() => setConvFilter('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
           {showUserSearch && (
@@ -265,14 +313,18 @@ export default function MessagesPage() {
           )}
 
           <div className="flex-1 overflow-y-auto">
-            {conversations.length === 0 ? (
+            {filteredConversations.length === 0 && conversations.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">
                 <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-40" />
                 <p className="font-semibold mb-1">No messages yet</p>
                 <p className="text-sm">Start a conversation to connect with others</p>
               </div>
             ) : (
-              conversations.map((conv) => (
+              filteredConversations.length === 0 ? (
+                <div className="p-6 text-center text-muted-foreground text-sm">
+                  No conversations matching &ldquo;{convFilter}&rdquo;
+                </div>
+              ) : filteredConversations.map((conv) => (
                 <button
                   key={conv.id}
                   onClick={() => setSelectedConversation(conv)}
@@ -318,7 +370,7 @@ export default function MessagesPage() {
               {/* Chat header */}
               <div className="p-3 border-b border-border flex items-center gap-3 shrink-0 bg-background">
                 <button
-                  onClick={() => setSelectedConversation(null)}
+                  onClick={() => { setSelectedConversation(null); setShowMsgSearch(false); setMsgSearchQuery(''); setMsgSearchResults([]); }}
                   className="md:hidden p-2 hover:bg-muted rounded-full transition-colors"
                 >
                   <ArrowLeft className="w-5 h-5" />
@@ -336,7 +388,71 @@ export default function MessagesPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">@{selectedConversation.otherUser?.username}</p>
                 </div>
+                {/* In-thread search toggle */}
+                <button
+                  onClick={() => {
+                    setShowMsgSearch(s => !s);
+                    setMsgSearchQuery('');
+                    setMsgSearchResults([]);
+                  }}
+                  className={`p-2 rounded-full transition-colors ${showMsgSearch ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
+                  title="Search messages"
+                >
+                  <Search className="w-4 h-4" />
+                </button>
               </div>
+              {/* In-thread search bar */}
+              {showMsgSearch && (
+                <div className="px-3 py-2 border-b border-border bg-background shrink-0">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="Search in this conversation…"
+                      value={msgSearchQuery}
+                      onChange={e => { setMsgSearchQuery(e.target.value); searchMessages(e.target.value); }}
+                      className="w-full pl-9 pr-9 py-2 bg-muted rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                    {msgSearchQuery && (
+                      <button
+                        onClick={() => { setMsgSearchQuery(''); setMsgSearchResults([]); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {/* Search results list */}
+                  {msgSearchQuery.trim() && (
+                    <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
+                      {searchingMsgs ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                        </div>
+                      ) : msgSearchResults.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-3">No messages found</p>
+                      ) : (
+                        msgSearchResults.map(m => (
+                          <div
+                            key={m.id}
+                            className={`px-3 py-2 rounded-xl text-xs leading-relaxed border ${
+                              m.sender_id === user.id
+                                ? 'bg-primary/8 border-primary/15 text-foreground ml-6'
+                                : 'bg-muted border-border mr-6'
+                            }`}
+                          >
+                            <span className="font-semibold text-[10px] text-muted-foreground block mb-0.5">
+                              {m.sender_id === user.id ? 'You' : selectedConversation.otherUser?.username} · {formatDistanceToNow(new Date(m.created_at), { addSuffix: true })}
+                            </span>
+                            {m.content}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Messages — scrollable area */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">

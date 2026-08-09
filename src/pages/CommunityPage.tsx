@@ -53,6 +53,7 @@ export default function CommunityPage() {
   const [members, setMembers] = useState<CommunityMember[]>([]);
   const [showMembers, setShowMembers] = useState(false);
   const [activeTab, setActiveTab] = useState<'posts' | 'members'>('posts');
+  const [loadingPosts, setLoadingPosts] = useState(false);
 
   useEffect(() => {
     if (name) fetchCommunity();
@@ -62,6 +63,21 @@ export default function CommunityPage() {
     if (community && isMember) fetchPosts();
     else if (community && !community.is_private) fetchPosts(); // public: show posts to everyone
   }, [community, isMember]);
+
+  // Real-time subscription for new community posts
+  useEffect(() => {
+    if (!community) return;
+    const sub = supabase
+      .channel(`community-posts-${community.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'posts',
+        filter: `community_id=eq.${community.id}`,
+      }, () => { fetchPosts(); })
+      .subscribe();
+    return () => { supabase.removeChannel(sub); };
+  }, [community?.id]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -117,6 +133,7 @@ export default function CommunityPage() {
 
   const fetchPosts = async () => {
     if (!community) return;
+    setLoadingPosts(true);
     try {
       const { data } = await supabase
         .from('posts')
@@ -126,6 +143,8 @@ export default function CommunityPage() {
       if (data) setPosts(data);
     } catch (err) {
       console.error('fetchPosts error:', err);
+    } finally {
+      setLoadingPosts(false);
     }
   };
 
@@ -269,6 +288,9 @@ export default function CommunityPage() {
             }`}
           >
             <MessageSquare className="w-4 h-4" /> Posts
+            {posts.length > 0 && (
+              <span className="ml-1 text-[10px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded-full">{posts.length}</span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('members')}
@@ -333,9 +355,15 @@ export default function CommunityPage() {
           /* Members can see posts */
           <div>
             {isMember && (
-              <ComposePost onSuccess={fetchPosts} communityId={community.id} />
+              <div className="border-b border-border">
+                <ComposePost onSuccess={fetchPosts} communityId={community.id} />
+              </div>
             )}
-            {posts.length === 0 ? (
+            {loadingPosts ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : posts.length === 0 ? (
               <div className="flex flex-col items-center text-center py-12 text-muted-foreground">
                 <Image className="w-12 h-12 mb-3 opacity-40" />
                 <p className="font-semibold">No posts yet</p>
