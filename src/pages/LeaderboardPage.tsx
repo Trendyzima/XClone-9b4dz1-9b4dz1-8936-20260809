@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Trophy, Flame, Users, BadgeCheck, Share2, Copy, Check } from 'lucide-react';
+import { Loader2, Trophy, Flame, Users, BadgeCheck, Share2, Check, DollarSign } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
 
-type Tab = 'followers' | 'earners' | 'streaks';
+type Tab = 'followers' | 'earners' | 'streaks' | 'tippers';
 
 interface LeaderboardEntry {
   id: string;
@@ -45,9 +45,10 @@ export default function LeaderboardPage() {
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'followers', label: 'Top Followers', icon: <Users className="w-3.5 h-3.5" /> },
-    { id: 'earners',   label: 'Top Earners',   icon: <span className="font-bold text-xs leading-none">$</span> },
-    { id: 'streaks',   label: 'Streaks',       icon: <Flame className="w-3.5 h-3.5 text-orange-400" /> },
+    { id: 'followers', label: 'Followers',   icon: <Users className="w-3.5 h-3.5" /> },
+    { id: 'earners',   label: 'Earners',     icon: <span className="font-bold text-xs leading-none">$</span> },
+    { id: 'streaks',   label: 'Streaks',     icon: <Flame className="w-3.5 h-3.5 text-orange-400" /> },
+    { id: 'tippers',   label: 'Top Tippers', icon: <DollarSign className="w-3.5 h-3.5 text-yellow-500" /> },
   ];
 
   useEffect(() => {
@@ -56,6 +57,41 @@ export default function LeaderboardPage() {
 
   const fetchLeaderboard = async (activeTab: Tab) => {
     setLoading(true);
+
+    if (activeTab === 'tippers') {
+      // Aggregate tips sent per user, join with user_profiles
+      const { data: tips } = await supabase
+        .from('tips')
+        .select('from_user_id, amount');
+      if (tips && tips.length > 0) {
+        // Group by sender
+        const totals: Record<string, number> = {};
+        tips.forEach((t: any) => {
+          const uid = t.from_user_id;
+          totals[uid] = (totals[uid] ?? 0) + Number(t.amount);
+        });
+        // Sort descending, take top 50
+        const sorted = Object.entries(totals)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 50);
+        const uids = sorted.map(([id]) => id);
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, username, avatar_url, verified')
+          .in('id', uids);
+        const profileMap: Record<string, any> = {};
+        (profiles ?? []).forEach((p: any) => { profileMap[p.id] = p; });
+        setData(
+          sorted
+            .filter(([id]) => profileMap[id])
+            .map(([id, total]) => ({ ...profileMap[id], value: total }))
+        );
+      } else {
+        setData([]);
+      }
+      setLoading(false);
+      return;
+    }
 
     if (activeTab === 'followers') {
       const { data: users } = await supabase
@@ -93,6 +129,7 @@ export default function LeaderboardPage() {
   const formatValue = (val: number) => {
     if (tab === 'earners') return `$${val.toFixed(2)}`;
     if (tab === 'streaks') return `Day ${val}`;
+    if (tab === 'tippers') return `$${val.toFixed(2)}`;
     return formatNumber(val);
   };
 
@@ -107,6 +144,7 @@ export default function LeaderboardPage() {
   const metricLabel = () => {
     if (tab === 'streaks') return '🔥 streak';
     if (tab === 'earners') return 'earned';
+    if (tab === 'tippers') return '💰 tipped';
     return 'followers';
   };
 
@@ -124,7 +162,7 @@ export default function LeaderboardPage() {
         </div>
         <div className="flex-1">
           <h1 className="text-xl font-bold">Leaderboard</h1>
-          <p className="text-sm text-muted-foreground">Top users by followers, earnings &amp; streaks</p>
+          <p className="text-sm text-muted-foreground">Top users by followers, earnings, streaks &amp; tips</p>
         </div>
         <button
           onClick={async () => {

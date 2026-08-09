@@ -52,6 +52,7 @@ export default function ProfilePage() {
   const [highlightCoverUrl, setHighlightCoverUrl] = useState<string | null>(null);
   const [availableStories, setAvailableStories] = useState<any[]>([]);
   const [creatingHighlight, setCreatingHighlight] = useState(false);
+  const [selectedStoryIds, setSelectedStoryIds] = useState<string[]>([]);
   const [viewHighlightId, setViewHighlightId] = useState<string | null>(null);
   // Highlight story viewer
   const [highlightStories, setHighlightStories] = useState<any[]>([]);
@@ -151,11 +152,15 @@ export default function ProfilePage() {
   const handleCreateHighlight = async () => {
     if (!currentUser || !highlightTitle.trim()) return;
     setCreatingHighlight(true);
+    // Use first selected story's media_url as cover if not manually chosen
+    const autoCover = selectedStoryIds.length > 0
+      ? (availableStories.find((s: any) => s.id === selectedStoryIds[0])?.media_url ?? null)
+      : null;
     const { error } = await supabase.from('user_highlights').insert({
       user_id: currentUser.id,
       title: highlightTitle.trim(),
-      cover_url: highlightCoverUrl,
-      story_ids: [],
+      cover_url: highlightCoverUrl ?? autoCover,
+      story_ids: selectedStoryIds,
     });
     if (error) { toast.error('Failed to create highlight'); }
     else {
@@ -163,6 +168,7 @@ export default function ProfilePage() {
       setShowCreateHighlight(false);
       setHighlightTitle('');
       setHighlightCoverUrl(null);
+      setSelectedStoryIds([]);
       fetchHighlights(currentUser.id);
     }
     setCreatingHighlight(false);
@@ -212,12 +218,31 @@ export default function ProfilePage() {
       amount,
       status: 'paid',
     }).catch(() => {});
-    // Notify recipient
+    // Notify recipient (in-app)
     await supabase.from('notifications').insert({
       user_id: profile.id,
       type: 'tip',
       from_user_id: currentUser.id,
     }).catch(() => {});
+    // Push notification to recipient
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const backendUrl = import.meta.env.VITE_SUPABASE_URL;
+      await fetch(`${backendUrl}/functions/v1/send-push-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          user_id: profile.id,
+          title: 'You received a tip! 💰',
+          body: `@${currentUser.username} sent you a $${amount.toFixed(2)} tip`,
+          data: { route: `/profile/${currentUser.username}`, type: 'tip', amount },
+        }),
+      });
+    } catch { /* non-critical — ignore push errors */ }
     toast.success(`$${amount.toFixed(2)} tip sent to @${profile.username}!`);
     setTipSent(true);
     setShowTipDialog(false);
@@ -1287,25 +1312,87 @@ export default function ProfilePage() {
               autoFocus
               maxLength={30}
             />
-            {/* Cover image picker from own stories */}
+            {/* Story multi-select picker */}
             {availableStories.length > 0 && (
               <div>
-                <p className="text-sm font-semibold mb-2">Choose cover from your stories</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold">Select stories to include</p>
+                  {selectedStoryIds.length > 0 && (
+                    <span className="text-xs text-primary font-semibold bg-primary/10 px-2 py-0.5 rounded-full">
+                      {selectedStoryIds.length} selected
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {availableStories.map((s: any) => {
+                    const isSelected = selectedStoryIds.includes(s.id);
+                    const selIdx = selectedStoryIds.indexOf(s.id);
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => {
+                          setSelectedStoryIds(prev =>
+                            isSelected ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                          );
+                          // Auto-set cover to first selected story
+                          if (!isSelected && selectedStoryIds.length === 0 && !highlightCoverUrl) {
+                            setHighlightCoverUrl(s.media_url);
+                          }
+                        }}
+                        className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${
+                          isSelected
+                            ? 'border-primary ring-2 ring-primary/30'
+                            : 'border-transparent hover:border-muted-foreground/30'
+                        }`}
+                      >
+                        {s.media_type === 'video'
+                          ? <video src={s.media_url} className="w-full h-full object-cover" />
+                          : <img src={s.media_url} alt="story" className="w-full h-full object-cover" />
+                        }
+                        {isSelected && (
+                          <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                            <span className="w-6 h-6 rounded-full bg-primary text-white text-xs font-bold flex items-center justify-center shadow">
+                              {selIdx + 1}
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedStoryIds.length > 0 && (
+                  <button
+                    onClick={() => { setSelectedStoryIds([]); setHighlightCoverUrl(null); }}
+                    className="mt-2 text-xs text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    Clear selection
+                  </button>
+                )}
+              </div>
+            )}
+            {/* Manual cover override */}
+            {availableStories.length > 0 && selectedStoryIds.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Override cover (optional)</p>
                 <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                  {availableStories.map((s: any) => (
-                    <button
-                      key={s.id}
-                      onClick={() => setHighlightCoverUrl(c => c === s.media_url ? null : s.media_url)}
-                      className={`shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition-all ${
-                        highlightCoverUrl === s.media_url ? 'border-primary ring-2 ring-primary/30' : 'border-transparent'
-                      }`}
-                    >
-                      {s.media_type === 'video'
-                        ? <video src={s.media_url} className="w-full h-full object-cover" />
-                        : <img src={s.media_url} alt="story" className="w-full h-full object-cover" />
-                      }
-                    </button>
-                  ))}
+                  {selectedStoryIds.map(id => {
+                    const s = availableStories.find((a: any) => a.id === id);
+                    if (!s) return null;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => setHighlightCoverUrl(c => c === s.media_url ? null : s.media_url)}
+                        className={`shrink-0 w-14 h-14 rounded-xl overflow-hidden border-2 transition-all ${
+                          highlightCoverUrl === s.media_url ? 'border-primary ring-2 ring-primary/30' : 'border-border'
+                        }`}
+                      >
+                        {s.media_type === 'video'
+                          ? <video src={s.media_url} className="w-full h-full object-cover" />
+                          : <img src={s.media_url} alt="cover" className="w-full h-full object-cover" />
+                        }
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1321,7 +1408,7 @@ export default function ProfilePage() {
             <button
               onClick={handleCreateHighlight}
               disabled={creatingHighlight || !highlightTitle.trim()}
-              className="w-full py-3.5 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 mt-1"
             >
               {creatingHighlight ? <Loader2 className="w-5 h-5 animate-spin" /> : <Star className="w-5 h-5" />}
               {creatingHighlight ? 'Creating…' : 'Create Highlight'}
