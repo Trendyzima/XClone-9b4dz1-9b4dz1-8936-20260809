@@ -11,8 +11,9 @@ import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import {
   Loader2, Sparkles, Globe, Users, Rss, RefreshCw,
   MessageCircle, Repeat2, Heart, Languages, ChevronDown, ChevronUp,
-  TrendingUp, Hash, BookOpen,
+  TrendingUp, Hash, BookOpen, Flame, Eye, Play,
 } from 'lucide-react';
+import { TrendingVideoRow } from '@/components/features/TrendingVideoRow';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { DynamicAd } from '@/components/features/DynamicAd';
@@ -54,6 +55,7 @@ export default function HomePage() {
   const [page, setPage] = useState(0);
   const [sponsoredPosts, setSponsoredPosts] = useState<any[]>([]);
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+  const [trendingHashtags, setTrendingHashtags] = useState<any[]>([]);
 
   // Fetch blocked user IDs to filter from feed
   useEffect(() => {
@@ -319,7 +321,22 @@ export default function HomePage() {
   useEffect(() => {
     fetchInitialFeed();
     fetchSponsoredContent();
-  }, [activeTab, user?.id]); // Removed fetchInitialFeed and fetchSponsoredContent from deps as they are defined in the component scope.
+  }, [activeTab, user?.id]);
+
+  // Trending hashtags — refresh every 2 minutes
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from('trending_hashtags')
+        .select('trend_score, hashtags(tag, usage_count)')
+        .order('trend_score', { ascending: false })
+        .limit(12);
+      if (data) setTrendingHashtags(data.filter((r: any) => r.hashtags).map((r: any) => r.hashtags));
+    };
+    load();
+    const t = setInterval(load, 120_000);
+    return () => clearInterval(t);
+  }, []); // Removed fetchInitialFeed and fetchSponsoredContent from deps as they are defined in the component scope.
                              // If they were wrapped in useCallback with their own deps, they could be included.
                              // Given the error about 'exhaustive-deps' and the desire to make them stable,
                              // moving their definitions outside and making them stable (not re-created on every render)
@@ -377,7 +394,34 @@ export default function HomePage() {
       {/* Stories — only visible on the For You tab */}
       {activeTab === 'foryou' && <StoriesStrip />}
 
+      {/* Trending Videos Rail */}
+      {activeTab === 'foryou' && <TrendingVideoRow />}
+
       <ComposePost onSuccess={fetchInitialFeed} />
+
+      {/* Trending Hashtags Chips */}
+      {trendingHashtags.length > 0 && (
+        <div className="border-b border-border py-2.5 px-4 bg-muted/20">
+          <div className="flex items-center gap-2 mb-2">
+            <Flame className="w-3.5 h-3.5 text-orange-500" />
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Trending</span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-0.5">
+            {trendingHashtags.map((ht: any) => (
+              <button
+                key={ht.tag}
+                onClick={() => navigate(`/hashtag/${ht.tag}`)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-primary/8 hover:bg-primary/15 border border-primary/15 rounded-full text-xs font-semibold text-primary transition-colors whitespace-nowrap"
+              >
+                <Hash className="w-3 h-3" />#{ht.tag}
+                {ht.usage_count > 0 && (
+                  <span className="text-primary/50 font-normal">{ht.usage_count > 999 ? `${(ht.usage_count/1000).toFixed(1)}k` : ht.usage_count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Top ad */}
       <DynamicAd location="feed_top" className="border-b border-border p-4" />
@@ -403,6 +447,55 @@ export default function HomePage() {
         <EmptyState tab={activeTab} navigate={navigate} />
       ) : (
         <>
+          {/* ── Featured 2-col mosaic grid — first 2 image/video posts on For You ── */}
+          {activeTab === 'foryou' && (() => {
+            const imgPosts = feedItems
+              .filter(i => i.type === 'post' && ((i.data as any)?.image_url || ((i.data as any)?.media_urls?.length > 0) || (i.data as any)?.is_video))
+              .slice(0, 2);
+            if (imgPosts.length < 2) return null;
+            const featuredIds = new Set(imgPosts.map(i => (i.data as any)?.id));
+            return (
+              <div className="grid grid-cols-2 gap-1.5 p-1.5 border-b border-border bg-muted/10">
+                {imgPosts.map(item => {
+                  const p = item.data as any;
+                  const thumb = p.image_url || (p.media_urls?.[0]) || null;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => navigate(`/post/${p.id}`)}
+                      className="relative rounded-xl overflow-hidden bg-muted text-left hover:scale-[1.02] active:scale-[0.98] transition-transform focus:outline-none"
+                      style={{ height: 160 }}
+                    >
+                      {thumb ? (
+                        <img src={thumb} alt="" className="w-full h-full object-cover" loading="lazy" />
+                      ) : p.is_video && p.video_url ? (
+                        <div className="w-full h-full bg-black flex items-center justify-center">
+                          <video src={`${p.video_url}#t=0.5`} className="w-full h-full object-cover" muted preload="metadata" />
+                        </div>
+                      ) : null}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                      {p.is_video && (
+                        <div className="absolute top-2 right-2 w-7 h-7 bg-black/40 backdrop-blur-sm rounded-full flex items-center justify-center">
+                          <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
+                        </div>
+                      )}
+                      <div className="absolute bottom-2 left-2 right-2">
+                        <p className="text-[10px] text-white/70 truncate">@{p.user_profiles?.username}</p>
+                        <p className="text-white text-xs font-semibold line-clamp-1 mt-0.5">
+                          {p.content?.replace(/<[^>]*>/g, '').slice(0, 60)}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="flex items-center gap-0.5 text-white/60 text-[9px]"><Heart className="w-2.5 h-2.5" />{p.likes_count || 0}</span>
+                          <span className="flex items-center gap-0.5 text-white/60 text-[9px]"><Eye className="w-2.5 h-2.5" />{p.views_count || 0}</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
           {feedItems.map((item, index) => (
             <div
               key={`${item.type}-${item.type === 'user-suggestions' ? 'sug' : (item.data as any)?.id ?? index}-${index}`}

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
-import { Search, Loader2, BadgeCheck, Globe, ExternalLink, UserPlus, Hash, Users } from 'lucide-react';
+import { Search, Loader2, BadgeCheck, Globe, ExternalLink, UserPlus, Hash, Users, Clock, X, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PostCard } from '@/components/features/PostCard';
 import { toast } from 'sonner';
@@ -24,6 +24,58 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [fediverseLoading, setFediverseLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Autocomplete state ──────────────────────────────────────────────────────
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [acUsers, setAcUsers] = useState<any[]>([]);
+  const [acHashtags, setAcHashtags] = useState<any[]>([]);
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('tsocial_recent_searches') || '[]').slice(0, 6); }
+    catch { return []; }
+  });
+  const acDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Click-outside to close autocomplete
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowAutocomplete(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const fetchAutocomplete = async (q: string) => {
+    if (!q.trim()) { setAcUsers([]); setAcHashtags([]); return; }
+    const clean = q.replace(/^[@#]/, '');
+    const isHash = q.startsWith('#');
+    const isUser = q.startsWith('@');
+    const [ur, hr] = await Promise.all([
+      isHash ? Promise.resolve({ data: [] as any[] }) :
+        supabase.from('user_profiles').select('id,username,avatar_url,verified,followers_count')
+          .ilike('username', `${clean}%`).order('followers_count', { ascending: false }).limit(5),
+      isUser ? Promise.resolve({ data: [] as any[] }) :
+        supabase.from('hashtags').select('id,tag,usage_count')
+          .ilike('tag', `${clean}%`).order('usage_count', { ascending: false }).limit(4),
+    ]);
+    setAcUsers(ur.data || []);
+    setAcHashtags(hr.data || []);
+  };
+
+  const saveRecentSearch = (q: string) => {
+    if (!q.trim()) return;
+    const updated = [q, ...recentSearches.filter(s => s !== q)].slice(0, 6);
+    setRecentSearches(updated);
+    try { localStorage.setItem('tsocial_recent_searches', JSON.stringify(updated)); } catch {}
+  };
+
+  const clearRecentSearch = (q: string) => {
+    const updated = recentSearches.filter(s => s !== q);
+    setRecentSearches(updated);
+    try { localStorage.setItem('tsocial_recent_searches', JSON.stringify(updated)); } catch {}
+  };
 
   const tabs = ['Posts', 'Users', 'Hashtags', 'Communities', 'Fediverse'];
 
@@ -150,11 +202,20 @@ export default function SearchPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+    if (query.trim()) {
+      saveRecentSearch(query.trim());
+      setShowAutocomplete(false);
+      navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+    }
   };
 
   const handleQueryChange = (val: string) => {
     setQuery(val);
+    setShowAutocomplete(true);
+    // Autocomplete debounce: 200ms
+    if (acDebounceRef.current) clearTimeout(acDebounceRef.current);
+    acDebounceRef.current = setTimeout(() => fetchAutocomplete(val), 200);
+    // Full search debounce: 300ms
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (val.trim().length >= 2) {
       debounceRef.current = setTimeout(() => performSearch(val.trim()), 300);
@@ -178,7 +239,7 @@ export default function SearchPage() {
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Search" showBack />
 
-      <div className="sticky top-14 z-30 bg-background border-b border-border">
+      <div className="sticky top-14 z-30 bg-background border-b border-border" ref={searchContainerRef}>
         <form onSubmit={handleSearch} className="p-3">
           <div className="relative">
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
@@ -187,8 +248,97 @@ export default function SearchPage() {
               placeholder="Search posts, people, or @user@domain…"
               value={query}
               onChange={(e) => handleQueryChange(e.target.value)}
+              onFocus={() => setShowAutocomplete(true)}
               className="pl-12 h-11 rounded-full bg-muted border-0 focus-visible:ring-2 focus-visible:ring-primary"
             />
+            {query && (
+              <button type="button" onClick={() => { setQuery(''); setAcUsers([]); setAcHashtags([]); setShowAutocomplete(false); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* ── Autocomplete Dropdown ────────────────────────────────── */}
+            {showAutocomplete && (
+              <div className="absolute top-full left-0 right-0 z-50 mt-1.5 bg-background border border-border rounded-2xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto">
+
+                {/* Recent searches (when input is short/empty) */}
+                {recentSearches.length > 0 && !acUsers.length && !acHashtags.length && (
+                  <div>
+                    <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Recent</p>
+                      <button type="button" onClick={() => { setRecentSearches([]); localStorage.removeItem('tsocial_recent_searches'); }}
+                        className="text-[10px] text-muted-foreground hover:text-foreground">Clear all</button>
+                    </div>
+                    {recentSearches.map(s => (
+                      <div key={s} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors group">
+                        <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <button type="button" className="flex-1 text-sm text-left"
+                          onClick={() => { setQuery(s); setShowAutocomplete(false); navigate(`/search?q=${encodeURIComponent(s)}`); saveRecentSearch(s); }}>
+                          {s}
+                        </button>
+                        <button type="button" onClick={() => clearRecentSearch(s)}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-foreground transition-opacity">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* User suggestions */}
+                {acUsers.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-4 pt-3 pb-1.5">People</p>
+                    {acUsers.map(u => (
+                      <button type="button" key={u.id}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors text-left"
+                        onClick={() => { saveRecentSearch(`@${u.username}`); setShowAutocomplete(false); navigate(`/profile/${u.username}`); }}>
+                        <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                          {u.avatar_url
+                            ? <img src={u.avatar_url} className="w-full h-full object-cover" alt="" />
+                            : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{u.username[0]?.toUpperCase()}</div>}
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <div className="flex items-center gap-1">
+                            <span className="text-sm font-semibold truncate">@{u.username}</span>
+                            {u.verified && <BadgeCheck className="w-3 h-3 text-primary shrink-0" fill="currentColor" />}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">{formatNumber(u.followers_count || 0)} followers</p>
+                        </div>
+                        <TrendingUp className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Hashtag suggestions */}
+                {acHashtags.length > 0 && (
+                  <div className="pb-3">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-4 pt-3 pb-2">Hashtags</p>
+                    <div className="flex flex-wrap gap-2 px-4">
+                      {acHashtags.map(h => (
+                        <button type="button" key={h.id}
+                          onClick={() => { saveRecentSearch(`#${h.tag}`); setShowAutocomplete(false); navigate(`/hashtag/${h.tag}`); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/8 hover:bg-primary/15 border border-primary/15 rounded-full text-xs font-semibold text-primary transition-colors">
+                          <Hash className="w-3 h-3" />
+                          <span>#{h.tag}</span>
+                          <span className="text-primary/50 font-normal">{formatNumber(h.usage_count)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* No results state */}
+                {query.trim().length >= 2 && !acUsers.length && !acHashtags.length && !recentSearches.length && (
+                  <div className="px-4 py-5 text-center text-sm text-muted-foreground">
+                    <Search className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                    No suggestions for "{query}"
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </form>
 
