@@ -268,7 +268,7 @@ export function RightSidebar() {
                 if (topic.topic.startsWith('#')) {
                   navigate(`/hashtag/${topic.topic.substring(1)}`);
                 } else {
-                  navigate(`/search?q=${encodeURIComponent(topic.topic)}`);
+                  navigate(`/trending/${encodeURIComponent(topic.topic)}`);
                 }
               }}
               className="w-full text-left p-3 hover:bg-muted rounded-lg transition-colors"

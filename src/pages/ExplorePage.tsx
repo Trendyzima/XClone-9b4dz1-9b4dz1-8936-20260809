@@ -115,7 +115,7 @@ export default function ExplorePage() {
   const navigateTopic = (topic: string) =>
     topic.startsWith('#')
       ? navigate(`/hashtag/${topic.slice(1)}`)
-      : navigate(`/search?q=${encodeURIComponent(topic)}`);
+      : navigate(`/trending/${encodeURIComponent(topic)}`);
 
   const getFilteredTrending = () => {
     if (activeTab === 'Explore' || activeTab === 'Trending') return trending;

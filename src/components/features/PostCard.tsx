@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
@@ -52,6 +52,92 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   // Edit history
   const [showEditHistory, setShowEditHistory] = useState(false);
   const editHistory: any[] = (post as any).edit_history ?? [];
+
+  // Post Reactions
+  const REACTIONS = ['❤️', '😂', '😮', '😢', '🔥'] as const;
+  const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
+  const [userReaction, setUserReaction] = useState<string | null>(null);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+
+  const fetchReactions = useCallback(async () => {
+    const { data } = await supabase
+      .from('post_reactions')
+      .select('emoji, user_id')
+      .eq('post_id', post.id);
+    if (data) {
+      const counts: Record<string, number> = {};
+      let myReaction: string | null = null;
+      data.forEach(r => {
+        counts[r.emoji] = (counts[r.emoji] || 0) + 1;
+        if (r.user_id === user?.id) myReaction = r.emoji;
+      });
+      setReactionCounts(counts);
+      setUserReaction(myReaction);
+    }
+  }, [post.id, user?.id]);
+
+  useEffect(() => { fetchReactions(); }, [post.id]);
+
+  const handleReact = async (emoji: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) { navigate('/auth'); return; }
+    setShowReactionPicker(false);
+    const prevReaction = userReaction;
+
+    if (prevReaction === emoji) {
+      // Remove reaction
+      setUserReaction(null);
+      setReactionCounts(prev => {
+        const updated = { ...prev };
+        updated[emoji] = Math.max(0, (updated[emoji] || 1) - 1);
+        if (!updated[emoji]) delete updated[emoji];
+        return updated;
+      });
+      await supabase.from('post_reactions').delete().eq('post_id', post.id).eq('user_id', user.id);
+      if (emoji === '❤️' && isLiked) {
+        const newCount = Math.max(0, likesCount - 1);
+        setIsLiked(false);
+        setLikesCount(newCount);
+        await supabase.from('likes').delete().eq('user_id', user.id).eq('post_id', post.id);
+        await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
+      }
+    } else {
+      // Add / switch reaction
+      setUserReaction(emoji);
+      setReactionCounts(prev => {
+        const updated = { ...prev };
+        if (prevReaction) {
+          updated[prevReaction] = Math.max(0, (updated[prevReaction] || 1) - 1);
+          if (!updated[prevReaction]) delete updated[prevReaction];
+        }
+        updated[emoji] = (updated[emoji] || 0) + 1;
+        return updated;
+      });
+      await supabase.from('post_reactions').upsert(
+        { post_id: post.id, user_id: user.id, emoji },
+        { onConflict: 'post_id,user_id' }
+      );
+      // Sync ❤️ with likes table
+      if (emoji === '❤️' && !isLiked) {
+        const newCount = likesCount + 1;
+        setIsLiked(true);
+        setLikesCount(newCount);
+        await supabase.from('likes').insert({ user_id: user.id, post_id: post.id }).catch(() => {});
+        await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
+        if (post.user_id !== user.id) {
+          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'like', from_user_id: user.id, post_id: post.id });
+          sendActivityNotification({ recipientUserId: post.user_id, title: 'New Reaction', body: `${user.username} reacted ❤️ to your post`, data: { route: `/post/${post.id}`, type: 'like' } });
+        }
+      } else if (prevReaction === '❤️' && emoji !== '❤️' && isLiked) {
+        const newCount = Math.max(0, likesCount - 1);
+        setIsLiked(false);
+        setLikesCount(newCount);
+        await supabase.from('likes').delete().eq('user_id', user.id).eq('post_id', post.id);
+        await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
+      }
+    }
+    onUpdate?.();
+  };
 
   // Post Translation
   const [translatedContent, setTranslatedContent] = useState<string | null>(null);
@@ -635,6 +721,27 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
           {poll && <PollCard poll={poll} postId={post.id} />}
 
+          {/* Reaction bubbles */}
+          {Object.keys(reactionCounts).length > 0 && (
+            <div className="flex gap-1.5 mt-2 flex-wrap" onClick={e => e.stopPropagation()}>
+              {REACTIONS.filter(e => (reactionCounts[e] ?? 0) > 0).map(emoji => (
+                <button
+                  key={emoji}
+                  onClick={(e) => handleReact(emoji, e)}
+                  className={cn(
+                    'flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs border transition-all duration-100 hover:scale-105 active:scale-95',
+                    userReaction === emoji
+                      ? 'bg-primary/10 border-primary/30 text-primary font-semibold'
+                      : 'bg-muted/50 border-border text-muted-foreground hover:border-primary/20 hover:bg-primary/5'
+                  )}
+                >
+                  <span>{emoji}</span>
+                  <span className="font-medium">{formatNumber(reactionCounts[emoji])}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Views count with Engagement Tooltip */}
           <div className="relative inline-block mt-2">
             <button
@@ -719,18 +826,48 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               <span className="text-sm">{formatNumber(repostsCount)}</span>
             </button>
 
-            <button
-              onClick={handleLike}
-              className={cn(
-                'flex items-center space-x-2 transition-colors group',
-                isLiked ? 'text-pink-600' : 'text-muted-foreground hover:text-pink-600'
+            {/* Reaction button + picker */}
+            <div className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowReactionPicker(p => !p); }}
+                onMouseEnter={() => setShowReactionPicker(true)}
+                onMouseLeave={() => setShowReactionPicker(false)}
+                className={cn(
+                  'flex items-center space-x-1.5 transition-colors group',
+                  userReaction ? 'text-pink-600' : 'text-muted-foreground hover:text-pink-600'
+                )}
+              >
+                <div className="p-2 rounded-full group-hover:bg-pink-600/10 transition-colors">
+                  {userReaction
+                    ? <span className="text-base leading-none">{userReaction}</span>
+                    : <Heart className="w-5 h-5" />}
+                </div>
+                <span className="text-sm">{formatNumber(likesCount)}</span>
+              </button>
+              {/* Reaction picker flyout */}
+              {showReactionPicker && (
+                <div
+                  className="absolute bottom-full mb-1 left-0 flex gap-0.5 bg-background border border-border rounded-full px-2 py-1.5 shadow-xl z-50"
+                  onMouseEnter={() => setShowReactionPicker(true)}
+                  onMouseLeave={() => setShowReactionPicker(false)}
+                  onClick={e => e.stopPropagation()}
+                >
+                  {REACTIONS.map(emoji => (
+                    <button
+                      key={emoji}
+                      onClick={(e) => handleReact(emoji, e)}
+                      className={cn(
+                        'text-xl transition-all duration-100 hover:scale-125 active:scale-90 rounded-full w-9 h-9 flex items-center justify-center',
+                        userReaction === emoji ? 'bg-primary/10 scale-110 ring-2 ring-primary/20' : 'hover:bg-muted'
+                      )}
+                      title={emoji}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
               )}
-            >
-              <div className="p-2 rounded-full group-hover:bg-pink-600/10 transition-colors">
-                <Heart className={cn('w-5 h-5', isLiked && 'fill-current')} />
-              </div>
-              <span className="text-sm">{formatNumber(likesCount)}</span>
-            </button>
+            </div>
 
             <button 
               className="flex items-center space-x-2 text-muted-foreground hover:text-primary transition-colors group"
