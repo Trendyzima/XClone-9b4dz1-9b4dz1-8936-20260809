@@ -1,5 +1,5 @@
 {
-  "buildCommand": "node build.js",
+  "buildCommand": "node _build.cjs",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
