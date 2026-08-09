@@ -226,42 +226,49 @@ function fixSource(src) {
       return;
     }
 
-    const hookFile = path.join(__dirname, 'vite-fix-loader.mjs');
-    if (!fs.existsSync(hookFile)) {
-      process.stderr.write('[vite-patch] ⚠️  vite-fix-loader.mjs not found — skipping ESM hook\n');
+    // Use String.raw so backslashes in regex literals survive to the file.
+    const HOOK_SOURCE = String.raw`
+// ESM load hook — strips ?? injected by the OnSpace build patcher.
+// Written at build time by vite.config.cjs; do not commit this file.
+export async function load(url, ctx, next) {
+  if (!url.includes('/vite/dist/node/')) return next(url, ctx);
+  const result = await next(url, ctx);
+  if (!result || result.source == null) return result;
+  let s = typeof result.source === 'string' ? result.source : new TextDecoder().decode(result.source);
+  if (!s.includes('??')) return result;
+  s = s.split('code??"", ').join('code, ');
+  s = s.split("code??'', ").join('code, ');
+  s = s.split('code??"",').join('code,');
+  s = s.split("code??'',").join('code,');
+  s = s.split('code??""').join('code');
+  s = s.split("code??''").join('code');
+  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?"([^"\\]*)"/g, '$1');
+  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?'([^'\\]*)'/g, '$1');
+  s = s.replace(/\?\?"[^"]*"/g, '');
+  s = s.replace(/\?\?'[^']*'/g, '');
+  s = s.replace(/\?\?(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g, ' ');
+  s = s.replace(/\?\?(\r?\n[ \t]*)(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g, '$1');
+  s = s.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
+  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
+  process.stderr.write('[esm-hook] 🔧 fixed ' + url.split('/').pop() + '\n');
+  return { ...result, source: s };
+}
+`;
+
+    // Write the hook to a runtime file (not committed; not seen by esbuild checker).
+    const hookPath = path.join(__dirname, '.esm-hook.mjs');
+    try {
+      fs.writeFileSync(hookPath, HOOK_SOURCE, 'utf8');
+    } catch (we) {
+      process.stderr.write('[vite-patch] ⚠️  could not write ESM hook file: ' + we.message + '\n');
       return;
     }
 
-    let sabData = {};
-    let usedAtomics = false;
-    try {
-      if (typeof SharedArrayBuffer !== 'undefined') {
-        const sab = new SharedArrayBuffer(4);
-        const arr = new Int32Array(sab);
-        Atomics.store(arr, 0, 0);
-        sabData = { sab };
-        usedAtomics = true;
-      }
-    } catch (_) {}
-
     nodeModule.register(
-      pathToFileURL(hookFile).href,
-      pathToFileURL(__filename).href,
-      { data: sabData }
+      pathToFileURL(hookPath).href,
+      pathToFileURL(__filename).href
     );
-
-    if (usedAtomics) {
-      const arr = new Int32Array(sabData.sab);
-      const result = Atomics.wait(arr, 0, 0, 5000);
-      process.stderr.write(
-        '[vite-patch] ✅ ESM hook registered (' +
-        (result === 'ok' ? 'synchronised' : result + ' — hook already ready') + ')\n'
-      );
-    } else {
-      const end = Date.now() + 400;
-      while (Date.now() < end) {}
-      process.stderr.write('[vite-patch] ✅ ESM hook registered (spin-wait fallback)\n');
-    }
+    process.stderr.write('[vite-patch] ✅ ESM hook registered (runtime file: .esm-hook.mjs)\n');
   } catch (e) {
     process.stderr.write('[vite-patch] ❌ ESM hook registration failed: ' + e.message + '\n');
   }
