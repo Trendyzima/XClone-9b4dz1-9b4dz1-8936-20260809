@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Play, Pause, Headphones, Calendar, Clock, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Play, Pause, Headphones, Calendar, Clock, Loader2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
@@ -11,6 +12,7 @@ interface SpaceRecordingsPlaylistProps {
 
 export function SpaceRecordingsPlaylist({ spaceId }: SpaceRecordingsPlaylistProps) {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [recordings, setRecordings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -197,6 +199,15 @@ export function SpaceRecordingsPlaylist({ spaceId }: SpaceRecordingsPlaylistProp
                 ) : (
                   <Play className="w-5 h-5" />
                 )}
+              </Button>
+              <Button
+                onClick={() => navigate(`/space-recording/${recording.id}`)}
+                size="icon"
+                variant="ghost"
+                className="rounded-full h-10 w-10 flex-shrink-0"
+                title="Open full player"
+              >
+                <ExternalLink className="w-4 h-4" />
               </Button>
             </div>
 

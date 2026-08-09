@@ -51,6 +51,28 @@ export function StoriesStrip() {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Story Views Analytics ────────────────────────────────────────────────
+  // ── Story Stickers ─────────────────────────────────────────────────────────
+  const [stickers, setStickers] = useState<{ emoji: string; x: number; y: number; id: string }[]>([]);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [draggingSticker, setDraggingSticker] = useState<string | null>(null);
+  const storyPreviewRef = useRef<HTMLDivElement>(null);
+  const STICKER_EMOJIS = ['❤️','😂','🔥','😍','👏','🎉','💯','😎','🙏','💪','🤩','😢','😡','👀','✨','🌟','🎵','🌈','🦋','💫','🤑','😜','🙌','💥','🌸'];
+
+  const addSticker = (emoji: string) => {
+    setStickers(prev => [...prev, { emoji, x: 40 + Math.random() * 20, y: 30 + Math.random() * 30, id: Date.now().toString() }]);
+    setShowStickerPicker(false);
+  };
+
+  const moveDragSticker = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!draggingSticker || !storyPreviewRef.current) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const rect = storyPreviewRef.current.getBoundingClientRect();
+    const xPct = Math.max(2, Math.min(98, ((clientX - rect.left) / rect.width) * 100));
+    const yPct = Math.max(2, Math.min(95, ((clientY - rect.top) / rect.height) * 100));
+    setStickers(prev => prev.map(s => s.id === draggingSticker ? { ...s, x: xPct, y: yPct } : s));
+  };
+
   const [showViewers, setShowViewers] = useState(false);
   const [storyViewers, setStoryViewers] = useState<any[]>([]);
   const [loadingViewers, setLoadingViewers] = useState(false);
@@ -238,11 +260,13 @@ export function StoriesStrip() {
     const { error: upErr } = await supabase.storage.from('posts').upload(path, pendingFile);
     if (upErr) { toast.error('Upload failed'); setUploading(false); return; }
     const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(path);
+    const stickerMeta = stickers.length > 0 ? { stickers } : {};
     const { error: insErr } = await supabase.from('stories').insert({
       user_id: user.id,
       media_url: publicUrl,
       media_type: pendingFile.type.startsWith('video') ? 'video' : 'image',
       caption: pendingCaption.trim() || null,
+      metadata: stickerMeta,
     });
     if (insErr) toast.error('Failed to post story');
     else { toast.success('Story posted!'); await fetchStories(); }
@@ -250,6 +274,8 @@ export function StoriesStrip() {
     setPendingFile(null);
     setPendingCaption('');
     setPendingPreviewUrl(null);
+    setStickers([]);
+    setShowStickerPicker(false);
     setUploading(false);
   };
 
@@ -409,40 +435,87 @@ export function StoriesStrip() {
 
       {/* ── Caption Input Modal ─────────────────────────── */}
       {pendingFile && pendingPreviewUrl && (
-        <div className="fixed inset-0 z-[210] bg-black/85 flex flex-col items-center justify-center p-6 gap-4">
-          <div className="w-full max-w-sm rounded-2xl overflow-hidden">
+        <div className="fixed inset-0 z-[210] bg-black/85 flex flex-col items-center justify-center p-4 gap-3 overflow-y-auto">
+          {/* Preview with sticker overlay */}
+          <div
+            ref={storyPreviewRef}
+            className="relative w-full max-w-sm rounded-2xl overflow-hidden select-none flex-shrink-0"
+            onMouseMove={moveDragSticker}
+            onMouseUp={() => setDraggingSticker(null)}
+            onTouchMove={moveDragSticker}
+            onTouchEnd={() => setDraggingSticker(null)}
+          >
             {pendingFile.type.startsWith('video') ? (
-              <video src={pendingPreviewUrl} className="w-full max-h-[50vh] object-contain" muted playsInline />
+              <video src={pendingPreviewUrl} className="w-full max-h-[45vh] object-contain" muted playsInline />
             ) : (
-              <img src={pendingPreviewUrl} alt="" className="w-full max-h-[50vh] object-contain rounded-2xl" />
+              <img src={pendingPreviewUrl} alt="" className="w-full max-h-[45vh] object-contain rounded-2xl" />
             )}
+            {/* Draggable stickers on preview */}
+            {stickers.map(s => (
+              <div
+                key={s.id}
+                className="absolute text-4xl cursor-grab active:cursor-grabbing select-none"
+                style={{ left: `${s.x}%`, top: `${s.y}%`, transform: 'translate(-50%,-50%)', touchAction: 'none', zIndex: 20 }}
+                onMouseDown={e => { e.stopPropagation(); setDraggingSticker(s.id); }}
+                onTouchStart={e => { e.stopPropagation(); setDraggingSticker(s.id); }}
+                onDoubleClick={e => { e.stopPropagation(); setStickers(prev => prev.filter(st => st.id !== s.id)); }}
+              >
+                {s.emoji}
+              </div>
+            ))}
           </div>
-          <div className="w-full max-w-sm space-y-3">
-            <p className="text-white font-semibold text-center text-sm">Add a caption (optional)</p>
+
+          {/* Sticker picker panel */}
+          {showStickerPicker && (
+            <div className="w-full max-w-sm bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/20 flex-shrink-0">
+              <p className="text-white/70 text-[10px] font-semibold uppercase tracking-widest mb-2 text-center">Tap to add · drag to reposition · double-tap to remove</p>
+              <div className="grid grid-cols-5 gap-1.5">
+                {STICKER_EMOJIS.map(emoji => (
+                  <button key={emoji} onClick={() => addSticker(emoji)}
+                    className="w-11 h-11 flex items-center justify-center text-2xl rounded-xl hover:bg-white/20 active:scale-110 transition-all">
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="w-full max-w-sm space-y-2 flex-shrink-0">
+            {/* Sticker toggle */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowStickerPicker(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                  showStickerPicker ? 'bg-primary border-primary text-white' : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                }`}
+              >
+                <span>🎉</span>
+                Stickers {stickers.length > 0 ? `(${stickers.length})` : ''}
+              </button>
+              {stickers.length > 0 && (
+                <button onClick={() => setStickers([])} className="text-white/50 text-xs hover:text-white/80 transition-colors">
+                  Clear all
+                </button>
+              )}
+            </div>
             <input
               type="text"
               value={pendingCaption}
               onChange={e => setPendingCaption(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && doUpload()}
-              placeholder="Write a caption..."
+              placeholder="Add a caption… (optional)"
               maxLength={200}
               autoFocus
               className="w-full bg-white/10 text-white placeholder:text-white/40 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
             />
             <p className="text-right text-[10px] text-white/40">{pendingCaption.length}/200</p>
             <div className="flex gap-3">
-              <button
-                onClick={cancelPending}
-                disabled={uploading}
-                className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
-              >
+              <button onClick={cancelPending} disabled={uploading}
+                className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-colors disabled:opacity-50">
                 Cancel
               </button>
-              <button
-                onClick={doUpload}
-                disabled={uploading}
-                className="flex-1 py-3 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
+              <button onClick={doUpload} disabled={uploading}
+                className="flex-1 py-3 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                 {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
                 {uploading ? 'Posting…' : 'Share Story'}
               </button>
@@ -639,6 +712,22 @@ export function StoriesStrip() {
                 </button>
               </div>
             )}
+
+            {/* Story stickers overlay */}
+            {(() => {
+              const meta = (story as any).metadata;
+              const stickerList: { emoji: string; x: number; y: number; id: string }[] = meta?.stickers ?? [];
+              if (!stickerList.length) return null;
+              return stickerList.map(s => (
+                <div
+                  key={s.id}
+                  className="absolute text-4xl pointer-events-none select-none"
+                  style={{ left: `${s.x}%`, top: `${s.y}%`, transform: 'translate(-50%,-50%)', zIndex: 22 }}
+                >
+                  {s.emoji}
+                </div>
+              ));
+            })()}
 
             {/* Caption */}
             {story.caption && (

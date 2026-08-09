@@ -486,6 +486,28 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
               post_id: postData.id,
             }))
           );
+          // Also write to mentions table
+          await supabase.from('mentions').insert(
+            mentionedUsers.map(mu => ({
+              post_id: postData.id,
+              mentioned_user_id: mu.id,
+            }))
+          ).select().then(() => {});
+          // Fire push notifications for each mentioned user
+          for (const mu of mentionedUsers) {
+            const { data: tokenData } = await supabase
+              .from('fcm_tokens').select('token').eq('user_id', mu.id).maybeSingle();
+            if (tokenData?.token) {
+              supabase.functions.invoke('send-push-notification', {
+                body: {
+                  token: tokenData.token,
+                  title: `@${user.username} mentioned you`,
+                  body: content.trim().slice(0, 120) + (content.trim().length > 120 ? '\u2026' : ''),
+                  data: { type: 'mention', post_id: postData.id },
+                },
+              }).catch(() => {});
+            }
+          }
           console.log(`[mentions] notified ${mentionedUsers.length} user(s)`);
         }
       }

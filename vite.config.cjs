@@ -80,7 +80,10 @@ function patchViteChunks() {
     let fixed = src;
 
     // ── Blanket fix: identifier??["'..."] → identifier ──────────────────
-    fixed = fixed.replace(/\b(\w+)\s*\?\?\s*["'][^"']*["']/g, '$1');
+    // Also handles identifier(args)??"string" → identifier(args)
+    // e.g. toJSON()??"" { → toJSON() {  (new patcher corruption pattern v4)
+    // No \s* around ?? so we don't strip legitimate: getValue() ?? "default"
+    fixed = fixed.replace(/\b(\w+(?:\([^)]*\))*)\?\?["'][^"']*["']/g, '$1');
 
     // ── Belt-and-suspenders: explicit variants for the known bug ─────────
     if (fixed.includes('replaceDefine(code??')) {
