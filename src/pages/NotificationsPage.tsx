@@ -8,7 +8,7 @@ import {
   Heart, Repeat2, UserPlus, MessageCircle, AtSign,
   BadgeCheck, Loader2, DollarSign, CheckCircle2, Smartphone,
   TrendingUp, Bell, CreditCard, ArrowDownLeft, Globe, UserCheck,
-  Star, ExternalLink, RefreshCw, Flame, Trophy, Zap,
+  Star, ExternalLink, RefreshCw, Flame, Trophy, Zap, XCircle, Megaphone,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
@@ -156,8 +156,11 @@ export default function NotificationsPage() {
       case 'payout_sent':       return <ArrowDownLeft className="w-8 h-8 text-blue-600" />;
       case 'payment_failed':    return <CreditCard className="w-8 h-8 text-destructive" />;
       case 'boost_activated':   return <TrendingUp className="w-8 h-8 text-purple-600" />;
-      case 'streak_milestone':    return <Flame className="w-8 h-8 text-orange-500" />;
-      default:                  return <Bell className="w-8 h-8 text-muted-foreground" />;
+      case 'streak_milestone':   return <Flame className="w-8 h-8 text-orange-500" />;
+      case 'ad_active':          return <CheckCircle2 className="w-8 h-8 text-green-600" />;
+      case 'ad_rejected':        return <XCircle className="w-8 h-8 text-destructive" />;
+      case 'new_ad':             return <Megaphone className="w-8 h-8 text-amber-500" />;
+      default:                   return <Bell className="w-8 h-8 text-muted-foreground" />;
     }
   };
 
@@ -186,6 +189,9 @@ export default function NotificationsPage() {
         return `Payment failed — ${meta.reason ?? 'please try again'}`;
       case 'boost_activated':
         return `Your post boost is now active · Est. reach: ${(meta.estimated_reach ?? 0).toLocaleString()}`;
+      case 'ad_active':          return 'Your ad has been approved and is now live!';
+      case 'ad_rejected':         return 'Your ad was rejected. Check admin notes for details.';
+      case 'new_ad':              return `${username} submitted a new ad for review.`;
       case 'streak_milestone': {
         const day = meta?.streak_day ?? n.from_user_id ? undefined : undefined;
         if (n.from_user_id === user?.id) {
@@ -201,7 +207,7 @@ export default function NotificationsPage() {
   };
 
   const isPaymentType = (type: string) =>
-    ['payment_success', 'payment_sent', 'payment_failed', 'payout_sent', 'deposit_confirmed', 'boost_activated'].includes(type);
+    ['payment_success', 'payment_sent', 'payment_failed', 'payout_sent', 'deposit_confirmed', 'boost_activated', 'ad_active', 'ad_rejected', 'new_ad'].includes(type);
 
   const getStreakMilestoneDay = (n: any): number => {
     // Infer milestone from the notification row; we stored type='streak_milestone'
@@ -215,6 +221,9 @@ export default function NotificationsPage() {
     if (type === 'payment_failed') return 'bg-red-50/50 dark:bg-red-900/10';
     if (type === 'boost_activated') return 'bg-purple-50/50 dark:bg-purple-900/10';
     if (type === 'streak_milestone') return 'bg-orange-50/60 dark:bg-orange-900/10';
+    if (type === 'ad_active') return 'bg-green-50/50 dark:bg-green-900/10';
+    if (type === 'ad_rejected') return 'bg-red-50/50 dark:bg-red-900/10';
+    if (type === 'new_ad') return 'bg-amber-50/50 dark:bg-amber-900/10';
     return '';
   };
 

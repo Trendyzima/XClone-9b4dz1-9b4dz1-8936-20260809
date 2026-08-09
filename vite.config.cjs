@@ -29,21 +29,18 @@ function fixTightDoubleQuestion(src) {
         if (c === '\r' || c === '\n') {
           endPos = i + 2;
         } else if (c === '{') {
-          let depth = 1, k = j + 1;
-          let inStr = false, strCh = '';
-          while (k < n && depth > 0) {
-            const cc = src[k];
-            if (inStr) {
-              if (cc === '\\') k++;
-              else if (cc === strCh) inStr = false;
-            } else {
-              if (cc === '"' || cc === "'" || cc === '`') { inStr = true; strCh = cc; }
-              else if (cc === '{') depth++;
-              else if (cc === '}') depth--;
-            }
-            k++;
+          // Check if empty object: ??{}
+          let k = j + 1;
+          while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
+          if (k < n && src[k] === '}') {
+            // ??{} — empty object literal, remove whole thing
+            endPos = k + 1;
+          } else {
+            // ??{non-empty block} — brace counter can silently fail on regex
+            // literals like /\{/g inside method bodies, leaving ?? intact.
+            // Safer: remove just ?? and keep the { so the block is preserved.
+            endPos = i + 2;
           }
-          if (depth === 0) endPos = k;
         } else if (c === '"' || c === "'") {
           const q = c;
           let k = j + 1;
@@ -56,7 +53,14 @@ function fixTightDoubleQuestion(src) {
         } else {
           const rest = src.slice(j);
           const m = rest.match(/^(null|undefined|false|0)(?!\w)/);
-          if (m) endPos = j + m[1].length;
+          if (m) {
+            endPos = j + m[1].length;
+          } else if (/^[a-zA-Z_$]/.test(c)) {
+            // Identifier as right operand (e.g. ??toJSON, ??returnValue).
+            // The patcher injects ?? before method/property names in positions
+            // that break syntax.  Remove just ?? and preserve the identifier.
+            endPos = i + 2;
+          }
         }
       }
 
