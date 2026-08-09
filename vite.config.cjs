@@ -175,11 +175,11 @@ const { defineConfig } = require('vite');
 // Pass 2: immediately after Vite loads (catches post-require re-corruption)
 patchViteChunks('post-require');
 
-// Passes 3-N: periodic safety net for the first 10 seconds
+// Passes 3-N: periodic safety net for the first 4 seconds (reduced from 50→20 passes)
 let periodicPasses = 0;
 const periodicInterval = setInterval(() => {
   patchViteChunks('periodic-' + (++periodicPasses));
-  if (periodicPasses >= 50) clearInterval(periodicInterval); // stop after 10s
+  if (periodicPasses >= 20) clearInterval(periodicInterval); // stop after 4s
 }, 200);
 
 // ─────────────────────────────────────────────────────────────────────────────

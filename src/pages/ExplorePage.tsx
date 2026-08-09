@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
-import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check } from 'lucide-react';
+import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check, Trophy, Gift, Clock, Hash, ChevronRight, Loader2 } from 'lucide-react';
+import { formatDistanceToNow, isPast } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,6 +28,10 @@ export default function ExplorePage() {
   const [prefCategories, setPrefCategories] = useState<string[]>(['News', 'Sports', 'Entertainment', 'Politics', 'Technology']);
   const [prefCountry, setPrefCountry] = useState('Kenya');
   const [showWhoToFollow, setShowWhoToFollow] = useState(true);
+  const [activeChallenges, setActiveChallenges] = useState<any[]>([]);
+  const [showCreateChallenge, setShowCreateChallenge] = useState(false);
+  const [challengeForm, setChallengeForm] = useState({ title: '', description: '', prize: '', end_date: '', hashtag: '' });
+  const [creatingChallenge, setCreatingChallenge] = useState(false);
 
   const ALL_CATEGORIES = ['News', 'Sports', 'Entertainment', 'Politics', 'Technology', 'Music', 'Science', 'Business'];
   const COUNTRIES = ['Kenya', 'Nigeria', 'USA', 'UK', 'India', 'South Africa', 'Tanzania', 'Uganda'];
@@ -42,6 +47,7 @@ export default function ExplorePage() {
 
   useEffect(() => {
     fetchData();
+    fetchActiveChallenges();
   }, [activeTab, user?.id]);
 
   const fetchData = async () => {
@@ -110,6 +116,59 @@ export default function ExplorePage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+  };
+
+  const fetchActiveChallenges = async () => {
+    const { data } = await supabase
+      .from('hashtag_challenges')
+      .select('*, hashtags(tag)')
+      .eq('is_active', true)
+      .gte('end_date', new Date().toISOString())
+      .order('entry_count', { ascending: false })
+      .limit(5);
+    setActiveChallenges(data ?? []);
+  };
+
+  const handleCreateChallenge = async () => {
+    if (!user) { navigate('/auth'); return; }
+    if (!challengeForm.title || !challengeForm.end_date || !challengeForm.hashtag) {
+      toast.error('Please fill in title, hashtag, and end date');
+      return;
+    }
+    setCreatingChallenge(true);
+    try {
+      // Get or create hashtag
+      let hashtagId: string | null = null;
+      const cleanTag = challengeForm.hashtag.replace(/^#/, '');
+      const { data: existingTag } = await supabase
+        .from('hashtags').select('id').eq('tag', cleanTag).maybeSingle();
+      if (existingTag) {
+        hashtagId = existingTag.id;
+      } else {
+        const { data: newTag } = await supabase
+          .from('hashtags').insert({ tag: cleanTag, usage_count: 0 }).select('id').single();
+        hashtagId = newTag?.id ?? null;
+      }
+      if (!hashtagId) throw new Error('Could not create hashtag');
+      await supabase.from('hashtag_challenges').insert({
+        title: challengeForm.title,
+        description: challengeForm.description || null,
+        prize: challengeForm.prize || null,
+        end_date: new Date(challengeForm.end_date).toISOString(),
+        hashtag_id: hashtagId,
+        created_by: user.id,
+        entry_count: 0,
+        is_active: true,
+      });
+      toast.success('Challenge created!');
+      setShowCreateChallenge(false);
+      setChallengeForm({ title: '', description: '', prize: '', end_date: '', hashtag: '' });
+      fetchActiveChallenges();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setCreatingChallenge(false);
+    }
   };
 
   const navigateTopic = (topic: string) =>
@@ -255,6 +314,95 @@ export default function ExplorePage() {
       {activeTab === 'Explore' && (
         <div>
           {/* Today's News */}
+          {/* Hashtag Challenges */}
+          {(activeChallenges.length > 0 || user?.verified) && (
+            <section className="border-b border-border">
+              <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                <h2 className="font-bold text-xl flex items-center gap-2"><Trophy className="w-5 h-5 text-yellow-500" />Challenges</h2>
+                {user?.verified && (
+                  <button
+                    onClick={() => setShowCreateChallenge(true)}
+                    className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                  >
+                    + Create
+                  </button>
+                )}
+              </div>
+              {activeChallenges.length === 0 ? (
+                <div className="px-4 pb-4">
+                  <p className="text-sm text-muted-foreground">No active challenges. {user?.verified ? 'Create one!' : 'Only verified users can create challenges.'}</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {activeChallenges.map(challenge => (
+                    <button
+                      key={challenge.id}
+                      onClick={() => navigate(`/challenge/${challenge.id}`)}
+                      className="w-full text-left px-4 py-3 hover:bg-muted/30 transition-colors flex items-start gap-3"
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                        <Trophy className="w-5 h-5 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm leading-snug">{challenge.title}</p>
+                        {challenge.hashtags?.tag && (
+                          <p className="text-xs text-primary mt-0.5">#{challenge.hashtags.tag}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><Hash className="w-3 h-3" />{challenge.entry_count ?? 0} entries</span>
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDistanceToNow(new Date(challenge.end_date), { addSuffix: true })}</span>
+                          {challenge.prize && <span className="flex items-center gap-1"><Gift className="w-3 h-3 text-amber-500" />{challenge.prize.slice(0, 30)}</span>}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Create Challenge Modal */}
+          {showCreateChallenge && (
+            <div className="fixed inset-0 z-[300] bg-black/60 flex items-end" onClick={() => setShowCreateChallenge(false)}>
+              <div className="w-full bg-background rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <h2 className="font-bold text-lg">Create Challenge</h2>
+                  <button onClick={() => setShowCreateChallenge(false)} className="p-2 rounded-full hover:bg-muted"><X className="w-5 h-5" /></button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1 block">Title *</label>
+                    <input value={challengeForm.title} onChange={e => setChallengeForm(p => ({ ...p, title: e.target.value }))} placeholder="Challenge title" className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1 block">Hashtag * (without #)</label>
+                    <input value={challengeForm.hashtag} onChange={e => setChallengeForm(p => ({ ...p, hashtag: e.target.value.replace(/^#/, '') }))} placeholder="mychallenge" className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1 block">Description</label>
+                    <textarea value={challengeForm.description} onChange={e => setChallengeForm(p => ({ ...p, description: e.target.value }))} placeholder="What's the challenge about?" rows={2} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1 block">Prize (optional)</label>
+                    <input value={challengeForm.prize} onChange={e => setChallengeForm(p => ({ ...p, prize: e.target.value }))} placeholder="e.g. $50 gift card" className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1 block">End Date *</label>
+                    <input type="date" value={challengeForm.end_date} onChange={e => setChallengeForm(p => ({ ...p, end_date: e.target.value }))} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                  <button
+                    onClick={handleCreateChallenge}
+                    disabled={creatingChallenge}
+                    className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {creatingChallenge ? <><Loader2 className="w-4 h-4 animate-spin" />Creating…</> : <><Trophy className="w-4 h-4" />Launch Challenge</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {newsItems.length > 0 && (
             <section className="border-b border-border">
               <div className="px-4 pt-4 pb-2">

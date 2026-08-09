@@ -71,6 +71,7 @@ const DiscoverPage = lazy(() => import('@/pages/DiscoverPage'));
 const ReferralPage = lazy(() => import('@/pages/ReferralPage'));
 const SpaceRecordingViewerPage = lazy(() => import('@/pages/SpaceRecordingViewerPage'));
 const TrendingTopicFeedPage = lazy(() => import('@/pages/TrendingTopicFeedPage'));
+const HashtagChallengePage = lazy(() => import('@/pages/HashtagChallengePage'));
 
 function PageLoader() {
   return (
@@ -175,6 +176,7 @@ function AppInner() {
               <Route path="/referral" element={<ReferralPage />} />
               <Route path="/space-recording/:id" element={<SpaceRecordingViewerPage />} />
               <Route path="/trending/:topic" element={<TrendingTopicFeedPage />} />
+              <Route path="/challenge/:id" element={<HashtagChallengePage />} />
             </Routes>
           </Suspense>
         </main>
