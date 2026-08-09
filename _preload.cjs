@@ -1,25 +1,23 @@
 /**
  * _preload.cjs  v4
  *
- * Two layers of protection against the OnSpace Vite chunk patcher:
+ * Three layers of protection against the OnSpace Vite chunk patcher:
  *
  *  1. DISK PATCH   — fix dep-*.js files on disk at startup + chmod 444.
- *  2. CJS HOOK     — Module.prototype._compile intercepts any CJS require.
- *
- * The ESM hook is handled separately:
- *  - Vercel builds: --experimental-loader vite-fix-loader.mjs (synchronous,
- *    guaranteed active before any ESM load, set by _build.cjs)
- *  - OnSpace preview: vite.config.cjs registers it via Module.register()
- *
- * NOTE: Module.register() is NOT called here because it is asynchronous
- * (sends a message to the ESM loader worker thread) and may not complete
- * before Vite's first ESM import, making it unreliable as a --require hook.
+ *  2. ESM HOOK     — Module.register(vite-fix-loader.mjs). In Node 20.6+,
+ *                    module.register() from a CJS --require preload is
+ *                    SYNCHRONOUS (uses Atomics.wait) so the hook is active
+ *                    before Vite's first ESM import.
+ *                    For Vercel, _build.cjs also passes --experimental-loader
+ *                    as a belt-and-suspenders guarantee.
+ *  3. CJS HOOK     — Module.prototype._compile intercepts any CJS require.
  */
 
 'use strict';
 const fs     = require('fs');
 const path   = require('path');
 const Module = require('module');
+const { pathToFileURL } = require('url');
 
 const CHUNKS_DIR = path.join(__dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks');
 
@@ -101,7 +99,29 @@ function patchAll(label) {
 // ─── STEP 1: Patch existing chunks immediately ───────────────────────────────
 patchAll('startup');
 
-// ─── STEP 2: Module._compile hook (CJS fallback) ────────────────────────────
+// ─── STEP 2: ESM hook via Module.register() ────────────────────────────────────
+// Module.register() from a CJS --require preload is synchronous in Node 20.6+
+// (blocks via Atomics.wait until the hook thread is ready). The hook is active
+// before any ESM import the main process makes.
+(function registerEsmHook() {
+  if (typeof Module.register !== 'function') return; // Node < 20.6
+  const loaderPath = path.join(__dirname, 'vite-fix-loader.mjs');
+  if (!fs.existsSync(loaderPath)) {
+    process.stderr.write('[preload-fix] ⚠️  vite-fix-loader.mjs not found — ESM hook skipped\n');
+    return;
+  }
+  try {
+    Module.register(
+      pathToFileURL(loaderPath).href,
+      pathToFileURL(__filename).href
+    );
+    process.stderr.write('[preload-fix] ✅ ESM hook registered (vite-fix-loader.mjs)\n');
+  } catch (e) {
+    process.stderr.write('[preload-fix] ⚠️  Module.register failed: ' + e.message + '\n');
+  }
+})();
+
+// ─── STEP 3: Module._compile hook (CJS fallback) ────────────────────────────
 const _origCompile = Module.prototype._compile;
 Module.prototype._compile = function _compileFix(content, filename) {
   if (filename && filename.includes('/vite/dist/node/') && content.includes('??')) {
@@ -114,7 +134,7 @@ Module.prototype._compile = function _compileFix(content, filename) {
   return _origCompile.call(this, content, filename);
 };
 
-// ─── STEP 3: fs.watch — catch patcher re-injection after startup ─────────────
+// ─── STEP 4: fs.watch — catch patcher re-injection after startup ─────────────
 (function watchChunks() {
   if (!fs.existsSync(CHUNKS_DIR)) return;
   let files;
@@ -133,4 +153,4 @@ Module.prototype._compile = function _compileFix(content, filename) {
   });
 })();
 
-process.stderr.write('[preload-fix] ✅ preload v4 installed (disk-patch + CJS hook + watcher)\n');
+process.stderr.write('[preload-fix] ✅ preload v4 installed (disk-patch + ESM hook + CJS hook + watcher)\n');
