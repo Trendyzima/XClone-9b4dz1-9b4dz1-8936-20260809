@@ -69,6 +69,7 @@ const DailyRewardsPage = lazy(() => import('@/pages/DailyRewardsPage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
 const DiscoverPage = lazy(() => import('@/pages/DiscoverPage'));
 const ReferralPage = lazy(() => import('@/pages/ReferralPage'));
+const SpaceRecordingViewerPage = lazy(() => import('@/pages/SpaceRecordingViewerPage'));
 
 function PageLoader() {
   return (
@@ -171,6 +172,7 @@ function AppInner() {
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/discover" element={<DiscoverPage />} />
               <Route path="/referral" element={<ReferralPage />} />
+              <Route path="/space-recording/:id" element={<SpaceRecordingViewerPage />} />
             </Routes>
           </Suspense>
         </main>

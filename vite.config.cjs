@@ -3,19 +3,42 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy A — ESM module load hook
+// Strategy A — ESM module load hook  (v5: synchronized startup)
 //
-// v3: The hook now reads the file directly with readFileSync() and returns the
-//     fixed source with shortCircuit:true, so it is immune to the race between
-//     hook-thread startup and the first ESM import of the corrupted chunk.
+// Problem: module.register() is async. The hook worker needs time to spin up.
+// If Vite loads dep-C6uTJdX2.js during that window the hook misses it and
+// Node's default loader sees the corrupted source → SyntaxError.
+//
+// Fix: use SharedArrayBuffer + Atomics to BLOCK the main thread here until
+// the hook worker calls initialize() and signals it is ready.  After the
+// Atomics.wait() returns the hook is guaranteed to intercept every subsequent
+// ESM import, including the corrupted Vite chunks.
 // ═══════════════════════════════════════════════════════════════════════════════
 try {
   const nodeModule = require('module');
   if (typeof nodeModule.register === 'function') {
     const hookFile = path.join(__dirname, 'vite-fix-loader.mjs');
     if (fs.existsSync(hookFile)) {
-      nodeModule.register(pathToFileURL(hookFile).href);
-      process.stderr.write('[vite-patch] \u2705 ESM load hook registered\n');
+      // Create a 4-byte shared buffer: 0 = hook not ready, 1 = hook ready
+      const sab = new SharedArrayBuffer(4);
+      const arr = new Int32Array(sab);
+      Atomics.store(arr, 0, 0);
+
+      // Register the hook and pass the SAB so initialize() can signal us
+      nodeModule.register(
+        pathToFileURL(hookFile).href,
+        pathToFileURL(__filename).href,
+        { data: { sab } }
+      );
+
+      // Block until the hook worker signals it is alive (≤ 1 000 ms)
+      const waitResult = Atomics.wait(arr, 0, 0, 1000);
+      if (waitResult === 'ok') {
+        process.stderr.write('[vite-patch] \u2705 ESM load hook registered & synchronized\n');
+      } else {
+        // timed-out — hook might still work, just wasn't signalled in time
+        process.stderr.write('[vite-patch] \u26a0\ufe0f  ESM hook timeout (' + waitResult + ') — proceeding anyway\n');
+      }
     } else {
       process.stderr.write('[vite-patch] \u26a0\ufe0f  vite-fix-loader.mjs not found \u2013 skipping hook\n');
     }
@@ -29,12 +52,13 @@ try {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Strategy B — Disk-based fix
 //
-// v3 additions:
-//   • Scans ALL .js files in the chunks dir (not just dep-*).
-//   • After writing the fixed content, chmod 444 (read-only) to prevent the
-//     OnSpace patcher from re-corrupting the file in the same build run.
-//   • The next call to patchViteChunks() first chmod 644 to allow our own
-//     write, so multiple invocations are safe.
+// Scans ALL .js files in Vite's chunks dir and removes the ?? corruption the
+// OnSpace patcher injects.  Runs three times (pre-require, post-require,
+// buildStart) to catch re-corruption by the patcher at any phase.
+//
+// Note: chmod 444 is kept as a best-effort lock.  On systems where the patcher
+// runs as root it will be ignored, but the ESM hook (Strategy A) then acts as
+// the definitive fix.
 // ═══════════════════════════════════════════════════════════════════════════════
 function patchViteChunks() {
   const chunksDir = path.join(
@@ -65,27 +89,23 @@ function patchViteChunks() {
       src = fs.readFileSync(fpath, 'utf8');
     } catch (e) {
       process.stderr.write('[vite-patch] read error for ' + fname + ': ' + e.message + '\n');
-      // Re-lock even on read failure so the patcher can't sneak in
       try { fs.chmodSync(fpath, 0o444); } catch (_) {}
       continue;
     }
 
     // Fast exit — no ?? corruption present
     if (!src.includes('??')) {
-      // Still lock it so the patcher can't add corruption later
       try { fs.chmodSync(fpath, 0o444); } catch (_) {}
       continue;
     }
 
     let fixed = src;
 
-    // ── Blanket fix: identifier??["'..."] → identifier ──────────────────
-    // Also handles identifier(args)??"string" → identifier(args)
-    // e.g. toJSON()??"" { → toJSON() {  (new patcher corruption pattern v4)
-    // No \s* around ?? so we don't strip legitimate: getValue() ?? "default"
+    // Blanket fix: identifier(optional args)??"string" → identifier(optional args)
+    // No \s* around ?? — avoids touching legitimate  value ?? "default"  patterns
     fixed = fixed.replace(/\b(\w+(?:\([^)]*\))*)\?\?["'][^"']*["']/g, '$1');
 
-    // ── Belt-and-suspenders: explicit variants for the known bug ─────────
+    // Belt-and-suspenders for the known replaceDefine variants
     if (fixed.includes('replaceDefine(code??')) {
       fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
       fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
@@ -104,9 +124,7 @@ function patchViteChunks() {
       process.stderr.write('[vite-patch] write error for ' + fname + ': ' + e.message + '\n');
     }
 
-    // ── Lock the file so the patcher cannot re-corrupt it ────────────────
-    // chmod 444 = read-only for owner/group/other.  Our next patchViteChunks()
-    // call starts with chmod 644 so we can still re-fix if needed.
+    // Best-effort lock (prevents non-root patcher re-corruption)
     try {
       fs.chmodSync(fpath, 0o444);
       process.stderr.write('[vite-patch] \ud83d\udd12 locked ' + fname + '\n');
@@ -114,15 +132,14 @@ function patchViteChunks() {
   }
 }
 
-// Run once before requiring Vite — fixes any corruption the patcher may have
-// already applied during the pre-build phase.
+// Run once before requiring Vite
 patchViteChunks();
 
 // ─────────────────────────────────────────────────────────────────────────────
 const { defineConfig } = require('vite');
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Run again immediately after Vite is loaded (belt-and-suspenders).
+// Run again immediately after Vite is loaded
 patchViteChunks();
 
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
@@ -165,8 +182,6 @@ module.exports = defineConfig({
     rollupOptions: {
       plugins: [
         // ── Strategy C: buildStart re-patch ──────────────────────────────
-        // Catches any patcher run that happens between config evaluation and
-        // the start of the actual Rollup transform phase.
         {
           name: 'vite-chunk-repatch',
           buildStart() {
@@ -175,18 +190,6 @@ module.exports = defineConfig({
         },
 
         // ── Strategy D: Rollup ESM/CJS interop fix ───────────────────────
-        //
-        // Rollup's static linker fails before interop runs when .mjs/.js ESM
-        // files in node_modules import named exports from CJS React packages.
-        //
-        // Fix 1: default imports → namespace import
-        //   import React from 'react'
-        //   → import * as React from 'react'
-        //
-        // Fix 2: named imports from CJS packages → namespace + destructure
-        //   import { jsx, Fragment as F } from 'react/jsx-runtime'
-        //   → import * as _ci0 from 'react/jsx-runtime';
-        //     const { jsx, Fragment: F } = _ci0;
         {
           name: 'fix-esm-cjs-react-interop',
           transform(code, id) {
