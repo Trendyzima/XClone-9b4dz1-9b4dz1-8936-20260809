@@ -26,12 +26,34 @@ export default function SpacesPage() {
   const [showManageDialog, setShowManageDialog] = useState(false);
   const [selectedSpace, setSelectedSpace] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
+  // Live viewer counts: spaceId → participant count
+  const [liveViewerCounts, setLiveViewerCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     fetchSpaces();
     fetchAllRecordings();
     if (user) fetchUserProfile();
   }, [user]);
+
+  // Poll participant counts every 10s for all live spaces
+  useEffect(() => {
+    if (spaces.length === 0) return;
+    const pollViewers = async () => {
+      const ids = spaces.map(s => s.id);
+      const { data } = await supabase
+        .from('space_participants')
+        .select('space_id')
+        .in('space_id', ids);
+      if (!data) return;
+      const counts: Record<string, number> = {};
+      for (const id of ids) counts[id] = 0;
+      for (const row of data) counts[row.space_id] = (counts[row.space_id] ?? 0) + 1;
+      setLiveViewerCounts(counts);
+    };
+    pollViewers();
+    const iv = setInterval(pollViewers, 10_000);
+    return () => clearInterval(iv);
+  }, [spaces]);
 
   const fetchUserProfile = async () => {
     if (!user) return;
@@ -163,12 +185,19 @@ export default function SpacesPage() {
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1.5 text-red-500 font-bold">
-                        <span className="w-2 h-2 rounded-full bg-red-500 animate-live-pulse" />
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                         LIVE
                       </span>
                       <span>·</span>
                       <Users className="w-4 h-4" />
                       <span>{formatNumber(space.listener_count)} listening</span>
+                      {/* Live participant count badge */}
+                      {liveViewerCounts[space.id] !== undefined && (
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-600 text-xs font-semibold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                          {liveViewerCounts[space.id]} live
+                        </span>
+                      )}
                       {space.has_video && (
                         <>
                           <span>·</span>

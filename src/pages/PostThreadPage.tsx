@@ -3,11 +3,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
+import { PollCard } from '@/components/features/PollCard';
+import { CreatePollDialog } from '@/components/features/CreatePollDialog';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types';
-import { Loader2, Send, BadgeCheck, Twitter, Facebook, Link2, MessageCircle } from 'lucide-react';
+import { Loader2, Send, BadgeCheck, Twitter, Facebook, Link2, MessageCircle, BarChart3, X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -93,6 +95,12 @@ export default function PostThreadPage() {
   const [liveReplyCount, setLiveReplyCount] = useState<number | null>(null);
   const [newReplyCount, setNewReplyCount] = useState(0);
   const knownReplyCount = useRef<number | null>(null);
+  // Maps reply.id → pollPost.id for inline poll display
+  const [replyPollPostIds, setReplyPollPostIds] = useState<Record<string, string>>({});
+
+  // Poll in reply state
+  const [showPollDialog, setShowPollDialog] = useState(false);
+  const [replyPollData, setReplyPollData] = useState<{ question: string; options: string[]; duration: number } | null>(null);
 
   // Poll reply count every 10s — show floating pill when new replies arrive
   useEffect(() => {
@@ -172,16 +180,42 @@ export default function PostThreadPage() {
 
     setSubmitting(true);
     try {
-      const { error: insertError } = await supabase.from('replies').insert({
+      const { data: newReply, error: insertError } = await supabase.from('replies').insert({
         post_id: postId,
         user_id: user.id,
         content: replyContent.trim(),
-      });
+      }).select().single();
       if (insertError) throw insertError;
+
+      // Attach poll to this reply's post if user added one
+      if (replyPollData && newReply) {
+        // Create a mini post record for the poll linked to the reply content
+        const { data: pollPost } = await supabase.from('posts').insert({
+          user_id: user.id,
+          content: replyContent.trim(),
+          community_id: null,
+        }).select().single();
+        if (pollPost) {
+          const expiresAt = new Date(Date.now() + replyPollData.duration * 60 * 1000);
+          const { data: poll } = await supabase.from('polls').insert({
+            post_id: pollPost.id,
+            question: replyPollData.question,
+            expires_at: expiresAt.toISOString(),
+          }).select().single();
+          if (poll) {
+            await supabase.from('poll_options').insert(
+              replyPollData.options.map(opt => ({ poll_id: poll.id, option_text: opt }))
+            );
+          }
+          // Store pollPostId in a ref so we can display it
+          setReplyPollPostIds(prev => ({ ...prev, [newReply.id]: pollPost.id }));
+        }
+        setReplyPollData(null);
+      }
 
       if (post) {
         await supabase.from('posts')
-          .update({ replies_count: (post.replies_count || 0) + 1 }) // Added nullish coalescing for replies_count
+          .update({ replies_count: (post.replies_count || 0) + 1 })
           .eq('id', postId);
       }
 
@@ -358,16 +392,40 @@ export default function PostThreadPage() {
                 className="min-h-[80px] border-0 resize-none focus-visible:ring-0 p-0 text-base bg-transparent"
                 maxLength={280}
               />
+              {/* Poll preview when attached */}
+              {replyPollData && (
+                <div className="mt-2 p-3 border border-border rounded-xl bg-muted/30 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <BarChart3 className="w-4 h-4 text-primary shrink-0" />
+                    <span className="text-sm font-medium truncate">{replyPollData.question}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{replyPollData.options.length} options</span>
+                  </div>
+                  <button onClick={() => setReplyPollData(null)} className="p-1 text-muted-foreground hover:text-foreground shrink-0"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              )}
               <div className="flex items-center justify-between mt-3 pt-2 border-t border-border">
-                {replyContent.length > 0 && (
-                  <span className={`text-sm ${replyContent.length > 260 ? 'text-destructive' : 'text-muted-foreground'}`}>
-                    {replyContent.length}/280
-                  </span>
-                )}
+                <div className="flex items-center gap-1">
+                  {replyContent.length > 0 && (
+                    <span className={`text-sm ${replyContent.length > 260 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {replyContent.length}/280
+                    </span>
+                  )}
+                  {/* Poll attach button */}
+                  <button
+                    onClick={() => setShowPollDialog(true)}
+                    disabled={!!replyPollData}
+                    className={`ml-2 p-2 rounded-full transition-colors disabled:opacity-40 ${
+                      replyPollData ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-muted-foreground hover:text-primary'
+                    }`}
+                    title="Attach poll to reply"
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                  </button>
+                </div>
                 <Button
                   onClick={handleReply}
                   disabled={submitting || !replyContent.trim() || replyContent.length > 280}
-                  className="rounded-full px-6 font-semibold ml-auto"
+                  className="rounded-full px-6 font-semibold"
                 >
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                     <>
@@ -432,6 +490,12 @@ export default function PostThreadPage() {
                       </span>
                     </div>
                     <p className="text-foreground mt-1 whitespace-pre-wrap break-words">{reply.content}</p>
+                  {/* Inline Poll — if this reply has an attached poll */}
+                  {replyPollPostIds[reply.id] && (
+                    <div className="mt-2">
+                      <PollCard postId={replyPollPostIds[reply.id]} />
+                    </div>
+                  )}
                   </div>
                 </div>
               </div>
@@ -439,6 +503,17 @@ export default function PostThreadPage() {
           </>
         )}
       </div>
+
+      {/* Poll creation dialog for replies */}
+      {showPollDialog && (
+        <CreatePollDialog
+          onClose={() => setShowPollDialog(false)}
+          onPollCreated={(data) => {
+            setReplyPollData(data);
+            setShowPollDialog(false);
+          }}
+        />
+      )}
     </div>
   );
 }

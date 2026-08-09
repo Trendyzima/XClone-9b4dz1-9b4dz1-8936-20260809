@@ -26,6 +26,39 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<NotifTab>('all');
   const [page, setPage] = useState(0);
 
+  // ── Group consecutive like/repost rows by post_id ────────────────────────
+  function groupNotifications(notifs: any[]): any[] {
+    const result: any[] = [];
+    let i = 0;
+    while (i < notifs.length) {
+      const n = notifs[i];
+      if (n.type === 'like' || n.type === 'repost') {
+        // collect all same-type + same-post consecutive rows
+        const group: any[] = [n];
+        let j = i + 1;
+        while (
+          j < notifs.length &&
+          notifs[j].type === n.type &&
+          notifs[j].post_id === n.post_id
+        ) {
+          group.push(notifs[j]);
+          j++;
+        }
+        if (group.length > 1) {
+          result.push({ _grouped: true, type: n.type, post_id: n.post_id, post: n.post, items: group, created_at: n.created_at, read: group.every(g => g.read) });
+          i = j;
+        } else {
+          result.push(n);
+          i++;
+        }
+      } else {
+        result.push(n);
+        i++;
+      }
+    }
+    return result;
+  }
+
   // Live Fediverse inbox polling (30s interval)
   const { notifs: fedNotifs, loading: fedLoading, lastPolled, refresh: refreshFed } =
     useFediversePolling(activeTab === 'fediverse' ? user?.id : null);
@@ -361,8 +394,58 @@ export default function NotificationsPage() {
           </div>
         ) : (
           <div>
-            {notifications.map((n: any, idx: number) =>
-              n.type === 'streak_milestone' ? (
+            {groupNotifications(notifications).map((n: any, idx: number) =>
+              // ── Grouped like / repost row ──────────────────────────────────
+              n._grouped ? (
+                <div
+                  key={`group-${n.type}-${n.post_id}-${idx}`}
+                  ref={idx === notifications.length - 1 ? lastElementRef : null}
+                  onClick={() => n.post_id && navigate(`/post/${n.post_id}`)}
+                  className={`border-b border-border p-4 hover:bg-muted/5 cursor-pointer transition-colors ${
+                    !n.read ? 'bg-primary/3' : ''
+                  }`}
+                >
+                  <div className="flex gap-3 items-start">
+                    <div className="flex-shrink-0 pt-1">{getIcon(n.type)}</div>
+                    <div className="flex-1 min-w-0">
+                      {/* Stacked avatars */}
+                      <div className="flex items-center mb-1.5">
+                        {n.items.slice(0, 5).map((item: any, ai: number) => (
+                          <div
+                            key={item.id}
+                            className="w-7 h-7 rounded-full bg-muted border-2 border-background overflow-hidden -ml-1 first:ml-0 shrink-0"
+                            style={{ zIndex: 5 - ai }}
+                          >
+                            {item.from_user?.avatar_url
+                              ? <img src={item.from_user.avatar_url} alt={item.from_user.username} className="w-full h-full object-cover" />
+                              : <div className="w-full h-full flex items-center justify-center text-[9px] font-bold">{item.from_user?.username?.[0]?.toUpperCase() ?? '?'}</div>
+                            }
+                          </div>
+                        ))}
+                        {n.items.length > 5 && (
+                          <div className="w-7 h-7 rounded-full bg-muted border-2 border-background -ml-1 flex items-center justify-center text-[9px] font-bold text-muted-foreground shrink-0">
+                            +{n.items.length - 5}
+                          </div>
+                        )}
+                        {!n.read && <div className="w-2 h-2 bg-primary rounded-full ml-auto shrink-0" />}
+                      </div>
+                      {/* Summary text */}
+                      <p className="text-sm">
+                        <span className="font-bold">{n.items[0].from_user?.username ?? 'Someone'}</span>
+                        {n.items.length === 2 && <> and <span className="font-bold">{n.items[1].from_user?.username ?? 'another'}</span></>}
+                        {n.items.length > 2 && <> and <span className="font-semibold">{n.items.length - 1} others</span></>}
+                        <span className="text-muted-foreground">{n.type === 'like' ? ' liked' : ' reposted'} your post</span>
+                      </p>
+                      {n.post?.content && (
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{n.post.content}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : n.type === 'streak_milestone' ? (
                 <div
                   key={n.id}
                   ref={idx === notifications.length - 1 ? lastElementRef : null}
