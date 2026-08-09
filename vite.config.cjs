@@ -3,11 +3,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy A — ESM module load hook  (v9)
-//
-// v9 key change: primary regex now uses lookbehind (?<=[^\s]) to match only
-// tight-?? (no whitespace before ??), which is the patcher's signature.
-// Also uses gs flags for dotAll + global, catching multi-line injections.
+// Strategy A — ESM module load hook  (v10)
 // ═══════════════════════════════════════════════════════════════════════════════
 (function registerEsmHook() {
   try {
@@ -23,7 +19,6 @@ const { pathToFileURL } = require('url');
       return;
     }
 
-    // Optional Atomics synchronisation so main thread waits until hook worker is up
     let sabData = {};
     let usedAtomics = false;
     try {
@@ -34,7 +29,7 @@ const { pathToFileURL } = require('url');
         sabData = { sab };
         usedAtomics = true;
       }
-    } catch (_) { /* SharedArrayBuffer unavailable */ }
+    } catch (_) {}
 
     nodeModule.register(
       pathToFileURL(hookFile).href,
@@ -44,16 +39,14 @@ const { pathToFileURL } = require('url');
 
     if (usedAtomics) {
       const arr = new Int32Array(sabData.sab);
-      const result = Atomics.wait(arr, 0, 0, 5000); // up to 5s
-      if (result === 'ok') {
-        process.stderr.write('[vite-patch] ✅ ESM hook registered & synchronised\n');
-      } else {
-        // 'not-equal' means hook worker already signalled before we waited — that's fine
-        process.stderr.write('[vite-patch] ✅ ESM hook registered (' + result + ' — hook already ready)\n');
-      }
+      const result = Atomics.wait(arr, 0, 0, 5000);
+      process.stderr.write(
+        '[vite-patch] ✅ ESM hook registered (' +
+        (result === 'ok' ? 'synchronised' : result + ' — hook already ready') + ')\n'
+      );
     } else {
       const end = Date.now() + 400;
-      while (Date.now() < end) { /* spin-wait */ }
+      while (Date.now() < end) {}
       process.stderr.write('[vite-patch] ✅ ESM hook registered (spin-wait fallback)\n');
     }
   } catch (e) {
@@ -62,45 +55,119 @@ const { pathToFileURL } = require('url');
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Strategy B — Disk-based fix + continuous file watchers  (v9)
+// Strategy B — Disk-based fix + continuous file watchers  (v10)
 //
-// v9: Same lookbehind-based regex as the ESM hook, plus fs.watch OS-level
-//     events + fs.watchFile polling + periodic passes every 200ms.
+// Uses the same character-by-character brace-counting approach as the ESM hook.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ── Disk-fix corruption regex (mirrors vite-fix-loader.mjs) ─────────────────
-//
-// Lookbehind (?<=[^\s]): ?? not preceded by whitespace = patcher-injected.
-// gs flags: dotAll + global — catches multi-line injections.
-//
-const CORRUPT_RE_DISK =
-  /(?<=[^\s])\?\?\s*(?:"[^"]*"|'[^']*'|\{(?:[^{}]|\{[^{}]*\})*\}|\[\s*\]|null\b|undefined\b|false\b|0\b)/gs;
+// ─────────────────────────────────────────────────────────────────────────────
+// fixTightDoubleQuestion(src)
+// Mirrors the function in vite-fix-loader.mjs exactly.
+// ─────────────────────────────────────────────────────────────────────────────
+function fixTightDoubleQuestion(src) {
+  const n = src.length;
+  let out = '';
+  let i = 0;
 
-// Identifier-capture fallback regex (no lookbehind required)
-const CORRUPT_RE_FALLBACK =
-  /\b(\w+(?:\([^)]*\))*)\?\?\s*(?:"[^"]*"|'[^']*'|\{(?:[^{}]|\{[^{}]*\})*\}|\[\s*\]|null\b|undefined\b|false\b|0\b)/g;
+  while (i < n) {
+    if (
+      src[i] === '?' &&
+      i + 1 < n && src[i + 1] === '?' &&
+      i > 0 && !/[\s]/.test(src[i - 1])
+    ) {
+      let j = i + 2;
+      // Skip horizontal whitespace only
+      while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
+
+      let endPos = -1;
+
+      if (j >= n) {
+        endPos = i + 2; // ?? at end of file
+      } else {
+        const c = src[j];
+
+        if (c === '\r' || c === '\n') {
+          // ?? at end of line — remove only the ??
+          endPos = i + 2;
+        } else if (c === '{') {
+          // Brace counting with string awareness
+          let depth = 1, k = j + 1;
+          let inStr = false, strCh = '';
+          while (k < n && depth > 0) {
+            const cc = src[k];
+            if (inStr) {
+              if (cc === '\\') k++;
+              else if (cc === strCh) inStr = false;
+            } else {
+              if (cc === '"' || cc === "'" || cc === '`') { inStr = true; strCh = cc; }
+              else if (cc === '{') depth++;
+              else if (cc === '}') depth--;
+            }
+            k++;
+          }
+          if (depth === 0) endPos = k;
+        } else if (c === '"' || c === "'") {
+          const q = c;
+          let k = j + 1;
+          while (k < n && src[k] !== q) {
+            if (src[k] === '\\') k++;
+            k++;
+          }
+          if (k < n) endPos = k + 1;
+        } else if (c === '[') {
+          let k = j + 1;
+          while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
+          if (k < n && src[k] === ']') endPos = k + 1;
+        } else {
+          const rest = src.slice(j);
+          const m = rest.match(/^(null|undefined|false|0)(?!\w)/);
+          if (m) endPos = j + m[1].length;
+        }
+      }
+
+      if (endPos >= 0) {
+        i = endPos;
+      } else {
+        out += src[i];
+        i++;
+      }
+      continue;
+    }
+
+    out += src[i];
+    i++;
+  }
+
+  return out;
+}
 
 function fixSource(src) {
-  // ── Pass 1: Lookbehind tight-?? removal ──
-  let fixed = src.replace(CORRUPT_RE_DISK, '');
+  // Pass 1: character-by-character removal (handles arbitrary brace nesting)
+  let fixed = fixTightDoubleQuestion(src);
 
-  // ── Pass 2: replaceDefine belt-and-suspenders ──
+  // Pass 2: replaceDefine belt-and-suspenders
   fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
   fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
   fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
   fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
   fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
 
-  // ── Pass 3: Identifier-capture regex for any remaining ──
-  fixed = fixed.replace(CORRUPT_RE_FALLBACK, '$1');
+  // Pass 3: regex sweep for any remaining simple patterns
+  fixed = fixed.replace(
+    /(?<=[^\s])\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
+    ''
+  );
 
-  // Reset regex state (stateful due to global flag)
-  CORRUPT_RE_DISK.lastIndex = 0;
+  // Pass 4: identifier-capture fallback
+  fixed = fixed.replace(
+    /\b(\w+(?:\([^)]*\))*)\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
+    '$1'
+  );
 
   return fixed;
 }
 
-// ── Watcher tracking ──────────────────────────────────────────────────────────
+// ── Watcher tracking ─────────────────────────────────────────────────────────
 const fsWatchers  = new Map();
 const pollWatched = new Set();
 
@@ -141,7 +208,7 @@ function watchViteChunks() {
   for (const fname of files) {
     const fpath = path.join(chunksDir, fname);
 
-    // fs.watch: OS-level inotify/kqueue — ~1ms latency
+    // fs.watch: OS-level inotify/kqueue (~1ms latency)
     if (!fsWatchers.has(fpath)) {
       try {
         const w = fs.watch(fpath, { persistent: false }, (event) => {
@@ -162,27 +229,24 @@ function watchViteChunks() {
   }
 }
 
-// ── Initial disk fixes ────────────────────────────────────────────────────────
-
-// Pass 1: before requiring Vite
+// ── Initial disk fixes ───────────────────────────────────────────────────────
 patchViteChunks('pre-require');
 watchViteChunks();
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 const { defineConfig } = require('vite');
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 
-// Pass 2: immediately after Vite loads (catches post-require re-corruption)
 patchViteChunks('post-require');
 
-// Passes 3-N: periodic safety net for the first 4 seconds (reduced from 50→20 passes)
+// Periodic passes for the first 4 seconds
 let periodicPasses = 0;
 const periodicInterval = setInterval(() => {
   patchViteChunks('periodic-' + (++periodicPasses));
-  if (periodicPasses >= 20) clearInterval(periodicInterval); // stop after 4s
+  if (periodicPasses >= 20) clearInterval(periodicInterval);
 }, 200);
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
 
 module.exports = defineConfig({
@@ -222,15 +286,12 @@ module.exports = defineConfig({
     },
     rollupOptions: {
       plugins: [
-        // ── Strategy C: buildStart re-patch ──────────────────────────────
         {
           name: 'vite-chunk-repatch',
           buildStart() {
             patchViteChunks('buildStart');
           },
         },
-
-        // ── Strategy D: Rollup ESM/CJS interop fix ───────────────────────
         {
           name: 'fix-esm-cjs-react-interop',
           transform(code, id) {
@@ -245,7 +306,6 @@ module.exports = defineConfig({
             let changed   = false;
             let counter   = 0;
 
-            // Fix 1: default import from 'react'
             const defaultRe = /import ([A-Za-z_$][A-Za-z0-9_$]*) from ['"]react['"]\s*;?/g;
             if (defaultRe.test(modified)) {
               defaultRe.lastIndex = 0;
@@ -256,31 +316,20 @@ module.exports = defineConfig({
               changed = true;
             }
 
-            // Fix 2: named imports from CJS React sub-packages
-            const CJS_PKGS = [
-              'react',
-              'react/jsx-runtime',
-              'react/jsx-dev-runtime',
-              'react-dom',
-            ];
-
+            const CJS_PKGS = ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom'];
             for (const pkg of CJS_PKGS) {
               const escapedPkg = pkg.replace(/\//g, '\\/');
               const namedRe = new RegExp(
-                'import\\s+\\{([^}]+)\\}\\s+from\\s+[\'"]+' + escapedPkg + '[\'"]+\\s*;?',
-                'g'
+                'import\\s+\\{([^}]+)\\}\\s+from\\s+[\'"]+' + escapedPkg + '[\'"]+\\s*;?', 'g'
               );
               if (!new RegExp(namedRe.source).test(modified)) continue;
               namedRe.lastIndex = 0;
-
               modified = modified.replace(namedRe, function(_, specifiers) {
                 var varName = '_ci' + (counter++);
                 var destructured = specifiers.split(',').map(function(s) {
                   var t = s.trim();
                   var parts = t.split(/\s+as\s+/);
-                  return parts.length === 2
-                    ? parts[0].trim() + ': ' + parts[1].trim()
-                    : t;
+                  return parts.length === 2 ? parts[0].trim() + ': ' + parts[1].trim() : t;
                 }).join(', ');
                 return 'import * as ' + varName + " from '" + pkg + "'; const { " + destructured + ' } = ' + varName + ';';
               });
@@ -291,9 +340,7 @@ module.exports = defineConfig({
           },
         },
       ],
-      output: {
-        interop: 'auto',
-      },
+      output: { interop: 'auto' },
       onwarn(warning, warn) {
         if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return;
         if (warning.code === 'MISSING_EXPORT') return;
