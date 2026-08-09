@@ -29,6 +29,7 @@ const loaderUrl  = 'file://' + loaderPath.replace(/\\/g, '/');
 // Strip any stale options already in NODE_OPTIONS
 const existingOpts = (process.env.NODE_OPTIONS || '')
   .replace(/--require\s+\S*_preload\S*/g, '')
+  .replace(/--require\s+_preload-fix/g, '')
   .replace(/--experimental-loader\s+\S*/g, '')
   .replace(/--loader\s+\S*/g, '')
   .trim();

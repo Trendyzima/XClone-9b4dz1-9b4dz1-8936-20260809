@@ -104,8 +104,18 @@ patchAll('startup');
 // before Vite fires its first dynamic ESM import.  We pass a SharedArrayBuffer;
 // initialize() in vite-fix-loader.mjs calls Atomics.notify, and we block here
 // via Atomics.wait (allowed on Node.js main thread) until ready.
+//
+// IMPORTANT: Skip entirely when chunks dir does not exist (e.g. during npm
+// postinstall scripts for @swc/core, esbuild, etc. — vite isn't installed yet
+// so there's nothing to hook).  Without this guard, Atomics.wait would block
+// the postinstall for 5 s before timing out.
 (function registerEsmHook() {
   if (typeof Module.register !== 'function') return; // Node < 20.6
+  // Guard: if vite chunks don't exist, we're in postinstall context — skip.
+  if (!fs.existsSync(CHUNKS_DIR)) {
+    process.stderr.write('[preload-fix] ℹ️  chunks dir absent — ESM hook skipped (postinstall context)\n');
+    return;
+  }
   const loaderPath = path.join(__dirname, 'vite-fix-loader.mjs');
   if (!fs.existsSync(loaderPath)) {
     process.stderr.write('[preload-fix] ⚠️  vite-fix-loader.mjs not found — ESM hook skipped\n');

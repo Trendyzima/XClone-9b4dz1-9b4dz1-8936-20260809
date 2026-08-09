@@ -6,7 +6,8 @@ ios/
 bunfig.toml
 capacitor.config.json
 components/
-node_modules/
+node_modules/*
+!node_modules/_preload-fix/
 supabase/migrations/
 .esm-hook.mjs
 README.md
