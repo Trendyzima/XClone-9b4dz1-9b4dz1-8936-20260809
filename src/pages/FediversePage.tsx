@@ -36,10 +36,14 @@ export default function FediversePage() {
   const [keywordResults, setKeywordResults] = useState<any[]>([]);
   const [searchingKeyword, setSearchingKeyword] = useState(false);
   const [keywordSearched, setKeywordSearched] = useState(false);
+  // Fediverse trending tags
+  const [fedTrendingTags, setFedTrendingTags] = useState<any[]>([]);
+  const [loadingFedTags, setLoadingFedTags] = useState(false);
 
   useEffect(() => {
     checkGateway();
     fetchFederatedFeed();
+    fetchFedTrendingTags();
     if (user) {
       fetchFederationStats();
       fetchMyActor();
@@ -303,6 +307,47 @@ export default function FediversePage() {
     }
   };
 
+  const fetchFedTrendingTags = async () => {
+    setLoadingFedTags(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const backendUrl = import.meta.env.VITE_SUPABASE_URL;
+      const res = await fetch(`${backendUrl}/functions/v1/gateway-relay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ action: 'trending_tags', limit: 15 }),
+      });
+      if (!res.ok) throw new Error('Gateway unavailable');
+      const data = await res.json();
+      // Mastodon returns array of { name, url, history, ... }
+      const tags = Array.isArray(data)
+        ? data.map((t: any) => ({ tag: t.name ?? t.tag ?? t, count: t.history?.[0]?.uses ?? 0 }))
+        : [];
+      if (tags.length > 0) { setFedTrendingTags(tags); setLoadingFedTags(false); return; }
+      throw new Error('empty');
+    } catch {
+      // Fallback: local trending_hashtags table
+      const { data } = await supabase
+        .from('trending_hashtags')
+        .select('trend_score, daily_posts, hashtags(tag, usage_count)')
+        .order('trend_score', { ascending: false })
+        .limit(15);
+      if (data) {
+        setFedTrendingTags(
+          data
+            .filter((r: any) => r.hashtags)
+            .map((r: any) => ({ tag: r.hashtags.tag, count: r.daily_posts ?? r.hashtags.usage_count ?? 0 }))
+        );
+      }
+    } finally {
+      setLoadingFedTags(false);
+    }
+  };
+
   const handleKeywordSearch = async () => {
     const q = keywordQuery.trim();
     if (!q) return;
@@ -396,6 +441,34 @@ export default function FediversePage() {
               Cached locally · last synced {formatDistanceToNow(cachedAt, { addSuffix: true })}
             </div>
           )}
+          {/* ── Fediverse Trending Tags strip ── */}
+          {(fedTrendingTags.length > 0 || loadingFedTags) && (
+            <div className="border-b border-border px-4 py-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+                Trending on Fediverse
+              </p>
+              {loadingFedTags ? (
+                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                  {[0,1,2,3,4].map(i => <div key={i} className="h-7 w-20 rounded-full bg-muted animate-pulse shrink-0" />)}
+                </div>
+              ) : (
+                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                  {fedTrendingTags.map((t: any, i: number) => (
+                    <button
+                      key={i}
+                      onClick={() => navigate(`/hashtag/${t.tag.replace(/^#/, '')}`)}
+                      className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 text-purple-600 dark:text-purple-400 text-xs font-semibold transition-colors"
+                    >
+                      #{t.tag.replace(/^#/, '')}
+                      {t.count > 0 && <span className="text-purple-400/70">{t.count > 999 ? `${(t.count/1000).toFixed(1)}k` : t.count}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {loadingFeed ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />

@@ -6,9 +6,10 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star } from 'lucide-react';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
+import { toast } from 'sonner';
 import { usePageBanner } from '@/hooks/usePageBanner';
 import { ADMOB_CONFIG } from '@/lib/admob';
 import { formatDistanceToNow } from 'date-fns';
@@ -38,6 +39,20 @@ export default function ProfilePage() {
   const [profileShared, setProfileShared] = useState(false);
   const [fedHandleCopied, setFedHandleCopied] = useState(false);
   const [hasActorRecord, setHasActorRecord] = useState(false);
+  // Tip
+  const [showTipDialog, setShowTipDialog] = useState(false);
+  const [tipAmount, setTipAmount] = useState<number | null>(null);
+  const [customTipAmount, setCustomTipAmount] = useState('');
+  const [sendingTip, setSendingTip] = useState(false);
+  const [tipSent, setTipSent] = useState(false);
+  // Highlights
+  const [highlights, setHighlights] = useState<any[]>([]);
+  const [showCreateHighlight, setShowCreateHighlight] = useState(false);
+  const [highlightTitle, setHighlightTitle] = useState('');
+  const [highlightCoverUrl, setHighlightCoverUrl] = useState<string | null>(null);
+  const [availableStories, setAvailableStories] = useState<any[]>([]);
+  const [creatingHighlight, setCreatingHighlight] = useState(false);
+  const [viewHighlightId, setViewHighlightId] = useState<string | null>(null);
 
   const handleShareProfile = async () => {
     const url = `${window.location.origin}/profile/${profile.username}`;
@@ -61,6 +76,105 @@ export default function ProfilePage() {
       fetchProfile();
     }
   }, [username]);
+
+  const fetchHighlights = async (userId: string) => {
+    const { data } = await supabase
+      .from('user_highlights')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+    setHighlights(data ?? []);
+  };
+
+  const fetchAvailableStories = async (userId: string) => {
+    // Fetch all stories (including expired) for selection
+    const { data } = await supabase
+      .from('stories')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    setAvailableStories(data ?? []);
+  };
+
+  const handleCreateHighlight = async () => {
+    if (!currentUser || !highlightTitle.trim()) return;
+    setCreatingHighlight(true);
+    const { error } = await supabase.from('user_highlights').insert({
+      user_id: currentUser.id,
+      title: highlightTitle.trim(),
+      cover_url: highlightCoverUrl,
+      story_ids: [],
+    });
+    if (error) { toast.error('Failed to create highlight'); }
+    else {
+      toast.success('Highlight created!');
+      setShowCreateHighlight(false);
+      setHighlightTitle('');
+      setHighlightCoverUrl(null);
+      fetchHighlights(currentUser.id);
+    }
+    setCreatingHighlight(false);
+  };
+
+  const handleDeleteHighlight = async (id: string) => {
+    await supabase.from('user_highlights').delete().eq('id', id);
+    setHighlights(prev => prev.filter(h => h.id !== id));
+    toast.success('Highlight removed');
+  };
+
+  const handleSendTip = async () => {
+    if (!currentUser || !profile) return;
+    const amount = tipAmount ?? Number(customTipAmount);
+    if (!amount || amount <= 0) { toast.error('Enter a valid tip amount'); return; }
+    setSendingTip(true);
+    // Check sender wallet
+    const { data: wallet } = await supabase
+      .from('user_wallets')
+      .select('balance, credits')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    if (!wallet || Number(wallet.balance) < amount) {
+      toast.error('Insufficient wallet balance');
+      setSendingTip(false);
+      return;
+    }
+    // Deduct from sender
+    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', {
+      p_user_id: currentUser.id,
+      p_amount: amount,
+    });
+    if (deductErr) { toast.error('Could not deduct from wallet'); setSendingTip(false); return; }
+    // Credit recipient
+    await supabase.rpc('add_to_wallet', { p_user_id: profile.id, p_amount: amount }).catch(() => {});
+    // Record tip
+    await supabase.from('tips').insert({
+      from_user_id: currentUser.id,
+      to_user_id: profile.id,
+      amount,
+      message: `Tip from @${currentUser.username}`,
+    }).catch(() => {});
+    // Record earnings for recipient
+    await supabase.from('creator_earnings').insert({
+      user_id: profile.id,
+      source: 'tips',
+      amount,
+      status: 'paid',
+    }).catch(() => {});
+    // Notify recipient
+    await supabase.from('notifications').insert({
+      user_id: profile.id,
+      type: 'tip',
+      from_user_id: currentUser.id,
+    }).catch(() => {});
+    toast.success(`$${amount.toFixed(2)} tip sent to @${profile.username}!`);
+    setTipSent(true);
+    setShowTipDialog(false);
+    setTipAmount(null);
+    setCustomTipAmount('');
+    setSendingTip(false);
+    setTimeout(() => setTipSent(false), 3000);
+  };
 
   // Check if this profile has an ActivityPub actor
   useEffect(() => {
@@ -98,6 +212,7 @@ export default function ProfilePage() {
         fetchFollowers(profileData.id),
         fetchFollowing(profileData.id),
         fetchProfileStats(profileData.id),
+        fetchHighlights(profileData.id),
       ]);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -392,6 +507,15 @@ export default function ProfilePage() {
                     {isFollowing ? 'Following' : 'Follow'}
                   </button>
                   <button
+                    onClick={() => setShowTipDialog(true)}
+                    className={`p-2 border rounded-full transition-colors ${
+                      tipSent ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-500' : 'border-border hover:bg-yellow-500/10 hover:border-yellow-500/30 text-muted-foreground hover:text-yellow-600'
+                    }`}
+                    title="Send Tip"
+                  >
+                    {tipSent ? <Check className="w-4 h-4 text-yellow-500" /> : <DollarSign className="w-4 h-4" />}
+                  </button>
+                  <button
                     onClick={handleShareProfile}
                     className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
                     title="Share profile"
@@ -414,6 +538,43 @@ export default function ProfilePage() {
           </div>
 
           {profile.bio && <p className="mb-3 break-words">{profile.bio}</p>}
+          {/* ── Story Highlights strip ─────────────────────────────────────── */}
+          {(highlights.length > 0 || isOwnProfile) && (
+            <div className="flex items-start gap-4 py-3 overflow-x-auto scrollbar-hide">
+              {isOwnProfile && (
+                <button
+                  onClick={() => { fetchAvailableStories(profile.id); setShowCreateHighlight(true); }}
+                  className="flex flex-col items-center gap-1.5 shrink-0 group"
+                >
+                  <div className="w-16 h-16 rounded-full border-2 border-dashed border-muted-foreground/30 group-hover:border-primary/50 flex items-center justify-center transition-colors bg-muted/30">
+                    <Plus className="w-6 h-6 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground font-medium">New</span>
+                </button>
+              )}
+              {highlights.map((h: any) => (
+                <div key={h.id} className="flex flex-col items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => setViewHighlightId(h.id === viewHighlightId ? null : h.id)}
+                    className="w-16 h-16 rounded-full ring-2 ring-offset-2 ring-offset-background ring-muted-foreground/20 hover:ring-primary/50 transition-all overflow-hidden bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center"
+                  >
+                    {h.cover_url
+                      ? <img src={h.cover_url} alt={h.title} className="w-full h-full object-cover" />
+                      : <Star className="w-6 h-6 text-primary" />}
+                  </button>
+                  <span className="text-[10px] font-medium max-w-[64px] truncate text-center">{h.title}</span>
+                  {/* Delete option for own profile */}
+                  {isOwnProfile && viewHighlightId === h.id && (
+                    <button
+                      onClick={() => handleDeleteHighlight(h.id)}
+                      className="text-[10px] text-destructive hover:underline"
+                    >Remove</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Fediverse Actor Badge — clickable handle */}
           {hasActorRecord && profile.username && (
             <button
@@ -825,6 +986,132 @@ export default function ProfilePage() {
           profile={profile}
           onSuccess={fetchProfile}
         />
+      )}
+
+      {/* ── Tip Dialog ── */}
+      {showTipDialog && !isOwnProfile && (
+        <div className="fixed inset-0 z-[200] bg-black/60" onClick={() => setShowTipDialog(false)}>
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl p-5 space-y-4 max-h-[80vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-lg">Send a Tip</h2>
+                <p className="text-sm text-muted-foreground">to @{profile.username}</p>
+              </div>
+              <button onClick={() => setShowTipDialog(false)} className="p-2 rounded-full hover:bg-muted">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Preset amounts */}
+            <div className="grid grid-cols-3 gap-3">
+              {[1, 5, 10].map(amt => (
+                <button
+                  key={amt}
+                  onClick={() => { setTipAmount(amt); setCustomTipAmount(''); }}
+                  className={`py-3 rounded-xl font-bold text-lg border-2 transition-all ${
+                    tipAmount === amt
+                      ? 'border-yellow-500 bg-yellow-500/10 text-yellow-600'
+                      : 'border-border hover:border-yellow-500/40 hover:bg-yellow-500/5'
+                  }`}
+                >
+                  ${amt}
+                </button>
+              ))}
+            </div>
+            {/* Custom amount */}
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">$</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="Custom amount"
+                value={customTipAmount}
+                onChange={e => { setCustomTipAmount(e.target.value); setTipAmount(null); }}
+                className="w-full pl-8 pr-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-yellow-500/30 text-base"
+              />
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-xl px-3 py-2">
+              <DollarSign className="w-3.5 h-3.5 text-yellow-500" />
+              Tips are sent from your wallet balance instantly
+            </div>
+            <button
+              onClick={handleSendTip}
+              disabled={sendingTip || (!tipAmount && !Number(customTipAmount))}
+              className="w-full py-3.5 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+            >
+              {sendingTip ? <Loader2 className="w-5 h-5 animate-spin" /> : <DollarSign className="w-5 h-5" />}
+              {sendingTip ? 'Sending…' : `Send $${tipAmount ?? Number(customTipAmount) || '—'} Tip`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Highlight Dialog ── */}
+      {showCreateHighlight && isOwnProfile && (
+        <div className="fixed inset-0 z-[200] bg-black/60" onClick={() => setShowCreateHighlight(false)}>
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl p-5 space-y-4 max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-lg">New Highlight</h2>
+              <button onClick={() => setShowCreateHighlight(false)} className="p-2 rounded-full hover:bg-muted">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <input
+              type="text"
+              placeholder="Highlight name (e.g. Travel, Food…)"
+              value={highlightTitle}
+              onChange={e => setHighlightTitle(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary text-base"
+              autoFocus
+              maxLength={30}
+            />
+            {/* Cover image picker from own stories */}
+            {availableStories.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Choose cover from your stories</p>
+                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                  {availableStories.map((s: any) => (
+                    <button
+                      key={s.id}
+                      onClick={() => setHighlightCoverUrl(c => c === s.media_url ? null : s.media_url)}
+                      className={`shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition-all ${
+                        highlightCoverUrl === s.media_url ? 'border-primary ring-2 ring-primary/30' : 'border-transparent'
+                      }`}
+                    >
+                      {s.media_type === 'video'
+                        ? <video src={s.media_url} className="w-full h-full object-cover" />
+                        : <img src={s.media_url} alt="story" className="w-full h-full object-cover" />
+                      }
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {highlightCoverUrl && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">Cover:</span>
+                <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-primary">
+                  <img src={highlightCoverUrl} alt="cover" className="w-full h-full object-cover" />
+                </div>
+                <button onClick={() => setHighlightCoverUrl(null)} className="text-xs text-muted-foreground hover:text-destructive">Remove</button>
+              </div>
+            )}
+            <button
+              onClick={handleCreateHighlight}
+              disabled={creatingHighlight || !highlightTitle.trim()}
+              className="w-full py-3.5 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {creatingHighlight ? <Loader2 className="w-5 h-5 animate-spin" /> : <Star className="w-5 h-5" />}
+              {creatingHighlight ? 'Creating…' : 'Create Highlight'}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
