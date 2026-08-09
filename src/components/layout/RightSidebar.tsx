@@ -230,9 +230,9 @@ export function RightSidebar() {
                   <span className="text-sm font-semibold text-primary truncate">#{tag.tag}</span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                  {tag.daily_posts > 0 && (
-                    <span className="text-[10px] text-muted-foreground">{formatNumber(tag.daily_posts)}/day</span>
-                  )}
+                  <span className="text-[10px] text-muted-foreground">
+                    {formatNumber(tag.usage_count > 0 ? tag.usage_count : tag.daily_posts)} posts
+                  </span>
                   <button
                     onClick={(e) => toggleTagFollow(tag, e)}
                     className={`p-1 rounded-full transition-colors ${

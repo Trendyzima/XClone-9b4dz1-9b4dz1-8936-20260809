@@ -90,6 +90,22 @@ export default function PostThreadPage() {
   const [replyContent, setReplyContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [liveReplyCount, setLiveReplyCount] = useState<number | null>(null);
+
+  // Poll reply count every 15s for live badge
+  useEffect(() => {
+    if (!postId) return;
+    const fetchReplyCount = async () => {
+      const { count } = await supabase
+        .from('replies')
+        .select('*', { count: 'exact', head: true })
+        .eq('post_id', postId);
+      if (count !== null) setLiveReplyCount(count);
+    };
+    fetchReplyCount();
+    const iv = setInterval(fetchReplyCount, 15_000);
+    return () => clearInterval(iv);
+  }, [postId]);
 
   const fetchPostAndReplies = async () => {
     if (!postId) return;
@@ -340,10 +356,15 @@ export default function PostThreadPage() {
           </div>
         ) : (
           <>
-            <div className="px-4 py-2 border-b border-border">
+            <div className="px-4 py-2 border-b border-border flex items-center gap-2">
               <span className="text-sm font-semibold text-muted-foreground">
                 {replies.length} {replies.length === 1 ? 'reply' : 'replies'}
               </span>
+              {liveReplyCount !== null && liveReplyCount > replies.length && (
+                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-bold animate-pulse">
+                  +{liveReplyCount - replies.length} new
+                </span>
+              )}
             </div>
             {replies.map((reply) => (
               <div key={reply.id} className="border-b border-border p-4 hover:bg-muted/5 transition-colors">

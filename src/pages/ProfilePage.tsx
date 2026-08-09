@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, Mail, BadgeCheck, Loader2, ExternalLink, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2 } from 'lucide-react';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { usePageBanner } from '@/hooks/usePageBanner';
@@ -35,6 +35,19 @@ export default function ProfilePage() {
   const [streakDay, setStreakDay] = useState(0);
   const [followerRank, setFollowerRank] = useState<number | null>(null);
   const [referralCopied, setReferralCopied] = useState(false);
+  const [profileShared, setProfileShared] = useState(false);
+
+  const handleShareProfile = async () => {
+    const url = `${window.location.origin}/profile/${profile.username}`;
+    const shareText = `Check out @${profile.username} on Tsocial${profile.bio ? ': ' + profile.bio.slice(0, 80) : ''}!`;
+    if (navigator.share) {
+      await navigator.share({ title: `@${profile.username} on Tsocial`, text: shareText, url }).catch(() => {});
+    } else {
+      await navigator.clipboard.writeText(url).catch(() => {});
+    }
+    setProfileShared(true);
+    setTimeout(() => setProfileShared(false), 2000);
+  };
 
   // Profile page banner — shown at bottom, above bottom nav, after 2.5s
   usePageBanner({ adId: ADMOB_CONFIG.BANNER_PROFILE, margin: 64, delay: 2500 });
@@ -330,14 +343,23 @@ export default function ProfilePage() {
               )}
             </div>
 
-            <div className="flex gap-2 mt-2">
+            <div className="flex gap-2 mt-2 flex-wrap">
               {isOwnProfile ? (
-                <button
-                  onClick={() => setShowEditDialog(true)}
-                  className="px-4 py-2 border border-border rounded-full font-semibold hover:bg-muted transition-colors"
-                >
-                  Edit profile
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowEditDialog(true)}
+                    className="px-4 py-2 border border-border rounded-full font-semibold hover:bg-muted transition-colors"
+                  >
+                    Edit profile
+                  </button>
+                  <button
+                    onClick={handleShareProfile}
+                    className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                    title="Share profile"
+                  >
+                    {profileShared ? <Check className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
+                  </button>
+                </>
               ) : (
                 <>
                   <button
@@ -356,6 +378,13 @@ export default function ProfilePage() {
                     }`}
                   >
                     {isFollowing ? 'Following' : 'Follow'}
+                  </button>
+                  <button
+                    onClick={handleShareProfile}
+                    className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                    title="Share profile"
+                  >
+                    {profileShared ? <Check className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
                   </button>
                 </>
               )}

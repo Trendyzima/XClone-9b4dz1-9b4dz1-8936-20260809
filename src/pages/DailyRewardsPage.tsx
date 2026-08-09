@@ -136,6 +136,15 @@ export default function DailyRewardsPage() {
         type: 'streak_milestone',
         from_user_id: user.id,
       }).catch(() => {});
+      // Auto-create a 24-hour story to celebrate the milestone
+      supabase.from('stories').insert({
+        user_id: user.id,
+        media_url: 'https://www.testagram.site/tsocial-logo.png',
+        media_type: 'image',
+        caption: newStreak === 7
+          ? '🏆 I just hit a 7-day MAX streak on Testagram! 🔥 Keep going! #DailyStreak #Milestone'
+          : `🔥 Day ${newStreak} streak milestone unlocked on Testagram! Come join me! #DailyStreak`,
+      }).catch(() => {});
       toast.success(`+${creditsEarned} credits! ${milestoneMsg}`, { duration: 4500 });
     } else {
       toast.success(`+${creditsEarned} credits earned! Day ${newStreak} streak!`);
