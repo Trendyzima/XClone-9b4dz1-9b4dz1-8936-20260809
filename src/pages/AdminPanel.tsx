@@ -101,6 +101,8 @@ export default function AdminPanel() {
   const [userAds, setUserAds] = useState<UserAdEntry[]>([]);
   const [users, setUsers] = useState<ReportedUser[]>([]);
   const [fraudAlerts, setFraudAlerts] = useState<FraudAlert[]>([]);
+  const [reportedPosts, setReportedPosts] = useState<any[]>([]);
+  const [pendingReports, setPendingReports] = useState(0);
   const [userSearch, setUserSearch] = useState('');
   const [adFilter, setAdFilter] = useState<'all' | 'pending' | 'active' | 'rejected'>('pending');
   const [verFilter, setVerFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -118,7 +120,7 @@ export default function AdminPanel() {
     const { data } = await supabase.from('admin_users').select('*').eq('user_id', user.id).single();
     if (!data) { toast.error('Access denied — admin only'); navigate('/'); return; }
     setIsAdmin(true);
-    await Promise.all([fetchStats(), fetchVerifications(), fetchUserAds(), fetchUsers(), fetchFraudAlerts()]);
+    await Promise.all([fetchStats(), fetchVerifications(), fetchUserAds(), fetchUsers(), fetchFraudAlerts(), fetchReportedPosts()]);
     setLoading(false);
   };
 
@@ -183,6 +185,31 @@ export default function AdminPanel() {
       .order('created_at', { ascending: false })
       .limit(200);
     setUsers((data as any) || []);
+  };
+
+  const fetchReportedPosts = async () => {
+    const { data } = await supabase
+      .from('post_reports')
+      .select('*, post:posts(id, content, user_id, user_profiles(username, avatar_url)), reporter:user_profiles!post_reports_reporter_id_fkey(username)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    const reports = data || [];
+    setReportedPosts(reports);
+    setPendingReports(reports.length);
+  };
+
+  const handleDismissReport = async (reportId: string) => {
+    await supabase.from('post_reports').update({ status: 'dismissed' }).eq('id', reportId);
+    toast.success('Report dismissed');
+    fetchReportedPosts();
+  };
+
+  const handleRemoveReportedPost = async (reportId: string, postId: string) => {
+    await supabase.from('posts').delete().eq('id', postId);
+    await supabase.from('post_reports').update({ status: 'actioned' }).eq('id', reportId);
+    toast.success('Post removed');
+    fetchReportedPosts();
   };
 
   const fetchFraudAlerts = async () => {
@@ -430,6 +457,15 @@ export default function AdminPanel() {
                       {stats.fraud_alerts}
                     </span>
                   </button>
+                  <button onClick={() => setActiveTab('fraud')} className="w-full flex items-center justify-between p-3 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <Flag className="w-4 h-4 text-orange-600" />
+                      <span className="text-sm font-medium">Post Reports</span>
+                    </div>
+                    <span className="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full font-bold">
+                      {pendingReports}
+                    </span>
+                  </button>
                   <Dialog open={createSponsoredOpen} onOpenChange={setCreateSponsoredOpen}>
                     <DialogTrigger asChild>
                       <button className="w-full flex items-center gap-2 p-3 rounded-lg bg-green-500/10 hover:bg-green-500/20 transition-colors">
@@ -641,6 +677,42 @@ export default function AdminPanel() {
             <h3 className="font-bold text-lg flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-red-500" /> Fraud Alerts
             </h3>
+
+            {/* ── Post Reports Section ── */}
+            {reportedPosts.length > 0 && (
+              <div className="space-y-3 mb-6">
+                <h4 className="font-semibold text-base flex items-center gap-2">
+                  <Flag className="w-4 h-4 text-orange-500" />
+                  Post Reports
+                  <span className="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full font-bold">{reportedPosts.length}</span>
+                </h4>
+                {reportedPosts.map((report: any) => (
+                  <div key={report.id} className="bg-card border border-orange-500/30 rounded-xl p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 capitalize">
+                            {report.category?.replace(/_/g, ' ')}
+                          </span>
+                          <span className="text-xs text-muted-foreground">by @{report.reporter?.username}</span>
+                        </div>
+                        <p className="text-sm text-foreground line-clamp-2">{report.post?.content?.slice(0, 200)}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Author: @{report.post?.user_profiles?.username}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="destructive" className="flex-1" onClick={() => handleRemoveReportedPost(report.id, report.post_id)}>
+                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove Post
+                      </Button>
+                      <Button size="sm" variant="outline" className="flex-1" onClick={() => handleDismissReport(report.id)}>
+                        <CheckCircle className="w-3.5 h-3.5 mr-1" /> Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <div className="border-b border-border pt-2" />
+              </div>
+            )}
 
             <div className="space-y-3">
               {fraudAlerts.map(alert => (

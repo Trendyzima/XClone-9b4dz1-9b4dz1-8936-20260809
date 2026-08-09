@@ -36,6 +36,23 @@ function nuclearFix(src) {
   s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"[^"]*"/g, '$1');
   s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'[^']*'/g, '$1');
 
+  // ─── NEW v14 nuclear passes ────────────────────────────────────────────────
+  // SPECIFIC: ??toJSON() { — the exact recurring injection at line 3469.
+  // Replace ??<ws>toJSON with ' toJSON' so preceding token stays separated.
+  s = s.replace(/\?\?\s*toJSON(?=\s*\(\s*\)\s*\{)/g, ' toJSON');
+
+  // ACCESSOR: get??name() and set??name() patterns — patcher corrupts accessor defs.
+  s = s.replace(/\b(get|set)\?\?(?=[a-zA-Z_$])/g, '$1 ');
+
+  // GENERAL (same-line): ?? immediately before any identifier() { (method body start).
+  // This is never valid JS — the right operand of ?? can't be a method definition.
+  // Replace with a space to keep token separation (e.g. get??toJSON → get toJSON).
+  s = s.replace(/\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g, ' ');
+
+  // GENERAL (cross-line): ?? at end of line, method def on the next line.
+  // Pattern: identifier??\n   methodName() {
+  s = s.replace(/\?\?(\r?\n[ \t]*)(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g, '$1');
+
   return s;
 }
 
@@ -124,16 +141,28 @@ function applyFix(source) {
   // This regex catches those before the scanner runs.
   fixed = fixed.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
 
-  // Pass 0.5b: remove identifier?? when it immediately precedes a method definition.
-  // Pattern: someExpr??toJSON() { — "someExpr??" is never valid before a method body.
-  // The lookahead ensures we only strip this when followed by name() { (method def).
+  // Pass 0.5b (revised v14): ?? before any method definition — covers:
+  //   Case A — ?? at end of line, method def continues on next line:
+  //     identifier??\n    toJSON() {
   fixed = fixed.replace(
-    /\b[a-zA-Z_$][a-zA-Z0-9_$]*\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
-    ''
+    /\?\?(\r?\n[ \t]*)(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
+    '$1' // remove ?? but keep the newline + indentation
+  );
+  //   Case B — ?? on same line before method definition:
+  //     {??toJSON() {  /  get??toJSON() {  /  ,??toJSON() {
+  //   Replace with space so preceding token doesn't merge with method name.
+  fixed = fixed.replace(
+    /\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
+    ' '
   );
 
   // Pass 0.5c: also strip bare ?? at absolute start of file (edge case)
   fixed = fixed.replace(/^[ \t]*\?\?(?=[^\s?])/gm, '');
+
+  // Pass 0.5d: end-of-line ?? — identifier?? followed immediately by newline.
+  // Parser sees identifier as left operand and ?? starts a broken expression.
+  // Remove ?? and keep the newline so the next line is a fresh statement.
+  fixed = fixed.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
 
   // Pass 1: character-by-character scanner
   fixed = fixTightDoubleQuestion(fixed);

@@ -15,6 +15,22 @@ function nuclearFix(src) {
   // Generic: identifier??""  in function param context
   s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"[^"]*"/g, '$1');
   s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'[^']*'/g, '$1');
+
+  // ─── NEW v14 nuclear passes ────────────────────────────────────────────────
+  // SPECIFIC: ??toJSON() { — the exact recurring injection at line 3469.
+  s = s.replace(/\?\?\s*toJSON(?=\s*\(\s*\)\s*\{)/g, ' toJSON');
+
+  // ACCESSOR: get??name() and set??name() — patcher corrupts property accessor defs.
+  s = s.replace(/\b(get|set)\?\?(?=[a-zA-Z_$])/g, '$1 ');
+
+  // GENERAL (same-line): ?? immediately before any identifier() { (method body start).
+  // ?? name() { is never valid JS — right operand of ?? can't be a method definition.
+  // Replace with space to keep token separation.
+  s = s.replace(/\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g, ' ');
+
+  // GENERAL (cross-line): ?? at end of line, method def on next line.
+  s = s.replace(/\?\?(\r?\n[ \t]*)(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g, '$1');
+
   return s;
 }
 
@@ -93,15 +109,24 @@ function fixSource(src) {
   // skips any ?? the patcher placed at the start of an indented line.
   fixed = fixed.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
 
-  // Pass 0.5b: remove identifier?? immediately before a method definition.
-  // "someExpr??toJSON() {" is always a patcher corruption — strip the prefix.
+  // Pass 0.5b (revised v14): ?? before any method definition — covers both forms:
+  //   Case A — cross-line: identifier??\n   toJSON() {  (keep newline, drop ??)
   fixed = fixed.replace(
-    /\b[a-zA-Z_$][a-zA-Z0-9_$]*\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
-    ''
+    /\?\?(\r?\n[ \t]*)(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
+    '$1'
+  );
+  //   Case B — same-line: {??toJSON() {  /  get??toJSON() {  (replace ?? with space)
+  fixed = fixed.replace(
+    /\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
+    ' '
   );
 
   // Pass 0.5c: strip bare ?? at start of any line (belt-and-suspenders)
   fixed = fixed.replace(/^[ \t]*\?\?(?=[^\s?])/gm, '');
+
+  // Pass 0.5d: end-of-line ?? — identifier?? at line end causes downstream parse
+  // failure on the next line. Remove ?? and keep the newline.
+  fixed = fixed.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
 
   // Pass 1: character-by-character scanner
   fixed = fixTightDoubleQuestion(fixed);
