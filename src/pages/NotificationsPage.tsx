@@ -9,6 +9,7 @@ import {
   BadgeCheck, Loader2, DollarSign, CheckCircle2, Smartphone,
   TrendingUp, Bell, CreditCard, ArrowDownLeft, Globe, UserCheck,
   Star, ExternalLink, RefreshCw, Flame, Trophy, Zap, XCircle, Megaphone,
+  Settings2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
@@ -288,15 +289,24 @@ export default function NotificationsPage() {
               </button>
             ))}
           </div>
-          {activeTab !== 'fediverse' && notifications.some(n => !n.read) && (
+          <div className="flex items-center gap-1 shrink-0 pr-2">
+            {activeTab !== 'fediverse' && notifications.some(n => !n.read) && (
+              <button
+                onClick={markAllAsRead}
+                className="px-2 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 rounded-full transition-colors whitespace-nowrap flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Mark all
+              </button>
+            )}
             <button
-              onClick={markAllAsRead}
-              className="shrink-0 px-3 mr-2 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 rounded-full transition-colors whitespace-nowrap flex items-center gap-1"
+              onClick={() => navigate('/notification-preferences')}
+              title="Notification Preferences"
+              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors"
             >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Mark all read
+              <Settings2 className="w-4 h-4" />
             </button>
-          )}
+          </div>
         </div>
       </div>
 
