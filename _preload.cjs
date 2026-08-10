@@ -1,27 +1,42 @@
+'use strict';
+
 /**
- * _preload.cjs  v4
+ * _preload.cjs v4
  *
- * Three layers of protection against the OnSpace Vite chunk patcher:
+ * Protection against the OnSpace Vite chunk patcher:
  *
- *  1. DISK PATCH   — fix dep-*.js files on disk at startup + chmod 444.
- *  2. ESM HOOK     — Module.register(vite-fix-loader.mjs). In Node 20.6+,
- *                    module.register() from a CJS --require preload is
- *                    SYNCHRONOUS (uses Atomics.wait) so the hook is active
- *                    before Vite's first ESM import.
- *                    For Vercel, _build.cjs also passes --experimental-loader
- *                    as a belt-and-suspenders guarantee.
- *  3. CJS HOOK     — Module.prototype._compile intercepts any CJS require.
+ *  1. DISK PATCH
+ *     Fix dep-*.js files on disk at startup + chmod 444.
+ *
+ *  2. CJS HOOK
+ *     Module.prototype._compile intercepts Vite CJS modules.
+ *
+ *  3. FILE WATCHERS
+ *     Catch patcher re-injection after startup.
+ *
+ * NOTE:
+ * ESM protection is handled by _build.cjs through:
+ *
+ *   --experimental-loader vite-fix-loader.mjs
+ *
+ * This file intentionally does NOT use Module.register() or Atomics.wait().
  */
 
-'use strict';
 const fs     = require('fs');
 const path   = require('path');
 const Module = require('module');
-const { pathToFileURL } = require('url');
 
-const CHUNKS_DIR = path.join(__dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks');
+const CHUNKS_DIR = path.join(
+  __dirname,
+  'node_modules',
+  'vite',
+  'dist',
+  'node',
+  'chunks'
+);
 
 // ─── Core fix function (shared by all hooks) ─────────────────────────────────
+
 function applyFix(s) {
   if (!s.includes('??')) return s;
 
@@ -34,26 +49,45 @@ function applyFix(s) {
   s = s.split("code??''").join('code');
 
   // 2. Any identifier??string (quoted strings)
-  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?"([^"\\]*)"/g, '$1');
-  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?'([^'\\]*)'/g, '$1');
+  s = s.replace(
+    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?"([^"\\]*)"/g,
+    '$1'
+  );
+
+  s = s.replace(
+    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?'([^'\\]*)'/g,
+    '$1'
+  );
 
   // 3. Bare ??string (no preceding identifier)
   s = s.replace(/\?\?"[^"]*"/g, '');
   s = s.replace(/\?\?'[^']*'/g, '');
 
   // 4. ??methodName(...) { — same line
-  s = s.replace(/\?\?(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g, ' ');
+  s = s.replace(
+    /\?\?(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g,
+    ' '
+  );
 
   // 5. ??\n methodName(...) { — cross-line
-  s = s.replace(/\?\?(\r?\n[ \t]*)(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g, '$1');
+  s = s.replace(
+    /\?\?(\r?\n[ \t]*)(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g,
+    '$1'
+  );
 
   // 6. ?? at the start of a line
-  s = s.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
+  s = s.replace(
+    /(\r?\n)([ \t]*)\?\?(?=[^\s?])/g,
+    '$1$2'
+  );
 
   // 7. identifier?? at end of line
-  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
+  s = s.replace(
+    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?(\r?\n)/g,
+    '$1$2'
+  );
 
-  // 8. identifier??( — ?? injected BETWEEN method name and its parens
+  // 8. identifier?? — injected BETWEEN method name and its parens
   //    e.g. toJSON??() { → toJSON() {
   s = s.replace(
     /([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g,
@@ -63,29 +97,32 @@ function applyFix(s) {
   return s;
 }
 
-// ─── Malformed syntax verification ───────────────────────────────────────────
-// Only detect the known malformed method pattern.
-// Legitimate nullish coalescing such as:
-//     allowDot ?? !!this.#options.dot
-// is NOT considered malformed.
+// ─── Malformed syntax verification ──────────────────────────────────────────
+
 function hasMalformedSyntax(s) {
   return /[A-Za-z_$][A-Za-z0-9_$]*\?\?\s*\([^)]{0,200}\)\s*\{/.test(s);
 }
 
 // ─── Disk patch + lock ───────────────────────────────────────────────────────
+
 function patchFile(fpath) {
   let src;
 
   try {
-    try { fs.chmodSync(fpath, 0o644); } catch (_) {}
+    try {
+      fs.chmodSync(fpath, 0o644);
+    } catch (_) {}
+
     src = fs.readFileSync(fpath, 'utf8');
   } catch (_) {
     return false;
   }
 
-  // ALWAYS re-lock, whether or not we patched.
+  // ALWAYS re-lock after checking/patching.
   const lock = () => {
-    try { fs.chmodSync(fpath, 0o444); } catch (_) {}
+    try {
+      fs.chmodSync(fpath, 0o444);
+    } catch (_) {}
   };
 
   if (!src.includes('??')) {
@@ -101,7 +138,8 @@ function patchFile(fpath) {
     if (hadMalformed) {
       process.stderr.write(
         '[preload-fix] ❌ malformed syntax detected but not repaired: ' +
-        path.basename(fpath) + '\n'
+        path.basename(fpath) +
+        '\n'
       );
     }
 
@@ -109,11 +147,12 @@ function patchFile(fpath) {
     return false;
   }
 
-  // Verify that the known malformed pattern is actually gone.
+  // Verify known malformed syntax is gone.
   if (hasMalformedSyntax(fixed)) {
     process.stderr.write(
       '[preload-fix] ⚠️ repair incomplete: ' +
-      path.basename(fpath) + '\n'
+      path.basename(fpath) +
+      '\n'
     );
 
     lock();
@@ -126,7 +165,8 @@ function patchFile(fpath) {
 
     process.stderr.write(
       '[preload-fix] ✅ patched and verified ' +
-      path.basename(fpath) + '\n'
+      path.basename(fpath) +
+      '\n'
     );
 
     return true;
@@ -145,13 +185,17 @@ function patchFile(fpath) {
   }
 }
 
+// ─── Patch all Vite chunks ───────────────────────────────────────────────────
+
 function patchAll(label) {
   if (!fs.existsSync(CHUNKS_DIR)) return;
 
   let files;
 
   try {
-    files = fs.readdirSync(CHUNKS_DIR).filter(f => f.endsWith('.js'));
+    files = fs
+      .readdirSync(CHUNKS_DIR)
+      .filter(f => f.endsWith('.js'));
   } catch (_) {
     return;
   }
@@ -159,7 +203,9 @@ function patchAll(label) {
   let count = 0;
 
   files.forEach(f => {
-    if (patchFile(path.join(CHUNKS_DIR, f))) count++;
+    if (patchFile(path.join(CHUNKS_DIR, f))) {
+      count++;
+    }
   });
 
   if (count > 0) {
@@ -173,12 +219,18 @@ function patchAll(label) {
   }
 }
 
-// ─── STEP 1: Patch existing chunks repeatedly ────────────────────────────────
-// OnSpace may re-inject malformed syntax shortly after the first patch.
-// Run several short passes to catch and repair re-injections.
+// ─── STEP 1: Patch existing chunks immediately ───────────────────────────────
+
+patchAll('startup');
+
+// ─── STEP 2: Short re-injection protection ───────────────────────────────────
+//
+// OnSpace may re-inject malformed syntax shortly after startup.
+// Keep the protection window short so it does not unnecessarily interfere
+// with the Vite build.
 
 (function repeatedPatch() {
-  const MAX_PASSES = 10;
+  const MAX_PASSES = 5;
   const INTERVAL_MS = 100;
 
   let pass = 0;
@@ -202,84 +254,8 @@ function patchAll(label) {
   runPass();
 })();
 
-// ─── STEP 2: ESM hook via Module.register() with SAB synchronization ─────────
-// Module.register() is inherently async — the hook worker may not be ready
-// before Vite fires its first dynamic ESM import. We pass a SharedArrayBuffer;
-// initialize() in vite-fix-loader.mjs calls Atomics.notify, and we block here
-// via Atomics.wait (allowed on Node.js main thread) until ready.
-//
-// IMPORTANT: Skip entirely when chunks dir does not exist (e.g. during npm
-// postinstall scripts for @swc/core, esbuild, etc. — vite isn't installed yet
-// so there's nothing to hook). Without this guard, Atomics.wait would block
-// the postinstall for 5 s before timing out.
-(function registerEsmHook() {
-  if (typeof Module.register !== 'function') return;
+// ─── STEP 3: Module._compile CJS fallback ────────────────────────────────────
 
-  // Guard: if vite chunks don't exist, we're in postinstall context — skip.
-  if (!fs.existsSync(CHUNKS_DIR)) {
-    process.stderr.write(
-      '[preload-fix] ℹ️  chunks dir absent — ESM hook skipped (postinstall context)\n'
-    );
-    return;
-  }
-
-  // Guard: if CWD is inside node_modules, we're running as a dependency's
-  // postinstall script — skip ESM hook to avoid blocking for 5 s.
-  if (
-    process.cwd().includes('/node_modules/') ||
-    process.cwd().includes('\\node_modules\\')
-  ) {
-    process.stderr.write(
-      '[preload-fix] ℹ️  postinstall CWD detected — ESM hook skipped\n'
-    );
-    return;
-  }
-
-  const loaderPath = path.join(__dirname, 'vite-fix-loader.mjs');
-
-  if (!fs.existsSync(loaderPath)) {
-    process.stderr.write(
-      '[preload-fix] ⚠️  vite-fix-loader.mjs not found — ESM hook skipped\n'
-    );
-    return;
-  }
-
-  try {
-    const sab = new SharedArrayBuffer(4);
-    const signal = new Int32Array(sab);
-
-    Atomics.store(signal, 0, 0);
-
-    Module.register(
-      pathToFileURL(loaderPath).href,
-      pathToFileURL(__filename).href,
-      { data: { sab } }
-    );
-
-    // Block until hook thread signals ready (max 5 s)
-    const waitResult = Atomics.wait(signal, 0, 0, 5000);
-
-    if (waitResult !== 'timed-out') {
-      process.stderr.write(
-        '[preload-fix] ✅ ESM hook ready (SAB sync, result=' +
-        waitResult +
-        ')\n'
-      );
-    } else {
-      process.stderr.write(
-        '[preload-fix] ⚠️  ESM hook SAB timed out — hook may not be active\n'
-      );
-    }
-  } catch (e) {
-    process.stderr.write(
-      '[preload-fix] ⚠️  Module.register failed: ' +
-      e.message +
-      '\n'
-    );
-  }
-})();
-
-// ─── STEP 3: Module._compile hook (CJS fallback) ─────────────────────────────
 const _origCompile = Module.prototype._compile;
 
 Module.prototype._compile = function _compileFix(content, filename) {
@@ -297,21 +273,32 @@ Module.prototype._compile = function _compileFix(content, filename) {
         '\n'
       );
 
-      return _origCompile.call(this, fixed, filename);
+      return _origCompile.call(
+        this,
+        fixed,
+        filename
+      );
     }
   }
 
-  return _origCompile.call(this, content, filename);
+  return _origCompile.call(
+    this,
+    content,
+    filename
+  );
 };
 
-// ─── STEP 4: fs.watch — catch patcher re-injection after startup ─────────────
+// ─── STEP 4: fs.watch + polling ──────────────────────────────────────────────
+
 (function watchChunks() {
   if (!fs.existsSync(CHUNKS_DIR)) return;
 
   let files;
 
   try {
-    files = fs.readdirSync(CHUNKS_DIR).filter(f => f.endsWith('.js'));
+    files = fs
+      .readdirSync(CHUNKS_DIR)
+      .filter(f => f.endsWith('.js'));
   } catch (_) {
     return;
   }
@@ -319,8 +306,9 @@ Module.prototype._compile = function _compileFix(content, filename) {
   files.forEach(f => {
     const fp = path.join(CHUNKS_DIR, f);
 
+    // Native filesystem watcher.
     try {
-      const w = fs.watch(
+      const watcher = fs.watch(
         fp,
         { persistent: false },
         (evt) => {
@@ -330,19 +318,26 @@ Module.prototype._compile = function _compileFix(content, filename) {
         }
       );
 
-      w.on('error', () => {});
+      watcher.on('error', () => {});
     } catch (_) {}
 
-    // Polling as belt-and-suspenders
-    fs.watchFile(
-      fp,
-      { persistent: false, interval: 100 },
-      () => patchFile(fp)
-    );
+    // Polling fallback.
+    try {
+      fs.watchFile(
+        fp,
+        {
+          persistent: false,
+          interval: 100
+        },
+        () => {
+          patchFile(fp);
+        }
+      );
+    } catch (_) {}
   });
 })();
 
 process.stderr.write(
   '[preload-fix] ✅ preload v4 installed ' +
-  '(disk-patch + ESM hook + CJS hook + watcher)\n'
+  '(disk-patch + CJS hook + watcher)\n'
 );
