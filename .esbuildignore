@@ -1,0 +1,6 @@
+supabase/
+android/
+ios/
+node_modules/
+dist/
+public/
