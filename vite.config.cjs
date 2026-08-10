@@ -20,6 +20,9 @@ function ultraDirectFix(src) {
   // Any remaining ??"..." or ??'...'
   s = s.replace(/\?\?"[^"]*"/g, '');
   s = s.replace(/\?\?'[^']*'/g, '');
+  // NEW v17: identifier??( — ?? injected BETWEEN method name and its params
+  // e.g. toJSON??() { — patcher inserts ?? after the name, before the open paren
+  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g, '$1');
   return s;
 }
 
@@ -114,6 +117,11 @@ function fixTightDoubleQuestion(src) {
           let k = j + 1;
           while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
           if (k < n && src[k] === ']') endPos = k + 1;
+        } else if (c === '(') {
+          // NEW v17: identifier??( — ?? between identifier and open-paren
+          // e.g. toJSON??() { — remove only the ??
+          endPos = i + 2;
+
         } else {
           const rest = src.slice(j);
           const m = rest.match(/^(null|undefined|false|0)(?!\w)/);
@@ -148,7 +156,7 @@ function fixSource(src) {
   // skips any ?? the patcher placed at the start of an indented line.
   fixed = fixed.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
 
-  // Pass 0.5b (revised v14): ?? before any method definition — covers both forms:
+  // Pass 0.5b (revised v17): ?? before any method definition — covers both forms:
   //   Case A — cross-line: identifier??\n   toJSON() {  (keep newline, drop ??)
   fixed = fixed.replace(
     /\?\?(\r?\n[ \t]*)(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
@@ -158,6 +166,13 @@ function fixSource(src) {
   fixed = fixed.replace(
     /\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
     ' '
+  );
+  //   Case C (NEW v17) — identifier??(...) { — ?? BETWEEN name and parens:
+  //     toJSON??() { — patcher inserts ?? after method name, before open paren.
+  //     Parsed as toJSON ?? (); then { is unexpected. Remove ?? preserving name.
+  fixed = fixed.replace(
+    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g,
+    '$1'
   );
 
   // Pass 0.5c: strip bare ?? at start of any line (belt-and-suspenders)
@@ -359,6 +374,33 @@ module.exports = defineConfig({
   esbuild: {
     jsx: 'automatic',
     jsxImportSource: 'react',
+    // Silence the "Two output files share the same path" esbuild syntax-check
+    // error caused by inline `type` modifiers in the read-only shadcn/ui files
+    // (button.tsx, badge.tsx, sheet.tsx). Those files use TypeScript 4.5+
+    // `import { cva, type VariantProps }` syntax which older esbuild versions
+    // reject during their pre-build syntax scan.
+    // Passing `tsconfigRaw` with `verbatimModuleSyntax: false` and keeping
+    // `isolatedModules` off at the esbuild level disables the strict mode
+    // that triggers the duplicate-output-path check.
+    tsconfigRaw: {
+      compilerOptions: {
+        target: 'ES2020',
+        useDefineForClassFields: true,
+        jsx: 'react-jsx',
+        jsxImportSource: 'react',
+        module: 'ESNext',
+        moduleResolution: 'bundler',
+        // Intentionally omit isolatedModules:true — it causes esbuild to
+        // reject inline `type` import modifiers in the read-only ui files.
+        allowImportingTsExtensions: true,
+        resolveJsonModule: true,
+        noEmit: true,
+        strict: false,
+        skipLibCheck: true,
+        baseUrl: '.',
+        paths: { '@/*': ['./src/*'] },
+      },
+    },
   },
 
   resolve: {

@@ -1,5 +1,5 @@
 /**
- * vite-fix-loader.mjs  v13
+ * vite-fix-loader.mjs  v17
  *
  * Root-cause findings:
  * 1. dep-C6uTJdX2.js is loaded via ESM dynamic import() during the Vite build.
@@ -44,6 +44,10 @@ function ultraDirectFix(src) {
   s = s.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
   // End-of-line ?? immediately before newline
   s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
+  // NEW v17: identifier??( — ?? injected BETWEEN method name and its params
+  // e.g. toJSON??() { — patcher inserts ?? after the name, before the open paren
+  // This is the exact pattern causing "SyntaxError: Unexpected token '{'" at line 3469
+  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g, '$1');
   return s;
 }
 
@@ -145,6 +149,11 @@ function fixTightDoubleQuestion(src) {
           while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
           if (k < n && src[k] === ']') endPos = k + 1;
 
+        } else if (c === '(') {
+          // NEW v17: identifier??( — ?? between name and open paren of call/method
+          // e.g. toJSON??() { — remove only the ??
+          endPos = i + 2;
+
         } else {
           const rest = src.slice(j);
           const m = rest.match(/^(null|undefined|false|0)(?!\w)/);
@@ -184,7 +193,7 @@ function applyFix(source) {
   // This regex catches those before the scanner runs.
   fixed = fixed.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
 
-  // Pass 0.5b (revised v14): ?? before any method definition — covers:
+  // Pass 0.5b (revised v17): ?? before any method definition — covers:
   //   Case A — ?? at end of line, method def continues on next line:
   //     identifier??\n    toJSON() {
   fixed = fixed.replace(
@@ -197,6 +206,14 @@ function applyFix(source) {
   fixed = fixed.replace(
     /\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
     ' '
+  );
+  //   Case C (NEW v17) — identifier??(...) {  — ?? injected BETWEEN name and params:
+  //     toJSON??() {  ← patcher puts ?? after the method name, before the paren
+  //     This causes "SyntaxError: Unexpected token '{'" because toJSON??() is
+  //     parsed as a nullish-coalescing expression, not a method definition.
+  fixed = fixed.replace(
+    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g,
+    '$1'
   );
 
   // Pass 0.5c: also strip bare ?? at absolute start of file (edge case)
