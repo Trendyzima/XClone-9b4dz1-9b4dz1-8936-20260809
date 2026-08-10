@@ -1,35 +1,117 @@
 'use strict';
 
-const { spawnSync } = require('child_process');
+/**
+ * _build.cjs
+ *
+ * Vercel/Vite build wrapper.
+ *
+ * The Vite corruption workaround is handled by _preload.cjs.
+ * We intentionally do NOT use --experimental-loader here because
+ * forcing Vite's internal modules through an ESM loader can interfere
+ * with Vite's CJS/ESM module resolution.
+ */
 
-console.error('[_build] Starting Vite production build...');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const preloadPath = path.resolve(__dirname, '_preload.cjs');
+
+function cleanNodeOptions(value = '') {
+  return value
+    .replace(/--require\s+(?:"[^"]*"|'[^']*'|\S*_preload\S*)/g, '')
+    .replace(/--loader\s+(?:"[^"]*"|'[^']*'|\S+)/g, '')
+    .replace(/--experimental-loader\s+(?:"[^"]*"|'[^']*'|\S+)/g, '')
+    .replace(/--max_old_space_size[=\s]+\S+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const existingNodeOptions = cleanNodeOptions(
+  process.env.NODE_OPTIONS || ''
+);
+
+const nodeOptions = [
+  '--require',
+  preloadPath,
+  '--max_old_space_size=8192',
+  existingNodeOptions
+]
+  .filter(Boolean)
+  .join(' ');
+
+process.stderr.write(
+  '\n[_build] ========================================\n'
+);
+
+process.stderr.write(
+  '[_build] Starting Vite production build\n'
+);
+
+process.stderr.write(
+  '[_build] Node: ' + process.version + '\n'
+);
+
+process.stderr.write(
+  '[_build] Platform: ' + process.platform + '\n'
+);
+
+process.stderr.write(
+  '[_build] NODE_OPTIONS: ' + nodeOptions + '\n'
+);
+
+process.stderr.write(
+  '[_build] ========================================\n\n'
+);
+
+const command = process.platform === 'win32'
+  ? 'npx.cmd'
+  : 'npx';
 
 const result = spawnSync(
-  process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  command,
   ['vite', 'build'],
   {
     stdio: 'inherit',
     shell: false,
     env: {
       ...process.env,
-      NODE_OPTIONS: '--max_old_space_size=8192'
+      NODE_OPTIONS: nodeOptions
     }
   }
 );
 
 if (result.error) {
-  console.error(
-    '[_build] ❌ Failed to start Vite:',
-    result.error.message
+  process.stderr.write(
+    '\n[_build] ❌ Could not start Vite:\n' +
+    result.error.message +
+    '\n'
   );
+
+  process.exit(1);
+}
+
+if (result.signal) {
+  process.stderr.write(
+    '\n[_build] ❌ Vite terminated by signal: ' +
+    result.signal +
+    '\n'
+  );
+
   process.exit(1);
 }
 
 if (result.status !== 0) {
-  console.error(
-    `[_build] ❌ Vite build failed with exit code ${result.status}`
+  process.stderr.write(
+    '\n[_build] ❌ Vite build failed with exit code: ' +
+    result.status +
+    '\n'
   );
-  process.exit(result.status ?? 1);
+
+  process.exit(result.status || 1);
 }
 
-console.error('[_build] ✅ Vite build completed successfully.');
+process.stderr.write(
+  '\n[_build] ✅ Vite build completed successfully.\n'
+);
+
+process.exit(0);
