@@ -1,52 +1,56 @@
 'use strict';
+
 /**
  * _build.cjs — Vercel build wrapper
  *
- * Uses TWO layers of protection in the child vite process:
+ * Runs Vite with:
  *
- *  1. --require _preload.cjs   — disk patch + CJS _compile hook + file watchers
+ *  1. --require _preload.cjs
+ *     — disk patch + CJS hook + watcher
+ *
  *  2. --experimental-loader vite-fix-loader.mjs
- *                              — ESM load hook (loaded SYNCHRONOUSLY before any
- *                                module, unlike Module.register() which is async)
+ *     — ESM hook for Vite chunks
  *
- * The --experimental-loader flag guarantees the hook intercepts every ESM load
- * of a Vite chunk regardless of when the OnSpace patcher re-injects ??.
- *
- * IMPORTANT:
- * _preload.cjs is loaded only by the child Vite process through NODE_OPTIONS.
- * It is NOT loaded separately in this parent process.
+ * The actual ?? repair logic remains inside _preload.cjs
+ * and vite-fix-loader.mjs.
  */
 
-const path          = require('path');
+const path = require('path');
 const { spawnSync } = require('child_process');
 
-// ── Step 1: build absolute NODE_OPTIONS for the child ─────────────────────
 const preloadAbs = path.resolve(__dirname, '_preload.cjs');
 const loaderPath = path.resolve(__dirname, 'vite-fix-loader.mjs');
 
-// Construct a file:// URL for --experimental-loader (works on Linux/Mac/Win)
 const loaderUrl = 'file://' + loaderPath.replace(/\\/g, '/');
 
-// Strip any stale options already in NODE_OPTIONS
+// Remove any previously injected versions of our options.
 const existingOpts = (process.env.NODE_OPTIONS || '')
   .replace(/--require\s+\S*_preload\S*/g, '')
   .replace(/--require\s+_preload-fix/g, '')
   .replace(/--experimental-loader\s+\S*/g, '')
   .replace(/--loader\s+\S*/g, '')
+  .replace(/--max_old_space_size=\S+/g, '')
   .trim();
 
 const nodeOpts = [
-  '--require ' + preloadAbs,
-  '--experimental-loader ' + loaderUrl,
+  '--require',
+  preloadAbs,
+  '--experimental-loader',
+  loaderUrl,
   '--max_old_space_size=8192',
   existingOpts,
-].filter(Boolean).join(' ');
+]
+  .filter(Boolean)
+  .join(' ');
 
 process.stderr.write(
-  '[_build] vite build  NODE_OPTIONS=' + nodeOpts + '\n'
+  '[_build] Starting Vite build...\n'
 );
 
-// ── Step 2: run vite build ─────────────────────────────────────────────────
+process.stderr.write(
+  '[_build] NODE_OPTIONS=' + nodeOpts + '\n'
+);
+
 const isWin = process.platform === 'win32';
 
 const result = spawnSync(
@@ -61,5 +65,15 @@ const result = spawnSync(
     },
   }
 );
+
+if (result.error) {
+  process.stderr.write(
+    '[_build] ❌ Failed to start Vite: ' +
+    result.error.message +
+    '\n'
+  );
+
+  process.exit(1);
+}
 
 process.exit(result.status ?? 1);
