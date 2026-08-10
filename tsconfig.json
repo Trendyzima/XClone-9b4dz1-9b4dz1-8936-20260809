@@ -9,6 +9,7 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": false,
+    "verbatimModuleSyntax": false,
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": false,
