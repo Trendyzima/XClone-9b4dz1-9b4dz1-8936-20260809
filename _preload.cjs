@@ -15,15 +15,11 @@
 * 3. FILE WATCHER
 * Detect and repair OnSpace re-injection after startup.
 * 
-* IMPORTANT:
-* ESM handling is intentionally NOT done here.
-* _build.cjs already supplies:
+* ESM handling is provided separately by:
 * 
 * --experimental-loader vite-fix-loader.mjs
-* 
-* This prevents two ESM loader mechanisms from running at the
-* same time and potentially blocking the Vite build.
-  */
+
+*/
 
 const fs = require('fs');
 const path = require('path');
@@ -43,7 +39,7 @@ __dirname,
 function applyFix(s) {
 if (!s.includes('??')) return s;
 
-// 1. The most common form
+// 1. The most common form: code??"", or code??''
 s = s.split('code??"", ').join('code, ');
 s = s.split("code??'', ").join('code, ');
 s = s.split('code??"",').join('code,');
@@ -51,7 +47,7 @@ s = s.split("code??'',").join('code,');
 s = s.split('code??""').join('code');
 s = s.split("code??''").join('code');
 
-// 2. Any identifier??string
+// 2. Any identifier??string (quoted strings)
 s = s.replace(
 /([A-Za-z_$][A-Za-z0-9_$])??"([^"\])"/g,
 '$1'
@@ -66,19 +62,19 @@ s = s.replace(
 s = s.replace(/??"[^"]"/g, '');
 s = s.replace(/??'[^']'/g, '');
 
-// 4. ??methodName(...) {
+// 4. ??methodName(...) { — same line
 s = s.replace(
 /??(?=[A-Za-z_$][A-Za-z0-9_$]\s[^)]{0,120}\s*{)/g,
 ' '
 );
 
-// 5. ?? followed by newline + method
+// 5. ??\n methodName(...) { — cross-line
 s = s.replace(
 /??(\r?\n[ \t])(?=[A-Za-z_$][A-Za-z0-9_$]\s[^)]{0,120}\s{)/g,
 '$1'
 );
 
-// 6. ?? at beginning of line
+// 6. ?? at the start of a line
 s = s.replace(
 /(\r?\n)([ \t]*)??(?=[^\s?])/g,
 '$1$2'
@@ -90,9 +86,8 @@ s = s.replace(
 '$1$2'
 );
 
-// 8. identifier??(
-// Example:
-// toJSON??() {  →  toJSON() {
+// 8. identifier??( — ?? injected between method name and parens
+// Example: toJSON??() { → toJSON() {
 s = s.replace(
 /([A-Za-z_$][A-Za-z0-9_$])??(?=\s[^)]{0,200}\s*{)/g,
 '$1'
@@ -292,7 +287,6 @@ try {
   watcher.on('error', () => {});
 } catch (_) {}
 
-// Lightweight polling fallback.
 try {
   fs.watchFile(
     fp,
