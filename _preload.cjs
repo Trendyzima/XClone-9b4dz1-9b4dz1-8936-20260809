@@ -33,18 +33,18 @@ function applyFix(s) {
   s = s.split('code??""').join('code');
   s = s.split("code??''").join('code');
 
-  // 2. Any  identifier??string  (quoted strings)
+  // 2. Any identifier??string (quoted strings)
   s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?"([^"\\]*)"/g, '$1');
   s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?'([^'\\]*)'/g, '$1');
 
-  // 3. Bare ??string  (no preceding identifier)
+  // 3. Bare ??string (no preceding identifier)
   s = s.replace(/\?\?"[^"]*"/g, '');
   s = s.replace(/\?\?'[^']*'/g, '');
 
-  // 4. ??methodName(…) {   — same line
+  // 4. ??methodName(...) { — same line
   s = s.replace(/\?\?(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g, ' ');
 
-  // 5. ??\n  methodName(…) {  — cross-line
+  // 5. ??\n methodName(...) { — cross-line
   s = s.replace(/\?\?(\r?\n[ \t]*)(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g, '$1');
 
   // 6. ?? at the start of a line
@@ -53,88 +53,201 @@ function applyFix(s) {
   // 7. identifier?? at end of line
   s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
 
-  // 8. NEW v17: identifier??( — ?? injected BETWEEN method name and its parens
-  //    e.g. toJSON??() { — causes "SyntaxError: Unexpected token '{'" because
-  //    toJSON??() is parsed as nullish-coalescing, not a method definition.
-  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g, '$1');
+  // 8. identifier??( — ?? injected BETWEEN method name and its parens
+  //    e.g. toJSON??() { → toJSON() {
+  s = s.replace(
+    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g,
+    '$1'
+  );
 
   return s;
+}
+
+// ─── Malformed syntax verification ───────────────────────────────────────────
+// Only detect the known malformed method pattern.
+// Legitimate nullish coalescing such as:
+//     allowDot ?? !!this.#options.dot
+// is NOT considered malformed.
+function hasMalformedSyntax(s) {
+  return /[A-Za-z_$][A-Za-z0-9_$]*\?\?\s*\([^)]{0,200}\)\s*\{/.test(s);
 }
 
 // ─── Disk patch + lock ───────────────────────────────────────────────────────
 function patchFile(fpath) {
   let src;
+
   try {
     try { fs.chmodSync(fpath, 0o644); } catch (_) {}
     src = fs.readFileSync(fpath, 'utf8');
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 
-  // ALWAYS re-lock, whether or not we patched (prevents patcher re-injection
-  // in the tiny window where the file is temporarily readable).
-  const lock = () => { try { fs.chmodSync(fpath, 0o444); } catch (_) {} };
+  // ALWAYS re-lock, whether or not we patched.
+  const lock = () => {
+    try { fs.chmodSync(fpath, 0o444); } catch (_) {}
+  };
 
-  if (!src.includes('??')) { lock(); return false; }
+  if (!src.includes('??')) {
+    lock();
+    return false;
+  }
 
+  const hadMalformed = hasMalformedSyntax(src);
   const fixed = applyFix(src);
-  if (fixed === src) { lock(); return false; }
+
+  // Nothing changed.
+  if (fixed === src) {
+    if (hadMalformed) {
+      process.stderr.write(
+        '[preload-fix] ❌ malformed syntax detected but not repaired: ' +
+        path.basename(fpath) + '\n'
+      );
+    }
+
+    lock();
+    return false;
+  }
+
+  // Verify that the known malformed pattern is actually gone.
+  if (hasMalformedSyntax(fixed)) {
+    process.stderr.write(
+      '[preload-fix] ⚠️ repair incomplete: ' +
+      path.basename(fpath) + '\n'
+    );
+
+    lock();
+    return false;
+  }
 
   try {
     fs.writeFileSync(fpath, fixed, 'utf8');
     lock();
-    process.stderr.write('[preload-fix] ✅ patched ' + path.basename(fpath) + '\n');
+
+    process.stderr.write(
+      '[preload-fix] ✅ patched and verified ' +
+      path.basename(fpath) + '\n'
+    );
+
     return true;
   } catch (e) {
     lock();
-    process.stderr.write('[preload-fix] ⚠️  write failed ' + path.basename(fpath) + ': ' + e.message + '\n');
+
+    process.stderr.write(
+      '[preload-fix] ⚠️ write failed ' +
+      path.basename(fpath) +
+      ': ' +
+      e.message +
+      '\n'
+    );
+
     return false;
   }
 }
 
 function patchAll(label) {
   if (!fs.existsSync(CHUNKS_DIR)) return;
+
   let files;
-  try { files = fs.readdirSync(CHUNKS_DIR).filter(f => f.endsWith('.js')); }
-  catch (_) { return; }
+
+  try {
+    files = fs.readdirSync(CHUNKS_DIR).filter(f => f.endsWith('.js'));
+  } catch (_) {
+    return;
+  }
+
   let count = 0;
-  files.forEach(f => { if (patchFile(path.join(CHUNKS_DIR, f))) count++; });
-  if (count > 0)
-    process.stderr.write('[preload-fix] 💾 patchAll(' + label + ') fixed ' + count + ' file(s)\n');
+
+  files.forEach(f => {
+    if (patchFile(path.join(CHUNKS_DIR, f))) count++;
+  });
+
+  if (count > 0) {
+    process.stderr.write(
+      '[preload-fix] 💾 patchAll(' +
+      label +
+      ') fixed ' +
+      count +
+      ' file(s)\n'
+    );
+  }
 }
 
-// ─── STEP 1: Patch existing chunks immediately ───────────────────────────────
-patchAll('startup');
+// ─── STEP 1: Patch existing chunks repeatedly ────────────────────────────────
+// OnSpace may re-inject malformed syntax shortly after the first patch.
+// Run several short passes to catch and repair re-injections.
 
-// ─── STEP 2: ESM hook via Module.register() with SAB synchronization ───────────
+(function repeatedPatch() {
+  const MAX_PASSES = 10;
+  const INTERVAL_MS = 100;
+
+  let pass = 0;
+
+  function runPass() {
+    pass++;
+
+    patchAll('pass-' + pass);
+
+    if (pass < MAX_PASSES) {
+      setTimeout(runPass, INTERVAL_MS);
+    } else {
+      process.stderr.write(
+        '[preload-fix] ✅ repeated patch cycle complete (' +
+        MAX_PASSES +
+        ' passes)\n'
+      );
+    }
+  }
+
+  runPass();
+})();
+
+// ─── STEP 2: ESM hook via Module.register() with SAB synchronization ─────────
 // Module.register() is inherently async — the hook worker may not be ready
-// before Vite fires its first dynamic ESM import.  We pass a SharedArrayBuffer;
+// before Vite fires its first dynamic ESM import. We pass a SharedArrayBuffer;
 // initialize() in vite-fix-loader.mjs calls Atomics.notify, and we block here
 // via Atomics.wait (allowed on Node.js main thread) until ready.
 //
 // IMPORTANT: Skip entirely when chunks dir does not exist (e.g. during npm
 // postinstall scripts for @swc/core, esbuild, etc. — vite isn't installed yet
-// so there's nothing to hook).  Without this guard, Atomics.wait would block
+// so there's nothing to hook). Without this guard, Atomics.wait would block
 // the postinstall for 5 s before timing out.
 (function registerEsmHook() {
-  if (typeof Module.register !== 'function') return; // Node < 20.6
+  if (typeof Module.register !== 'function') return;
+
   // Guard: if vite chunks don't exist, we're in postinstall context — skip.
   if (!fs.existsSync(CHUNKS_DIR)) {
-    process.stderr.write('[preload-fix] ℹ️  chunks dir absent — ESM hook skipped (postinstall context)\n');
+    process.stderr.write(
+      '[preload-fix] ℹ️  chunks dir absent — ESM hook skipped (postinstall context)\n'
+    );
     return;
   }
+
   // Guard: if CWD is inside node_modules, we're running as a dependency's
   // postinstall script — skip ESM hook to avoid blocking for 5 s.
-  if (process.cwd().includes('/node_modules/') || process.cwd().includes('\\node_modules\\')) {
-    process.stderr.write('[preload-fix] ℹ️  postinstall CWD detected — ESM hook skipped\n');
+  if (
+    process.cwd().includes('/node_modules/') ||
+    process.cwd().includes('\\node_modules\\')
+  ) {
+    process.stderr.write(
+      '[preload-fix] ℹ️  postinstall CWD detected — ESM hook skipped\n'
+    );
     return;
   }
+
   const loaderPath = path.join(__dirname, 'vite-fix-loader.mjs');
+
   if (!fs.existsSync(loaderPath)) {
-    process.stderr.write('[preload-fix] ⚠️  vite-fix-loader.mjs not found — ESM hook skipped\n');
+    process.stderr.write(
+      '[preload-fix] ⚠️  vite-fix-loader.mjs not found — ESM hook skipped\n'
+    );
     return;
   }
+
   try {
     const sab = new SharedArrayBuffer(4);
     const signal = new Int32Array(sab);
+
     Atomics.store(signal, 0, 0);
 
     Module.register(
@@ -145,46 +258,91 @@ patchAll('startup');
 
     // Block until hook thread signals ready (max 5 s)
     const waitResult = Atomics.wait(signal, 0, 0, 5000);
+
     if (waitResult !== 'timed-out') {
-      process.stderr.write('[preload-fix] ✅ ESM hook ready (SAB sync, result=' + waitResult + ')\n');
+      process.stderr.write(
+        '[preload-fix] ✅ ESM hook ready (SAB sync, result=' +
+        waitResult +
+        ')\n'
+      );
     } else {
-      process.stderr.write('[preload-fix] ⚠️  ESM hook SAB timed out — hook may not be active\n');
+      process.stderr.write(
+        '[preload-fix] ⚠️  ESM hook SAB timed out — hook may not be active\n'
+      );
     }
   } catch (e) {
-    process.stderr.write('[preload-fix] ⚠️  Module.register failed: ' + e.message + '\n');
+    process.stderr.write(
+      '[preload-fix] ⚠️  Module.register failed: ' +
+      e.message +
+      '\n'
+    );
   }
 })();
 
-// ─── STEP 3: Module._compile hook (CJS fallback) ────────────────────────────
+// ─── STEP 3: Module._compile hook (CJS fallback) ─────────────────────────────
 const _origCompile = Module.prototype._compile;
+
 Module.prototype._compile = function _compileFix(content, filename) {
-  if (filename && filename.includes('/vite/dist/node/') && content.includes('??')) {
+  if (
+    filename &&
+    filename.includes('/vite/dist/node/') &&
+    content.includes('??')
+  ) {
     const fixed = applyFix(content);
+
     if (fixed !== content) {
-      process.stderr.write('[preload-fix] 🔧 _compile fixed ' + path.basename(filename) + '\n');
+      process.stderr.write(
+        '[preload-fix] 🔧 _compile fixed ' +
+        path.basename(filename) +
+        '\n'
+      );
+
       return _origCompile.call(this, fixed, filename);
     }
   }
+
   return _origCompile.call(this, content, filename);
 };
 
 // ─── STEP 4: fs.watch — catch patcher re-injection after startup ─────────────
 (function watchChunks() {
   if (!fs.existsSync(CHUNKS_DIR)) return;
+
   let files;
-  try { files = fs.readdirSync(CHUNKS_DIR).filter(f => f.endsWith('.js')); }
-  catch (_) { return; }
+
+  try {
+    files = fs.readdirSync(CHUNKS_DIR).filter(f => f.endsWith('.js'));
+  } catch (_) {
+    return;
+  }
+
   files.forEach(f => {
     const fp = path.join(CHUNKS_DIR, f);
+
     try {
-      const w = fs.watch(fp, { persistent: false }, (evt) => {
-        if (evt === 'change') patchFile(fp);
-      });
+      const w = fs.watch(
+        fp,
+        { persistent: false },
+        (evt) => {
+          if (evt === 'change') {
+            patchFile(fp);
+          }
+        }
+      );
+
       w.on('error', () => {});
     } catch (_) {}
+
     // Polling as belt-and-suspenders
-    fs.watchFile(fp, { persistent: false, interval: 100 }, () => patchFile(fp));
+    fs.watchFile(
+      fp,
+      { persistent: false, interval: 100 },
+      () => patchFile(fp)
+    );
   });
 })();
 
-process.stderr.write('[preload-fix] ✅ preload v4 installed (disk-patch + ESM hook + CJS hook + watcher)\n');
+process.stderr.write(
+  '[preload-fix] ✅ preload v4 installed ' +
+  '(disk-patch + ESM hook + CJS hook + watcher)\n'
+);
