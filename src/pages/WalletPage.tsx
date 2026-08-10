@@ -55,14 +55,30 @@ export default function WalletPage() {
       hideBanner();
       if (pollRef.current)  clearInterval(pollRef.current);
       if (wPollRef.current) clearInterval(wPollRef.current);
+      stopBalancePoll();
     };
   }, []);
 
-  const startPoll = (checkoutId: string) => {
+  // Live wallet balance polling (every 8s during active transactions)
+  const balancePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startBalancePoll = () => {
+    if (balancePollRef.current) clearInterval(balancePollRef.current);
+    balancePollRef.current = setInterval(async () => {
+      await fetchWallet();
+    }, 8000);
+  };
+
+  const stopBalancePoll = () => {
+    if (balancePollRef.current) { clearInterval(balancePollRef.current); balancePollRef.current = null; }
+  };
+
+  const startPoll = (checkoutId: string, depositAmountUsd: number) => {
     let elapsed = 0;
     setPollSecs(0);
     setPollMsg('Check your phone and enter your M-Pesa PIN…');
     setStep('polling');
+    startBalancePoll();
 
     pollRef.current = setInterval(async () => {
       elapsed += 3;
@@ -70,32 +86,43 @@ export default function WalletPage() {
 
       if (elapsed >= 120) {
         clearInterval(pollRef.current!);
+        stopBalancePoll();
+        // Fetch final wallet state — payment may have completed server-side
+        await fetchWallet();
         setStep('failed');
         setPollMsg('Verification timed out. If you paid, funds will appear shortly.');
         return;
       }
 
       try {
-        const { data, error } = await supabase.functions.invoke('mpesa-stk-status', {
+        const { data } = await supabase.functions.invoke('mpesa-stk-status', {
           body: { checkout_request_id: checkoutId },
         });
 
         if (data?.status === 'completed') {
           clearInterval(pollRef.current!);
-          // Credit wallet via RPC
-          await supabase.rpc('add_to_wallet', {
+          stopBalancePoll();
+          // Credit wallet — only if not already credited server-side (idempotent via RPC)
+          const { error: rpcErr } = await supabase.rpc('add_to_wallet', {
             p_user_id: user!.id,
-            p_amount: parseFloat(amount),
-          }).catch(() => {});
+            p_amount: depositAmountUsd,
+          });
+          if (rpcErr) console.warn('[wallet] add_to_wallet RPC error:', rpcErr.message);
+          // Always re-fetch authoritative balance from DB
           await fetchWallet();
           setStep('success');
-          setPollMsg(`KES ${Math.ceil(parseFloat(amount) * USD_TO_KES).toLocaleString()} received! Your wallet has been topped up.`);
-          toast.success(`Wallet topped up! +$${parseFloat(amount).toFixed(2)}`);
+          setPollMsg(`KES ${Math.ceil(depositAmountUsd * USD_TO_KES).toLocaleString()} received! Your wallet has been topped up.`);
+          toast.success(`Wallet topped up! +$${depositAmountUsd.toFixed(2)}`);
           setAmount('');
         } else if (data?.status === 'failed' || data?.status === 'cancelled') {
           clearInterval(pollRef.current!);
+          stopBalancePoll();
+          await fetchWallet();
           setStep('failed');
           setPollMsg('Payment was cancelled or failed. Please try again.');
+        } else {
+          // Still pending — refresh balance in case server updated it already
+          await fetchWallet();
         }
       } catch { /* keep polling */ }
     }, 3000);
@@ -129,7 +156,8 @@ export default function WalletPage() {
       }
 
       toast.success(data.customer_message || 'STK Push sent — check your phone!');
-      startPoll(data.checkout_request_id);
+      const capturedAmount = parseFloat(amount);
+      startPoll(data.checkout_request_id, capturedAmount);
     } catch (err: any) {
       setStep('failed');
       setPollMsg(err.message || 'Failed to initiate top-up. Try again.');
@@ -139,6 +167,7 @@ export default function WalletPage() {
 
   const resetTopUp = () => {
     if (pollRef.current) clearInterval(pollRef.current);
+    stopBalancePoll();
     setStep('idle');
     setPollMsg('');
     setPollSecs(0);
@@ -146,6 +175,7 @@ export default function WalletPage() {
 
   const resetWithdraw = () => {
     if (wPollRef.current) clearInterval(wPollRef.current);
+    stopBalancePoll();
     setWStep('idle');
     setWPollMsg('');
     setWPollSecs(0);
@@ -167,6 +197,9 @@ export default function WalletPage() {
       const token = sessionData.session?.access_token;
       const backendUrl = import.meta.env.VITE_SUPABASE_URL;
 
+      // Verify balance one more time before deducting
+      await fetchWallet();
+
       const res = await fetch(`${backendUrl}/functions/v1/mpesa-b2c-payout`, {
         method: 'POST',
         headers: {
@@ -181,9 +214,11 @@ export default function WalletPage() {
       toast.success('Payout initiated — check your phone!');
       const conversationId = payload.conversation_id;
 
-      // Immediately deduct from wallet (optimistic)
-      await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: usdAmt }).catch(() => {});
+      // Deduct from wallet — only after B2C request confirmed
+      const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: usdAmt });
+      if (deductErr) console.warn('[wallet] deduct_from_wallet error:', deductErr.message);
       await fetchWallet();
+      startBalancePoll();
 
       // Poll mpesa_transactions for completion
       let elapsed = 0;
@@ -194,26 +229,35 @@ export default function WalletPage() {
       wPollRef.current = setInterval(async () => {
         elapsed += 3;
         setWPollSecs(elapsed);
+        // Refresh balance on every poll tick
+        await fetchWallet();
         if (elapsed >= 120) {
           clearInterval(wPollRef.current!);
+          stopBalancePoll();
           setWStep('success'); // B2C is fire-and-forget; assume success after 2min
           setWPollMsg(`KES ${Math.floor(kesAmt).toLocaleString()} is being sent to your M-Pesa number.`);
           return;
         }
         const { data: txn } = await supabase
           .from('mpesa_transactions')
-          .select('status')
+          .select('status, result_code')
           .eq('checkout_request_id', conversationId)
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
         if (txn?.status === 'completed' || txn?.status === 'success') {
           clearInterval(wPollRef.current!);
+          stopBalancePoll();
+          await fetchWallet();
           setWStep('success');
           setWPollMsg(`KES ${Math.floor(kesAmt).toLocaleString()} sent to your M-Pesa!`);
           toast.success('Withdrawal complete!');
         } else if (txn?.status === 'failed') {
           clearInterval(wPollRef.current!);
-          // Refund wallet
-          await supabase.rpc('add_to_wallet', { p_user_id: user.id, p_amount: usdAmt }).catch(() => {});
+          stopBalancePoll();
+          // Refund wallet on confirmed failure
+          const { error: refundErr } = await supabase.rpc('add_to_wallet', { p_user_id: user.id, p_amount: usdAmt });
+          if (refundErr) console.warn('[wallet] refund error:', refundErr.message);
           await fetchWallet();
           setWStep('failed');
           setWPollMsg('Payout failed — your balance has been restored.');

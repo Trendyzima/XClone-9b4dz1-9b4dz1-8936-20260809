@@ -74,6 +74,7 @@ const SpaceRecordingViewerPage = lazy(() => import('@/pages/SpaceRecordingViewer
 const TrendingTopicFeedPage = lazy(() => import('@/pages/TrendingTopicFeedPage'));
 const HashtagChallengePage = lazy(() => import('@/pages/HashtagChallengePage'));
 const AdminAdsDashboard = lazy(() => import('@/pages/AdminAdsDashboard'));
+const NotificationPreferencesPage = lazy(() => import('@/pages/NotificationPreferencesPage'));
 
 function PageLoader() {
   return (
@@ -180,6 +181,7 @@ function AppInner() {
               <Route path="/trending/:topic" element={<TrendingTopicFeedPage />} />
               <Route path="/challenge/:id" element={<HashtagChallengePage />} />
               <Route path="/admin/ads-review" element={<AdminAdsDashboard />} />
+              <Route path="/notification-preferences" element={<NotificationPreferencesPage />} />
             </Routes>
           </Suspense>
         </main>

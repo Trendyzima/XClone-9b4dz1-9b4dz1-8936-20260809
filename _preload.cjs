@@ -53,6 +53,11 @@ function applyFix(s) {
   // 7. identifier?? at end of line
   s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
 
+  // 8. NEW v17: identifier??( — ?? injected BETWEEN method name and its parens
+  //    e.g. toJSON??() { — causes "SyntaxError: Unexpected token '{'" because
+  //    toJSON??() is parsed as nullish-coalescing, not a method definition.
+  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g, '$1');
+
   return s;
 }
 
