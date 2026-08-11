@@ -16,32 +16,70 @@ export function formatNumber(num: number): string {
 }
 
 export function parseContent(content: string): string {
-  // Convert double newlines to paragraph breaks, single newlines to <br>
-  let parsed = content
-    .split(/\n{2,}/)
-    .map(para => para.trim())
-    .filter(Boolean)
-    .map(para => `<p class="mb-3 last:mb-0">${para.replace(/\n/g, '<br />')}</p>`)
-    .join('');
+  const processInline = (text: string) =>
+    text
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>');
 
-  // Convert hashtags to links
-  parsed = parsed.replace(
-    /#(\w+)/g,
-    '<a href="/hashtag/$1" class="text-primary hover:underline">#$1</a>'
-  );
-  
-  // Convert mentions to links
-  parsed = parsed.replace(
-    /@(\w+)/g,
-    '<a href="/profile/$1" class="text-primary hover:underline">@$1</a>'
-  );
-  
-  // Convert URLs to links
-  parsed = parsed.replace(
-    /(https?:\/\/[^\s]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline break-all">$1</a>'
-  );
-  
+  const lines = content.split('\n');
+  const htmlParts: string[] = [];
+  let paragraphLines: string[] = [];
+
+  const flushParagraph = () => {
+    if (paragraphLines.length > 0) {
+      htmlParts.push(`<p class="mb-3 leading-relaxed">${paragraphLines.map(processInline).join('<br />')}</p>`);
+      paragraphLines = [];
+    }
+  };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { flushParagraph(); continue; }
+
+    if (line.startsWith('## ')) {
+      flushParagraph();
+      const text = line.slice(3).trim();
+      const id = `ch-${text.toLowerCase().replace(/[^a-z0-9\s]+/g, '').replace(/\s+/g, '-').slice(0, 40)}`;
+      htmlParts.push(`<h2 id="${id}" class="text-xl font-bold mt-8 mb-3 scroll-mt-24">${processInline(text)}</h2>`);
+      continue;
+    }
+    if (line.startsWith('# ')) {
+      flushParagraph();
+      htmlParts.push(`<h1 class="text-2xl font-bold mt-8 mb-3">${processInline(line.slice(2))}</h1>`);
+      continue;
+    }
+    if (line.startsWith('### ')) {
+      flushParagraph();
+      htmlParts.push(`<h3 class="text-lg font-semibold mt-5 mb-2">${processInline(line.slice(4))}</h3>`);
+      continue;
+    }
+    if (line === '---') {
+      flushParagraph();
+      htmlParts.push('<hr class="border-border my-6" />');
+      continue;
+    }
+    if (line.startsWith('> ')) {
+      flushParagraph();
+      htmlParts.push(`<blockquote class="border-l-4 border-primary/40 pl-4 italic text-muted-foreground my-3">${processInline(line.slice(2))}</blockquote>`);
+      continue;
+    }
+    if (line.startsWith('\u2022 ') || line.startsWith('- ')) {
+      flushParagraph();
+      htmlParts.push(`<div class="flex gap-2 mb-1"><span class="text-primary shrink-0 mt-0.5">\u2022</span><span>${processInline(line.slice(2))}</span></div>`);
+      continue;
+    }
+
+    paragraphLines.push(line);
+  }
+  flushParagraph();
+
+  let parsed = htmlParts.join('');
+
+  // Hashtags, mentions, URLs — applied to text nodes only (avoiding href attributes)
+  parsed = parsed.replace(/(?<!["=/])#(\w+)/g, '<a href="/hashtag/$1" class="text-primary hover:underline">#$1</a>');
+  parsed = parsed.replace(/@(\w+)/g, '<a href="/profile/$1" class="text-primary hover:underline">@$1</a>');
+  parsed = parsed.replace(/(https?:\/\/[^\s<"]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline break-all">$1</a>');
+
   return parsed;
 }
 

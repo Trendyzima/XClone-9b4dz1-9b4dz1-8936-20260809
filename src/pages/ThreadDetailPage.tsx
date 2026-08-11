@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown, Check, Copy, ExternalLink, QrCode, Link } from 'lucide-react';
+import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown, Check, Copy, ExternalLink, QrCode, Link, List, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { useSEO, buildThreadLD, buildOgImageUrl } from '@/hooks/useSEO';
 import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber, cn } from '@/lib/utils';
@@ -58,6 +58,11 @@ export default function ThreadDetailPage() {
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'shared'>('idle');
   const [showShareCard, setShowShareCard] = useState(false);
+
+  // ── Chapter Navigation ──────────────────────────────────────────────────
+  const [tableOfContents, setTableOfContents] = useState<{ id: string; text: string }[]>([]);
+  const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
+  const [showMobileChapters, setShowMobileChapters] = useState(false);
 
   // Thread Reactions
   const THREAD_REACTIONS = ['❤️', '😂', '🔥', '😮', '👏'] as const;
@@ -116,6 +121,47 @@ export default function ThreadDetailPage() {
     updateProgress();
     return () => window.removeEventListener('scroll', updateProgress);
   }, [thread]);
+
+  // Extract table of contents from ## headings in raw content
+  useEffect(() => {
+    if (!thread?.content) return;
+    const headings = thread.content
+      .split('\n')
+      .filter((line: string) => line.trim().startsWith('## '))
+      .map((line: string) => {
+        const text = line.trim().slice(3).trim();
+        const id = `ch-${text.toLowerCase().replace(/[^a-z0-9\s]+/g, '').replace(/\s+/g, '-').slice(0, 40)}`;
+        return { id, text };
+      });
+    setTableOfContents(headings);
+  }, [thread?.content]);
+
+  // IntersectionObserver to track which heading is in view
+  useEffect(() => {
+    if (tableOfContents.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) setActiveHeadingId(entry.target.id);
+        });
+      },
+      { rootMargin: '-10% 0% -75% 0%', threshold: 0 }
+    );
+    tableOfContents.forEach(({ id }) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, [tableOfContents]);
+
+  const scrollToHeading = useCallback((id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActiveHeadingId(id);
+      setShowMobileChapters(false);
+    }
+  }, []);
 
   // Chapter editor for thread owner
   const [editingChapters, setEditingChapters] = useState(false);
@@ -600,7 +646,7 @@ export default function ThreadDetailPage() {
         />
       </div>
       {readingProgress > 2 && readingProgress < 100 && (
-        <div className="sticky top-15 z-40 flex justify-end px-4 py-1 bg-background/80 backdrop-blur-sm border-b border-border/30">
+        <div className="sticky top-15 z-40 flex justify-between items-center px-4 py-1 bg-background/80 backdrop-blur-sm border-b border-border/30">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">{readingProgress}%</span>
             <span>read</span>
@@ -608,11 +654,89 @@ export default function ThreadDetailPage() {
             <Clock className="w-3 h-3" />
             <span>{remainingMins} min left</span>
           </div>
+          {tableOfContents.length > 0 && (
+            <button
+              onClick={() => setShowMobileChapters(v => !v)}
+              className="xl:hidden flex items-center gap-1 text-xs font-semibold text-primary"
+            >
+              <List className="w-3.5 h-3.5" />
+              {tableOfContents.length} chapters
+            </button>
+          )}
         </div>
       )}
       {readingProgress >= 100 && (
         <div className="sticky top-15 z-40 flex justify-center px-4 py-1 bg-green-500/8 border-b border-green-500/20">
           <p className="text-xs font-bold text-green-600">✓ Finished reading</p>
+        </div>
+      )}
+
+      {/* ── Mobile Chapter Sheet ── */}
+      {showMobileChapters && tableOfContents.length > 0 && (
+        <>
+          <div className="fixed inset-0 z-[300] bg-black/40" onClick={() => setShowMobileChapters(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-[350] bg-background border-t border-border rounded-t-2xl p-4 max-h-[60vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <List className="w-4 h-4 text-primary" />
+                <h3 className="font-bold text-sm">Chapters</h3>
+              </div>
+              <button onClick={() => setShowMobileChapters(false)} className="p-1.5 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-1">
+              {tableOfContents.map((ch, i) => (
+                <button
+                  key={ch.id}
+                  onClick={() => scrollToHeading(ch.id)}
+                  className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${
+                    activeHeadingId === ch.id
+                      ? 'bg-primary/10 text-primary font-semibold'
+                      : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <span className="text-[10px] font-bold w-5 text-center shrink-0 opacity-50">{i + 1}</span>
+                  <span className="text-sm">{ch.text}</span>
+                  <ChevronRightIcon className="w-3.5 h-3.5 ml-auto shrink-0 opacity-40" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Desktop Floating Chapter Nav ── */}
+      {tableOfContents.length > 0 && (
+        <div className="hidden xl:block fixed right-6 top-1/4 z-[200] w-56 max-h-[55vh] overflow-y-auto">
+          <div className="bg-background/90 backdrop-blur-xl border border-border/60 rounded-2xl shadow-xl p-3">
+            <div className="flex items-center gap-1.5 mb-2 px-1">
+              <List className="w-3.5 h-3.5 text-primary" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Chapters</span>
+            </div>
+            <div className="space-y-0.5">
+              {tableOfContents.map((ch, i) => (
+                <button
+                  key={ch.id}
+                  onClick={() => scrollToHeading(ch.id)}
+                  className={`w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs transition-all ${
+                    activeHeadingId === ch.id
+                      ? 'bg-primary/10 text-primary font-bold'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  <span className="shrink-0 font-bold opacity-40 w-4 text-right">{i + 1}</span>
+                  <span className="truncate leading-snug">{ch.text}</span>
+                  {activeHeadingId === ch.id && <div className="ml-auto w-1 h-1 rounded-full bg-primary shrink-0" />}
+                </button>
+              ))}
+            </div>
+            {/* Progress mini bar */}
+            <div className="mt-2 pt-2 border-t border-border/40">
+              <div className="h-1 bg-muted rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-violet-500 to-cyan-400 rounded-full transition-all" style={{ width: `${readingProgress}%` }} />
+              </div>
+              <p className="text-[9px] text-muted-foreground mt-1 text-center">{readingProgress}% read</p>
+            </div>
+          </div>
         </div>
       )}
 

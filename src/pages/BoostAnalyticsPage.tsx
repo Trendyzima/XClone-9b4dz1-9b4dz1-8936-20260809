@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -36,6 +36,8 @@ export default function BoostAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [togglingPause, setTogglingPause] = useState<string | null>(null);
+  const [compareA, setCompareA] = useState<string>('');
+  const [compareB, setCompareB] = useState<string>('');
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -495,6 +497,143 @@ export default function BoostAnalyticsPage() {
             </div>
           )}
         </div>
+
+        {/* ── Campaign Comparison Chart ── */}
+        {allBoosts.length >= 2 && (
+          <div className="border border-border rounded-2xl overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-muted/20">
+              <BarChart3 className="w-5 h-5 text-primary" />
+              <h2 className="font-bold text-lg">Compare Campaigns</h2>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Selectors */}
+              <div className="grid grid-cols-2 gap-3">
+                {['A', 'B'].map((label, idx) => {
+                  const sel = idx === 0 ? compareA : compareB;
+                  const setSel = idx === 0 ? setCompareA : setCompareB;
+                  const other = idx === 0 ? compareB : compareA;
+                  return (
+                    <div key={label}>
+                      <label className="block text-xs font-bold text-muted-foreground mb-1.5">
+                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-black mr-1.5 ${
+                          idx === 0 ? 'bg-blue-500' : 'bg-purple-500'
+                        }`}>{label}</span>Campaign {label}
+                      </label>
+                      <select
+                        value={sel}
+                        onChange={e => setSel(e.target.value)}
+                        className="w-full text-xs border border-border rounded-xl px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
+                      >
+                        <option value="">Pick a campaign…</option>
+                        {allBoosts.filter(b => b.id !== other).map(b => (
+                          <option key={b.id} value={b.id}>
+                            {b.posts?.content?.slice(0, 40) || 'Post boost'} — ${(b.budget || 0).toFixed(2)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Comparison chart */}
+              {(() => {
+                const boostA = allBoosts.find(b => b.id === compareA);
+                const boostB = allBoosts.find(b => b.id === compareB);
+                if (!boostA || !boostB) {
+                  return (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <BarChart3 className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                      <p className="text-sm">Select two campaigns above to compare</p>
+                    </div>
+                  );
+                }
+
+                const ctrA = boostA.impressions > 0 ? ((boostA.clicks / boostA.impressions) * 100) : 0;
+                const ctrB = boostB.impressions > 0 ? ((boostB.clicks / boostB.impressions) * 100) : 0;
+
+                const chartData = [
+                  { metric: 'Impressions', A: boostA.impressions || 0, B: boostB.impressions || 0 },
+                  { metric: 'Clicks', A: boostA.clicks || 0, B: boostB.clicks || 0 },
+                  { metric: 'Spend ($)', A: Number((boostA.spent || 0).toFixed(2)), B: Number((boostB.spent || 0).toFixed(2)) },
+                ];
+
+                const wins = {
+                  impressions: boostA.impressions >= boostB.impressions ? 'A' : 'B',
+                  clicks: boostA.clicks >= boostB.clicks ? 'A' : 'B',
+                  ctr: ctrA >= ctrB ? 'A' : 'B',
+                  efficiency: (boostA.impressions / Math.max(0.01, boostA.spent || 0.01)) >= (boostB.impressions / Math.max(0.01, boostB.spent || 0.01)) ? 'A' : 'B',
+                };
+
+                return (
+                  <div className="space-y-4">
+                    {/* Bar chart */}
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={chartData} margin={{ top: 0, right: 0, left: -16, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="metric" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                        <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                        <Tooltip
+                          contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Bar dataKey="A" name="Campaign A" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="B" name="Campaign B" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                    {/* Winner badges */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Most Impressions', winner: wins.impressions, aVal: formatNumber(boostA.impressions || 0), bVal: formatNumber(boostB.impressions || 0) },
+                        { label: 'Most Clicks', winner: wins.clicks, aVal: formatNumber(boostA.clicks || 0), bVal: formatNumber(boostB.clicks || 0) },
+                        { label: 'Higher CTR', winner: wins.ctr, aVal: `${ctrA.toFixed(1)}%`, bVal: `${ctrB.toFixed(1)}%` },
+                        { label: 'Best Efficiency', winner: wins.efficiency, aVal: `${formatNumber(Math.round((boostA.impressions || 0) / Math.max(0.01, boostA.spent || 0.01)))}/\$`, bVal: `${formatNumber(Math.round((boostB.impressions || 0) / Math.max(0.01, boostB.spent || 0.01)))}/\$` },
+                      ].map(({ label, winner, aVal, bVal }) => (
+                        <div key={label} className="bg-muted/30 rounded-xl p-3">
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5">{label}</p>
+                          <div className="flex items-center gap-2">
+                            <span className={`flex items-center justify-center w-5 h-5 rounded-full text-white text-[9px] font-black shrink-0 ${
+                              winner === 'A' ? 'bg-blue-500 ring-2 ring-blue-500/30' : 'bg-muted-foreground/30'
+                            }`}>A</span>
+                            <span className={`text-xs ${winner === 'A' ? 'font-bold text-blue-600 dark:text-blue-400' : 'text-muted-foreground'}`}>{aVal}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`flex items-center justify-center w-5 h-5 rounded-full text-white text-[9px] font-black shrink-0 ${
+                              winner === 'B' ? 'bg-purple-500 ring-2 ring-purple-500/30' : 'bg-muted-foreground/30'
+                            }`}>B</span>
+                            <span className={`text-xs ${winner === 'B' ? 'font-bold text-purple-600 dark:text-purple-400' : 'text-muted-foreground'}`}>{bVal}</span>
+                          </div>
+                          {winner === 'A'
+                            ? <p className="text-[9px] font-bold text-blue-500 mt-1.5">🏆 Campaign A wins</p>
+                            : <p className="text-[9px] font-bold text-purple-500 mt-1.5">🏆 Campaign B wins</p>}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Summary row */}
+                    <div className="bg-gradient-to-r from-blue-500/5 to-purple-500/5 border border-border/60 rounded-xl p-3">
+                      <p className="text-xs font-bold mb-2">Overall Verdict</p>
+                      {(() => {
+                        const aWins = Object.values(wins).filter(w => w === 'A').length;
+                        const bWins = Object.values(wins).filter(w => w === 'B').length;
+                        if (aWins === bWins) return <p className="text-xs text-muted-foreground">It's a tie! Both campaigns performed equally.</p>;
+                        const winnerLabel = aWins > bWins ? 'Campaign A' : 'Campaign B';
+                        const winnerCount = Math.max(aWins, bWins);
+                        return (
+                          <p className="text-xs text-muted-foreground">
+                            <span className={`font-bold ${aWins > bWins ? 'text-blue-600 dark:text-blue-400' : 'text-purple-600 dark:text-purple-400'}`}>{winnerLabel}</span>
+                            {' '}outperformed on {winnerCount}/4 metrics.
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* ── Quick Actions ── */}
         <div className="grid grid-cols-2 gap-3">
