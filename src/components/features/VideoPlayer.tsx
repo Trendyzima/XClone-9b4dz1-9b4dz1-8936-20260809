@@ -883,7 +883,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
                 </div>
                 <div>
                   <p className="text-white font-semibold text-sm">{linkCopied ? 'Link Copied!' : 'Copy Link'}</p>
-                  <p className="text-white/50 text-xs truncate max-w-[240px]">{getPostUrl()}</p>
+                  <p className="text-white/50 text-xs truncate max-w-[240px]">{`/post/${post.id}`}</p>
                 </div>
               </button>
               {typeof navigator !== 'undefined' && 'share' in navigator && (

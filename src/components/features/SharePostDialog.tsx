@@ -31,8 +31,10 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
 
-  // Generate shareable link + dynamic OG image URL
-  const shareUrl = `${window.location.origin}/post/${post.id}`;
+  // Build URL lazily inside callbacks — avoids window.location at render scope (esbuild non-determinism)
+  const getShareUrl = () => `${window.location.origin}/post/${post.id}`;
+  // Use a stable string for display — just the path, not origin
+  const shareUrlDisplay = `/post/${post.id}`;
   const rawText = (post.content ?? '').replace(/<[^>]*>/g, '');
   const shareText = `${rawText.substring(0, 100)}${rawText.length > 100 ? '...' : ''}`;
   const ogImageUrl = buildOgImageUrl({ post: post.id });
@@ -40,6 +42,7 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
   // Inject OG meta tags so crawlers and messaging apps see the dynamic post card
   useEffect(() => {
     if (!open) return;
+    const shareUrl = getShareUrl();
     const setM = (p: string, c: string) => {
       let el = document.querySelector(`meta[property="${p}"]`) as HTMLMetaElement | null;
       if (!el) { el = document.createElement('meta'); el.setAttribute('property', p); document.head.appendChild(el); }
@@ -62,9 +65,10 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
     setN('twitter:image', ogImageUrl);
     setN('twitter:title', title);
     setN('twitter:description', shareText);
-  }, [open, shareUrl, ogImageUrl, shareText]);
+  }, [open, ogImageUrl, shareText]);
 
   const copyToClipboard = async () => {
+    const shareUrl = getShareUrl();
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -83,28 +87,33 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
   };
 
   const shareToTwitter = () => {
+    const shareUrl = getShareUrl();
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
     window.open(url, '_blank');
   };
 
   const shareToFacebook = () => {
+    const shareUrl = getShareUrl();
     // Facebook reads og:image from the page — our injected meta tag handles this
     const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
     window.open(url, '_blank');
   };
 
   const shareToLinkedIn = () => {
+    const shareUrl = getShareUrl();
     const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
     window.open(url, '_blank');
   };
 
   const shareToWhatsApp = () => {
+    const shareUrl = getShareUrl();
     const url = `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + shareUrl)}`;
     window.open(url, '_blank');
   };
 
   const shareViaNative = async () => {
     if (navigator.share) {
+      const shareUrl = getShareUrl();
       try {
         await navigator.share({
           title: 'Share post',
@@ -128,7 +137,7 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
           <div className="flex items-center space-x-2">
             <Input
               readOnly
-              value={shareUrl}
+              value={shareUrlDisplay}
               className="flex-1"
             />
             <Button

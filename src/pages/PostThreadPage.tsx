@@ -278,8 +278,11 @@ export default function PostThreadPage() {
     }
   };
 
+  // Build URL lazily — avoids window.location at render scope (esbuild non-determinism)
+  const getPostUrl = () => `${window.location.origin}/post/${postId}`;
+
   const copyLink = () => {
-    const url = `${window.location.origin}/post/${postId}`;
+    const url = getPostUrl();
     navigator.clipboard.writeText(url).then(() => {
       setCopySuccess(true);
       toast({ title: 'Link copied!' });
@@ -288,18 +291,18 @@ export default function PostThreadPage() {
   };
 
   const shareToX = () => {
-    const url = `${window.location.origin}/post/${postId}`;
+    const url = getPostUrl();
     const text = post ? `${post.content?.slice(0, 100)}...` : 'Check out this post on Testagram';
     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
   };
 
   const shareToFacebook = () => {
-    const url = `${window.location.origin}/post/${postId}`;
+    const url = getPostUrl();
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, '_blank');
   };
 
   const shareToWhatsApp = () => {
-    const url = `${window.location.origin}/post/${postId}`;
+    const url = getPostUrl();
     const text = post ? `${post.content?.slice(0, 100)}... ` : '';
     window.open(`https://wa.me/?text=${encodeURIComponent(text + url)}`, '_blank');
   };
@@ -333,7 +336,7 @@ export default function PostThreadPage() {
     );
   }
 
-  const postUrl = `${window.location.origin}/post/${postId}`;
+  const postUrl = getPostUrl();
   const postThumb =
     (post.media_urls && post.media_urls.length > 0 ? post.media_urls[0] : null) ||
     post.image_url || null;

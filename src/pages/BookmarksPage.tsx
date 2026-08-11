@@ -3,7 +3,8 @@ import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { PostCard } from '@/components/features/PostCard';
-import { Bookmark, FolderOpen, FolderPlus, Loader2, X, Folder, Plus, Trash2, Check } from 'lucide-react';
+import { Bookmark, FolderOpen, FolderPlus, Loader2, X, Folder, Plus, Trash2, Check, Play, Heart, Eye } from 'lucide-react';
+import { formatNumber } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -36,7 +37,9 @@ export function BookmarksPage() {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'all' | 'collections'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'videos' | 'collections'>('all');
+  const [videos, setVideos] = useState<any[]>([]);
+  const [loadingVideos, setLoadingVideos] = useState(false);
 
   // Collections = user's lists
   const [collections, setCollections] = useState<any[]>([]);
@@ -58,7 +61,23 @@ export function BookmarksPage() {
     if (!user) { navigate('/auth'); return; }
     fetchBookmarks();
     fetchCollections();
+    fetchBookmarkedVideos();
   }, [user]);
+
+  const fetchBookmarkedVideos = async () => {
+    if (!user) return;
+    setLoadingVideos(true);
+    try {
+      const { data } = await supabase
+        .from('bookmarks')
+        .select('*, post:posts(*, user:user_profiles(*))')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      const vids = ((data ?? []).map((b: any) => b.post).filter((p: any) => p && p.is_video));
+      setVideos(vids);
+    } catch { setVideos([]); }
+    finally { setLoadingVideos(false); }
+  };
 
   const fetchBookmarks = async () => {
     if (!user) return;
@@ -175,6 +194,13 @@ export function BookmarksPage() {
           <Bookmark className="w-4 h-4" /> All
           {posts.length > 0 && <span className="text-[10px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded-full">{posts.length}</span>}
         </button>
+        <button onClick={() => setActiveTab('videos')}
+          className={`flex-1 py-3.5 text-sm font-semibold border-b-2 flex items-center justify-center gap-2 transition-colors ${
+            activeTab === 'videos' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'
+          }`}>
+          <Play className="w-4 h-4" /> Videos
+          {videos.length > 0 && <span className="text-[10px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded-full">{videos.length}</span>}
+        </button>
         <button onClick={() => setActiveTab('collections')}
           className={`flex-1 py-3.5 text-sm font-semibold border-b-2 flex items-center justify-center gap-2 transition-colors ${
             activeTab === 'collections' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'
@@ -233,6 +259,69 @@ export function BookmarksPage() {
                 )}
               </div>
             ))
+          )}
+        </div>
+      )}
+
+      {/* ── VIDEOS TAB ── */}
+      {activeTab === 'videos' && (
+        <div className="p-3">
+          {loadingVideos ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : videos.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <Play className="w-14 h-14 mx-auto mb-4 opacity-20" />
+              <h2 className="text-lg font-semibold mb-2">No saved videos</h2>
+              <p className="text-sm">Bookmark videos from the feed to watch them here</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {videos.map((post: any) => (
+                <button
+                  key={post.id}
+                  onClick={() => navigate(`/videos?id=${post.id}`)}
+                  className="relative rounded-xl overflow-hidden bg-black aspect-[9/16] hover:scale-[1.02] active:scale-[0.98] transition-transform focus:outline-none"
+                >
+                  {/* Thumbnail — video frame or image */}
+                  {post.video_url ? (
+                    <video
+                      src={`${post.video_url}#t=0.5`}
+                      className="w-full h-full object-cover"
+                      muted
+                      preload="metadata"
+                    />
+                  ) : post.image_url ? (
+                    <img src={post.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="w-full h-full bg-muted flex items-center justify-center">
+                      <Play className="w-10 h-10 text-white/40" />
+                    </div>
+                  )}
+                  {/* Gradient overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                  {/* Play icon */}
+                  <div className="absolute top-2 right-2 w-7 h-7 bg-black/50 rounded-full flex items-center justify-center">
+                    <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
+                  </div>
+                  {/* Stats */}
+                  <div className="absolute bottom-2 left-2 right-2">
+                    <p className="text-white text-[10px] font-medium line-clamp-2 mb-1 leading-tight">
+                      {post.content?.slice(0, 60)}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="flex items-center gap-0.5 text-white/70 text-[10px]">
+                        <Heart className="w-2.5 h-2.5" />{formatNumber(post.likes_count ?? 0)}
+                      </span>
+                      <span className="flex items-center gap-0.5 text-white/70 text-[10px]">
+                        <Eye className="w-2.5 h-2.5" />{formatNumber(post.views_count ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
           )}
         </div>
       )}
