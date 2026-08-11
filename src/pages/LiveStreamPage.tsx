@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -14,8 +15,7 @@ import {
 } from 'recharts';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
-import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
-import { ADMOB_CONFIG } from '@/lib/admob';
+import { isAdMobSupported } from '@/lib/admob';
 
 interface StreamMessage {
   id: string;
@@ -99,16 +99,13 @@ export default function LiveStreamPage() {
     structuredData: streamJsonLd,
   });
 
+  // AdSense web banner (native uses real AdMob via isAdMobSupported)
+  const adPushedRef = useRef(false);
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    AdMob.showBanner({
-      adId: ADMOB_CONFIG.BANNER_FEED,
-      adSize: BannerAdSize.ADAPTIVE_BANNER,
-      position: BannerAdPosition.TOP_CENTER,
-      margin: 0,
-      isTesting: false,
-    });
-    return () => { AdMob.hideBanner(); };
+    if (isAdMobSupported()) return; // native: AdMob handles this
+    if (adPushedRef.current) return;
+    adPushedRef.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
   }, []);
 
   useEffect(() => {
@@ -599,7 +596,12 @@ export default function LiveStreamPage() {
         )}
       </div>
 
-      {/* CSS for floating reactions */}
+      {/* AdSense slot — live stream page (web only) */}
+      {!isAdMobSupported() && (
+        <LiveStreamAdBanner />
+      )}
+
+      {/* ── AdSense banner for web (native uses AdMob) ────────────────────────────────────────────────── */}
       <style>{`
         @keyframes floatUp {
           0%   { transform: translateY(0)   scale(1);   opacity: 1; }
@@ -607,6 +609,28 @@ export default function LiveStreamPage() {
           100% { transform: translateY(-160px) scale(0.6); opacity: 0; }
         }
       `}</style>
+    </div>
+  );
+}
+
+function LiveStreamAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="bg-background border-t border-border px-4 py-3">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
     </div>
   );
 }

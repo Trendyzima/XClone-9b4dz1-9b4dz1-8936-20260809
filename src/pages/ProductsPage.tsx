@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
@@ -707,6 +707,9 @@ export function ProductsPage() {
         </div>
       </div>
 
+      {/* AdSense banner — marketplace page */}
+      <ProductsAdBanner />
+
       {loading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
       ) : (
@@ -854,6 +857,29 @@ function ProductCard({ product, wishlisted, onWishlist, onView, onProfile, onRev
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── AdSense banner — mounted once, push-guarded ─────────────────────────────────────────────────
+function ProductsAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-3 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
     </div>
   );
 }
