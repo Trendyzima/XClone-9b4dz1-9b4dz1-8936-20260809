@@ -110,8 +110,8 @@ export function VideoMonetizationAd({
         </p>
       </div>
 
-      {/* Skip button — fixed bottom-right, always above everything */}
-      <div className="relative z-20 flex justify-end items-center px-5 py-5">
+      {/* Skip button — sits above bottom nav bar + safe-area inset */}
+      <div className="relative z-20 flex justify-end items-center px-5" style={{ paddingBottom: 'calc(72px + env(safe-area-inset-bottom, 0px))', paddingTop: '12px' }}>
         {canSkip ? (
           <button
             onClick={handleSkip}

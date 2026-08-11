@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -90,13 +91,25 @@ export default function SearchPage() {
   const [aiSearchResult, setAiSearchResult] = useState<string | null>(null);
   const [aiSearching, setAiSearching] = useState(false);
 
+  // ── Autocomplete + recent searches state (declared early — used in searchTermFrequency below) ──
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [acUsers, setAcUsers] = useState<any[]>([]);
+  const [acHashtags, setAcHashtags] = useState<any[]>([]);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('tsocial_recent_searches') || '[]') as string[];
+      setRecentSearches(stored.slice(0, 6));
+    } catch {}
+  }, []);
+
   // ── Search History Analytics ─────────────────────────────────────────────────
   const [userInterests, setUserInterests] = useState<any[]>([]);
 
+  // recentSearches is declared above — no forward reference
   const searchTermFrequency = useMemo(() => {
     const freq: Record<string, number> = {};
     recentSearches.forEach(s => { freq[s] = (freq[s] ?? 0) + 1; });
-    // Also include all-time from a broader localStorage key
     try {
       const all = JSON.parse(localStorage.getItem('tsocial_all_searches') || '[]') as string[];
       all.forEach(s => { freq[s] = (freq[s] ?? 0) + 1; });
@@ -114,7 +127,6 @@ export default function SearchPage() {
 
   const applyFilters = (rawPosts: any[]) => {
     let result = [...rawPosts];
-    // Date filter
     if (filterDate !== 'all') {
       const cutoff = new Date();
       if (filterDate === '24h') cutoff.setHours(cutoff.getHours() - 24);
@@ -122,29 +134,15 @@ export default function SearchPage() {
       else if (filterDate === 'month') cutoff.setMonth(cutoff.getMonth() - 1);
       result = result.filter(p => new Date(p.created_at) >= cutoff);
     }
-    // Media filter
     if (filterMedia === 'images') result = result.filter(p => p.image_url || (p.media_urls && p.media_urls.length > 0 && !p.is_video));
     else if (filterMedia === 'videos') result = result.filter(p => p.is_video || p.video_url);
-    // Verified filter
     if (filterVerified) result = result.filter(p => p.user_profiles?.verified);
     return result;
   };
 
   const activeFilterCount = (filterDate !== 'all' ? 1 : 0) + (filterMedia !== 'all' ? 1 : 0) + (filterVerified ? 1 : 0);
-
-  // ── Autocomplete state ──────────────────────────────────────────────────────
-  const [showAutocomplete, setShowAutocomplete] = useState(false);
-  const [acUsers, setAcUsers] = useState<any[]>([]);
-  const [acHashtags, setAcHashtags] = useState<any[]>([]);
-  const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('tsocial_recent_searches') || '[]') as string[];
-      setRecentSearches(stored.slice(0, 6));
-    } catch {}
-  }, []);
   const acDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const tabs = ['For You', 'Posts', 'Users', 'Hashtags', 'Communities', 'Fediverse'];
@@ -299,17 +297,8 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
     try { localStorage.setItem('tsocial_recent_searches', JSON.stringify(updated)); } catch {}
   };
 
-  useEffect(() => {
-    const q = searchParams.get('q');
-    if (q) {
-      setQuery(q);
-      performSearch(q);
-      doAiSearch(q);
-    }
-  }, [searchParams, performSearch, doAiSearch]); // Added performSearch and doAiSearch to dependencies
-
   // ── Smart search scoring: boost by engagement + recency ─────────────────
-  const scorePost = (post: any, q: string) => {
+  const scorePost = useCallback((post: any, q: string) => {
     const lower = q.toLowerCase();
     let score = 0;
     if (post.content?.toLowerCase().includes(lower)) score += 10;
@@ -322,16 +311,17 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
     if (post.user_profiles?.verified) score += 3;
     if (post.is_video) score += 2;
     return score;
-  };
+  }, []); // No dependencies, as it only uses its arguments
 
-  const scoreUser = (u: any, q: string) => {
+  const scoreUser = useCallback((u: any, q: string) => {
     const lower = q.toLowerCase();
     let score = u.followers_count ?? 0;
     if (u.username?.toLowerCase().startsWith(lower)) score += 500;
     if (u.verified) score += 200;
     if (u.is_creator) score += 100;
     return score;
-  };
+  }, []); // No dependencies, as it only uses its arguments
+
 
   // Memoize performSearch to prevent unnecessary re-renders and re-creations
   const performSearch = useCallback(async (searchQuery: string) => {
@@ -425,7 +415,18 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
     } finally {
       setLoading(false);
     }
-  }, []); // Dependencies for useCallback. scorePost and scoreUser are pure functions, can be omitted from deps if not changing.
+  }, [scorePost, scoreUser]); // Dependencies for useCallback. scorePost and scoreUser are now included.
+
+  const doAiSearchCallback = useCallback((q: string) => doAiSearch(q), []); // Wrap doAiSearch in useCallback
+
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q) {
+      setQuery(q);
+      performSearch(q);
+      doAiSearchCallback(q);
+    }
+  }, [searchParams, performSearch, doAiSearchCallback]); // Added performSearch and doAiSearchCallback to dependencies
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -609,41 +610,28 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
         )}
 
         <div className="flex overflow-x-auto scrollbar-hide border-t border-border/50">
+          {/* Moved the Filter button outside the tabs.map as it's not a tab itself but a toggle for filters */}
+          <button onClick={() => setShowFilters(p => !p)}
+            className={`shrink-0 px-3 py-3 font-semibold transition-colors border-b-2 flex items-center gap-1.5 text-sm relative ${
+              showFilters ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:bg-muted/50'
+            }`}>
+            <Filter className="w-3.5 h-3.5" />
+            {activeFilterCount > 0 && (
+              <span className="absolute top-2 right-1 w-3.5 h-3.5 bg-primary text-primary-foreground text-[8px] font-black rounded-full flex items-center justify-center">{activeFilterCount}</span>
+            )}
+          </button>
           {tabs.map((tab) => (
-            // The `tabs.map` was incorrectly structured. It was trying to unconditionally render the 'Filter' button for 'For You' tab
-            // and then render the actual tab button. This needs to be two separate components or a conditional inside map if 'Filter' is not a true tab.
-            // Assuming 'Filter' is a toggle associated with 'For You' or the search itself, it should be outside or handled differently.
-            // If the filter button is meant to be a tab, it should be added to the 'tabs' array.
-            // For now, I'm assuming 'For You' does not need a special handling in the map loop itself but rather the filter button is a separate component.
-            // The original error points to line 528:17, which is `tab === 'For You' && (` inside the `tabs.map`.
-            // This is incorrect JSX syntax: you cannot have a conditional `&&` directly at the top level of a `map` callback without wrapping it.
-            // The 'Filter' button should probably be outside the `tabs.map` or mapped conditionally as a separate item if it's meant to be a tab.
-            // Given the placement, it looks like it's meant to be a standalone filter toggle *next to* the tabs.
-            // I'll refactor this to put the filter button as a separate element before the tab map.
-            <Fragment key={tab}>
-              {tab === 'For You' && (
-                <button onClick={() => setShowFilters(p => !p)}
-                  className={`shrink-0 px-3 py-3 font-semibold transition-colors border-b-2 flex items-center gap-1.5 text-sm relative ${
-                    showFilters ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:bg-muted/50'
-                  }`}>
-                  <Filter className="w-3.5 h-3.5" />
-                  {activeFilterCount > 0 && (
-                    <span className="absolute top-2 right-1 w-3.5 h-3.5 bg-primary text-primary-foreground text-[8px] font-black rounded-full flex items-center justify-center">{activeFilterCount}</span>
-                  )}
-                </button>
-              )}
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`shrink-0 px-4 py-3 font-semibold transition-colors border-b-2 flex items-center gap-1.5 text-sm ${
-                  activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/50'
-                }`}
-              >
-                {tab === 'For You' && <Sparkles className="w-3.5 h-3.5" />}
-                {tab === 'Fediverse' && <Globe className="w-3.5 h-3.5" />}
-                {tab === 'Hashtags' && <Hash className="w-3.5 h-3.5" />}
-                {tab === 'Communities' && <Users className="w-3.5 h-3.5" />}
-                {tab}
-              </button>
-            </Fragment>
+            <button key={tab} onClick={() => setActiveTab(tab)}
+              className={`shrink-0 px-4 py-3 font-semibold transition-colors border-b-2 flex items-center gap-1.5 text-sm ${
+                activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/50'
+              }`}
+            >
+              {tab === 'For You' && <Sparkles className="w-3.5 h-3.5" />}
+              {tab === 'Fediverse' && <Globe className="w-3.5 h-3.5" />}
+              {tab === 'Hashtags' && <Hash className="w-3.5 h-3.5" />}
+              {tab === 'Communities' && <Users className="w-3.5 h-3.5" />}
+              {tab}
+            </button>
           ))}
         </div>
       </div>
