@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown } from 'lucide-react';
+import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown, Check, Copy, ExternalLink } from 'lucide-react';
 import { useSEO, buildThreadLD } from '@/hooks/useSEO';
 import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber } from '@/lib/utils';
@@ -56,6 +56,7 @@ export default function ThreadDetailPage() {
   const [replyText, setReplyText] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'shared'>('idle');
 
   // Thread Reactions
   const THREAD_REACTIONS = ['❤️', '😂', '🔥', '😮', '👏'] as const;
@@ -822,10 +823,35 @@ export default function ThreadDetailPage() {
               >
                 <Bookmark className={cn('w-5 h-5', isBookmarked && 'fill-current')} />
               </button>
-              <Button variant="outline" size="sm" className="rounded-full">
-                <Share className="w-4 h-4 mr-2" />
-                Share
-              </Button>
+              <button
+                onClick={async () => {
+                  const shareUrl = `${window.location.origin}/thread/${thread.id}`;
+                  const shareTitle = thread.title;
+                  const shareText = `${thread.title} — by @${thread.user_profiles?.username}\n\n${thread.content?.replace(/<[^>]*>/g, '').slice(0, 120)}…`;
+                  if (navigator.share) {
+                    try {
+                      await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
+                      setShareState('shared');
+                    } catch {
+                      // user cancelled — silent
+                    }
+                  } else {
+                    await navigator.clipboard.writeText(shareUrl);
+                    setShareState('copied');
+                  }
+                  setTimeout(() => setShareState('idle'), 2500);
+                }}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-full border transition-all text-sm font-semibold ${
+                  shareState === 'copied' ? 'bg-green-500/10 border-green-500/30 text-green-600' :
+                  shareState === 'shared' ? 'bg-primary/10 border-primary/30 text-primary' :
+                  'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                {shareState === 'copied' ? <><Check className="w-4 h-4" />Copied!</> :
+                 shareState === 'shared' ? <><ExternalLink className="w-4 h-4" />Shared!</> :
+                 navigator.share ? <><Share className="w-4 h-4" />Share</> :
+                 <><Copy className="w-4 h-4" />Copy link</>}
+              </button>
             </div>
           </div>
           {/* Reaction bubbles */}
