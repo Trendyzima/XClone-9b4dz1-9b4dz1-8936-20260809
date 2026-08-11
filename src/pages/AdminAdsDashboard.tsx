@@ -1,12 +1,4 @@
-/**
- * AdminAdsDashboard — /admin/ads-review
- * Full-featured ad management panel for admins:
- *   - Pending review queue with approve/reject
- *   - Active, paused, rejected tabs
- *   - Impressions, clicks, CTR, budget spent
- *   - Notification badge for pending ads
- */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -21,6 +13,28 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
+
+function AdminAdsAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 type AdStatus = 'pending' | 'active' | 'rejected' | 'paused';
 
@@ -100,7 +114,6 @@ export default function AdminAdsDashboard() {
     if (error) toast.error(error.message);
     else {
       toast.success('Ad approved and activated');
-      // Notify the advertiser
       const ad = ads.find(a => a.id === adId);
       if (ad?.user_id) {
         await supabase.from('notifications').insert({
@@ -179,6 +192,7 @@ export default function AdminAdsDashboard() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Ad Review Dashboard" showBack />
+      <AdminAdsAdBanner />
 
       {/* Stats Row */}
       <div className="grid grid-cols-4 gap-2 p-3 border-b border-border">
@@ -251,7 +265,6 @@ export default function AdminAdsDashboard() {
             <div key={ad.id} className="p-4 hover:bg-muted/5 transition-colors">
               {/* Header row */}
               <div className="flex items-start gap-3">
-                {/* Advertiser avatar */}
                 <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
                   {ad.user_profiles?.avatar_url
                     ? <img src={ad.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
@@ -274,7 +287,6 @@ export default function AdminAdsDashboard() {
                     <span>{formatDistanceToNow(new Date(ad.created_at), { addSuffix: true })}</span>
                   </div>
 
-                  {/* Quick metrics */}
                   <div className="flex items-center gap-4 mt-2">
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Eye className="w-3 h-3" />{formatNumber(ad.impressions ?? 0)}
@@ -290,7 +302,6 @@ export default function AdminAdsDashboard() {
                     </span>
                   </div>
 
-                  {/* Budget bar */}
                   <div className="mt-2 flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                       <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${spentPct}%` }} />
@@ -307,19 +318,16 @@ export default function AdminAdsDashboard() {
               {/* Expanded detail */}
               {isExpanded && (
                 <div className="mt-4 space-y-3 pl-13">
-                  {/* Ad image */}
                   {ad.image_url && (
                     <div className="rounded-xl overflow-hidden border border-border">
                       <img src={ad.image_url} alt={ad.title} className="w-full max-h-48 object-cover" />
                     </div>
                   )}
 
-                  {/* Description */}
                   <div className="p-3 bg-muted/30 rounded-xl text-sm text-muted-foreground">
                     {ad.description}
                   </div>
 
-                  {/* Links */}
                   {ad.target_url && (
                     <a href={ad.target_url} target="_blank" rel="noopener noreferrer"
                       className="flex items-center gap-1.5 text-xs text-primary hover:underline">
@@ -327,7 +335,6 @@ export default function AdminAdsDashboard() {
                     </a>
                   )}
 
-                  {/* Payment info */}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="bg-muted/30 rounded-lg p-2 text-center">
                       <p className="text-xs font-bold text-foreground">{ad.payment_method?.toUpperCase() ?? '—'}</p>
@@ -345,7 +352,6 @@ export default function AdminAdsDashboard() {
                     </div>
                   </div>
 
-                  {/* AI verification score */}
                   {ad.ai_verification_score != null && (
                     <div className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs ${
                       Number(ad.ai_verification_score) >= 0.7
@@ -360,7 +366,6 @@ export default function AdminAdsDashboard() {
                     </div>
                   )}
 
-                  {/* Admin note input */}
                   {(activeTab === 'pending') && (
                     <div>
                       <label className="text-xs font-semibold text-muted-foreground mb-1 block">
@@ -376,14 +381,12 @@ export default function AdminAdsDashboard() {
                     </div>
                   )}
 
-                  {/* Admin notes display */}
                   {ad.admin_notes && activeTab !== 'pending' && (
                     <div className="p-2.5 bg-muted/40 rounded-xl text-xs text-muted-foreground">
                       <span className="font-semibold text-foreground">Admin notes: </span>{ad.admin_notes}
                     </div>
                   )}
 
-                  {/* Action buttons */}
                   <div className="flex gap-2">
                     {activeTab === 'pending' && (
                       <>
