@@ -16,8 +16,16 @@ export function formatNumber(num: number): string {
 }
 
 export function parseContent(content: string): string {
+  // Convert double newlines to paragraph breaks, single newlines to <br>
+  let parsed = content
+    .split(/\n{2,}/)
+    .map(para => para.trim())
+    .filter(Boolean)
+    .map(para => `<p class="mb-3 last:mb-0">${para.replace(/\n/g, '<br />')}</p>`)
+    .join('');
+
   // Convert hashtags to links
-  let parsed = content.replace(
+  parsed = parsed.replace(
     /#(\w+)/g,
     '<a href="/hashtag/$1" class="text-primary hover:underline">#$1</a>'
   );
@@ -31,7 +39,7 @@ export function parseContent(content: string): string {
   // Convert URLs to links
   parsed = parsed.replace(
     /(https?:\/\/[^\s]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">$1</a>'
+    '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline break-all">$1</a>'
   );
   
   return parsed;

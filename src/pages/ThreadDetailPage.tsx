@@ -744,7 +744,7 @@ export default function ThreadDetailPage() {
           )}
 
           <div
-            className="prose prose-lg dark:prose-invert max-w-none"
+            className="prose prose-lg dark:prose-invert max-w-none [&_p]:mb-4 [&_p]:leading-relaxed [&_p]:text-foreground/90"
             dangerouslySetInnerHTML={{ __html: parseContent(thread.content) }}
           />
         </div>

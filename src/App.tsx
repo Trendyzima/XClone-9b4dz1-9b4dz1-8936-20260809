@@ -55,6 +55,7 @@ const FraudDetection = lazy(() => import('@/pages/FraudDetection'));
 const AdPerformanceComparison = lazy(() => import('@/pages/AdPerformanceComparison'));
 const AdminRevenueDashboard = lazy(() => import('@/pages/AdminRevenueDashboard'));
 const BoostAnalyticsPage = lazy(() => import('@/pages/BoostAnalyticsPage'));
+const BoostCreatePage = lazy(() => import('@/pages/BoostCreatePage'));
 const RewardedAdHistory = lazy(() => import('@/pages/RewardedAdHistory'));
 const PostAnalyticsDashboard = lazy(() => import('@/pages/PostAnalyticsDashboard'));
 const FediversePage = lazy(() => import('@/pages/FediversePage'));
@@ -159,6 +160,7 @@ function AppInner() {
               <Route path="/ad-performance" element={<AdPerformanceComparison />} />
               <Route path="/admin/revenue" element={<AdminRevenueDashboard />} />
               <Route path="/boost-analytics/:postId" element={<BoostAnalyticsPage />} />
+              <Route path="/boost-create" element={<BoostCreatePage />} />
               <Route path="/rewards" element={<RewardedAdHistory />} />
               <Route path="/post-analytics" element={<PostAnalyticsDashboard />} />
               <Route path="/post-analytics/:postId" element={<PostAnalyticsDashboard />} />

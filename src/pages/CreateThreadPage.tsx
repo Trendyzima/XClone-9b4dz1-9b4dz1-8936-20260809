@@ -1,13 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Image as ImageIcon, Video as VideoIcon, X, Wand2, Sparkles } from 'lucide-react';
+import {
+  Loader2, Image as ImageIcon, Video as VideoIcon, X, Wand2, Sparkles,
+  Bold, Italic, Heading2, Quote, List, Type, FileText, Clock, Save
+} from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 import { pingGoogleSitemap } from '@/lib/pingGoogle';
@@ -29,6 +31,67 @@ export default function CreateThreadPage() {
   const [extraImages, setExtraImages] = useState<File[]>([]);
   const [extraPreviews, setExtraPreviews] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // ── Rich Editor ──────────────────────────────────────────────────────────
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+  const DRAFT_KEY = 'thread_draft_v2';
+  const [wordCount, setWordCount] = useState(0);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load draft on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const { title: t, content: c } = JSON.parse(saved);
+        if (t) setTitle(t);
+        if (c) setContent(c);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const saveDraft = useCallback(() => {
+    if (!title && !content) return;
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ title, content }));
+    setLastSaved(new Date());
+  }, [title, content]);
+
+  // Auto-save 3s after typing stops
+  useEffect(() => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(saveDraft, 3000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [title, content, saveDraft]);
+
+  // Word count
+  useEffect(() => {
+    setWordCount(content.trim() ? content.trim().split(/\s+/).length : 0);
+  }, [content]);
+
+  // Rich text toolbar: wraps selection or inserts at cursor
+  const insertFormatting = (prefix: string, suffix = '', placeholder = 'text') => {
+    const el = contentRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = content.slice(start, end) || placeholder;
+    const newContent = content.slice(0, start) + prefix + selected + suffix + content.slice(end);
+    setContent(newContent);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+    }, 0);
+  };
+
+  const toolbarActions = [
+    { icon: <Bold className="w-3.5 h-3.5" />, label: 'Bold', action: () => insertFormatting('**', '**', 'bold text') },
+    { icon: <Italic className="w-3.5 h-3.5" />, label: 'Italic', action: () => insertFormatting('*', '*', 'italic text') },
+    { icon: <Heading2 className="w-3.5 h-3.5" />, label: 'Heading', action: () => insertFormatting('\n## ', '', 'Section Title') },
+    { icon: <Quote className="w-3.5 h-3.5" />, label: 'Blockquote', action: () => insertFormatting('\n> ', '', 'quoted text') },
+    { icon: <List className="w-3.5 h-3.5" />, label: 'List item', action: () => insertFormatting('\n• ', '', 'list item') },
+    { icon: <Type className="w-3.5 h-3.5" />, label: 'Divider', action: () => setContent(c => c + '\n\n---\n\n') },
+  ];
 
   // AI video caption
   const [aiVideoCaptionLoading, setAiVideoCaptionLoading] = useState(false);
@@ -136,12 +199,7 @@ export default function CreateThreadPage() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       const file = e.target.files[0];
-      
-      if (file.size > 10 * 1024 * 1024) {
-        sonnerToast.error('Image must be less than 10MB');
-        return;
-      }
-
+      if (file.size > 10 * 1024 * 1024) { sonnerToast.error('Image must be less than 10MB'); return; }
       setCoverImage(file);
       setCoverPreview(URL.createObjectURL(file));
     }
@@ -149,16 +207,10 @@ export default function CreateThreadPage() {
 
   const handlePublish = async () => {
     if (!title.trim() || !content.trim()) {
-      toast({
-        title: 'Error',
-        description: 'Title and content are required',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Title and content are required', variant: 'destructive' });
       return;
     }
-
     setLoading(true);
-
     try {
       let coverImageUrl = null;
       let videoUrl = null;
@@ -184,7 +236,6 @@ export default function CreateThreadPage() {
         videoUrl = publicUrl;
       }
 
-      // Upload extra inline images
       for (let i = 0; i < extraImages.length; i++) {
         const img = extraImages[i];
         const fileExt = img.name.split('.').pop();
@@ -211,20 +262,15 @@ export default function CreateThreadPage() {
 
       if (error) throw error;
 
-      toast({
-        title: 'Success',
-        description: 'Thread published successfully',
-      });
+      // Clear draft on success
+      localStorage.removeItem(DRAFT_KEY);
 
-      pingGoogleSitemap(); // notify Google crawler about new thread
+      toast({ title: 'Success', description: 'Thread published successfully' });
+      pingGoogleSitemap();
       navigate('/threads');
     } catch (error: any) {
       console.error('Error creating thread:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to create thread',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message || 'Failed to create thread', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -236,10 +282,10 @@ export default function CreateThreadPage() {
       <CreateThreadAdBanner />
 
       <div className="max-w-2xl mx-auto p-4 space-y-6">
+        {/* Cover media */}
         <div>
           <label className="block text-sm font-semibold mb-2">Cover Media (Optional)</label>
 
-          {/* Cover image preview */}
           {coverPreview && (
             <div className="relative rounded-xl overflow-hidden mb-2">
               <img src={coverPreview} alt="Cover" className="w-full max-h-96 object-cover" />
@@ -250,7 +296,6 @@ export default function CreateThreadPage() {
             </div>
           )}
 
-          {/* Cover video preview */}
           {coverVideoPreview && (
             <div className="relative rounded-xl overflow-hidden mb-2">
               <video src={coverVideoPreview} controls className="w-full max-h-72 rounded-xl" />
@@ -258,37 +303,33 @@ export default function CreateThreadPage() {
                 className="absolute top-2 right-2 bg-black/80 hover:bg-black text-white rounded-full w-8 h-8 flex items-center justify-center">
                 <X className="w-4 h-4" />
               </button>
-              {/* Chapter editor — shown when video is uploaded */}
-              {coverVideoPreview && (
-                <div className="mt-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">🎬 Video Chapters</label>
-                    <button onClick={() => setShowChapterEditor(v => !v)} className="text-xs text-primary font-semibold hover:underline">
-                      {showChapterEditor ? 'Hide' : 'Add Chapters'}
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">🎬 Video Chapters</label>
+                  <button onClick={() => setShowChapterEditor(v => !v)} className="text-xs text-primary font-semibold hover:underline">
+                    {showChapterEditor ? 'Hide' : 'Add Chapters'}
+                  </button>
+                </div>
+                {showChapterEditor && (
+                  <div className="space-y-2">
+                    {chapters.map((ch, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input type="text" value={ch.time} onChange={e => updateChapter(i, 'time', e.target.value)}
+                          placeholder="0:00" className="w-16 text-sm border border-border rounded-lg px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                        <input type="text" value={ch.title} onChange={e => updateChapter(i, 'title', e.target.value)}
+                          placeholder="Chapter title…" maxLength={40}
+                          className="flex-1 text-sm border border-border rounded-lg px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                        <button onClick={() => removeChapter(i)} className="text-muted-foreground hover:text-destructive transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button onClick={addChapter} className="w-full py-2 border-2 border-dashed border-border rounded-xl text-xs font-semibold text-muted-foreground hover:border-primary/30 hover:text-primary transition-colors">
+                      + Add Chapter
                     </button>
                   </div>
-                  {showChapterEditor && (
-                    <div className="space-y-2">
-                      {chapters.map((ch, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <input type="text" value={ch.time} onChange={e => updateChapter(i, 'time', e.target.value)}
-                            placeholder="0:00" className="w-16 text-sm border border-border rounded-lg px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
-                          <input type="text" value={ch.title} onChange={e => updateChapter(i, 'title', e.target.value)}
-                            placeholder="Chapter title…" maxLength={40}
-                            className="flex-1 text-sm border border-border rounded-lg px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
-                          <button onClick={() => removeChapter(i)} className="text-muted-foreground hover:text-destructive transition-colors">
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                      <button onClick={addChapter} className="w-full py-2 border-2 border-dashed border-border rounded-xl text-xs font-semibold text-muted-foreground hover:border-primary/30 hover:text-primary transition-colors">
-                        + Add Chapter
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* AI Caption button */}
+                )}
+              </div>
               <button onClick={generateVideoCaption} disabled={aiVideoCaptionLoading}
                 className="absolute bottom-2 left-2 flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/90 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50">
                 {aiVideoCaptionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
@@ -337,17 +378,17 @@ export default function CreateThreadPage() {
           </div>
         </div>
 
+        {/* Title */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-semibold">Title</label>
             <button
-              onClick={() => { setAiTarget('title'); setShowAiWriter(v => !v && aiTarget === 'title' ? false : true); setAiDrafts([]); }}
+              onClick={() => { setAiTarget('title'); setShowAiWriter(v => !v); setAiDrafts([]); }}
               className={`flex items-center gap-1 text-xs font-medium transition-colors ${
                 showAiWriter && aiTarget === 'title' ? 'text-purple-600' : 'text-muted-foreground hover:text-purple-500'
               }`}
             >
-              <Wand2 className="w-3.5 h-3.5" />
-              AI Write
+              <Wand2 className="w-3.5 h-3.5" />AI Title
             </button>
           </div>
           <Input
@@ -357,33 +398,67 @@ export default function CreateThreadPage() {
             maxLength={200}
             className="text-lg"
           />
-          <div className="text-right text-sm text-muted-foreground mt-1">
-            {title.length}/200
-          </div>
+          <div className="text-right text-xs text-muted-foreground mt-1">{title.length}/200</div>
         </div>
 
+        {/* Content — Rich Editor */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-semibold">Content</label>
-            <button
-              onClick={() => { setAiTarget('content'); setShowAiWriter(v => !v && aiTarget === 'content' ? false : true); setAiDrafts([]); }}
-              className={`flex items-center gap-1 text-xs font-medium transition-colors ${
-                showAiWriter && aiTarget === 'content' ? 'text-purple-600' : 'text-muted-foreground hover:text-purple-500'
-              }`}
-            >
-              <Wand2 className="w-3.5 h-3.5" />
-              AI Write
-            </button>
+            <div className="flex items-center gap-3">
+              {lastSaved && (
+                <span className="flex items-center gap-1 text-[10px] text-green-600">
+                  <Save className="w-2.5 h-2.5" />
+                  Saved {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              <button
+                onClick={() => { setAiTarget('content'); setShowAiWriter(v => aiTarget === 'content' ? !v : true); setAiDrafts([]); }}
+                className={`flex items-center gap-1 text-xs font-medium transition-colors ${
+                  showAiWriter && aiTarget === 'content' ? 'text-purple-600' : 'text-muted-foreground hover:text-purple-500'
+                }`}
+              >
+                <Wand2 className="w-3.5 h-3.5" />AI Write
+              </button>
+            </div>
           </div>
-          <Textarea
-            placeholder="Share your story, thoughts, or insights... You can use hashtags to connect with related posts!"
+
+          {/* Formatting toolbar */}
+          <div className="flex items-center gap-0.5 mb-2 p-1.5 bg-muted/40 border border-border rounded-xl flex-wrap">
+            {toolbarActions.map((btn) => (
+              <button
+                key={btn.label}
+                onClick={btn.action}
+                title={btn.label}
+                className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-background hover:shadow-sm transition-all text-muted-foreground hover:text-foreground active:scale-95"
+              >
+                {btn.icon}
+              </button>
+            ))}
+            <div className="ml-auto flex items-center gap-3 pr-1 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{wordCount} words</span>
+              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{Math.max(1, Math.ceil(wordCount / 200))} min read</span>
+            </div>
+          </div>
+
+          <textarea
+            ref={contentRef}
+            placeholder={"Share your story, thoughts, or insights...\n\nTips:\n  **bold text**  *italic*  ## Section Title\n  > blockquote  • list item\n\nPress Enter twice for new paragraph."}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            className="min-h-[400px] text-base leading-relaxed"
             maxLength={10000}
+            rows={22}
+            className="w-full rounded-xl border border-border bg-background px-4 py-3 text-base leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-y font-mono text-sm"
           />
-          <div className="text-right text-sm text-muted-foreground mt-1">
-            {content.length}/10,000 characters
+
+          <div className="flex items-center justify-between text-xs text-muted-foreground mt-1.5">
+            <span className={content.length > 9500 ? 'text-red-500 font-bold' : ''}>
+              {content.length.toLocaleString()}/10,000 chars
+              {content.length > 9500 && <span className="ml-1">· {10000 - content.length} left</span>}
+            </span>
+            <button onClick={saveDraft} className="flex items-center gap-1 hover:text-primary transition-colors">
+              <Save className="w-3 h-3" /> Save draft
+            </button>
           </div>
         </div>
 
@@ -414,7 +489,7 @@ export default function CreateThreadPage() {
               <button
                 onClick={handleAiWrite}
                 disabled={aiLoading || !aiPrompt.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors flex-shrink-0"
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors shrink-0"
               >
                 {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                 {aiLoading ? 'Writing…' : 'Generate'}
@@ -439,22 +514,29 @@ export default function CreateThreadPage() {
 
         <div className="flex gap-3">
           <Button
-            onClick={() => navigate('/threads')}
+            onClick={() => { saveDraft(); navigate('/threads'); }}
             variant="outline"
             className="flex-1"
             disabled={loading}
           >
-            Cancel
+            Save & Exit
           </Button>
           <Button
             onClick={handlePublish}
-            className="flex-1"
+            className="flex-1 bg-gradient-to-r from-primary to-purple-600 hover:opacity-90"
             disabled={loading || !title.trim() || !content.trim()}
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
             Publish Thread
           </Button>
         </div>
+
+        <button
+          onClick={() => { localStorage.removeItem(DRAFT_KEY); setTitle(''); setContent(''); setLastSaved(null); sonnerToast.success('Draft cleared'); }}
+          className="w-full text-center text-xs text-muted-foreground/50 hover:text-muted-foreground py-1 transition-colors"
+        >
+          Clear draft
+        </button>
       </div>
     </div>
   );
