@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { useSEO } from '@/hooks/useSEO';
+import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -35,6 +35,7 @@ export default function AIPage() {
     description: 'Chat with Testagram AI for content ideas, post summaries, creator tips, and real-time help. Powered by advanced language models built right into your feed.',
     url: '/ai',
     type: 'website',
+    image: buildOgImageUrl({ username: 'ai' }),
     keywords: 'AI assistant, social media AI, content ideas, testagram ai, chat bot, caption generator',
     structuredData: {
       '@context': 'https://schema.org',

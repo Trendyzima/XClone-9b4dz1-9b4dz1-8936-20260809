@@ -73,7 +73,8 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/interests',          label: 'Interest Onboarding',  group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/notification-preferences', label: 'Notif. Prefs', group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
 
-  // ── Admin pages (all noindex) ──────────────────────────────────────────────
+  { path: '/lists',          label: 'Lists',                group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/series',         label: 'Content Series',       group: 'Core',        hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/admin',              label: 'Admin Panel',          group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin/ads',          label: 'Admin — Ads',          group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin/revenue',      label: 'Admin — Revenue',      group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },

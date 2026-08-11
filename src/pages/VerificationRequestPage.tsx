@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { ReactNode } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -51,6 +51,7 @@ const TIER_STYLES: Record<string, { border: string; bg: string; selectedBg: stri
 
 export default function VerificationRequestPage() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Verification Request', url: '/verify' });
   const navigate = useNavigate();
 
   const [selectedTier, setSelectedTier] = useState<string>('blue');

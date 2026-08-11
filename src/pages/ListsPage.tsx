@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { List, Plus, Lock, Globe, Users, X } from 'lucide-react';
@@ -11,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 
 export function ListsPage() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Lists', url: '/lists' });
   const navigate = useNavigate();
   const [lists, setLists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

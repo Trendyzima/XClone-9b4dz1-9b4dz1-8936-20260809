@@ -1,7 +1,8 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useSEO } from '@/hooks/useSEO';
 import { supabase } from '@/lib/supabase';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,34 @@ export default function SeriesPage() {
   const [showAddPost, setShowAddPost] = useState(false);
   const [editingTitle, setEditingTitle] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const seriesJsonLd = useMemo(() => {
+    const items = publicSeries.slice(0, 5);
+    if (items.length === 0) return undefined;
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: 'Trending Content Series on Testagram',
+      description: 'Browse themed post series created by Testagram creators.',
+      url: 'https://testagram.site/series',
+      numberOfItems: items.length,
+      itemListElement: items.map((s: any, i: number) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: s.name,
+        description: s.description ?? `${s.item_count ?? 0} posts in this series`,
+        url: 'https://testagram.site/series',
+      })),
+    };
+  }, [publicSeries]);
+
+  useSEO({
+    title: 'Content Series — Testagram',
+    description: 'Browse themed post collections and story series from Testagram creators. Follow along with multi-part narratives, tutorials, and more.',
+    url: '/series',
+    structuredData: seriesJsonLd,
+    keywords: 'content series, post collections, creator stories, testagram series, thread playlists',
+  });
 
   useEffect(() => {
     fetchAll();

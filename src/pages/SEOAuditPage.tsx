@@ -235,6 +235,41 @@ export default function SEOAuditPage() {
             </button>
           ))}
         </div>
+
+        {/* Segmented score progress bar */}
+        <div className="mt-3">
+          <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden flex">
+            {(() => {
+              const indexable = routes.length - counts.noindex;
+              const goodPct    = indexable > 0 ? (counts.good    / routes.length) * 100 : 0;
+              const warnPct    = indexable > 0 ? (counts.warn    / routes.length) * 100 : 0;
+              const missingPct = indexable > 0 ? (counts.missing / routes.length) * 100 : 0;
+              const noindexPct = (counts.noindex / routes.length) * 100;
+              return (
+                <>
+                  <div className="h-full bg-green-500 transition-all duration-500" style={{ width: `${goodPct}%` }} title={`Good: ${counts.good}`} />
+                  <div className="h-full bg-amber-400 transition-all duration-500" style={{ width: `${warnPct}%` }} title={`Warn: ${counts.warn}`} />
+                  <div className="h-full bg-red-500 transition-all duration-500" style={{ width: `${missingPct}%` }} title={`Missing: ${counts.missing}`} />
+                  <div className="h-full bg-slate-400/50 transition-all duration-500" style={{ width: `${noindexPct}%` }} title={`Noindex: ${counts.noindex}`} />
+                </>
+              );
+            })()}
+          </div>
+          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+            {[
+              { color: 'bg-green-500',      label: 'Good',    count: counts.good    },
+              { color: 'bg-amber-400',      label: 'Warn',    count: counts.warn    },
+              { color: 'bg-red-500',        label: 'Missing', count: counts.missing },
+              { color: 'bg-slate-400/50',   label: 'Noindex', count: counts.noindex },
+            ].map(({ color, label, count }) => (
+              <div key={label} className="flex items-center gap-1">
+                <div className={`w-2 h-2 rounded-full ${color}`} />
+                <span className="text-[10px] text-muted-foreground font-medium">{label} <strong className="text-foreground">{count}</strong></span>
+              </div>
+            ))}
+            <span className="ml-auto text-[10px] text-muted-foreground">{routes.length} total routes</span>
+          </div>
+        </div>
       </div>
 
       {/* Sitemap panel */}
