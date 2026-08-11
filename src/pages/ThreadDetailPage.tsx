@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown, Check, Copy, ExternalLink, QrCode, Link } from 'lucide-react';
-import { useSEO, buildThreadLD } from '@/hooks/useSEO';
+import { useSEO, buildThreadLD, buildOgImageUrl } from '@/hooks/useSEO';
 import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber } from '@/lib/utils';
 import { PostCard } from '@/components/features/PostCard';
@@ -41,7 +41,7 @@ export default function ThreadDetailPage() {
     description: thread
       ? (thread.content?.replace(/<[^>]*>/g, '').slice(0, 155) || `Read "${thread.title}" on Testagram`)
       : 'Read this thread on Testagram',
-    image: thread?.cover_image || thread?.media_url || undefined,
+    image: thread ? buildOgImageUrl({ thread: thread.id }) : (thread?.cover_image || thread?.media_url || undefined),
     url: thread ? `/thread/${thread.id}` : undefined,
     type: 'article',
     keywords: thread ? `${thread.title}, testagram, thread, article, creator` : undefined,

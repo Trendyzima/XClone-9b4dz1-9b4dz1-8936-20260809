@@ -19,8 +19,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { DynamicAd } from '@/components/features/DynamicAd';
 import { NativeAdCard } from '@/components/features/NativeAdCard';
-import { usePageBanner } from '@/hooks/usePageBanner';
-import { ADMOB_CONFIG } from '@/lib/admob';
+import { useSEO } from '@/hooks/useSEO';
 import { SponsoredPostCard } from '@/components/features/SponsoredPostCard';
 import { StoriesStrip } from '@/components/features/StoriesStrip';
 import * as federation from '@/api/federation';
@@ -83,7 +82,56 @@ export default function HomePage() {
       });
   }, [user?.id]);
 
-  usePageBanner({ adId: ADMOB_CONFIG.BANNER_FEED, margin: 64, delay: 4000 });
+  // Dynamic SEO — shows top 3 trending topics in description when available
+  const [trendingTopics, setTrendingTopics] = useState<string[]>([]);
+  useEffect(() => {
+    supabase
+      .from('trending_topics')
+      .select('topic')
+      .order('posts_count', { ascending: false })
+      .limit(3)
+      .then(({ data }) => { if (data) setTrendingTopics(data.map((t: any) => t.topic)); });
+  }, []);
+
+  useSEO({
+    title: trendingTopics.length > 0
+      ? `Trending: ${trendingTopics.join(', ')}`
+      : 'Social Media, Videos & Communities',
+    description: 'Discover posts, short videos, live spaces, and communities. Follow creators, earn from your content, and connect with people worldwide on Testagram.',
+    url: '/',
+    type: 'website',
+    keywords: 'social media, short videos, communities, creators, testagram, live spaces, trending',
+    structuredData: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'WebSite',
+        name: 'Testagram',
+        url: 'https://testagram.site',
+        description: 'Social media platform with short videos, communities, and creator monetization.',
+        potentialAction: {
+          '@type': 'SearchAction',
+          target: { '@type': 'EntryPoint', urlTemplate: 'https://testagram.site/search?q={search_term_string}' },
+          'query-input': 'required name=search_term_string',
+        },
+      },
+      {
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        name: 'Testagram',
+        url: 'https://testagram.site',
+        logo: {
+          '@type': 'ImageObject',
+          url: 'https://testagram.site/tsocial-logo.png',
+          width: 512,
+          height: 512,
+        },
+        sameAs: [
+          'https://testagram.site/fediverse',
+        ],
+        description: 'Testagram is a social media platform for short videos, creator monetization, communities, and federated social networking.',
+      },
+    ],
+  });
 
   // ── Fetch personalized recommendations ──────────────────────────────────
   const fetchRecommendations = useCallback(async () => {
