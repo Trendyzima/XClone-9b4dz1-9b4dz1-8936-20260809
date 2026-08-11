@@ -1,4 +1,4 @@
-import { Analytics } from '@/lib/capacitor-stub';
+import { Analytics, StatusBar, Style, Capacitor } from '@/lib/capacitor-stub';
 import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from '@/components/layout/AuthProvider';
@@ -14,7 +14,7 @@ import { Toaster as Sonner } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
 // Capacitor — imported from stub so type-checker never touches the native packages
-import { StatusBar, Style, Capacitor } from '@/lib/capacitor-stub';
+
 
 // Critical pages — loaded eagerly
 import HomePage from '@/pages/HomePage';

@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { authService } from '@/lib/auth';
 import { useAuthStore } from '@/stores/authStore';
 import { Loader2 } from 'lucide-react';
-import { AdMob, BannerAdSize, BannerAdPosition } from '@/lib/capacitor-stub';
+
 import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
 
@@ -23,19 +23,6 @@ export default function AuthPage() {
   // Capture ref param in a ref so it survives URL changes during the multi-step OTP flow
   const referrerIdRef = useRef<string | null>(searchParams.get('ref'));
   const { login } = useAuthStore();
-
-  useEffect(() => {
-    // Show banner at bottom
-    AdMob.showBanner({
-      adId: "ca-app-pub-7234579833875016/5392885600", // Real Sidebar/Banner ID, works at bottom too
-      adSize: BannerAdSize.BANNER,
-      position: BannerAdPosition.BOTTOM_CENTER
-    });
-
-    return () => {
-      AdMob.hideBanner();
-    };
-  }, []);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
