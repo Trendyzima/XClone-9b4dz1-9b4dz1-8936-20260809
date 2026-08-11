@@ -71,7 +71,9 @@ export function ScheduledPostsPage() {
   const [previewTab, setPreviewTab] = useState<'pending' | 'published' | 'failed'>('pending');
   const [calendarMode, setCalendarMode] = useState<'list' | 'calendar'>('calendar');
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [calendarMonth, setCalendarMonth] = useState(/* @__PURE__ */ new Date(0));
+  // Hydrate with real current month in effect — avoids esbuild lazy-init non-determinism
+  useEffect(() => { setCalendarMonth(new Date()); }, []);
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }

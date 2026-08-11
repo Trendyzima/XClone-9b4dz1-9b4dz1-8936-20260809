@@ -405,11 +405,14 @@ export function ProductsPage() {
   const [formStock, setFormStock] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Wishlist (localStorage)
-  const [wishlist, setWishlist] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('product_wishlist') || '[]')); }
-    catch { return new Set(); }
-  });
+  // Wishlist (localStorage) — lazy initializer removed to avoid esbuild non-determinism
+  const [wishlist, setWishlist] = useState<Set<string>>(/* @__PURE__ */ new Set<string>());
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('product_wishlist');
+      if (raw) setWishlist(new Set(JSON.parse(raw) as string[]));
+    } catch {}
+  }, []);
 
   const toggleWishlist = (id: string) => {
     setWishlist(prev => {

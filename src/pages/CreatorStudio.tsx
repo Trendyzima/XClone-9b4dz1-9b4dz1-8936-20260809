@@ -59,12 +59,16 @@ export default function CreatorStudio() {
   const [loading, setLoading] = useState(true);
   const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'videos' | 'earnings' | 'analytics'>('overview');
   // CSV Export state
-  const [exportStartMonth, setExportStartMonth] = useState(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 2);
-    return d.toISOString().slice(0, 7);
-  });
-  const [exportEndMonth, setExportEndMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [exportStartMonth, setExportStartMonth] = useState('');
+  const [exportEndMonth, setExportEndMonth] = useState('');
+  // Hydrate date states in effect — avoids esbuild new Date() lazy-init non-determinism
+  useEffect(() => {
+    const now = new Date();
+    const end = now.toISOString().slice(0, 7);
+    const start = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 7);
+    setExportStartMonth(start);
+    setExportEndMonth(end);
+  }, []);
   const [exportingCsv, setExportingCsv] = useState(false);
   // ── Creator Analytics tab state ────────────────────────────────────────
   const [topPosts, setTopPosts] = useState<any[]>([]);

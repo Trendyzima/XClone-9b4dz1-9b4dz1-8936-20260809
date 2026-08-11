@@ -136,10 +136,13 @@ export default function SearchPage() {
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [acUsers, setAcUsers] = useState<any[]>([]);
   const [acHashtags, setAcHashtags] = useState<any[]>([]);
-  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('tsocial_recent_searches') || '[]').slice(0, 6); }
-    catch { return []; }
-  });
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('tsocial_recent_searches') || '[]') as string[];
+      setRecentSearches(stored.slice(0, 6));
+    } catch {}
+  }, []);
   const acDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
