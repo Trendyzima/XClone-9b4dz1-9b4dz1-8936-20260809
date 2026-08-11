@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -68,6 +68,23 @@ export default function CreateThreadPage() {
     if (raw.trim()) setContent(prev => prev ? prev + '\n\n' + raw.trim() : raw.trim());
     setAiVideoCaptionLoading(false);
   };
+
+  // ── Video Chapters ──────────────────────────────────────────────────────
+  const [chapters, setChapters] = useState<{ time: string; title: string }[]>([]);
+  const [showChapterEditor, setShowChapterEditor] = useState(false);
+
+  const addChapter = () => setChapters(prev => [...prev, { time: '0:00', title: '' }]);
+  const removeChapter = (i: number) => setChapters(prev => prev.filter((_, j) => j !== i));
+  const updateChapter = (i: number, field: 'time' | 'title', val: string) =>
+    setChapters(prev => prev.map((ch, j) => j === i ? { ...ch, [field]: val } : ch));
+
+  const parseChaptersForDB = () => chapters
+    .filter(ch => ch.title.trim())
+    .map(ch => {
+      const parts = ch.time.split(':').map(Number);
+      const secs = parts.length === 2 ? parts[0] * 60 + (parts[1] || 0) : parts[0] || 0;
+      return { time: secs, title: ch.title.trim() };
+    });
 
   // ── AI Writer ────────────────────────────────────────────────────────────
   const [showAiWriter, setShowAiWriter] = useState(false);
@@ -173,6 +190,7 @@ export default function CreateThreadPage() {
         }
       }
 
+      const parsedChapters = parseChaptersForDB();
       const { error } = await supabase.from('threads').insert({
         user_id: user.id,
         title: title.trim(),
@@ -181,6 +199,7 @@ export default function CreateThreadPage() {
         media_url: videoUrl,
         media_type: videoUrl ? 'video' : 'image',
         media_urls: uploadedMediaUrls.length > 0 ? uploadedMediaUrls : [],
+        chapters: parsedChapters.length > 0 ? parsedChapters : null,
         is_published: true,
       });
 
@@ -231,7 +250,37 @@ export default function CreateThreadPage() {
                 className="absolute top-2 right-2 bg-black/80 hover:bg-black text-white rounded-full w-8 h-8 flex items-center justify-center">
                 <X className="w-4 h-4" />
               </button>
-              {/* AI video caption button */}
+              {/* Chapter editor — shown when video is uploaded */}
+              {coverVideoPreview && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">🎬 Video Chapters</label>
+                    <button onClick={() => setShowChapterEditor(v => !v)} className="text-xs text-primary font-semibold hover:underline">
+                      {showChapterEditor ? 'Hide' : 'Add Chapters'}
+                    </button>
+                  </div>
+                  {showChapterEditor && (
+                    <div className="space-y-2">
+                      {chapters.map((ch, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <input type="text" value={ch.time} onChange={e => updateChapter(i, 'time', e.target.value)}
+                            placeholder="0:00" className="w-16 text-sm border border-border rounded-lg px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                          <input type="text" value={ch.title} onChange={e => updateChapter(i, 'title', e.target.value)}
+                            placeholder="Chapter title…" maxLength={40}
+                            className="flex-1 text-sm border border-border rounded-lg px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                          <button onClick={() => removeChapter(i)} className="text-muted-foreground hover:text-destructive transition-colors">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button onClick={addChapter} className="w-full py-2 border-2 border-dashed border-border rounded-xl text-xs font-semibold text-muted-foreground hover:border-primary/30 hover:text-primary transition-colors">
+                        + Add Chapter
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* AI Caption button */}
               <button onClick={generateVideoCaption} disabled={aiVideoCaptionLoading}
                 className="absolute bottom-2 left-2 flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/90 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50">
                 {aiVideoCaptionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
