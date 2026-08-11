@@ -15,8 +15,7 @@ import {
   Image as ImageIcon, X, Camera, Sparkles
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
-import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
-import { ADMOB_CONFIG } from '@/lib/admob';
+import { useSEO } from '@/hooks/useSEO';
 import { toast as sonnerToast } from 'sonner';
 
 interface Community {
@@ -38,6 +37,14 @@ export default function CommunitiesPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+
+  useSEO({
+    title: 'Discover Communities',
+    description: 'Join communities on Testagram — connect with people who share your passions. Browse public communities on technology, sports, entertainment, lifestyle and more.',
+    url: '/communities',
+    type: 'website',
+    keywords: 'communities, groups, testagram, join, forums, social groups, technology, sports, entertainment',
+  });
   const [communities, setCommunities] = useState<Community[]>([]);
   const [suggestedCommunities, setSuggestedCommunities] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,18 +66,6 @@ export default function CommunitiesPage() {
     fetchCommunities();
     if (user) fetchSuggestions();
   }, [user, activeTab]);
-
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    AdMob.showBanner({
-      adId: ADMOB_CONFIG.BANNER_PROFILE,
-      adSize: BannerAdSize.ADAPTIVE_BANNER,
-      position: BannerAdPosition.BOTTOM_CENTER,
-      margin: 0,
-      isTesting: false,
-    });
-    return () => { AdMob.hideBanner(); };
-  }, []);
 
   const fetchSuggestions = async () => {
     if (!user) return;

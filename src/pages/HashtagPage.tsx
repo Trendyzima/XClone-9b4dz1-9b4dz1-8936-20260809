@@ -10,7 +10,7 @@ import { Loader2, TrendingUp, Check, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
-import { useSEO, buildHashtagLD } from '@/hooks/useSEO';
+import { useSEO, buildHashtagLD, buildOgImageUrl } from '@/hooks/useSEO';
 
 export default function HashtagPage() {
   const { tag } = useParams();
@@ -28,6 +28,7 @@ export default function HashtagPage() {
   useSEO({
     title: tag ? `#${tag} posts & trends` : 'Hashtag',
     description: hashtag ? `Browse ${hashtag.usage_count?.toLocaleString() ?? '0'} posts tagged with #${tag} on Testagram. Join the conversation.` : `Posts tagged with #${tag} on Testagram.`,
+    image: tag ? buildOgImageUrl({ tag }) : undefined,
     url: `/hashtag/${tag}`,
     type: 'website',
     keywords: `${tag}, #${tag}, testagram, trending, social media`,

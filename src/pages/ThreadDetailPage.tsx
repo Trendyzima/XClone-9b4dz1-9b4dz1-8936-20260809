@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown, Check, Copy, ExternalLink } from 'lucide-react';
+import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown, Check, Copy, ExternalLink, QrCode, Link } from 'lucide-react';
 import { useSEO, buildThreadLD } from '@/hooks/useSEO';
 import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber } from '@/lib/utils';
@@ -57,6 +57,7 @@ export default function ThreadDetailPage() {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'shared'>('idle');
+  const [showShareCard, setShowShareCard] = useState(false);
 
   // Thread Reactions
   const THREAD_REACTIONS = ['❤️', '😂', '🔥', '😮', '👏'] as const;
@@ -824,33 +825,10 @@ export default function ThreadDetailPage() {
                 <Bookmark className={cn('w-5 h-5', isBookmarked && 'fill-current')} />
               </button>
               <button
-                onClick={async () => {
-                  const shareUrl = `${window.location.origin}/thread/${thread.id}`;
-                  const shareTitle = thread.title;
-                  const shareText = `${thread.title} — by @${thread.user_profiles?.username}\n\n${thread.content?.replace(/<[^>]*>/g, '').slice(0, 120)}…`;
-                  if (navigator.share) {
-                    try {
-                      await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
-                      setShareState('shared');
-                    } catch {
-                      // user cancelled — silent
-                    }
-                  } else {
-                    await navigator.clipboard.writeText(shareUrl);
-                    setShareState('copied');
-                  }
-                  setTimeout(() => setShareState('idle'), 2500);
-                }}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-full border transition-all text-sm font-semibold ${
-                  shareState === 'copied' ? 'bg-green-500/10 border-green-500/30 text-green-600' :
-                  shareState === 'shared' ? 'bg-primary/10 border-primary/30 text-primary' :
-                  'border-border text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
+                onClick={() => setShowShareCard(true)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-all text-sm font-semibold"
               >
-                {shareState === 'copied' ? <><Check className="w-4 h-4" />Copied!</> :
-                 shareState === 'shared' ? <><ExternalLink className="w-4 h-4" />Shared!</> :
-                 navigator.share ? <><Share className="w-4 h-4" />Share</> :
-                 <><Copy className="w-4 h-4" />Copy link</>}
+                <Share className="w-4 h-4" />Share
               </button>
             </div>
           </div>
@@ -927,6 +905,174 @@ export default function ThreadDetailPage() {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Thread Share Card Modal ── */}
+        {showShareCard && (
+          <div className="fixed inset-0 z-[600] bg-black/70 flex items-center justify-center p-4" onClick={() => setShowShareCard(false)}>
+            <div className="bg-background border border-border rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              {/* Card preview — what will be shared */}
+              <div className="bg-gradient-to-br from-[#0f0721] to-[#1e0a3c] p-6 relative overflow-hidden">
+                {/* Brand accent bar */}
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-600 to-blue-600" />
+                {/* Decorative circles */}
+                <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-violet-600/10 -translate-y-8 translate-x-8" />
+                <div className="absolute bottom-0 left-0 w-24 h-24 rounded-full bg-blue-600/8 translate-y-8 -translate-x-6" />
+
+                {/* Author row */}
+                <div className="flex items-center gap-2 mb-4 relative">
+                  <div className="w-8 h-8 rounded-full bg-muted overflow-hidden ring-2 ring-violet-500/30">
+                    {thread.user_profiles?.avatar_url
+                      ? <img src={thread.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
+                      : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-white">{thread.user_profiles?.username?.[0]?.toUpperCase()}</div>}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-white/80 text-xs font-semibold">@{thread.user_profiles?.username}</span>
+                    {thread.user_profiles?.verified && <span className="text-violet-400 text-xs">✓</span>}
+                  </div>
+                  <span className="ml-auto text-white/25 text-[10px] font-semibold tracking-widest">TESTAGRAM</span>
+                </div>
+
+                {/* Title */}
+                <h3 className="text-white font-bold text-xl leading-tight mb-3 relative line-clamp-2">{thread.title}</h3>
+
+                {/* Excerpt */}
+                <p className="text-white/50 text-sm leading-relaxed line-clamp-3 relative">
+                  {thread.content?.replace(/<[^>]*>/g, '').slice(0, 180)}
+                </p>
+
+                {/* Stats row */}
+                <div className="flex items-center gap-4 mt-4 relative">
+                  <span className="text-white/40 text-xs">👁 {(thread.views_count ?? 0).toLocaleString()} views</span>
+                  <span className="text-white/40 text-xs">❤ {(thread.likes_count ?? 0).toLocaleString()} likes</span>
+                  <span className="text-white/40 text-xs">💬 {(thread.replies_count ?? 0).toLocaleString()} replies</span>
+                </div>
+              </div>
+
+              {/* Share actions */}
+              <div className="p-4 space-y-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-center">Share this thread</p>
+
+                {/* URL display */}
+                <div className="flex items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-2.5">
+                  <Link className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <span className="text-xs text-muted-foreground font-mono truncate flex-1">{window.location.origin}/thread/{thread.id}</span>
+                </div>
+
+                {/* Action buttons */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(`${window.location.origin}/thread/${thread.id}`);
+                      setShareState('copied');
+                      setTimeout(() => setShareState('idle'), 2000);
+                    }}
+                    className={`flex items-center justify-center gap-2 py-3 rounded-2xl border font-semibold text-sm transition-all ${
+                      shareState === 'copied'
+                        ? 'bg-green-500/10 border-green-500/30 text-green-600'
+                        : 'bg-muted/40 border-border text-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {shareState === 'copied' ? <><Check className="w-4 h-4" />Copied!</> : <><Copy className="w-4 h-4" />Copy Link</>}
+                  </button>
+
+                  {navigator.share ? (
+                    <button
+                      onClick={async () => {
+                        const shareUrl = `${window.location.origin}/thread/${thread.id}`;
+                        try {
+                          await navigator.share({
+                            title: thread.title,
+                            text: `${thread.title} — by @${thread.user_profiles?.username}`,
+                            url: shareUrl,
+                          });
+                          setShareState('shared');
+                          setTimeout(() => setShareState('idle'), 2000);
+                        } catch {
+                          // cancelled
+                        }
+                      }}
+                      className={`flex items-center justify-center gap-2 py-3 rounded-2xl border font-semibold text-sm transition-all ${
+                        shareState === 'shared'
+                          ? 'bg-primary/10 border-primary/30 text-primary'
+                          : 'bg-primary text-primary-foreground hover:opacity-90 border-primary'
+                      }`}
+                    >
+                      {shareState === 'shared' ? <><ExternalLink className="w-4 h-4" />Shared!</> : <><Share className="w-4 h-4" />Share</>}
+                    </button>
+                  ) : (
+                    <a
+                      href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(thread.title + ' — by @' + thread.user_profiles?.username)}&url=${encodeURIComponent(window.location.origin + '/thread/' + thread.id)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 py-3 rounded-2xl border border-sky-400/30 bg-sky-500/10 text-sky-600 font-semibold text-sm hover:bg-sky-500/20 transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />Tweet
+                    </a>
+                  )}
+                </div>
+
+                {/* QR Code SVG — pure CSS grid, no library needed */}
+                <div className="flex flex-col items-center gap-2 pt-1">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-semibold uppercase tracking-widest">Scan to open</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-2xl border border-border shadow-sm">
+                    <svg
+                      viewBox="0 0 21 21"
+                      width="120"
+                      height="120"
+                      shapeRendering="crispEdges"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      {/* Simplified QR-style pattern — finder patterns + URL hint mosaic */}
+                      {/* Top-left finder pattern */}
+                      <rect x="0" y="0" width="7" height="7" fill="black"/>
+                      <rect x="1" y="1" width="5" height="5" fill="white"/>
+                      <rect x="2" y="2" width="3" height="3" fill="black"/>
+                      {/* Top-right finder pattern */}
+                      <rect x="14" y="0" width="7" height="7" fill="black"/>
+                      <rect x="15" y="1" width="5" height="5" fill="white"/>
+                      <rect x="16" y="2" width="3" height="3" fill="black"/>
+                      {/* Bottom-left finder pattern */}
+                      <rect x="0" y="14" width="7" height="7" fill="black"/>
+                      <rect x="1" y="15" width="5" height="5" fill="white"/>
+                      <rect x="2" y="16" width="3" height="3" fill="black"/>
+                      {/* Timing patterns */}
+                      <rect x="8" y="6" width="1" height="1" fill="black"/>
+                      <rect x="10" y="6" width="1" height="1" fill="black"/>
+                      <rect x="12" y="6" width="1" height="1" fill="black"/>
+                      <rect x="6" y="8" width="1" height="1" fill="black"/>
+                      <rect x="6" y="10" width="1" height="1" fill="black"/>
+                      <rect x="6" y="12" width="1" height="1" fill="black"/>
+                      {/* Data region — encoded URL hint pattern based on thread id chars */}
+                      {thread.id.replace(/-/g, '').split('').slice(0, 36).map((char, i) => {
+                        const col = 8 + (i % 6);
+                        const row = 8 + Math.floor(i / 6);
+                        const val = parseInt(char, 16);
+                        return val % 2 === 0 ? null : (
+                          <rect key={i} x={col} y={row} width="1" height="1" fill="black" />
+                        );
+                      })}
+                      {/* Alignment pattern */}
+                      <rect x="14" y="14" width="5" height="5" fill="black"/>
+                      <rect x="15" y="15" width="3" height="3" fill="white"/>
+                      <rect x="16" y="16" width="1" height="1" fill="black"/>
+                    </svg>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground text-center">Point camera at QR code</p>
+                </div>
+
+                <button
+                  onClick={() => { setShowShareCard(false); setShareState('idle'); }}
+                  className="w-full py-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}

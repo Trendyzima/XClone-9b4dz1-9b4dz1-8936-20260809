@@ -22,8 +22,19 @@ export interface SEOProps {
 }
 
 const BASE_URL = 'https://testagram.site';
+const OG_IMAGE_BASE = 'https://lrqqpudyrkmitbeilrqq.backend.onspace.ai/functions/v1/og-image';
 const DEFAULT_IMAGE = `${BASE_URL}/og-image.jpg`;
 const SITE_NAME = 'Testagram';
+
+/** Build a dynamic OG image URL served by the edge function */
+export function buildOgImageUrl(params: { username?: string; thread?: string; community?: string; tag?: string }): string {
+  const p = new URLSearchParams();
+  if (params.username) p.set('username', params.username);
+  else if (params.thread) p.set('thread', params.thread);
+  else if (params.community) p.set('community', params.community);
+  else if (params.tag) p.set('tag', params.tag);
+  return `${OG_IMAGE_BASE}?${p.toString()}`;
+}
 
 function setMeta(attr: 'name' | 'property', key: string, value: string): HTMLMetaElement {
   let el = document.querySelector(`meta[${attr}="${key}"]`) as HTMLMetaElement | null;
