@@ -597,6 +597,12 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                       >
                         <Megaphone className="w-4 h-4 text-amber-500" /> Boost as Ad
                       </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(false); navigate(`/boost-analytics?post_id=${post.id}`); }}
+                        className="w-full text-left px-4 py-3 hover:bg-muted flex items-center gap-2"
+                      >
+                        <TrendingUp className="w-4 h-4 text-green-500" /> View Boost Stats
+                      </button>
                       {editHistory.length > 0 && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setShowEditHistory(true); setShowDeleteMenu(false); }}

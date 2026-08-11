@@ -35,6 +35,7 @@ export default function CreatorStudio() {
   const [weeklyViews, setWeeklyViews] = useState<any[]>([]);
   const [videoEarnings, setVideoEarnings] = useState<any[]>([]);
   const [weeklyEarnings, setWeeklyEarnings] = useState<any[]>([]);
+  const [revenueBreakdown4W, setRevenueBreakdown4W] = useState<any[]>([]);
   const [streakDay, setStreakDay] = useState(0);
   const [videoPostsCount, setVideoPostsCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -73,6 +74,7 @@ export default function CreatorStudio() {
     fetchVideoEarnings();
     fetchWeeklyEarnings();
     fetchMilestoneData();
+    fetchRevenueBreakdown4W();
   }, [user]);
 
   // Fetch all video posts with analytics when switching to video tab
@@ -269,6 +271,40 @@ export default function CreatorStudio() {
       else days[d].other += amt;
     });
     setWeeklyEarnings(Object.values(days));
+  };
+
+  const fetchRevenueBreakdown4W = async () => {
+    if (!user) return;
+    // Build a 4-week stacked breakdown (tips / subscriptions / ads / other)
+    const fourWeeksAgo = new Date(Date.now() - 28 * 86400000).toISOString();
+    const { data } = await supabase
+      .from('creator_earnings')
+      .select('amount, source, created_at')
+      .eq('user_id', user.id)
+      .gte('created_at', fourWeeksAgo)
+      .order('created_at', { ascending: true });
+    if (!data) return;
+    // Group into 4 weekly buckets
+    const weeks: Record<string, { week: string; tips: number; subscriptions: number; ads: number; other: number }> = {};
+    for (let w = 3; w >= 0; w--) {
+      const start = new Date(Date.now() - (w + 1) * 7 * 86400000);
+      const end   = new Date(Date.now() - w * 7 * 86400000);
+      const label = `Wk ${4 - w} (${start.toLocaleDateString('en', { month: 'short', day: 'numeric' })})`;
+      const key = String(w);
+      weeks[key] = { week: label, tips: 0, subscriptions: 0, ads: 0, other: 0 };
+      for (const e of data) {
+        const d = new Date(e.created_at);
+        if (d >= start && d < end) {
+          const amt = Number(e.amount);
+          const src = e.source ?? '';
+          if (src === 'tips') weeks[key].tips += amt;
+          else if (src === 'subscription') weeks[key].subscriptions += amt;
+          else if (src?.includes('ad') || src?.includes('video')) weeks[key].ads += amt;
+          else weeks[key].other += amt;
+        }
+      }
+    }
+    setRevenueBreakdown4W(Object.values(weeks).reverse());
   };
 
   const fetchVideoEarnings = async () => {
@@ -1031,6 +1067,54 @@ export default function CreatorStudio() {
         {/* ── EARNINGS TAB ── */}
         {activeStudioTab === 'earnings' && (
           <div className="space-y-4">
+            {/* 4-Week Revenue Breakdown Chart */}
+            {revenueBreakdown4W.some(d => d.tips + d.subscriptions + d.ads + d.other > 0) && (
+              <div className="bg-card border border-border rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <BarChart3 className="w-5 h-5 text-primary" />
+                  <h2 className="font-bold">4-Week Revenue Breakdown</h2>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">Revenue by source over the last 4 weeks</p>
+                {/* Source legend */}
+                <div className="flex flex-wrap gap-3 mb-3">
+                  {[{ key: 'tips', color: '#f59e0b', label: 'Tips' }, { key: 'subscriptions', color: '#8b5cf6', label: 'Subscriptions' }, { key: 'ads', color: '#10b981', label: 'Ads/Videos' }, { key: 'other', color: '#3b82f6', label: 'Other' }].map(s => (
+                    <div key={s.key} className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded-sm" style={{ background: s.color }} />
+                      <span className="text-xs text-muted-foreground font-medium">{s.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={revenueBreakdown4W} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="week" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                    <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={v => `$${Number(v).toFixed(2)}`} />
+                    <Tooltip
+                      contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                      formatter={(v: any, name: string) => [`$${Number(v).toFixed(4)}`, name]}
+                    />
+                    <Bar dataKey="tips" name="Tips" fill="#f59e0b" stackId="rev" />
+                    <Bar dataKey="subscriptions" name="Subscriptions" fill="#8b5cf6" stackId="rev" />
+                    <Bar dataKey="ads" name="Ads/Videos" fill="#10b981" stackId="rev" />
+                    <Bar dataKey="other" name="Other" fill="#3b82f6" stackId="rev" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+                {/* Totals summary strip */}
+                <div className="grid grid-cols-4 gap-2 mt-4">
+                  {[{ key: 'tips', color: '#f59e0b', label: 'Tips' }, { key: 'subscriptions', color: '#8b5cf6', label: 'Subs' }, { key: 'ads', color: '#10b981', label: 'Ads' }, { key: 'other', color: '#3b82f6', label: 'Other' }].map(s => {
+                    const total = revenueBreakdown4W.reduce((sum, w) => sum + (w[s.key] ?? 0), 0);
+                    return (
+                      <div key={s.key} className="bg-muted/30 rounded-xl p-2 text-center">
+                        <div className="w-3 h-3 rounded-sm mx-auto mb-1" style={{ background: s.color }} />
+                        <p className="text-xs font-bold">${total.toFixed(2)}</p>
+                        <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Weekly Earnings Chart */}
             <div className="bg-card border border-border rounded-2xl p-5">
               <div className="flex items-center justify-between mb-4">
