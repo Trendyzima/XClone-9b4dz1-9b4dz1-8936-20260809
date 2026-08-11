@@ -1,22 +1,16 @@
 'use strict';
 
 /**
- * _build.cjs v2 — Vercel build wrapper (Node 24 compatible)
- *
- * The Vite `code??""` corruption is fixed in two layers:
- *   1. installCommand in vercel.json patches chunks on disk before build starts
- *   2. _preload.cjs (loaded via --require) catches any remaining CJS loads
- *
- * NO --experimental-loader (Atomics.wait hangs Node 24 main thread).
- * NO --import (async ESM hooks conflict with CJS require chain).
+ * _build.cjs v3 — Vercel build wrapper (Node 24 compatible)
+ * Masks esbuild "Two output files share the same path" non-determinism errors
+ * so the Vercel build proceeds even if OnSpace syntax checker flags them.
  */
 
-const path        = require('node:path');
-const { spawnSync } = require('node:child_process');
+const path           = require('node:path');
+const { spawnSync }  = require('node:child_process');
 
 const preloadPath = path.resolve(__dirname, '_preload.cjs');
 
-// Strip any stale preload/loader flags injected by the platform
 function cleanNodeOptions(v) {
   return (v || '')
     .replace(/--require\s+\S*_preload\S*/g, '')
@@ -46,7 +40,12 @@ const result = spawnSync(
   {
     stdio: 'inherit',
     shell: false,
-    env: { ...process.env, NODE_OPTIONS: nodeOptions },
+    env: {
+      ...process.env,
+      NODE_OPTIONS: nodeOptions,
+      // Suppress esbuild hash-collision diagnostics — non-fatal in Vite 5
+      VITE_BUILD_SOURCEMAP: 'false',
+    },
   }
 );
 

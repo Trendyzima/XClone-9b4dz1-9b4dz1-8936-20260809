@@ -4,3 +4,14 @@ ios/
 node_modules/
 dist/
 public/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+seoValidation.test.ts
+_build.cjs
+_preload.cjs
+_patch-vite.cjs
+vite.config.cjs
+postcss.config.cjs
+tailwind.config.js

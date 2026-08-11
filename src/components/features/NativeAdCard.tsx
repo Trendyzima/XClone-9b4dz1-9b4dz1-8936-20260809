@@ -35,7 +35,7 @@ const SAMPLE_ADS = [
 ];
 
 export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
-  const [adData] = useState(SAMPLE_ADS[Math.floor(Math.random() * SAMPLE_ADS.length)]);
+  const [adData] = useState(SAMPLE_ADS[0]);
   const [visible, setVisible] = useState(true);
   const [impressionTracked, setImpressionTracked] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
