@@ -30,10 +30,7 @@ type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type ActiveTab = 'wallet' | 'history' | 'send' | 'receive' | 'analytics';
 
 // ── M-Pesa Secrets Setup Guide ────────────────────────────────────────────
-function MpesaSecretsGuide() {
-  const [open, setOpen] = useState(false);
-
-  const secrets = [
+const MPESA_SECRETS = [
     {
       key: 'MPESA_CONSUMER_KEY',
       desc: 'OAuth consumer key from Safaricom Developer portal',
@@ -69,7 +66,10 @@ function MpesaSecretsGuide() {
       desc: 'B2C encrypted security credential',
       where: 'Safaricom Developer Portal → B2C Test Credentials → Security Credential',
     },
-  ];
+];
+
+function MpesaSecretsGuide() {
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="rounded-2xl border border-border overflow-hidden">
@@ -95,7 +95,7 @@ function MpesaSecretsGuide() {
             Use sandbox values for testing, then switch to production after going live.
           </p>
           <div className="space-y-2">
-            {secrets.map(s => (
+            {MPESA_SECRETS.map(s => (
               <div key={s.key} className="p-3 bg-background border border-border rounded-xl">
                 <div className="flex items-center gap-2 mb-1">
                   <code className="text-[11px] font-mono font-bold text-primary bg-primary/8 px-1.5 py-0.5 rounded">{s.key}</code>
@@ -132,15 +132,15 @@ function ReceiveMoneyTab({ username, walletBalance }: { username: string; wallet
   const [requestAmount, setRequestAmount] = useState('');
   const [requestNote, setRequestNote] = useState('');
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-  const payUrl = useMemo(() => {
+  const { payUrl, qrImageUrl } = useMemo(() => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
     const params = new URLSearchParams({ tab: 'send', to: username });
     if (requestAmount && parseFloat(requestAmount) > 0) params.set('amount', requestAmount);
     if (requestNote.trim()) params.set('note', requestNote.trim());
-    return `${baseUrl}/wallet?${params.toString()}`;
-  }, [username, requestAmount, requestNote, baseUrl]);
-
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payUrl)}&bgcolor=ffffff&color=000000&qzone=2&format=png`;
+    const url = `${baseUrl}/wallet?${params.toString()}`;
+    const qr = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(url)}&bgcolor=ffffff&color=000000&qzone=2&format=png`;
+    return { payUrl: url, qrImageUrl: qr };
+  }, [username, requestAmount, requestNote]);
 
   const copyLink = () => {
     navigator.clipboard.writeText(payUrl).then(() => {
