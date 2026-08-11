@@ -379,7 +379,7 @@ export default function HomePage() {
       const posts = Array.isArray(res) ? res : res?.posts ?? res?.data ?? [];
       const normalized = posts.map((p: any) => ({
         ...p,
-        id: p.id ?? p.uri ?? p.url ?? String(Math.random()),
+        id: p.id ?? p.uri ?? p.url ?? `fed-${p.created_at ?? ''}-${p.content?.slice(0,8) ?? ''}`,
         content: p.content ?? p.text ?? '',
         created_at: p.created_at ?? p.published ?? new Date().toISOString(),
         actor: p.actor ?? p.account ?? {},

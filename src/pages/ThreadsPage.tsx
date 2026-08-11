@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 function ThreadsAdBanner() { return <PageAdBanner />; }
 import { TopBar } from '@/components/layout/TopBar';
@@ -37,7 +37,7 @@ export default function ThreadsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('For You');
 
-  const adPushed = useRef(false);
+// ThreadsAdBanner is rendered below the tabs
 
   // ── SEO — dynamic title + ItemList JSON-LD from top 5 threads ─────────────
   const topThreads = threads.filter(t => t.views_count > 0).slice(0, 5);
@@ -66,12 +66,6 @@ export default function ThreadsPage() {
     keywords: 'threads, articles, long-form, stories, testagram, creator writing, opinion, trending',
     structuredData: threadsJsonLd,
   });
-
-  useEffect(() => {
-    if (adPushed.current) return;
-    adPushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
 
   const tabs = ['For You', 'Following', 'Trending'];
 
@@ -149,17 +143,7 @@ export default function ThreadsPage() {
       </div>
 
       {/* AdSense banner — between tabs and thread list */}
-      <div className="px-4 py-3 border-b border-border">
-        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
-        <ins
-          className="adsbygoogle"
-          style={{ display: 'block', minHeight: 60 }}
-          data-ad-client="ca-pub-2458567543017441"
-          data-ad-slot="2031881558"
-          data-ad-format="auto"
-          data-full-width-responsive="true"
-        />
-      </div>
+      <PageAdBanner />
 
       {/* Create Thread */}
       {user && (
