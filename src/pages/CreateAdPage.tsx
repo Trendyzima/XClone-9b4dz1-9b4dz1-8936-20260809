@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Megaphone, Image as ImageIcon, Loader2, CheckCircle2,
-  Eye, TrendingUp, Clock, X, Info, CalendarClock
+  Eye, TrendingUp, Clock, X, Info, CalendarClock, Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -29,7 +29,8 @@ export default function CreateAdPage() {
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
-  // Pre-fill image from ?img= URL param (Boost as Ad flow)
+  // Pre-fill image + source post from URL params (Boost as Ad flow)
+  const fromPostId = searchParams.get('from_post');
   useEffect(() => {
     const imgParam = searchParams.get('img');
     if (imgParam) {
@@ -348,6 +349,19 @@ export default function CreateAdPage() {
       <TopBar title="Create Advertisement" showBack />
 
       <div className="max-w-2xl mx-auto p-6 space-y-6">
+        {/* Boost as Ad banner — shown when launched from PostCard */}
+        {fromPostId && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+            <div className="w-9 h-9 bg-amber-500/20 rounded-xl flex items-center justify-center shrink-0">
+              <Zap className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-700 dark:text-amber-400">Boosting your post as an ad</p>
+              <p className="text-xs text-amber-600 dark:text-amber-500">Content and image pre-filled from your post. Adjust as needed below.</p>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 rounded-2xl p-6">
           <div className="flex items-center gap-3 mb-3">

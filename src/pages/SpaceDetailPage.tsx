@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+function SpaceDetailAdBanner() { return <PageAdBanner />; }
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
@@ -21,8 +23,6 @@ export default function SpaceDetailPage() {
   const [participants, setParticipants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showJoinDialog, setShowJoinDialog] = useState(false);
-  const adPushed = useRef(false);
-
   // ── SEO — BroadcastEvent JSON-LD ──────────────────────────────────────────
   useSEO({
     title: space
@@ -69,13 +69,6 @@ export default function SpaceDetailPage() {
       })) : undefined,
     } : undefined,
   });
-
-  // Push AdSense on mount
-  useEffect(() => {
-    if (adPushed.current) return;
-    adPushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -255,17 +248,7 @@ export default function SpaceDetailPage() {
       )}
 
       {/* ── AdSense banner ── */}
-      <div className="px-4 py-3 border-b border-border">
-        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
-        <ins
-          className="adsbygoogle"
-          style={{ display: 'block', minHeight: 60 }}
-          data-ad-client="ca-pub-2458567543017441"
-          data-ad-slot="2031881558"
-          data-ad-format="auto"
-          data-full-width-responsive="true"
-        />
-      </div>
+      <SpaceDetailAdBanner />
 
       {/* ── Participants ── */}
       {participants.length > 0 && (

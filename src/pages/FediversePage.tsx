@@ -748,17 +748,7 @@ export default function FediversePage() {
           )}
 
           {/* AdSense banner — fediverse feed */}
-          <div className="px-4 py-2 border-b border-border bg-muted/10">
-            <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
-            <ins
-              className="adsbygoogle"
-              style={{ display: 'block', minHeight: 60 }}
-              data-ad-client="ca-pub-2458567543017441"
-              data-ad-slot="2031881558"
-              data-ad-format="auto"
-              data-full-width-responsive="true"
-            />
-          </div>
+          <FediverseAdBanner />
 
           {(fedTrendingTags.length > 0 || loadingFedTags) && (
             <div className="border-b border-border px-4 py-3">
