@@ -53,6 +53,36 @@ export function StoriesStrip() {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Story Views Analytics ────────────────────────────────────────────────
+  // ── Story Text Overlays ──────────────────────────────────────────────────────
+  const [textOverlays, setTextOverlays] = useState<{ text: string; x: number; y: number; id: string; color: string; size: string }[]>([]);
+  const [showTextInput, setShowTextInput] = useState(false);
+  const [draftText, setDraftText] = useState('');
+  const [draftTextColor, setDraftTextColor] = useState('#ffffff');
+  const [draftTextSize, setDraftTextSize] = useState('text-2xl');
+  const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
+  const TEXT_COLORS = ['#ffffff', '#000000', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899'];
+  const TEXT_SIZES = [{ label: 'S', cls: 'text-lg' }, { label: 'M', cls: 'text-2xl' }, { label: 'L', cls: 'text-4xl' }];
+
+  const addTextOverlay = () => {
+    if (!draftText.trim()) return;
+    setTextOverlays(prev => [...prev, {
+      text: draftText.trim(), x: 30 + Math.random() * 40, y: 30 + Math.random() * 30,
+      id: Date.now().toString(), color: draftTextColor, size: draftTextSize,
+    }]);
+    setDraftText('');
+    setShowTextInput(false);
+  };
+
+  const moveTextOverlay = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!draggingTextId || !storyPreviewRef.current) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const rect = storyPreviewRef.current.getBoundingClientRect();
+    const xPct = Math.max(2, Math.min(98, ((clientX - rect.left) / rect.width) * 100));
+    const yPct = Math.max(2, Math.min(95, ((clientY - rect.top) / rect.height) * 100));
+    setTextOverlays(prev => prev.map(t => t.id === draggingTextId ? { ...t, x: xPct, y: yPct } : t));
+  };
+
   // ── Story Stickers ─────────────────────────────────────────────────────────
   const [stickers, setStickers] = useState<{ emoji: string; x: number; y: number; id: string }[]>([]);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
@@ -288,7 +318,7 @@ export function StoriesStrip() {
     const { error: upErr } = await supabase.storage.from('posts').upload(path, pendingFile);
     if (upErr) { toast.error('Upload failed'); setUploading(false); return; }
     const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(path);
-    const stickerMeta = stickers.length > 0 ? { stickers } : {};
+    const stickerMeta = { ...(stickers.length > 0 ? { stickers } : {}), ...(textOverlays.length > 0 ? { textOverlays } : {}) };
     const { error: insErr } = await supabase.from('stories').insert({
       user_id: user.id,
       media_url: publicUrl,
@@ -303,7 +333,9 @@ export function StoriesStrip() {
     setPendingCaption('');
     setPendingPreviewUrl(null);
     setStickers([]);
+    setTextOverlays([]);
     setShowStickerPicker(false);
+    setShowTextInput(false);
     setUploading(false);
   };
 
@@ -468,16 +500,29 @@ export function StoriesStrip() {
           <div
             ref={storyPreviewRef}
             className="relative w-full max-w-sm rounded-2xl overflow-hidden select-none flex-shrink-0"
-            onMouseMove={moveDragSticker}
-            onMouseUp={() => setDraggingSticker(null)}
-            onTouchMove={moveDragSticker}
-            onTouchEnd={() => setDraggingSticker(null)}
+            onMouseMove={e => { moveDragSticker(e); moveTextOverlay(e); }}
+            onMouseUp={() => { setDraggingSticker(null); setDraggingTextId(null); }}
+            onTouchMove={e => { moveDragSticker(e); moveTextOverlay(e); }}
+            onTouchEnd={() => { setDraggingSticker(null); setDraggingTextId(null); }}
           >
             {pendingFile.type.startsWith('video') ? (
               <video src={pendingPreviewUrl} className="w-full max-h-[45vh] object-contain" muted playsInline />
             ) : (
               <img src={pendingPreviewUrl} alt="" className="w-full max-h-[45vh] object-contain rounded-2xl" />
             )}
+            {/* Draggable text overlays on preview */}
+            {textOverlays.map(t => (
+              <div
+                key={t.id}
+                className={`absolute font-black cursor-grab active:cursor-grabbing select-none drop-shadow-lg ${t.size}`}
+                style={{ left: `${t.x}%`, top: `${t.y}%`, transform: 'translate(-50%,-50%)', color: t.color, touchAction: 'none', zIndex: 21, textShadow: t.color === '#ffffff' ? '0 1px 3px rgba(0,0,0,0.8)' : '0 1px 3px rgba(255,255,255,0.5)' }}
+                onMouseDown={e => { e.stopPropagation(); setDraggingTextId(t.id); }}
+                onTouchStart={e => { e.stopPropagation(); setDraggingTextId(t.id); }}
+                onDoubleClick={e => { e.stopPropagation(); setTextOverlays(prev => prev.filter(x => x.id !== t.id)); }}
+              >
+                {t.text}
+              </div>
+            ))}
             {/* Draggable stickers on preview */}
             {stickers.map(s => (
               <div
@@ -509,10 +554,57 @@ export function StoriesStrip() {
           )}
 
           <div className="w-full max-w-sm space-y-2 flex-shrink-0">
+            {/* Text overlay input panel */}
+            {showTextInput && (
+              <div className="w-full max-w-sm bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/20">
+                <p className="text-white/70 text-[10px] font-semibold uppercase tracking-widest mb-2 text-center">Add Text · drag to reposition · double-tap to remove</p>
+                <input
+                  type="text"
+                  value={draftText}
+                  onChange={e => setDraftText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addTextOverlay()}
+                  placeholder="Type something…"
+                  autoFocus
+                  maxLength={80}
+                  className="w-full bg-white/10 text-white placeholder:text-white/40 border border-white/20 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary mb-2"
+                />
+                {/* Color picker */}
+                <div className="flex items-center gap-1.5 mb-2">
+                  {TEXT_COLORS.map(c => (
+                    <button key={c} onClick={() => setDraftTextColor(c)}
+                      className={`w-6 h-6 rounded-full border-2 transition-transform active:scale-110 ${draftTextColor === c ? 'border-white scale-110' : 'border-transparent'}`}
+                      style={{ background: c }}
+                    />
+                  ))}
+                </div>
+                {/* Size picker */}
+                <div className="flex items-center gap-2 mb-2">
+                  {TEXT_SIZES.map(s => (
+                    <button key={s.cls} onClick={() => setDraftTextSize(s.cls)}
+                      className={`px-3 py-1 rounded-lg text-white text-xs font-bold border transition-colors ${draftTextSize === s.cls ? 'bg-primary border-primary' : 'bg-white/10 border-white/20'}`}
+                    >{s.label}</button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowTextInput(false)} className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-medium">Cancel</button>
+                  <button onClick={addTextOverlay} disabled={!draftText.trim()} className="flex-1 py-2 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold disabled:opacity-50">Add Text</button>
+                </div>
+              </div>
+            )}
+
             {/* Sticker toggle */}
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowStickerPicker(v => !v)}
+                onClick={() => { setShowTextInput(v => !v); setShowStickerPicker(false); }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                  showTextInput ? 'bg-primary border-primary text-white' : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                }`}
+              >
+                <span>✍️</span>
+                Text {textOverlays.length > 0 ? `(${textOverlays.length})` : ''}
+              </button>
+              <button
+                onClick={() => { setShowStickerPicker(v => !v); setShowTextInput(false); }}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
                   showStickerPicker ? 'bg-primary border-primary text-white' : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
                 }`}
@@ -520,8 +612,8 @@ export function StoriesStrip() {
                 <span>🎉</span>
                 Stickers {stickers.length > 0 ? `(${stickers.length})` : ''}
               </button>
-              {stickers.length > 0 && (
-                <button onClick={() => setStickers([])} className="text-white/50 text-xs hover:text-white/80 transition-colors">
+              {(stickers.length > 0 || textOverlays.length > 0) && (
+                <button onClick={() => { setStickers([]); setTextOverlays([]); }} className="text-white/50 text-xs hover:text-white/80 transition-colors">
                   Clear all
                 </button>
               )}
@@ -745,16 +837,23 @@ export function StoriesStrip() {
             {(() => {
               const meta = (story as any).metadata;
               const stickerList: { emoji: string; x: number; y: number; id: string }[] = meta?.stickers ?? [];
-              if (!stickerList.length) return null;
-              return stickerList.map(s => (
-                <div
-                  key={s.id}
-                  className="absolute text-4xl pointer-events-none select-none"
-                  style={{ left: `${s.x}%`, top: `${s.y}%`, transform: 'translate(-50%,-50%)', zIndex: 22 }}
-                >
-                  {s.emoji}
-                </div>
-              ));
+              const textList: { text: string; x: number; y: number; id: string; color: string; size: string }[] = meta?.textOverlays ?? [];
+              return (
+                <>
+                  {stickerList.map(s => (
+                    <div key={s.id} className="absolute text-4xl pointer-events-none select-none"
+                      style={{ left: `${s.x}%`, top: `${s.y}%`, transform: 'translate(-50%,-50%)', zIndex: 22 }}>
+                      {s.emoji}
+                    </div>
+                  ))}
+                  {textList.map(t => (
+                    <div key={t.id} className={`absolute font-black pointer-events-none select-none drop-shadow-lg ${t.size || 'text-2xl'}`}
+                      style={{ left: `${t.x}%`, top: `${t.y}%`, transform: 'translate(-50%,-50%)', color: t.color || '#fff', zIndex: 23, textShadow: t.color === '#ffffff' ? '0 1px 3px rgba(0,0,0,0.8)' : '0 1px 3px rgba(255,255,255,0.5)' }}>
+                      {t.text}
+                    </div>
+                  ))}
+                </>
+              );
             })()}
 
             {/* Caption */}

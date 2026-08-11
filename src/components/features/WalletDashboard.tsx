@@ -185,7 +185,9 @@ export function WalletDashboard() {
           if (statusData?.status === 'completed') {
             clearInterval(interval);
             setDepositPolling(false);
-            toast.success(`Deposit of KES ${kesAmount.toLocaleString()} confirmed!`);
+            // Credit wallet via RPC (also logs transaction)
+            await supabase.rpc('add_to_wallet', { p_user_id: user!.id, p_amount: parseFloat(depositAmount) });
+            toast.success(`Deposit of KES ${kesAmount.toLocaleString()} confirmed! +$${parseFloat(depositAmount).toFixed(2)} added to wallet.`);
             setShowDeposit(false);
             setDepositAmount('');
             fetchWallet();
