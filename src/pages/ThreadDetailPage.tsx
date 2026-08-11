@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, ChevronDown, ChevronUp, Sparkles, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber } from '@/lib/utils';
 import { PostCard } from '@/components/features/PostCard';
@@ -42,6 +42,41 @@ export default function ThreadDetailPage() {
   const [replyText, setReplyText] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
+
+  // AI Summarizer
+  const [showSummary, setShowSummary] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+
+  const handleSummarize = async () => {
+    if (summary) { setShowSummary(v => !v); return; }
+    if (!thread) return;
+    setSummarizing(true);
+    try {
+      const topReplies = replies
+        .slice(0, 6)
+        .map(r => `- ${r.user_profiles?.username}: ${r.content}`)
+        .join('\n');
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: {
+          messages: [{
+            role: 'user',
+            content: `Summarize this thread in exactly 3 bullet points. Each bullet should be one crisp sentence. Return ONLY the 3 bullets starting with "•":\n\nTitle: ${thread.title}\n\nContent: ${thread.content.replace(/<[^>]*>/g, '').slice(0, 1200)}${topReplies ? '\n\nTop comments:\n' + topReplies : ''}`,
+          }],
+          model: 'google/gemini-3-flash-preview',
+        },
+      });
+      if (error) throw error;
+      const raw = data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? '';
+      setSummary(raw.trim());
+      setShowSummary(true);
+    } catch {
+      setSummary('• Could not generate summary. Please try again.');
+      setShowSummary(true);
+    } finally {
+      setSummarizing(false);
+    }
+  };
 
   useEffect(() => {
     if (id) {
@@ -469,7 +504,44 @@ export default function ThreadDetailPage() {
             </div>
           </div>
 
-          <h1 className="text-3xl font-bold mb-4">{thread.title}</h1>
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <h1 className="text-3xl font-bold flex-1">{thread.title}</h1>
+            <button
+              onClick={handleSummarize}
+              disabled={summarizing}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all mt-1 ${
+                showSummary
+                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-700 dark:text-amber-400'
+                  : 'border-border text-muted-foreground hover:border-amber-500/30 hover:bg-amber-500/5 hover:text-amber-600'
+              } disabled:opacity-50`}
+              title="AI TL;DR Summary"
+            >
+              {summarizing
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Sparkles className="w-3.5 h-3.5" />}
+              {summarizing ? 'Summarizing…' : showSummary ? 'Hide TL;DR' : 'TL;DR'}
+            </button>
+          </div>
+
+          {/* AI Summary Card */}
+          {showSummary && summary && (
+            <div className="mb-5 bg-amber-500/8 border border-amber-500/20 rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">AI TL;DR</span>
+                </div>
+                <button onClick={() => setShowSummary(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {summary.split('\n').filter(l => l.trim()).map((line, i) => (
+                  <p key={i} className="text-sm text-foreground leading-relaxed">{line.trim()}</p>
+                ))}
+              </div>
+            </div>
+          )}
 
           {thread.cover_image && (
             <img

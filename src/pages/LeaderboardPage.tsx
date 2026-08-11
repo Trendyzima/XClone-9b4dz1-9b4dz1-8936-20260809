@@ -137,7 +137,7 @@ export default function LeaderboardPage() {
         earnings.forEach((e: any) => {
           totals[e.user_id] = (totals[e.user_id] ?? 0) + Number(e.amount);
         });
-        const sorted = Object.entries(totals).sort(([, a], [, b]) => b - a).slice(0, 20);
+        const sorted = Object.entries(totals).sort(([, a], [, b]) => b - a).slice(0, 5);
         const uids = sorted.map(([id]) => id);
         const { data: profiles } = await supabase
           .from('user_profiles')
