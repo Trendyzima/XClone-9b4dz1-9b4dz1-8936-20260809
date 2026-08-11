@@ -1,4 +1,4 @@
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, useRef, ReactNode } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -6,6 +6,28 @@ import { useAuth } from '@/hooks/useAuth';
 import { TopBar } from '@/components/layout/TopBar';
 import { toast } from 'sonner';
 import { BadgeCheck, Upload, Loader2, Clock, CheckCircle2, XCircle, Shield, Star, Building2 } from 'lucide-react';
+
+function VerificationAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 interface Tier {
   id: string;
@@ -144,6 +166,7 @@ export default function VerificationRequestPage() {
     return (
       <div className="min-h-screen bg-background pb-16 lg:pb-0">
         <TopBar title="Verification" showBack />
+          <VerificationAdBanner />
         <div className="max-w-lg mx-auto p-6 space-y-6">
           {/* Status card */}
           <div className={`rounded-2xl border-2 ${styles.border} ${styles.bg} p-6 flex flex-col items-center text-center gap-3`}>
@@ -184,6 +207,7 @@ export default function VerificationRequestPage() {
   return (
     <div className="min-h-screen bg-background pb-16 lg:pb-0">
       <TopBar title="Get Verified" showBack />
+      <VerificationAdBanner />
 
       <div className="max-w-lg mx-auto p-4 space-y-6">
         {/* Hero */}

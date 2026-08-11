@@ -1,8 +1,3 @@
-/**
- * use-toast — lightweight wrapper around sonner for shadcn/ui compatibility.
- * Components that call useToast().toast({ title, description, variant }) get
- * the right sonner call underneath.
- */
 import { toast as sonnerToast } from "sonner"
 
 export type ToastVariant = "default" | "destructive"

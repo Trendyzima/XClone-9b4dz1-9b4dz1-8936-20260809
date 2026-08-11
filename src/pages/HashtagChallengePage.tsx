@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
@@ -12,6 +12,28 @@ import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow, isPast, format } from 'date-fns';
 import { toast } from 'sonner';
 import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
+
+function HashtagChallengeAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 export default function HashtagChallengePage() {
   const { id } = useParams<{ id: string }>();
@@ -143,6 +165,7 @@ export default function HashtagChallengePage() {
   return (
     <div className="min-h-screen bg-background pb-20">
       <TopBar title="Challenge" showBack />
+      <HashtagChallengeAdBanner />
 
       {/* Hero */}
       <div className="px-4 pt-4 pb-5 border-b border-border bg-gradient-to-br from-primary/5 via-background to-purple-500/5">
