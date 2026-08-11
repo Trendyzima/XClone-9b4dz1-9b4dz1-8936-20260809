@@ -1655,6 +1655,10 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
   );
 }
 
+// ── Module-level heatmap color scales ───────────────────────────────────
+const HEATMAP_GREEN = ['bg-green-200 dark:bg-green-950','bg-green-300 dark:bg-green-800','bg-green-500 dark:bg-green-700','bg-green-600 dark:bg-green-500'] as const;
+const HEATMAP_RED   = ['bg-red-200 dark:bg-red-950',  'bg-red-300 dark:bg-red-800',  'bg-red-500 dark:bg-red-700',  'bg-red-600 dark:bg-red-500'  ] as const;
+
 // ── Crypto Price Widget ───────────────────────────────────────────────────
 function CryptoWidget() {
   const [prices, setPrices] = useState<{ btc: number; eth: number; btcChange: number; ethChange: number } | null>(null);
@@ -1740,9 +1744,7 @@ function ActivityHeatmap({ userId }: { userId: string }) {
   const getCellBg = (amount: number, hasIn: boolean) => {
     if (amount === 0) return 'bg-muted';
     const i = Math.min(Math.ceil((amount / maxAmount) * 4), 4);
-    const g = hasIn
-      ? ['bg-green-200 dark:bg-green-950','bg-green-300 dark:bg-green-800','bg-green-500 dark:bg-green-700','bg-green-600 dark:bg-green-500']
-      : ['bg-red-200 dark:bg-red-950',  'bg-red-300 dark:bg-red-800',  'bg-red-500 dark:bg-red-700',  'bg-red-600 dark:bg-red-500'  ];
+    const g = hasIn ? HEATMAP_GREEN : HEATMAP_RED;
     return g[i - 1] ?? g[3];
   };
 
@@ -1785,12 +1787,16 @@ function ActivityHeatmap({ userId }: { userId: string }) {
 
 // ── Spending Alerts Card ──────────────────────────────────────────────────
 function SpendingAlertsCard({ userId }: { userId: string }) {
-  const [prefs, setPrefs] = useState<{ enabled: boolean; threshold: string; budget: string }>(() => {
+  const [prefs, setPrefs] = useState<{ enabled: boolean; threshold: string; budget: string }>(
+    { enabled: false, threshold: '10', budget: '50' }
+  );
+
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(`ts-alerts-${userId}`);
-      return raw ? JSON.parse(raw) : { enabled: false, threshold: '10', budget: '50' };
-    } catch { return { enabled: false, threshold: '10', budget: '50' }; }
-  });
+      if (raw) setPrefs(JSON.parse(raw));
+    } catch { /* use defaults */ }
+  }, [userId]);
   const [checking, setChecking] = useState(false);
 
   const save = (next: { enabled: boolean; threshold: string; budget: string }) => {
