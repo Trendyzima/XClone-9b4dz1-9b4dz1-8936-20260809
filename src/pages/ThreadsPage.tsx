@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { TopBar } from '@/components/layout/TopBar';
@@ -5,9 +6,9 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Loader2, BadgeCheck, Heart, MessageCircle, TrendingUp } from 'lucide-react';
+import { Plus, Loader2, BadgeCheck, Heart, MessageCircle, TrendingUp, BookOpen, Video, Image as ImageIcon, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { parseContent, formatNumber } from '@/lib/utils';
+import { formatNumber } from '@/lib/utils';
 import { useSEO } from '@/hooks/useSEO';
 
 // ThreadsAdBanner is defined above
@@ -18,8 +19,12 @@ interface Thread {
   title: string;
   content: string;
   cover_image: string | null;
+  media_url: string | null;
+  media_type: string | null;
   views_count: number;
   likes_count: number;
+  reposts_count: number;
+  replies_count: number;
   created_at: string;
   user_profiles: {
     id: string;
@@ -27,6 +32,28 @@ interface Thread {
     avatar_url: string | null;
     verified: boolean;
   };
+}
+
+// Strip markdown-like syntax for clean plain-text preview
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/^#{1,3}\s+/gm, '')     // headings
+    .replace(/\*\*(.+?)\*\*/g, '$1') // bold
+    .replace(/\*(.+?)\*/g, '$1')     // italic
+    .replace(/^>\s+/gm, '')          // blockquotes
+    .replace(/^•\s+/gm, '')         // bullets
+    .replace(/^---$/gm, '')          // dividers
+    .replace(/\n{2,}/g, ' ')         // collapse blank lines
+    .trim();
+}
+
+// Accent border color based on content length
+function accentBorderClass(content: string): string {
+  const len = content.length;
+  if (len > 3000) return 'border-l-purple-500';
+  if (len > 1500) return 'border-l-blue-500';
+  if (len > 500)  return 'border-l-teal-500';
+  return 'border-l-green-500';
 }
 
 function ThreadsAdBanner() { return <PageAdBanner />; }
@@ -79,12 +106,10 @@ export default function ThreadsPage() {
       let query = supabase
         .from('threads')
         .select(`
-          *,
+          id, user_id, title, content, cover_image, media_url, media_type,
+          views_count, likes_count, reposts_count, replies_count, created_at,
           user_profiles (
-            id,
-            username,
-            avatar_url,
-            verified
+            id, username, avatar_url, verified
           )
         `)
         .eq('is_published', true);
@@ -177,75 +202,109 @@ export default function ThreadsPage() {
           {threads.map((thread) => (
             <article
               key={thread.id}
-              className="p-4 hover:bg-muted/5 transition-colors cursor-pointer"
               onClick={() => navigate(`/thread/${thread.id}`)}
+              className={`p-4 hover:bg-muted/30 transition-colors cursor-pointer border-l-4 ${accentBorderClass(thread.content)} bg-background`}
             >
-              <div className="flex items-start space-x-3">
-                {/* Avatar */}
-                <div
-                  className="w-10 h-10 rounded-full bg-muted overflow-hidden flex-shrink-0 cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/profile/${thread.user_profiles.username}`);
-                  }}
-                >
-                  {thread.user_profiles.avatar_url ? (
-                    <img
-                      src={thread.user_profiles.avatar_url}
-                      alt={thread.user_profiles.username}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center font-bold">
-                      {thread.user_profiles.username[0].toUpperCase()}
+              {/* The self-invoking function inside map was incorrect syntax for JSX,
+                  it should return JSX directly. The logic is moved outside or directly into the JSX. */}
+              {(() => {
+                const wordCount = thread.content.trim().split(/\s+/).length;
+                const readTime = Math.max(1, Math.ceil(wordCount / 200));
+                const previewText = stripMarkdown(thread.content).slice(0, 280);
+                const hasVideo = !!(thread.media_url && thread.media_type === 'video');
+                const hasImage = !!(thread.cover_image);
+                return (
+                  <>
+                    {/* Author row */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <button
+                        className="w-9 h-9 rounded-full bg-muted overflow-hidden shrink-0"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/profile/${thread.user_profiles.username}`); }}
+                      >
+                        {thread.user_profiles.avatar_url
+                          ? <img src={thread.user_profiles.avatar_url} alt={thread.user_profiles.username} className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{thread.user_profiles.username[0].toUpperCase()}</div>}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-sm truncate">{thread.user_profiles.username}</span>
+                          {thread.user_profiles.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary shrink-0" fill="currentColor" />}
+                        </div>
+                        <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })}</span>
+                      </div>
+                      {/* Meta badges */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {hasVideo && (
+                          <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-600 bg-red-500/10 px-1.5 py-0.5 rounded-full">
+                            <Video className="w-2.5 h-2.5" />Video
+                          </span>
+                        )}
+                        {!hasVideo && hasImage && (
+                          <span className="flex items-center gap-0.5 text-[10px] font-bold text-blue-600 bg-blue-500/10 px-1.5 py-0.5 rounded-full">
+                            <ImageIcon className="w-2.5 h-2.5" />Photo
+                          </span>
+                        )}
+                        <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded-full">
+                          <Clock className="w-2.5 h-2.5" />{readTime} min
+                        </span>
+                        <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded-full">
+                          <BookOpen className="w-2.5 h-2.5" />{wordCount} words
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </div>
 
-                {/* Thread Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold truncate">{thread.user_profiles.username}</span>
-                    {thread.user_profiles.verified && (
-                      <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" fill="currentColor" />
+                    {/* Title */}
+                    <h2 className="text-lg font-bold leading-snug mb-2">{thread.title}</h2>
+
+                    {/* Content preview — plain text, no HTML injection */}
+                    <p className="text-muted-foreground text-sm leading-relaxed line-clamp-3 mb-3">
+                      {previewText}{previewText.length >= 280 ? '…' : ''}
+                    </p>
+
+                    {/* Media thumbnail */}
+                    {hasVideo && thread.media_url && (
+                      <div className="relative rounded-xl overflow-hidden mb-3 bg-black aspect-video max-h-48">
+                        <video
+                          src={thread.media_url}
+                          className="w-full h-full object-cover opacity-80"
+                          muted playsInline
+                          onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }}
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-12 h-12 rounded-full bg-black/60 flex items-center justify-center">
+                            <Video className="w-6 h-6 text-white" />
+                          </div>
+                        </div>
+                      </div>
                     )}
-                    <span className="text-muted-foreground text-sm flex-shrink-0">
-                      {formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })}
-                    </span>
-                  </div>
+                    {!hasVideo && hasImage && (
+                      <img
+                        src={thread.cover_image!}
+                        alt={thread.title}
+                        className="rounded-xl w-full max-h-56 object-cover mb-3"
+                        loading="lazy"
+                      />
+                    )}
 
-                  <h2 className="text-xl font-bold mt-2 mb-2">{thread.title}</h2>
-
-                  <div
-                    className="text-muted-foreground line-clamp-4 mb-3 text-sm leading-relaxed space-y-1"
-                    dangerouslySetInnerHTML={{ __html: parseContent(thread.content.substring(0, 400)) }}
-                  />
-
-                  {thread.cover_image && (
-                    <img
-                      src={thread.cover_image}
-                      alt={thread.title}
-                      className="rounded-xl w-full max-h-96 object-cover mb-3"
-                    />
-                  )}
-
-                  {/* Stats */}
-                  <div className="flex items-center space-x-6 text-muted-foreground">
-                    <div className="flex items-center space-x-2">
-                      <Heart className="w-4 h-4" />
-                      <span className="text-sm">{formatNumber(thread.likes_count)}</span>
+                    {/* Stats */}
+                    <div className="flex items-center gap-4 text-muted-foreground">
+                      <div className="flex items-center gap-1.5">
+                        <Heart className="w-3.5 h-3.5" />
+                        <span className="text-xs font-medium">{formatNumber(thread.likes_count)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span className="text-xs font-medium">{formatNumber(thread.replies_count ?? 0)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <TrendingUp className="w-3.5 h-3.5" />
+                        <span className="text-xs font-medium">{formatNumber(thread.views_count)} views</span>
+                      </div>
+                      <span className="ml-auto text-xs font-semibold text-primary hover:underline">Read →</span>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <MessageCircle className="w-4 h-4" />
-                      <span className="text-sm">Read more</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <TrendingUp className="w-4 h-4" />
-                      <span className="text-sm">{formatNumber(thread.views_count)} views</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  </>
+                );
+              })()}
             </article>
           ))}
         </div>

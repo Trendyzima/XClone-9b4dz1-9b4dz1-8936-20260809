@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
@@ -97,6 +97,25 @@ export default function ThreadDetailPage() {
       await supabase.from('thread_reactions').upsert({ thread_id: id, user_id: user.id, emoji }, { onConflict: 'thread_id,user_id' });
     }
   };
+
+  // ── Reading Progress ────────────────────────────────────────────────────
+  const articleRef = useRef<HTMLElement>(null);
+  const [readingProgress, setReadingProgress] = useState(0);
+
+  useEffect(() => {
+    const updateProgress = () => {
+      const el = articleRef.current;
+      if (!el) return;
+      const { top, height } = el.getBoundingClientRect();
+      const windowH = window.innerHeight;
+      const scrolled = Math.max(0, -top);
+      const total = Math.max(1, height - windowH);
+      setReadingProgress(Math.min(100, Math.round((scrolled / total) * 100)));
+    };
+    window.addEventListener('scroll', updateProgress, { passive: true });
+    updateProgress();
+    return () => window.removeEventListener('scroll', updateProgress);
+  }, [thread]);
 
   // Chapter editor for thread owner
   const [editingChapters, setEditingChapters] = useState(false);
@@ -565,9 +584,37 @@ export default function ThreadDetailPage() {
 
   if (!thread) return null;
 
+  const wordCount = thread.content ? thread.content.replace(/<[^>]*>/g, '').trim().split(/\s+/).length : 0;
+  const totalReadMins = Math.max(1, Math.ceil(wordCount / 200));
+  const remainingMins = Math.max(0, Math.ceil(totalReadMins * (1 - readingProgress / 100)));
+
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Thread" showBack />
+
+      {/* ── Reading Progress Bar ── */}
+      <div className="sticky top-14 z-40 h-1 bg-muted/40 w-full">
+        <div
+          className="h-full bg-gradient-to-r from-violet-500 via-blue-500 to-cyan-400 transition-all duration-150"
+          style={{ width: `${readingProgress}%` }}
+        />
+      </div>
+      {readingProgress > 2 && readingProgress < 100 && (
+        <div className="sticky top-15 z-40 flex justify-end px-4 py-1 bg-background/80 backdrop-blur-sm border-b border-border/30">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">{readingProgress}%</span>
+            <span>read</span>
+            <span>·</span>
+            <Clock className="w-3 h-3" />
+            <span>{remainingMins} min left</span>
+          </div>
+        </div>
+      )}
+      {readingProgress >= 100 && (
+        <div className="sticky top-15 z-40 flex justify-center px-4 py-1 bg-green-500/8 border-b border-green-500/20">
+          <p className="text-xs font-bold text-green-600">✓ Finished reading</p>
+        </div>
+      )}
 
       {/* ── Chapter Editor Modal ── */}
       {editingChapters && (
@@ -602,7 +649,7 @@ export default function ThreadDetailPage() {
         </div>
       )}
 
-      <article className="max-w-3xl mx-auto">
+      <article ref={articleRef} className="max-w-3xl mx-auto">
         {/* Thread Header */}
         <div className="p-6 border-b border-border">
           <div className="flex items-center space-x-3 mb-4">

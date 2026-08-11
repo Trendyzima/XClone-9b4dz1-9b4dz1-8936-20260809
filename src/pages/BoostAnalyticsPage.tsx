@@ -11,11 +11,13 @@ import {
 import {
   TrendingUp, Eye, MousePointerClick, DollarSign, Users,
   Loader2, AlertCircle, Calendar, Zap, Target, ArrowUpRight,
-  BarChart3, RefreshCw, List, Clock, CheckCircle2, XCircle, Tag, Hash
+  BarChart3, RefreshCw, List, Clock, CheckCircle2, XCircle, Tag, Hash,
+  Pause, Play
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+import { toast } from 'sonner';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 function BoostAnalyticsAdBanner() { return <PageAdBanner />; }
@@ -33,6 +35,7 @@ export default function BoostAnalyticsPage() {
   const [dailyData, setDailyData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [togglingPause, setTogglingPause] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -108,6 +111,27 @@ export default function BoostAnalyticsPage() {
   const handleRefresh = () => {
     setRefreshing(true);
     fetchBoostData();
+  };
+
+  const handleTogglePause = async (boostId: string, currentIsActive: boolean) => {
+    setTogglingPause(boostId);
+    const newIsActive = !currentIsActive;
+    // Optimistic UI update
+    setAllBoosts(prev => prev.map(b => b.id === boostId ? { ...b, is_active: newIsActive } : b));
+    if (boost?.id === boostId) setBoost((prev: any) => prev ? { ...prev, is_active: newIsActive } : prev);
+    const { error } = await supabase
+      .from('boosted_posts')
+      .update({ is_active: newIsActive })
+      .eq('id', boostId);
+    if (error) {
+      // Revert on failure
+      setAllBoosts(prev => prev.map(b => b.id === boostId ? { ...b, is_active: currentIsActive } : b));
+      if (boost?.id === boostId) setBoost((prev: any) => prev ? { ...prev, is_active: currentIsActive } : prev);
+      toast.error(error.message);
+    } else {
+      toast.success(newIsActive ? 'Campaign resumed ▶' : 'Campaign paused ⏸');
+    }
+    setTogglingPause(null);
   };
 
   if (loading) {
@@ -440,13 +464,30 @@ export default function BoostAnalyticsPage() {
                           {formatDistanceToNow(new Date(b.created_at), { addSuffix: true })}
                         </div>
                       </div>
-                      <button
-                        onClick={() => navigate(`/boost-analytics/${b.post_id}`)}
+                          {/* Pause / Resume button */}
+                          <button
+                            onClick={e => { e.stopPropagation(); handleTogglePause(b.id, !!b.is_active); }}
+                            disabled={togglingPause === b.id}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-bold transition-all disabled:opacity-50 ${
+                              b.is_active
+                                ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
+                                : 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20'
+                            }`}
+                            title={b.is_active ? 'Pause campaign' : 'Resume campaign'}
+                          >
+                            {togglingPause === b.id
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : b.is_active
+                                ? <><Pause className="w-3 h-3" /> Pause</>
+                                : <><Play className="w-3 h-3" /> Resume</>}
+                              </button>
+                          <button
+                            onClick={() => navigate(`/boost-analytics/${b.post_id}`)}
                         className="shrink-0 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
                         title="View details"
                       >
                         <ArrowUpRight className="w-4 h-4" />
-                      </button>
+                          </button>
                     </div>
                   </div>
                 );
