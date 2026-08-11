@@ -17,6 +17,7 @@ Allow: /post/
 Allow: /hashtag/
 Allow: /c/
 Allow: /thread/
+Allow: /trending/
 
 Disallow: /auth
 Disallow: /messages
@@ -29,7 +30,16 @@ Disallow: /history
 Disallow: /my-ads
 Disallow: /payouts
 Disallow: /creator-studio
+Disallow: /interests
+Disallow: /wishlist
+Disallow: /referral
+Disallow: /daily-rewards
+Disallow: /platform-inbox
+Disallow: /scheduled
 
+# Sitemaps
 Sitemap: https://testagram.site/sitemap.xml
+Sitemap: https://testagram.site/sitemap-static.xml
+Sitemap: https://lrqqpudyrkmitbeilrqq.backend.onspace.ai/functions/v1/community-sitemap
 
 Crawl-delay: 1
