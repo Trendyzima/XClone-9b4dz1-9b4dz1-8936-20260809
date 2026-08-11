@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@/lib/capacitor-stub';
 
 interface AdSenseAdProps {

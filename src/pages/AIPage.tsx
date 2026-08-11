@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
