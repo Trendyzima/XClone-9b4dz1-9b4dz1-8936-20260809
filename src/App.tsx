@@ -77,6 +77,7 @@ const AdminAdsDashboard = lazy(() => import('@/pages/AdminAdsDashboard'));
 const NotificationPreferencesPage = lazy(() => import('@/pages/NotificationPreferencesPage'));
 const WishlistPage = lazy(() => import('@/pages/WishlistPage'));
 const InterestOnboardingPage = lazy(() => import('@/pages/InterestOnboardingPage'));
+const AdAnalyticsPage = lazy(() => import('@/pages/AdAnalyticsPage'));
 
 function PageLoader() {
   return (
@@ -186,6 +187,7 @@ function AppInner() {
               <Route path="/notification-preferences" element={<NotificationPreferencesPage />} />
               <Route path="/wishlist" element={<WishlistPage />} />
               <Route path="/interests" element={<InterestOnboardingPage />} />
+              <Route path="/ad-analytics" element={<AdAnalyticsPage />} />
             </Routes>
           </Suspense>
         </main>

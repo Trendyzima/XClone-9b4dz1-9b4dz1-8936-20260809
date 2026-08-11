@@ -1,3 +1,4 @@
+
 import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile, DollarSign, Play, Coins, Flag, Check as CheckIcon } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types/app-types';
@@ -242,20 +243,32 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     if (!user) { navigate('/auth'); return; }
     if (!tipAmount || tipAmount <= 0) return;
     setTippingLoading(true);
-    try {
-      // Deduct from wallet
-      const { data: wallet } = await supabase.from('user_wallets').select('id,balance').eq('user_id', user.id).maybeSingle();
-      if (!wallet || Number(wallet.balance) < tipAmount) {
-        toast({ title: 'Insufficient balance', description: 'Top up your wallet to send tips', variant: 'destructive' }); return;
-      }
-      await supabase.from('user_wallets').update({ balance: Number(wallet.balance) - tipAmount }).eq('user_id', user.id);
-      await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: post.user_id, amount: tipAmount, message: tipMessage.trim() || null, post_id: post.id });
-      await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
-      await supabase.from('creator_earnings').insert({ user_id: post.user_id, source: 'tips', amount: tipAmount, post_id: post.id, status: 'paid' }).catch(() => {});
-      toast({ title: `Tip of $${tipAmount} sent!`, description: `You tipped @${post.user_profiles?.username}` });
-      setShowTipDialog(false);
-      setTipAmount(null);
-      setTipMessage('');
+    try { // Added try-catch block here
+      // Use the new platform-cut RPC — 85% to creator, 15% to platform
+        const { error: tipErr } = await supabase.rpc('send_tip_with_platform_cut', {
+          p_from_user_id: user.id,
+          p_to_user_id: post.user_id,
+          p_amount: tipAmount,
+          p_message: tipMessage.trim() || null,
+          p_post_id: post.id,
+        });
+        if (tipErr) {
+          // Fallback to old direct method if RPC not available
+          const { data: wallet } = await supabase.from('user_wallets').select('id,balance').eq('user_id', user.id).maybeSingle();
+          if (!wallet || Number(wallet.balance) < tipAmount) {
+            toast({ title: 'Insufficient balance', description: 'Top up your wallet to send tips', variant: 'destructive' }); return;
+          }
+          await supabase.from('user_wallets').update({ balance: Number(wallet.balance) - tipAmount }).eq('user_id', user.id);
+          await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: post.user_id, amount: tipAmount, message: tipMessage.trim() || null, post_id: post.id });
+          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
+          await supabase.from('creator_earnings').insert({ user_id: post.user_id, source: 'tips', amount: tipAmount, post_id: post.id, status: 'paid' }).catch(() => {});
+        } else {
+          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
+        }
+        toast({ title: `Tip of $${tipAmount} sent!`, description: `You tipped @${post.user_profiles?.username}` });
+        setShowTipDialog(false);
+        setTipAmount(null);
+        setTipMessage('');
     } catch (err: any) {
       toast({ title: 'Tip failed', description: err.message, variant: 'destructive' });
     } finally {

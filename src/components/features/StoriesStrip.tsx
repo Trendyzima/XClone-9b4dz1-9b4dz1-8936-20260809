@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
-import { Plus, X, Loader2, Send, MessageCircle } from 'lucide-react';
+import { Plus, X, Loader2, Send, MessageCircle, Music, Search as SearchIcon, Play, Pause } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Story {
@@ -84,6 +84,55 @@ export function StoriesStrip() {
   };
 
   // ── Story Stickers ─────────────────────────────────────────────────────────
+  // ── Story Music ────────────────────────────────────────────────────────────
+  const [showMusicPicker, setShowMusicPicker] = useState(false);
+  const [musicSearch, setMusicSearch] = useState('');
+  const [musicCatalogue, setMusicCatalogue] = useState<any[]>([]);
+  const [selectedMusic, setSelectedMusic] = useState<any | null>(null);
+  const [previewingMusic, setPreviewingMusic] = useState<any | null>(null);
+  const musicPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const [localMusicFile, setLocalMusicFile] = useState<File | null>(null);
+  const localMusicInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchMusicCatalogue = useCallback(async () => {
+    const { data } = await supabase.from('story_music').select('*').eq('is_active', true).order('genre');
+    setMusicCatalogue(data ?? []);
+  }, []);
+
+  useEffect(() => { fetchMusicCatalogue(); }, [fetchMusicCatalogue]);
+
+  const playPreview = (track: any) => {
+    if (musicPreviewRef.current) { musicPreviewRef.current.pause(); musicPreviewRef.current.currentTime = 0; }
+    if (previewingMusic?.id === track.id) { setPreviewingMusic(null); return; }
+    const audio = new Audio(track.preview_url);
+    musicPreviewRef.current = audio;
+    audio.play().catch(() => {});
+    audio.addEventListener('ended', () => setPreviewingMusic(null));
+    setPreviewingMusic(track);
+  };
+
+  const selectMusic = (track: any) => {
+    if (musicPreviewRef.current) { musicPreviewRef.current.pause(); musicPreviewRef.current.currentTime = 0; }
+    setPreviewingMusic(null);
+    setSelectedMusic(track);
+    setLocalMusicFile(null);
+    setShowMusicPicker(false);
+  };
+
+  const handleLocalMusicFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const localTrack = { id: 'local', title: file.name.replace(/\.[^.]+$/, ''), artist: 'Local file', preview_url: URL.createObjectURL(file), cover_url: null, genre: 'Custom' };
+    setLocalMusicFile(file);
+    setSelectedMusic(localTrack);
+    setShowMusicPicker(false);
+    e.target.value = '';
+  };
+
+  const filteredMusic = musicSearch.trim()
+    ? musicCatalogue.filter(t => t.title.toLowerCase().includes(musicSearch.toLowerCase()) || t.artist.toLowerCase().includes(musicSearch.toLowerCase()) || t.genre?.toLowerCase().includes(musicSearch.toLowerCase()))
+    : musicCatalogue;
+
   const [stickers, setStickers] = useState<{ emoji: string; x: number; y: number; id: string }[]>([]);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [draggingSticker, setDraggingSticker] = useState<string | null>(null);
@@ -318,7 +367,7 @@ export function StoriesStrip() {
     const { error: upErr } = await supabase.storage.from('posts').upload(path, pendingFile);
     if (upErr) { toast.error('Upload failed'); setUploading(false); return; }
     const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(path);
-    const stickerMeta = { ...(stickers.length > 0 ? { stickers } : {}), ...(textOverlays.length > 0 ? { textOverlays } : {}) };
+    const stickerMeta = { ...(stickers.length > 0 ? { stickers } : {}), ...(textOverlays.length > 0 ? { textOverlays } : {}), ...(selectedMusic ? { music: { id: selectedMusic.id, title: selectedMusic.title, artist: selectedMusic.artist, cover_url: selectedMusic.cover_url } } : {}) };
     const { error: insErr } = await supabase.from('stories').insert({
       user_id: user.id,
       media_url: publicUrl,
@@ -336,6 +385,10 @@ export function StoriesStrip() {
     setTextOverlays([]);
     setShowStickerPicker(false);
     setShowTextInput(false);
+    setSelectedMusic(null);
+    setLocalMusicFile(null);
+    setShowMusicPicker(false);
+    if (musicPreviewRef.current) { musicPreviewRef.current.pause(); musicPreviewRef.current.currentTime = 0; }
     setUploading(false);
   };
 
@@ -593,6 +646,70 @@ export function StoriesStrip() {
             )}
 
             {/* Sticker toggle */}
+            {/* Music picker toggle */}
+            {showMusicPicker && (
+              <div className="w-full max-w-sm bg-black/80 backdrop-blur-md rounded-2xl border border-white/20 overflow-hidden flex-shrink-0">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+                  <SearchIcon className="w-4 h-4 text-white/50 shrink-0" />
+                  <input
+                    value={musicSearch} onChange={e => setMusicSearch(e.target.value)}
+                    placeholder="Search songs, artists…"
+                    className="flex-1 bg-transparent text-white placeholder:text-white/40 text-sm focus:outline-none"
+                  />
+                  <button onClick={() => { if (musicPreviewRef.current) { musicPreviewRef.current.pause(); musicPreviewRef.current.currentTime = 0; } setPreviewingMusic(null); setShowMusicPicker(false); }} className="text-white/40 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="max-h-52 overflow-y-auto">
+                  {/* Local file option */}
+                  <button onClick={() => localMusicInputRef.current?.click()}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/10 transition-colors border-b border-white/10 text-left">
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0">
+                      <Music className="w-4 h-4 text-purple-400" />
+                    </div>
+                    <div>
+                      <p className="text-white text-sm font-semibold">Upload from device</p>
+                      <p className="text-white/40 text-xs">MP3, AAC, WAV</p>
+                    </div>
+                  </button>
+                  {filteredMusic.map(track => (
+                    <div key={track.id} className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 transition-colors">
+                      <div className="w-8 h-8 rounded-lg bg-muted overflow-hidden shrink-0">
+                        {track.cover_url
+                          ? <img src={track.cover_url} alt="" className="w-full h-full object-cover" />
+                          : <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center"><Music className="w-4 h-4 text-white" /></div>
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-semibold truncate">{track.title}</p>
+                        <p className="text-white/50 text-xs">{track.artist} · {track.genre}</p>
+                      </div>
+                      <button onClick={() => playPreview(track)}
+                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center shrink-0 text-white transition-colors">
+                        {previewingMusic?.id === track.id ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
+                      </button>
+                      <button onClick={() => selectMusic(track)}
+                        className={`text-[10px] font-bold px-2 py-1 rounded-full shrink-0 transition-colors ${
+                          selectedMusic?.id === track.id ? 'bg-primary text-white' : 'bg-white/10 text-white hover:bg-primary/70'
+                        }`}>{selectedMusic?.id === track.id ? 'Added' : 'Add'}</button>
+                    </div>
+                  ))}
+                  {filteredMusic.length === 0 && musicSearch && (
+                    <p className="text-white/40 text-sm text-center py-6">No results for "{musicSearch}"</p>
+                  )}
+                </div>
+                <input ref={localMusicInputRef} type="file" accept="audio/*" className="hidden" onChange={handleLocalMusicFile} />
+              </div>
+            )}
+
+            {selectedMusic && (
+              <div className="flex items-center gap-2 bg-black/60 border border-white/20 rounded-full px-3 py-1.5">
+                <Music className="w-3.5 h-3.5 text-primary shrink-0" />
+                <p className="text-white text-xs font-semibold truncate max-w-[140px]">{selectedMusic.title}</p>
+                <button onClick={() => { setSelectedMusic(null); setLocalMusicFile(null); }} className="text-white/50 hover:text-white"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { setShowTextInput(v => !v); setShowStickerPicker(false); }}
@@ -611,6 +728,15 @@ export function StoriesStrip() {
               >
                 <span>🎉</span>
                 Stickers {stickers.length > 0 ? `(${stickers.length})` : ''}
+              </button>
+              <button
+                onClick={() => { setShowMusicPicker(v => !v); setShowTextInput(false); setShowStickerPicker(false); }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                  showMusicPicker ? 'bg-primary border-primary text-white' : selectedMusic ? 'bg-primary/30 border-primary/50 text-white' : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                }`}
+              >
+                <Music className="w-3.5 h-3.5" />
+                Music {selectedMusic ? '✓' : ''}
               </button>
               {(stickers.length > 0 || textOverlays.length > 0) && (
                 <button onClick={() => { setStickers([]); setTextOverlays([]); }} className="text-white/50 text-xs hover:text-white/80 transition-colors">
@@ -853,6 +979,18 @@ export function StoriesStrip() {
                     </div>
                   ))}
                 </>
+              );
+            })()}
+
+            {/* Story music badge in viewer */}
+            {(() => {
+              const meta = (story as any).metadata;
+              if (!meta?.music) return null;
+              return (
+                <div className="absolute top-16 right-3 z-25 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm border border-white/20 rounded-full px-2.5 py-1.5">
+                  <Music className="w-3 h-3 text-primary animate-pulse" />
+                  <p className="text-white text-[10px] font-semibold max-w-[120px] truncate">{meta.music.title} — {meta.music.artist}</p>
+                </div>
               );
             })()}
 

@@ -173,7 +173,8 @@ export function Sidebar() {
     { icon: Gift,       label: 'Refer & Earn', path: '/referral', requireAuth: true },
     { icon: Wallet,     label: 'Wallet',    path: '/wallet',    requireAuth: true },
     { icon: DollarSign, label: 'Payouts',   path: '/payouts',   requireAuth: true },
-    { icon: Megaphone,  label: 'My Ads',    path: '/my-ads',    requireAuth: true },
+    { icon: Megaphone,  label: 'My Ads',    path: '/my-ads',       requireAuth: true },
+    { icon: BarChart3,  label: 'Ad Analytics', path: '/ad-analytics', requireAuth: true },
   ];
 
   const handleNavClick = (path: string, requireAuth?: boolean) => {
