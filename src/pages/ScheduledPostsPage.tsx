@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -12,6 +12,29 @@ import {
 import { toast } from 'sonner';
 import { formatDistanceToNow, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns';
 import { TopBar } from '@/components/layout/TopBar';
+
+// ── AdSense banner — push-guarded ─────────────────────────────────────────────
+function ScheduledAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 // ── Countdown helper ─────────────────────────────────────────────────────────
 function getCountdown(scheduledFor: string): { label: string; urgent: boolean } {
@@ -121,6 +144,7 @@ export function ScheduledPostsPage() {
     return (
       <div className="min-h-screen bg-background pb-16 md:pb-0">
         <TopBar title="Scheduled Posts" showBack />
+      <ScheduledAdBanner />
         <div className="flex items-center justify-center py-24">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
@@ -131,6 +155,7 @@ export function ScheduledPostsPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Scheduled Posts" showBack />
+      <ScheduledAdBanner />
 
       {/* ── Mini Calendar Preview ── */}
       <div className="px-4 pt-4 pb-3 bg-gradient-to-br from-blue-500/8 to-indigo-500/5 border-b border-border">
