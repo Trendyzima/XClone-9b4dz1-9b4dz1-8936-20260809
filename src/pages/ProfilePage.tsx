@@ -913,6 +913,23 @@ export default function ProfilePage() {
               {profile.verified && (
                 <BadgeCheck className="w-5 h-5 text-primary" fill="currentColor" />
               )}
+              {/* Creator badge tier */}
+              {(() => {
+                const tier = profile.creator_tier;
+                if (!tier || tier === 'free') return null;
+                const cfg = {
+                  gold:   { label: 'Gold',   bg: 'from-yellow-500/20 to-amber-400/10',   border: 'border-yellow-400/40', text: 'text-yellow-600 dark:text-yellow-400',   icon: '🥇' },
+                  silver: { label: 'Silver', bg: 'from-slate-400/20 to-gray-300/10',    border: 'border-slate-400/40', text: 'text-slate-600 dark:text-slate-300',   icon: '🥈' },
+                  bronze: { label: 'Bronze', bg: 'from-amber-600/20 to-orange-400/10',  border: 'border-amber-500/40', text: 'text-amber-700 dark:text-amber-400',   icon: '🥉' },
+                }[tier];
+                if (!cfg) return null;
+                return (
+                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r ${cfg.bg} border ${cfg.border} text-xs font-bold ${cfg.text}`}>
+                    <span>{cfg.icon}</span>
+                    {cfg.label} Creator
+                  </span>
+                );
+              })()}
             </div>
             <p className="text-muted-foreground">@{profile.username}</p>
           </div>

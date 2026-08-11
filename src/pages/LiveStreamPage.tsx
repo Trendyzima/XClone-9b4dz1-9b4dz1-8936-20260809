@@ -7,8 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Eye, Heart, MessageCircle, Share2, Loader2, Send,
-  Users, BadgeCheck, Radio, Volume2, VolumeX
+  Users, BadgeCheck, Radio, Volume2, VolumeX, BarChart3, TrendingUp, Crown
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer
+} from 'recharts';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
 import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
@@ -52,6 +55,12 @@ export default function LiveStreamPage() {
   const [showReactionBar, setShowReactionBar] = useState(false);
   const reactionBarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const floatIdRef = useRef(0);
+  // Chat analytics
+  const [showChatAnalytics, setShowChatAnalytics] = useState(false);
+  const [chatAnalytics, setChatAnalytics] = useState<any>(null);
+  const [loadingChatAnalytics, setLoadingChatAnalytics] = useState(false);
+  // Message frequency chart (messages per minute rolling window)
+  const [msgFreqChart, setMsgFreqChart] = useState<{min: string; count: number}[]>([]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -74,6 +83,7 @@ export default function LiveStreamPage() {
     pollRef.current = setInterval(() => {
       fetchMessages();
       fetchViewerCount();
+      buildMsgFreqChart();
     }, 3000);
 
     return () => {
@@ -127,6 +137,32 @@ export default function LiveStreamPage() {
     try {
       await supabase.from('stream_viewers').delete().match({ stream_id: streamId, user_id: user.id });
     } catch {}
+  };
+
+  const buildMsgFreqChart = async () => {
+    if (!streamId) return;
+    const { data } = await supabase
+      .from('stream_chat')
+      .select('created_at')
+      .eq('stream_id', streamId)
+      .not('message', 'like', '[REACT:%]')
+      .order('created_at', { ascending: true });
+    if (!data || data.length === 0) return;
+    const byMin: Record<string, number> = {};
+    data.forEach((m: any) => {
+      const key = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      byMin[key] = (byMin[key] || 0) + 1;
+    });
+    setMsgFreqChart(Object.entries(byMin).slice(-15).map(([min, count]) => ({ min, count })));
+  };
+
+  const fetchChatAnalytics = async () => {
+    if (!streamId) return;
+    setLoadingChatAnalytics(true);
+    const { data } = await supabase.rpc('get_stream_chat_analytics', { p_stream_id: streamId });
+    if (data && data.length > 0) setChatAnalytics(data[0]);
+    await buildMsgFreqChart();
+    setLoadingChatAnalytics(false);
   };
 
   const fetchMessages = async () => {
@@ -376,6 +412,13 @@ export default function LiveStreamPage() {
                 <h3 className="font-bold text-sm">Live Chat</h3>
                 <span className="text-xs text-muted-foreground">({messages.length})</span>
               </div>
+              <button
+                onClick={() => { setShowChatAnalytics(v => !v); if (!chatAnalytics) fetchChatAnalytics(); }}
+                className={`ml-auto mr-2 p-1.5 rounded-lg transition-colors ${showChatAnalytics ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                title="Chat Analytics"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </button>
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-semibold text-green-600 dark:text-green-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -384,6 +427,69 @@ export default function LiveStreamPage() {
                 <button onClick={() => setShowChat(false)} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
               </div>
             </div>
+
+            {/* Chat Analytics Panel */}
+            {showChatAnalytics && (
+              <div className="border-b border-border bg-muted/20 p-3 space-y-3 flex-shrink-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <BarChart3 className="w-4 h-4 text-primary" />
+                  <span className="text-xs font-bold">Chat Analytics</span>
+                  {loadingChatAnalytics && <span className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin ml-auto" />}
+                </div>
+                {chatAnalytics && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Messages', value: chatAnalytics.total_messages ?? 0, icon: MessageCircle },
+                      { label: 'Chatters', value: chatAnalytics.unique_chatters ?? 0, icon: Users },
+                      { label: 'Msg/min', value: Number(chatAnalytics.messages_per_minute ?? 0).toFixed(1), icon: TrendingUp },
+                    ].map((s, i) => (
+                      <div key={i} className="bg-background rounded-lg p-2 text-center">
+                        <s.icon className="w-3.5 h-3.5 text-primary mx-auto mb-0.5" />
+                        <p className="font-bold text-sm">{s.value}</p>
+                        <p className="text-[9px] text-muted-foreground">{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Message frequency chart */}
+                {msgFreqChart.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-muted-foreground mb-1 font-semibold">Messages per minute</p>
+                    <ResponsiveContainer width="100%" height={70}>
+                      <BarChart data={msgFreqChart} margin={{ top: 2, right: 2, left: -28, bottom: 0 }}>
+                        <XAxis dataKey="min" tick={{ fontSize: 8 }} interval="preserveStartEnd" />
+                        <YAxis tick={{ fontSize: 8 }} />
+                        <Tooltip contentStyle={{ fontSize: 10, borderRadius: 8 }} />
+                        <Bar dataKey="count" fill="hsl(var(--primary))" radius={[2,2,0,0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                {/* Top chatters */}
+                {chatAnalytics?.top_chatters && Array.isArray(chatAnalytics.top_chatters) && chatAnalytics.top_chatters.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-muted-foreground mb-1.5 font-semibold">Top chatters</p>
+                    <div className="space-y-1">
+                      {chatAnalytics.top_chatters.slice(0, 3).map((chatter: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-full bg-muted overflow-hidden shrink-0">
+                            {chatter.avatar_url
+                              ? <img src={chatter.avatar_url} alt="" className="w-full h-full object-cover" />
+                              : <div className="w-full h-full flex items-center justify-center text-[8px] font-bold">{chatter.username?.[0]?.toUpperCase()}</div>}
+                          </div>
+                          <span className="text-xs font-medium flex-1 truncate">{chatter.username}</span>
+                          <span className="text-[10px] font-bold text-primary">{chatter.count} msg</span>
+                          {i === 0 && <Crown className="w-3 h-3 text-yellow-500" />}
+                        </div>
+                      ))}
+                    </div>
+                    {chatAnalytics.peak_minute && (
+                      <p className="text-[9px] text-muted-foreground mt-1.5">Peak activity at {chatAnalytics.peak_minute}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div ref={chatRef} className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-hide">
               {messages.length === 0 ? (
