@@ -12,15 +12,201 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import {
   Smartphone, Loader2, CheckCircle2, Clock, AlertCircle,
   Phone, Zap, ArrowDownLeft, X, ArrowUpRight, Wallet, Download,
-  Send, Search, UserCheck, Copy, CreditCard, PlusCircle
+  Send, Search, UserCheck, Copy, TrendingUp, BarChart3, PieChart as PieChartIcon
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import {
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer, Legend
+} from 'recharts';
 
 const USD_TO_KES = 130;
 
 type TopUpStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
-type ActiveTab = 'wallet' | 'history' | 'send';
+type ActiveTab = 'wallet' | 'history' | 'send' | 'analytics';
+
+// ── Spending Analytics Tab ────────────────────────────────────────────────
+function SpendingAnalyticsTab({ userId }: { userId: string }) {
+  const [txns, setTxns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState<'week' | 'month' | 'all'>('month');
+
+  useEffect(() => { fetchTxns(); }, [userId, period]);
+
+  const fetchTxns = async () => {
+    setLoading(true);
+    let q = supabase
+      .from('wallet_transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    if (period === 'week') {
+      const since = new Date(Date.now() - 7 * 86400000).toISOString();
+      q = q.gte('created_at', since);
+    } else if (period === 'month') {
+      const since = new Date(Date.now() - 30 * 86400000).toISOString();
+      q = q.gte('created_at', since);
+    }
+    const { data } = await q;
+    setTxns(data ?? []);
+    setLoading(false);
+  };
+
+  // Build daily bar chart — last 14 days
+  const dailyMap: Record<string, { in: number; out: number }> = {};
+  const days = period === 'week' ? 7 : 14;
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000);
+    const key = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+    dailyMap[key] = { in: 0, out: 0 };
+  }
+  txns.forEach(t => {
+    const key = new Date(t.created_at).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+    if (!dailyMap[key]) return;
+    if (t.type === 'deposit' || t.type === 'earnings') dailyMap[key].in += Number(t.amount);
+    else dailyMap[key].out += Number(t.amount);
+  });
+  const barData = Object.entries(dailyMap).map(([date, v]) => ({ date, In: parseFloat(v.in.toFixed(2)), Out: parseFloat(v.out.toFixed(2)) }));
+
+  // Pie chart — breakdown by type
+  const typeMap: Record<string, number> = {};
+  txns.forEach(t => {
+    const label = t.type.replace(/_/g, ' ');
+    typeMap[label] = (typeMap[label] || 0) + Number(t.amount);
+  });
+  const pieData = Object.entries(typeMap).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }));
+  const PIE_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+  // Summary stats
+  const totalIn = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s, t) => s + Number(t.amount), 0);
+  const totalOut = txns.filter(t => t.type === 'withdrawal').reduce((s, t) => s + Number(t.amount), 0);
+  const totalBoosts = txns.filter(t => (t.description ?? '').toLowerCase().includes('boost')).reduce((s, t) => s + Number(t.amount), 0);
+  const avgTxn = txns.length > 0 ? (txns.reduce((s, t) => s + Number(t.amount), 0) / txns.length) : 0;
+
+  // Top-up history badge — last 3 deposits
+  const recentDeposits = txns.filter(t => t.type === 'deposit').slice(0, 3);
+
+  return (
+    <div className="space-y-5">
+      {/* Period selector */}
+      <div className="flex gap-1 bg-muted rounded-xl p-1">
+        {(['week', 'month', 'all'] as const).map(p => (
+          <button key={p} onClick={() => setPeriod(p)}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+              period === p ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}>{p === 'all' ? 'All time' : `Last ${p}`}</button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : (
+        <>
+          {/* KPI row */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Total Deposited', value: `$${totalIn.toFixed(2)}`, sub: `KES ${Math.round(totalIn * USD_TO_KES).toLocaleString()}`, color: 'text-green-600', bg: 'bg-green-500/10 border-green-500/20' },
+              { label: 'Total Withdrawn', value: `$${totalOut.toFixed(2)}`, sub: `KES ${Math.round(totalOut * USD_TO_KES).toLocaleString()}`, color: 'text-red-500', bg: 'bg-red-500/10 border-red-500/20' },
+              { label: 'Avg Transaction', value: `$${avgTxn.toFixed(2)}`, sub: `over ${txns.length} transactions`, color: 'text-blue-600', bg: 'bg-blue-500/10 border-blue-500/20' },
+              { label: 'Boost Spending', value: `$${totalBoosts.toFixed(2)}`, sub: 'on ad campaigns', color: 'text-purple-600', bg: 'bg-purple-500/10 border-purple-500/20' },
+            ].map(s => (
+              <div key={s.label} className={`p-4 rounded-2xl border ${s.bg}`}>
+                <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
+                <p className={`text-xl font-black ${s.color}`}>{s.value}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{s.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Daily flow bar chart */}
+          {barData.length > 0 && (
+            <div className="border border-border rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="w-4 h-4 text-primary" />
+                <h3 className="font-bold text-sm">Daily Cash Flow</h3>
+              </div>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={barData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} />
+                  <Tooltip
+                    contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }}
+                    formatter={(v: any) => [`$${v}`, '']}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="In" name="Deposits" fill="#10b981" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Out" name="Withdrawals" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Transaction type pie */}
+          {pieData.length > 0 && (
+            <div className="border border-border rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <PieChartIcon className="w-4 h-4 text-primary" />
+                <h3 className="font-bold text-sm">Transaction Breakdown</h3>
+              </div>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
+                    {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }}
+                    formatter={(v: any) => [`$${v}`, '']}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11 }} formatter={v => v.charAt(0).toUpperCase() + v.slice(1)} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Recent top-up history badges */}
+          {recentDeposits.length > 0 && (
+            <div className="border border-border rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="w-4 h-4 text-green-500" />
+                <h3 className="font-bold text-sm">Recent Top-ups</h3>
+              </div>
+              <div className="space-y-2">
+                {recentDeposits.map(d => (
+                  <div key={d.id} className="flex items-center gap-3 p-3 bg-green-500/5 border border-green-500/15 rounded-xl">
+                    <div className="w-9 h-9 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
+                      <ArrowDownLeft className="w-4 h-4 text-green-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-green-700 dark:text-green-400">+${Number(d.amount).toFixed(2)}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {d.payment_method ? d.payment_method.toUpperCase() : 'M-Pesa'} · {new Date(d.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                      d.status === 'completed' ? 'bg-green-500/10 text-green-600' : 'bg-orange-500/10 text-orange-600'
+                    }`}>{d.status}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {txns.length === 0 && (
+            <div className="text-center py-12">
+              <BarChart3 className="w-12 h-12 text-muted-foreground/20 mx-auto mb-3" />
+              <p className="font-semibold text-sm">No transactions yet</p>
+              <p className="text-xs text-muted-foreground mt-1">Make your first deposit to see analytics</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 // ── P2P Send Money Tab ────────────────────────────────────────────────────
 function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
@@ -83,7 +269,6 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
     onComplete();
   };
 
-  // ── Receipt screen ────────────────────────────────────────────────────────
   if (receipt) {
     return (
       <div className="space-y-5">
@@ -95,17 +280,6 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
             <p className="text-lg font-black text-green-600">Transfer Complete!</p>
             <p className="text-3xl font-black mt-1">${receipt.amount.toFixed(2)}</p>
             <p className="text-sm text-muted-foreground mt-0.5">sent to @{receipt.recipient.username}</p>
-          </div>
-          <div className="flex items-center gap-3 bg-muted/40 rounded-2xl px-4 py-3 w-full">
-            <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
-              {receipt.recipient.avatar_url
-                ? <img src={receipt.recipient.avatar_url} alt={receipt.recipient.username} className="w-full h-full object-cover" />
-                : <div className="w-full h-full flex items-center justify-center font-bold">{receipt.recipient.username[0]?.toUpperCase()}</div>}
-            </div>
-            <div className="flex-1 text-left">
-              <p className="font-bold text-sm">@{receipt.recipient.username}</p>
-              {receipt.note && <p className="text-xs text-muted-foreground truncate">Note: {receipt.note}</p>}
-            </div>
           </div>
           <div className="w-full space-y-2 text-sm">
             <div className="flex justify-between border-b border-border pb-2">
@@ -124,17 +298,15 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
           <div className="flex gap-3 w-full">
             <button
               onClick={() => {
-                const text = `Transfer Receipt\nRef: ${receipt.ref}\nAmount: $${receipt.amount.toFixed(2)}\nTo: @${receipt.recipient.username}\nNote: ${receipt.note || 'N/A'}\nTime: ${new Date(receipt.timestamp).toLocaleString()}`;
+                const text = `Transfer Receipt\nRef: ${receipt.ref}\nAmount: $${receipt.amount.toFixed(2)}\nTo: @${receipt.recipient.username}\nTime: ${new Date(receipt.timestamp).toLocaleString()}`;
                 navigator.clipboard.writeText(text).then(() => toast.success('Receipt copied!'));
               }}
               className="flex-1 flex items-center justify-center gap-2 py-3 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors"
             >
               <Copy className="w-4 h-4" /> Copy Receipt
             </button>
-            <button
-              onClick={() => setReceipt(null)}
-              className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity"
-            >
+            <button onClick={() => setReceipt(null)}
+              className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity">
               Done
             </button>
           </div>
@@ -145,10 +317,10 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
 
   return (
     <div className="space-y-5">
-      {/* Balance reminder */}
       <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20">
         <p className="text-sm font-semibold text-muted-foreground">Available to send</p>
         <p className="text-3xl font-black text-primary">${walletBalance.toFixed(2)}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">≈ KES {Math.floor(walletBalance * USD_TO_KES).toLocaleString()}</p>
       </div>
 
       {!selectedUser ? (
@@ -156,12 +328,9 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
           <label className="text-sm font-semibold">Send to user</label>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={e => searchUsers(e.target.value)}
+            <input value={query} onChange={e => searchUsers(e.target.value)}
               placeholder="Search by username…"
-              className="w-full pl-9 pr-4 py-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
+              className="w-full pl-9 pr-4 py-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
             {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
           </div>
           {users.length > 0 && (
@@ -205,7 +374,6 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
               <X className="w-4 h-4" />
             </button>
           </div>
-
           <div>
             <label className="text-sm font-semibold mb-2 block">Amount (USD)</label>
             <div className="grid grid-cols-4 gap-2 mb-2">
@@ -216,31 +384,18 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
                 </button>
               ))}
             </div>
-            <input
-              type="number" min="0.01" step="0.01"
-              placeholder="Custom amount…"
+            <input type="number" min="0.01" step="0.01" placeholder="Custom amount…"
               value={amount && ![1,5,10,25].map(String).includes(amount) ? amount : ''}
               onChange={e => setAmount(e.target.value)}
-              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
-
           <div>
             <label className="text-sm font-semibold mb-2 block">Note (optional)</label>
-            <input
-              type="text" maxLength={100}
-              placeholder="What's this for?"
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
+            <input type="text" maxLength={100} placeholder="What's this for?" value={note} onChange={e => setNote(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
-
-          <button
-            onClick={handleSend}
-            disabled={sending || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > walletBalance}
-            className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-          >
+          <button onClick={handleSend} disabled={sending || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > walletBalance}
+            className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
             {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             {sending ? 'Sending…' : `Send $${parseFloat(amount || '0').toFixed(2)} to @${selectedUser.username}`}
           </button>
@@ -249,16 +404,15 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
           )}
         </div>
       )}
-
       <div className="bg-muted/30 rounded-2xl p-4 text-xs text-muted-foreground">
-        <p><strong>Instant transfers</strong> — funds arrive immediately worldwide. Platform may take a small fee on some transfer types. Transfers cannot be reversed.</p>
+        <p><strong>Instant transfers</strong> — funds arrive immediately. Transfers cannot be reversed.</p>
       </div>
     </div>
   );
 }
 
 // ── Transaction History Tab ───────────────────────────────────────────────
-function TransactionHistoryTab({ userId }: { userId: string }) { // Moved TransactionHistoryTab into a function component
+function TransactionHistoryTab({ userId }: { userId: string }) {
   const [txns, setTxns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
@@ -288,7 +442,7 @@ function TransactionHistoryTab({ userId }: { userId: string }) { // Moved Transa
     URL.revokeObjectURL(url);
   };
 
-  const totalIn = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s, t) => s + Number(t.amount), 0);
+  const totalIn  = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s, t) => s + Number(t.amount), 0);
   const totalOut = txns.filter(t => t.type === 'withdrawal').reduce((s, t) => s + Number(t.amount), 0);
 
   return (
@@ -297,10 +451,12 @@ function TransactionHistoryTab({ userId }: { userId: string }) { // Moved Transa
         <div className="p-4 rounded-2xl bg-green-500/10 border border-green-500/20">
           <p className="text-xs text-muted-foreground mb-1">Total Received</p>
           <p className="text-xl font-black text-green-600">${totalIn.toFixed(2)}</p>
+          <p className="text-[10px] text-muted-foreground">≈ KES {Math.round(totalIn * USD_TO_KES).toLocaleString()}</p>
         </div>
         <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
-          <p className="text-xs text-muted-foreground mb-1">Total Sent</p>
+          <p className="text-xs text-muted-foreground mb-1">Total Withdrawn</p>
           <p className="text-xl font-black text-red-500">${totalOut.toFixed(2)}</p>
+          <p className="text-[10px] text-muted-foreground">≈ KES {Math.round(totalOut * USD_TO_KES).toLocaleString()}</p>
         </div>
       </div>
 
@@ -313,7 +469,7 @@ function TransactionHistoryTab({ userId }: { userId: string }) { // Moved Transa
               }`}>{f}</button>
           ))}
         </div>
-        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground">
+        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground" title="Download CSV">
           <Download className="w-4 h-4" />
         </button>
       </div>
@@ -350,122 +506,13 @@ function TransactionHistoryTab({ userId }: { userId: string }) { // Moved Transa
                   </p>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
                     tx.status === 'completed' ? 'bg-green-500/10 text-green-600' :
-                    tx.status === 'pending' ? 'bg-orange-500/10 text-orange-600' :
+                    tx.status === 'pending'   ? 'bg-orange-500/10 text-orange-600' :
                     'bg-red-500/10 text-red-500'
                   }`}>{tx.status}</span>
                 </div>
               </div>
             );
           })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Direct Card Top-Up (no external payment) ─────────────────────────────
-function DirectTopUpCard({ userId, onComplete }: { userId: string; onComplete: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-
-  const PRESETS = [5, 10, 25, 50];
-
-  const handleAdd = async () => {
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
-    if (amt > 500) { toast.error('Maximum single top-up is $500'); return; }
-    setLoading(true);
-    const { error } = await supabase.rpc('add_to_wallet', { p_user_id: userId, p_amount: amt });
-    setLoading(false);
-    if (error) { toast.error(error.message || 'Top-up failed'); return; }
-    const { data: w } = await supabase.from('user_wallets').select('id').eq('user_id', userId).single();
-    await supabase.from('wallet_transactions').insert({
-      wallet_id: w?.id ?? null,
-      user_id: userId,
-      type: 'deposit',
-      amount: amt,
-      payment_method: 'card',
-      status: 'completed',
-      description: `Card top-up — $${amt.toFixed(2)}`,
-    });
-    toast.success(`$${amt.toFixed(2)} added to your wallet!`);
-    onComplete();
-    setDone(true);
-    setAmount('');
-    setTimeout(() => { setDone(false); setOpen(false); }, 2500);
-  };
-
-  return (
-    <div className="bg-gradient-to-br from-blue-600/10 via-indigo-500/5 to-transparent border border-blue-600/20 rounded-2xl overflow-hidden">
-      <button
-        onClick={() => { setOpen(v => !v); setDone(false); }}
-        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-blue-500/5 transition-colors"
-      >
-        <div className="w-10 h-10 rounded-full bg-blue-600/15 flex items-center justify-center shrink-0">
-          <CreditCard className="w-5 h-5 text-blue-600" />
-        </div>
-        <div className="flex-1 text-left">
-          <p className="font-bold text-base">Add Funds via Card</p>
-          <p className="text-xs text-muted-foreground">Instant deposit — credited immediately to your wallet</p>
-        </div>
-        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-transform ${
-          open ? 'border-blue-600 rotate-45' : 'border-muted-foreground/40'
-        }`}>
-          <span className="text-lg leading-none text-muted-foreground">+</span>
-        </div>
-      </button>
-
-      {open && (
-        <div className="px-5 pb-5 border-t border-blue-600/15 pt-4 space-y-4">
-          {done ? (
-            <div className="flex flex-col items-center gap-3 py-4">
-              <div className="w-14 h-14 rounded-full bg-green-500/15 flex items-center justify-center">
-                <CheckCircle2 className="w-8 h-8 text-green-500" />
-              </div>
-              <p className="font-bold text-green-600">Funds Added!</p>
-              <p className="text-sm text-muted-foreground">Your wallet balance has been updated.</p>
-            </div>
-          ) : (
-            <>
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Select Amount</p>
-                <div className="grid grid-cols-4 gap-2 mb-2">
-                  {PRESETS.map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setAmount(String(p))}
-                      className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${
-                        amount === String(p)
-                          ? 'border-blue-600 bg-blue-600/10 text-blue-700 dark:text-blue-400'
-                          : 'border-border hover:border-blue-600/40 hover:bg-blue-600/5'
-                      }`}
-                    >${p}</button>
-                  ))}
-                </div>
-                <input
-                  type="number" min="1" max="500" step="0.01"
-                  placeholder="Custom amount (max $500)…"
-                  value={amount && !PRESETS.map(String).includes(amount) ? amount : ''}
-                  onChange={e => setAmount(e.target.value)}
-                  className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                />
-              </div>
-              <button
-                onClick={handleAdd}
-                disabled={loading || !amount || parseFloat(amount) <= 0}
-                className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-500 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-              >
-                {loading
-                  ? <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
-                  : <><PlusCircle className="w-5 h-5" /> Add ${parseFloat(amount || '0').toFixed(2)} to Wallet</>}
-              </button>
-              <p className="text-[10px] text-muted-foreground text-center">
-                Funds are credited instantly. Secure &amp; encrypted.
-              </p>
-            </>
-          )}
         </div>
       )}
     </div>
@@ -480,8 +527,9 @@ export default function WalletPage() {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'send') return 'send';
-    if (tab === 'history') return 'history';
+    if (tab === 'send')      return 'send';
+    if (tab === 'history')   return 'history';
+    if (tab === 'analytics') return 'analytics';
     return 'wallet';
   });
   const prefillTo = searchParams.get('to') ?? '';
@@ -500,7 +548,10 @@ export default function WalletPage() {
   const [wPollSecs, setWPollSecs]       = useState(0);
   const [wPollMsg, setWPollMsg]         = useState('');
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const wPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wPollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Top-up history badge — last deposit amount
+  const [lastTopUpAmount, setLastTopUpAmount] = useState<number | null>(null);
 
   useEffect(() => {
     if (wallet?.mpesa_phone) {
@@ -510,12 +561,29 @@ export default function WalletPage() {
   }, [wallet]);
 
   useEffect(() => {
-    return () => { // Cleanup function for effect
+    if (user) fetchLastTopUp();
+  }, [user]);
+
+  useEffect(() => {
+    return () => {
       if (pollRef.current)  clearInterval(pollRef.current);
       if (wPollRef.current) clearInterval(wPollRef.current);
       stopBalancePoll();
     };
   }, []);
+
+  const fetchLastTopUp = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('wallet_transactions')
+      .select('amount')
+      .eq('user_id', user.id)
+      .eq('type', 'deposit')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) setLastTopUpAmount(Number(data.amount));
+  };
 
   const balancePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startBalancePoll = () => {
@@ -552,8 +620,20 @@ export default function WalletPage() {
           clearInterval(pollRef.current!);
           stopBalancePoll();
           const { error: rpcErr } = await supabase.rpc('add_to_wallet', { p_user_id: user!.id, p_amount: depositAmountUsd });
-          if (rpcErr) console.warn('[wallet] add_to_wallet RPC error:', rpcErr.message);
+          if (rpcErr) console.warn('[wallet] add_to_wallet error:', rpcErr.message);
+          // Record transaction
+          const { data: w } = await supabase.from('user_wallets').select('id').eq('user_id', user!.id).single();
+          await supabase.from('wallet_transactions').insert({
+            wallet_id: w?.id ?? null,
+            user_id: user!.id,
+            type: 'deposit',
+            amount: depositAmountUsd,
+            payment_method: 'mpesa',
+            status: 'completed',
+            description: `M-Pesa top-up — KES ${Math.ceil(depositAmountUsd * USD_TO_KES).toLocaleString()}`,
+          });
           await fetchWallet();
+          setLastTopUpAmount(depositAmountUsd);
           setStep('success');
           setPollMsg(`KES ${Math.ceil(depositAmountUsd * USD_TO_KES).toLocaleString()} received! Your wallet has been topped up.`);
           toast.success(`Wallet topped up! +$${depositAmountUsd.toFixed(2)}`);
@@ -636,7 +716,7 @@ export default function WalletPage() {
       toast.success('Payout initiated — check your phone!');
       const conversationId = payload.conversation_id;
       const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: usdAmt });
-      if (deductErr) console.warn('[wallet] deduct_from_wallet error:', deductErr.message);
+      if (deductErr) console.warn('[wallet] deduct error:', deductErr.message);
       await fetchWallet();
       startBalancePoll();
       let elapsed = 0;
@@ -651,7 +731,7 @@ export default function WalletPage() {
           clearInterval(wPollRef.current!);
           stopBalancePoll();
           setWStep('success');
-          setWPollMsg(`KES ${Math.floor(kesAmt).toLocaleString()} is being sent to your M-Pesa number.`);
+          setWPollMsg(`KES ${Math.floor(kesAmt).toLocaleString()} is being sent to your M-Pesa.`);
           return;
         }
         const { data: txn } = await supabase
@@ -686,21 +766,34 @@ export default function WalletPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="My Wallet" showBack />
-
-      {/* ── AdSense banner — wallet page ── */}
       <WalletAdBanner />
 
+      {/* ── Tab bar ── */}
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
-        <div className="flex max-w-2xl mx-auto">
-          {(['wallet', 'send', 'history'] as const).map(t => (
-            <button key={t} onClick={() => setActiveTab(t)}
-              className={`flex-1 py-3.5 font-semibold text-sm capitalize border-b-2 transition-colors ${
-                activeTab === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'
-              }`}>{t === 'wallet' ? '💳 Wallet' : t === 'send' ? '💸 Send' : '📋 History'}</button>
+        <div className="flex max-w-2xl mx-auto overflow-x-auto scrollbar-hide">
+          {([
+            { key: 'wallet',    label: '💳 Wallet' },
+            { key: 'send',      label: '💸 Send' },
+            { key: 'history',   label: '📋 History' },
+            { key: 'analytics', label: '📊 Analytics' },
+          ] as const).map(t => (
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
+              className={`flex-shrink-0 flex-1 py-3.5 font-semibold text-sm border-b-2 transition-colors relative ${
+                activeTab === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'
+              }`}>
+              {t.label}
+              {/* Top-up badge on Wallet tab */}
+              {t.key === 'wallet' && lastTopUpAmount !== null && (
+                <span className="absolute top-1.5 right-1 text-[8px] font-black bg-green-500 text-white px-1 py-0.5 rounded-full leading-none">
+                  +${lastTopUpAmount.toFixed(0)}
+                </span>
+              )}
+            </button>
           ))}
         </div>
       </div>
 
+      {/* ── Tab content ── */}
       <div className="max-w-2xl mx-auto p-4 space-y-5">
         {activeTab === 'history' && user && (
           <TransactionHistoryTab userId={user.id} />
@@ -713,15 +806,31 @@ export default function WalletPage() {
             prefillUsername={prefillTo}
           />
         )}
+        {activeTab === 'analytics' && user && (
+          <SpendingAnalyticsTab userId={user.id} />
+        )}
       </div>
 
       {activeTab === 'wallet' && (
         <div className="max-w-2xl mx-auto p-4 space-y-5">
 
-          {/* ── Instant Card Top-Up (direct RPC, no M-Pesa needed) ───────── */}
-          <DirectTopUpCard userId={user!.id} onComplete={fetchWallet} />
+          {/* ── Balance summary ── */}
+          <div className="bg-gradient-to-br from-primary/10 to-purple-500/5 border border-primary/20 rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-sm font-semibold text-muted-foreground">Wallet Balance</p>
+              {lastTopUpAmount !== null && (
+                <span className="flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20">
+                  <TrendingUp className="w-2.5 h-2.5" /> Last top-up +${lastTopUpAmount.toFixed(2)}
+                </span>
+              )}
+            </div>
+            <p className="text-4xl font-black">${Number(wallet?.balance ?? 0).toFixed(2)}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              ≈ KES {Math.floor(Number(wallet?.balance ?? 0) * USD_TO_KES).toLocaleString()}
+            </p>
+          </div>
 
-          {/* ── Quick Top-Up Card ─────────────────────────────────────────── */}
+          {/* ── M-Pesa Top-Up ── */}
           <div className="bg-gradient-to-br from-green-600/10 via-emerald-500/5 to-transparent border border-green-600/20 rounded-2xl overflow-hidden">
             <button
               onClick={() => { resetTopUp(); setShowTopUp(v => !v); }}
@@ -731,8 +840,8 @@ export default function WalletPage() {
                 <Zap className="w-5 h-5 text-green-600" />
               </div>
               <div className="flex-1 text-left">
-                <p className="font-bold text-base">Quick M-Pesa Top-Up</p>
-                <p className="text-xs text-muted-foreground">Instant STK Push — funds credited automatically</p>
+                <p className="font-bold text-base">Deposit via M-Pesa</p>
+                <p className="text-xs text-muted-foreground">STK Push — funds credited automatically after payment</p>
               </div>
               <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-transform ${
                 showTopUp ? 'border-green-600 rotate-45' : 'border-muted-foreground/40'
@@ -751,17 +860,21 @@ export default function WalletPage() {
                       </div>
                     )}
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Amount (USD)</p>
+                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Select Amount</p>
                       <div className="grid grid-cols-4 gap-2 mb-2">
                         {[
-                          { kes: 100, usd: (100 / USD_TO_KES) }, { kes: 500, usd: (500 / USD_TO_KES) },
-                          { kes: 1000, usd: (1000 / USD_TO_KES) }, { kes: 5000, usd: (5000 / USD_TO_KES) },
+                          { kes: 100, usd: (100 / USD_TO_KES) },
+                          { kes: 500, usd: (500 / USD_TO_KES) },
+                          { kes: 1000, usd: (1000 / USD_TO_KES) },
+                          { kes: 5000, usd: (5000 / USD_TO_KES) },
                         ].map(({ kes, usd }) => {
                           const val = usd.toFixed(2);
                           return (
                             <button key={kes} onClick={() => setAmount(val)}
                               className={`py-2.5 rounded-xl font-bold text-xs border-2 transition-all flex flex-col items-center ${
-                                amount === val ? 'border-green-600 bg-green-600/10 text-green-700 dark:text-green-400' : 'border-border hover:border-green-600/40 hover:bg-green-600/5'
+                                amount === val
+                                  ? 'border-green-600 bg-green-600/10 text-green-700 dark:text-green-400'
+                                  : 'border-border hover:border-green-600/40 hover:bg-green-600/5'
                               }`}>
                               <span className="text-[11px] font-black">KES {kes.toLocaleString()}</span>
                               <span className="text-[9px] font-normal opacity-60">${usd.toFixed(2)}</span>
@@ -769,14 +882,16 @@ export default function WalletPage() {
                           );
                         })}
                       </div>
-                      <Input type="number" min="1" step="0.01" placeholder="Custom amount…" value={amount} onChange={e => setAmount(e.target.value)} className="h-11" />
+                      <Input type="number" min="1" step="0.01" placeholder="Custom USD amount…" value={amount} onChange={e => setAmount(e.target.value)} className="h-11" />
                       {amount && parseFloat(amount) > 0 && (
-                        <p className="text-xs text-green-600 font-semibold mt-1">≈ KES {Math.ceil(parseFloat(amount) * USD_TO_KES).toLocaleString()}</p>
+                        <p className="text-xs text-green-600 font-semibold mt-1">
+                          ≈ KES {Math.ceil(parseFloat(amount) * USD_TO_KES).toLocaleString()}
+                        </p>
                       )}
                     </div>
                     <div>
                       <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                        <Phone className="w-3 h-3" />M-Pesa Number
+                        <Phone className="w-3 h-3" />M-Pesa Phone Number
                       </p>
                       <Input type="tel" placeholder="0712 345 678" value={phone} onChange={e => setPhone(e.target.value)} className="h-11" />
                       <p className="text-[10px] text-muted-foreground mt-1">Format: 07XX XXX XXX or +254 7XX XXX XXX</p>
@@ -787,15 +902,19 @@ export default function WalletPage() {
                       className="w-full py-3.5 bg-gradient-to-r from-green-600 to-emerald-500 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
                     >
                       <Smartphone className="w-5 h-5" />
-                      Send STK Push · ${parseFloat(amount || '0').toFixed(2)}
+                      Send M-Pesa Request · KES {amount && parseFloat(amount) > 0 ? Math.ceil(parseFloat(amount) * USD_TO_KES).toLocaleString() : '—'}
                     </button>
+                    <div className="flex items-center gap-3 bg-muted/40 rounded-xl p-3 text-xs text-muted-foreground">
+                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                      <p>Funds are credited to your wallet instantly after M-Pesa confirmation. Secure &amp; encrypted.</p>
+                    </div>
                   </>
                 )}
                 {step === 'sending' && (
                   <div className="flex flex-col items-center gap-3 py-6">
                     <Loader2 className="w-10 h-10 animate-spin text-green-600" />
-                    <p className="font-semibold text-sm">Sending STK Push…</p>
-                    <p className="text-xs text-muted-foreground text-center">Connecting to M-Pesa servers</p>
+                    <p className="font-semibold text-sm">Sending M-Pesa request…</p>
+                    <p className="text-xs text-muted-foreground text-center">Connecting to Safaricom servers</p>
                   </div>
                 )}
                 {step === 'polling' && (
@@ -804,7 +923,7 @@ export default function WalletPage() {
                       <Clock className="w-8 h-8 text-green-600 animate-pulse" />
                     </div>
                     <div className="text-center space-y-1">
-                      <p className="font-bold text-base text-green-700 dark:text-green-400">Awaiting payment…</p>
+                      <p className="font-bold text-base text-green-700 dark:text-green-400">Awaiting M-Pesa PIN…</p>
                       <p className="text-sm text-muted-foreground">{pollMsg}</p>
                       <p className="text-xs text-muted-foreground">{pollSecs}s elapsed · checking every 3s</p>
                     </div>
@@ -833,7 +952,7 @@ export default function WalletPage() {
             )}
           </div>
 
-          {/* ── M-Pesa Withdrawal Card ───────────────────────────────────── */}
+          {/* ── M-Pesa Withdrawal ── */}
           <div className="bg-gradient-to-br from-orange-600/10 via-red-500/5 to-transparent border border-orange-600/20 rounded-2xl overflow-hidden">
             <button
               onClick={() => { resetWithdraw(); setShowWithdraw(v => !v); }}
@@ -843,7 +962,7 @@ export default function WalletPage() {
                 <ArrowUpRight className="w-5 h-5 text-orange-600" />
               </div>
               <div className="flex-1 text-left">
-                <p className="font-bold text-base">Withdraw via M-Pesa</p>
+                <p className="font-bold text-base">Withdraw to M-Pesa</p>
                 <p className="text-xs text-muted-foreground">
                   Available: <span className="font-semibold text-foreground">${Number(wallet?.balance ?? 0).toFixed(2)}</span>
                   {' '}(≈ KES {Math.floor(Number(wallet?.balance ?? 0) * USD_TO_KES).toLocaleString()})
@@ -887,7 +1006,9 @@ export default function WalletPage() {
                       <input type="number" min="10" step="10" placeholder="Custom KES amount…" value={wKes} onChange={e => setWKes(e.target.value)}
                         className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30" />
                       {wKes && parseFloat(wKes) > 0 && (
-                        <p className="text-xs text-orange-600 font-semibold mt-1">≈ ${(parseFloat(wKes) / USD_TO_KES).toFixed(2)} will be deducted from wallet</p>
+                        <p className="text-xs text-orange-600 font-semibold mt-1">
+                          ≈ ${(parseFloat(wKes) / USD_TO_KES).toFixed(2)} will be deducted from wallet
+                        </p>
                       )}
                     </div>
                     <div>
@@ -952,5 +1073,3 @@ export default function WalletPage() {
     </div>
   );
 }
-
-
