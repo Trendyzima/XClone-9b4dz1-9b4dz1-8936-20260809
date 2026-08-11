@@ -3,7 +3,6 @@ import { VideoPlayer } from '@/components/features/VideoPlayer';
 import { supabase } from '@/lib/supabase';
 import { Post } from '@/types/app-types';
 import { Loader2, Gift, X, Zap, Play } from 'lucide-react';
-
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
