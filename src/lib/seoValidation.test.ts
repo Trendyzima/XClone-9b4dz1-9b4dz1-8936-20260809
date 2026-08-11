@@ -1,17 +1,3 @@
-/**
- * SEO Coverage Validation — CI Quality Gate
- *
- * Run via: npx tsx src/lib/seoValidation.test.ts
- * Or integrate into your CI pipeline as a pre-build check.
- *
- * Assertions:
- *  1. Overall SEO score >= 70% (excludes noindex pages)
- *  2. No Dynamic group routes missing useSEO
- *  3. All Dynamic routes have structured data
- *  4. No public Core routes entirely missing useSEO (only warn, not fail)
- *  5. All Admin/Private routes marked noindex
- */
-
 import { validateSEOCoverage, SEO_COVERAGE, scoreSEORoute } from './seoValidation';
 
 // ── ANSI colour helpers ───────────────────────────────────────────────────────
