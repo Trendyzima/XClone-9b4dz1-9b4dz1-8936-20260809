@@ -1,13 +1,9 @@
-
-/**
- * useSEO — Dynamic per-page SEO meta tag manager
- * Injects/updates <title>, Open Graph, Twitter Card, canonical URL,
- * and JSON-LD structured data into the document <head>.
- *
- * All changes are reversible: the hook removes tags it added on unmount
- * so navigating away restores the global defaults from index.html.
- */
 import { useEffect } from 'react';
+// useSEO — Dynamic per-page SEO meta tag manager
+// Injects/updates <title>, Open Graph, Twitter Card, canonical URL,
+// and JSON-LD structured data into the document <head>.
+// All changes are reversible: the hook removes tags it added on unmount
+// so navigating away restores the global defaults from index.html.
 
 export interface SEOProps {
   title?: string;

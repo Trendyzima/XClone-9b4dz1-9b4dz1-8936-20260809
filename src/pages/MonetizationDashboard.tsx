@@ -12,6 +12,10 @@ import {
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend, PieChart, Pie, Cell
+} from 'recharts';
 
 // ── AdSense banner — push-guarded ─────────────────────────────────────────────
 function MonetizationAdBanner() {
@@ -35,11 +39,6 @@ function MonetizationAdBanner() {
     </div>
   );
 }
-import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, PieChart, Pie, Cell
-} from 'recharts';
-
 const MONETIZATION_THRESHOLD = 500;
 
 const CREDIT_PACKAGES = [
