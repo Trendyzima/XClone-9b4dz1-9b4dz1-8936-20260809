@@ -9,7 +9,8 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types/app-types';
-import { Loader2, Send, BadgeCheck, Twitter, Facebook, Link2, MessageCircle, BarChart3, X } from 'lucide-react';
+import { Loader2, Send, BadgeCheck, Twitter, Facebook, Link2, MessageCircle, BarChart3, X, Heart } from 'lucide-react';
+import { DynamicAd } from '@/components/features/DynamicAd';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -97,6 +98,7 @@ export default function PostThreadPage() {
   const knownReplyCount = useRef<number | null>(null);
   // Maps reply.id → pollPost.id for inline poll display
   const [replyPollPostIds, setReplyPollPostIds] = useState<Record<string, string>>({});
+  const [replyLikes, setReplyLikes] = useState<Record<string, { count: number; liked: boolean }>>({});
 
   // Poll in reply state
   const [showPollDialog, setShowPollDialog] = useState(false);
@@ -128,6 +130,34 @@ export default function PostThreadPage() {
     knownReplyCount.current = liveReplyCount;
     setNewReplyCount(0);
     fetchPostAndReplies();
+  };
+
+  const fetchReplyLikes = async (replyIds: string[]) => {
+    if (!replyIds.length) return;
+    const { data: likes } = await supabase
+      .from('reply_likes')
+      .select('reply_id, user_id')
+      .in('reply_id', replyIds);
+    const map: Record<string, { count: number; liked: boolean }> = {};
+    replyIds.forEach(id => { map[id] = { count: 0, liked: false }; });
+    (likes ?? []).forEach((l: any) => {
+      if (!map[l.reply_id]) map[l.reply_id] = { count: 0, liked: false };
+      map[l.reply_id].count++;
+      if (l.user_id === user?.id) map[l.reply_id].liked = true;
+    });
+    setReplyLikes(prev => ({ ...prev, ...map }));
+  };
+
+  const handleReplyLike = async (replyId: string) => {
+    if (!user) { navigate('/auth'); return; }
+    const current = replyLikes[replyId] ?? { count: 0, liked: false };
+    if (current.liked) {
+      setReplyLikes(prev => ({ ...prev, [replyId]: { count: Math.max(0, prev[replyId].count - 1), liked: false } }));
+      await supabase.from('reply_likes').delete().eq('reply_id', replyId).eq('user_id', user.id);
+    } else {
+      setReplyLikes(prev => ({ ...prev, [replyId]: { count: (prev[replyId]?.count ?? 0) + 1, liked: true } }));
+      await supabase.from('reply_likes').upsert({ reply_id: replyId, user_id: user.id }, { onConflict: 'reply_id,user_id' });
+    }
   };
 
   const fetchPostAndReplies = async () => {
@@ -162,6 +192,7 @@ export default function PostThreadPage() {
         .order('created_at', { ascending: true });
       if (repliesError) throw repliesError;
       setReplies(repliesData || []);
+      if (repliesData?.length) fetchReplyLikes(repliesData.map((r: any) => r.id));
     } catch (err) {
       console.error('Error fetching post thread:', err);
       toast({ title: 'Error', description: 'Failed to load post', variant: 'destructive' });
@@ -459,46 +490,65 @@ export default function PostThreadPage() {
                 </span>
               )}
             </div>
-            {replies.map((reply) => (
-              <div key={reply.id} className="border-b border-border p-4 hover:bg-muted/5 transition-colors">
-                <div className="flex space-x-3">
-                  <div
-                    className="w-10 h-10 rounded-full bg-muted flex-shrink-0 overflow-hidden cursor-pointer"
-                    onClick={() => navigate(`/profile/${reply.user_profiles.username}`)}
-                  >
-                    {reply.user_profiles.avatar_url ? (
-                      <img src={reply.user_profiles.avatar_url} alt={reply.user_profiles.username} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-sm font-semibold">
-                        {reply.user_profiles.username[0]?.toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className="font-bold cursor-pointer hover:underline"
-                        onClick={() => navigate(`/profile/${reply.user_profiles.username}`)}
-                      >
-                        {reply.user_profiles.username}
-                      </span>
-                      {reply.user_profiles.verified && (
-                        <BadgeCheck className="w-4 h-4 text-primary" fill="currentColor" />
+            {replies.map((reply, idx) => (
+              <>
+                <div key={reply.id} className="border-b border-border p-4 hover:bg-muted/5 transition-colors">
+                  <div className="flex space-x-3">
+                    <div
+                      className="w-10 h-10 rounded-full bg-muted flex-shrink-0 overflow-hidden cursor-pointer"
+                      onClick={() => navigate(`/profile/${reply.user_profiles.username}`)}
+                    >
+                      {reply.user_profiles.avatar_url ? (
+                        <img src={reply.user_profiles.avatar_url} alt={reply.user_profiles.username} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-sm font-semibold">
+                          {reply.user_profiles.username[0]?.toUpperCase()}
+                        </div>
                       )}
-                      <span className="text-muted-foreground text-sm">
-                        · {formatDistanceToNow(new Date(reply.created_at), { addSuffix: true })}
-                      </span>
                     </div>
-                    <p className="text-foreground mt-1 whitespace-pre-wrap break-words">{reply.content}</p>
-                  {/* Inline Poll — if this reply has an attached poll */}
-                  {replyPollPostIds[reply.id] && (
-                    <div className="mt-2">
-                      <PollCard postId={replyPollPostIds[reply.id]} />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span
+                          className="font-bold cursor-pointer hover:underline"
+                          onClick={() => navigate(`/profile/${reply.user_profiles.username}`)}
+                        >
+                          {reply.user_profiles.username}
+                        </span>
+                        {reply.user_profiles.verified && (
+                          <BadgeCheck className="w-4 h-4 text-primary" fill="currentColor" />
+                        )}
+                        <span className="text-muted-foreground text-sm">
+                          · {formatDistanceToNow(new Date(reply.created_at), { addSuffix: true })}
+                        </span>
+                      </div>
+                      <p className="text-foreground mt-1 whitespace-pre-wrap break-words">{reply.content}</p>
+                      {/* Inline Poll — if this reply has an attached poll */}
+                      {replyPollPostIds[reply.id] && (
+                        <div className="mt-2">
+                          <PollCard postId={replyPollPostIds[reply.id]} />
+                        </div>
+                      )}
+                      {/* Reply Like button */}
+                      <button
+                        onClick={() => handleReplyLike(reply.id)}
+                        className={`mt-2 flex items-center gap-1.5 text-xs font-semibold transition-colors ${
+                          replyLikes[reply.id]?.liked ? 'text-pink-600' : 'text-muted-foreground hover:text-pink-600'
+                        }`}
+                      >
+                        <Heart className={`w-3.5 h-3.5 ${replyLikes[reply.id]?.liked ? 'fill-current' : ''}`} />
+                        {replyLikes[reply.id]?.count > 0 && <span>{replyLikes[reply.id].count}</span>}
+                      </button>
                     </div>
-                  )}
                   </div>
                 </div>
-              </div>
+                {/* Wise Brain ad every 8 replies */}
+                {idx > 0 && (idx + 1) % 8 === 0 && (
+                  <div className="px-4 py-3 bg-muted/20 border-b border-border">
+                    <p className="text-[9px] text-muted-foreground/40 uppercase tracking-widest text-center mb-1">🧠 Sponsored</p>
+                    <DynamicAd location="feed_inline" className="rounded-xl overflow-hidden" />
+                  </div>
+                )}
+              </>
             ))}
           </>
         )}

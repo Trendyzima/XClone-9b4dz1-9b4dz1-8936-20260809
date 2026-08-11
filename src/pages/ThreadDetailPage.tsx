@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X } from 'lucide-react';
+import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber } from '@/lib/utils';
 import { PostCard } from '@/components/features/PostCard';
@@ -43,6 +43,50 @@ export default function ThreadDetailPage() {
   const [replyText, setReplyText] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
+
+  // Thread Reactions
+  const THREAD_REACTIONS = ['❤️', '😂', '🔥', '😮', '👏'] as const;
+  const [threadReactionCounts, setThreadReactionCounts] = useState<Record<string, number>>({});
+  const [userThreadReaction, setUserThreadReaction] = useState<string | null>(null);
+  const [showThreadReactionPicker, setShowThreadReactionPicker] = useState(false);
+
+  const fetchThreadReactions = async () => {
+    if (!id) return;
+    const { data } = await supabase.from('thread_reactions').select('emoji, user_id').eq('thread_id', id);
+    const counts: Record<string, number> = {};
+    let myR: string | null = null;
+    (data ?? []).forEach((r: any) => {
+      counts[r.emoji] = (counts[r.emoji] || 0) + 1;
+      if (r.user_id === user?.id) myR = r.emoji;
+    });
+    setThreadReactionCounts(counts);
+    setUserThreadReaction(myR);
+  };
+
+  const handleThreadReact = async (emoji: string) => {
+    if (!user) { navigate('/auth'); return; }
+    setShowThreadReactionPicker(false);
+    const prev = userThreadReaction;
+    if (prev === emoji) {
+      setUserThreadReaction(null);
+      setThreadReactionCounts(c => { const u = { ...c }; u[emoji] = Math.max(0, (u[emoji] ?? 1) - 1); if (!u[emoji]) delete u[emoji]; return u; });
+      await supabase.from('thread_reactions').delete().eq('thread_id', id).eq('user_id', user.id);
+    } else {
+      setUserThreadReaction(emoji);
+      setThreadReactionCounts(c => {
+        const u = { ...c };
+        if (prev) { u[prev] = Math.max(0, (u[prev] ?? 1) - 1); if (!u[prev]) delete u[prev]; }
+        u[emoji] = (u[emoji] || 0) + 1;
+        return u;
+      });
+      await supabase.from('thread_reactions').upsert({ thread_id: id, user_id: user.id, emoji }, { onConflict: 'thread_id,user_id' });
+    }
+  };
+
+  // Video Chapters
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [chapters, setChapters] = useState<{ time: number; title: string }[]>([]);
+  const [currentChapter, setCurrentChapter] = useState(0);
 
   // AI Summarizer
   const [showSummary, setShowSummary] = useState(false);
@@ -85,6 +129,7 @@ export default function ThreadDetailPage() {
       fetchReplies();
       incrementViews();
       checkUserInteractions();
+      fetchThreadReactions();
     }
   }, [id, user]);
 
@@ -544,15 +589,41 @@ export default function ThreadDetailPage() {
             </div>
           )}
 
-          {/* Thread video */}
+          {/* Thread video with chapter support */}
           {thread.media_url && thread.media_type === 'video' && (
-            <div className="rounded-xl overflow-hidden mb-5 bg-black">
+            <div className="rounded-xl overflow-hidden mb-3 bg-black">
               <video
+                ref={videoRef}
                 src={thread.media_url}
                 controls
                 className="w-full max-h-[420px] object-contain"
                 playsInline
+                onLoadedMetadata={() => setChapters((thread as any).chapters ?? [])}
+                onTimeUpdate={() => {
+                  const t = videoRef.current?.currentTime ?? 0;
+                  const chs: { time: number; title: string }[] = (thread as any).chapters ?? [];
+                  if (chs.length > 0) {
+                    const idx = chs.reduce((best, ch, i) => ch.time <= t ? i : best, 0);
+                    setCurrentChapter(idx);
+                    setChapters(chs);
+                  }
+                }}
               />
+              {chapters.length > 0 && (
+                <div className="bg-black/90 px-4 py-2.5">
+                  <p className="text-[10px] text-white/50 uppercase tracking-widest mb-1.5 flex items-center gap-1.5"><Clock className="w-3 h-3" /> Chapters</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {chapters.map((ch, i) => (
+                      <button key={i} onClick={() => { if (videoRef.current) videoRef.current.currentTime = ch.time; setCurrentChapter(i); }}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                          currentChapter === i ? 'bg-primary text-white' : 'bg-white/10 text-white/70 hover:bg-white/20'
+                        }`}>
+                        {Math.floor(ch.time / 60)}:{String(Math.floor(ch.time % 60)).padStart(2, '0')} {ch.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -589,7 +660,7 @@ export default function ThreadDetailPage() {
         {/* Thread Actions */}
         <div className="p-4 border-b border-border">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-4 flex-wrap gap-y-2">
               <button
                 onClick={handleLike}
                 className={cn(
@@ -600,6 +671,33 @@ export default function ThreadDetailPage() {
                 <Heart className={cn('w-5 h-5', isLiked && 'fill-current')} />
                 <span className="font-medium">{formatNumber(thread.likes_count)}</span>
               </button>
+
+              {/* Reaction picker */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowThreadReactionPicker(v => !v)}
+                  className={cn('flex items-center gap-1.5 transition-colors', userThreadReaction ? 'text-pink-600' : 'text-muted-foreground hover:text-pink-600')}
+                >
+                  <span className="text-base leading-none">{userThreadReaction ?? '😊'}</span>
+                  {Object.values(threadReactionCounts).reduce((a, b) => a + b, 0) > 0 && (
+                    <span className="text-xs font-medium">{Object.values(threadReactionCounts).reduce((a, b) => a + b, 0)}</span>
+                  )}
+                </button>
+                {showThreadReactionPicker && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowThreadReactionPicker(false)} />
+                    <div className="absolute bottom-full mb-2 left-0 flex gap-1 bg-background border border-border rounded-full px-2 py-1.5 shadow-xl z-50">
+                      {THREAD_REACTIONS.map(emoji => (
+                        <button key={emoji} onClick={() => handleThreadReact(emoji)}
+                          className={cn('text-xl transition-all hover:scale-125 active:scale-90 rounded-full w-9 h-9 flex items-center justify-center',
+                            userThreadReaction === emoji ? 'bg-primary/10 ring-2 ring-primary/20' : 'hover:bg-muted')}>
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
 
               <button
                 onClick={handleRepost}
@@ -640,6 +738,18 @@ export default function ThreadDetailPage() {
               </Button>
             </div>
           </div>
+          {/* Reaction bubbles */}
+          {Object.keys(threadReactionCounts).length > 0 && (
+            <div className="flex gap-1.5 mt-3 flex-wrap">
+              {THREAD_REACTIONS.filter(e => (threadReactionCounts[e] ?? 0) > 0).map(emoji => (
+                <button key={emoji} onClick={() => handleThreadReact(emoji)}
+                  className={cn('flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs border transition-all hover:scale-105',
+                    userThreadReaction === emoji ? 'bg-primary/10 border-primary/30 text-primary font-semibold' : 'bg-muted/50 border-border text-muted-foreground hover:border-primary/20')}>
+                  <span>{emoji}</span><span>{threadReactionCounts[emoji]}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Reply Input */}
