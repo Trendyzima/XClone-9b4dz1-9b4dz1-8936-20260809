@@ -1,5 +1,7 @@
 User-agent: *
-Allow: /
+
+# ── Indexable public pages ────────────────────────────────────────────────────
+Allow: /$
 Allow: /explore
 Allow: /videos
 Allow: /threads
@@ -12,32 +14,54 @@ Allow: /search
 Allow: /discover
 Allow: /help
 Allow: /premium
+Allow: /products
+Allow: /series
 Allow: /profile/
 Allow: /post/
 Allow: /hashtag/
 Allow: /c/
 Allow: /thread/
 Allow: /trending/
+Allow: /challenge/
 
+# ── Private / auth-required routes (noindex) ─────────────────────────────────
 Disallow: /auth
 Disallow: /messages
 Disallow: /notifications
 Disallow: /wallet
 Disallow: /settings
-Disallow: /admin/
 Disallow: /bookmarks
 Disallow: /history
-Disallow: /my-ads
+Disallow: /scheduled
 Disallow: /payouts
 Disallow: /creator-studio
-Disallow: /interests
+Disallow: /monetization
+Disallow: /analytics
+Disallow: /verify
 Disallow: /wishlist
 Disallow: /referral
 Disallow: /daily-rewards
+Disallow: /rewards
 Disallow: /platform-inbox
-Disallow: /scheduled
+Disallow: /interests
+Disallow: /notification-preferences
+Disallow: /lists
+Disallow: /my-ads
+Disallow: /create-ad
+Disallow: /start-stream
+Disallow: /ad-analytics
+Disallow: /revenue-analytics
+Disallow: /ad-performance
+Disallow: /post-analytics
+Disallow: /boost-analytics/
+Disallow: /seo-audit
 
-# Sitemaps
+# ── Admin routes ──────────────────────────────────────────────────────────────
+Disallow: /admin/
+Disallow: /fraud-detection
+Disallow: /ai-bot-setup
+
+# ── Sitemaps ─────────────────────────────────────────────────────────────────
 Sitemap: https://testagram.site/sitemap.xml
 Sitemap: https://testagram.site/sitemap-static.xml
 Sitemap: https://lrqqpudyrkmitbeilrqq.backend.onspace.ai/functions/v1/community-sitemap

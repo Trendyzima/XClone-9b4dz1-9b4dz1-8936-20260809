@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -11,6 +12,7 @@ import { Loader2, Video, Users, Radio, Lock, BadgeCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function StartStreamPage() {
+  useSEO({ noindex: true, title: 'Start Live Stream', url: '/start-stream' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);

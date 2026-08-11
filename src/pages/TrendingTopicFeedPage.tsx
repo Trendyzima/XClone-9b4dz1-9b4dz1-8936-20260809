@@ -52,12 +52,21 @@ export default function TrendingTopicFeedPage() {
 
   useSEO({
     title: decodedTopic ? `${decodedTopic} — Trending on Testagram` : 'Trending',
-    description: topicData
+    description: postCount > 0
       ? `${postCount.toLocaleString()} posts about ${decodedTopic} in the last 7 days. Join the conversation on Testagram.`
       : `See what's trending with ${decodedTopic} on Testagram.`,
     url: `/trending/${encodeURIComponent(decodedTopic)}`,
     type: 'website',
     keywords: `${decodedTopic}, trending, testagram, social media`,
+    structuredData: {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Testagram', item: 'https://testagram.site' },
+        { '@type': 'ListItem', position: 2, name: 'Trending', item: 'https://testagram.site/explore' },
+        { '@type': 'ListItem', position: 3, name: decodedTopic, item: `https://testagram.site/trending/${encodeURIComponent(decodedTopic)}` },
+      ],
+    },
   });
 
   const computeSparkline = (rawPosts: any[]) => {
