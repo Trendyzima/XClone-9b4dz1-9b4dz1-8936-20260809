@@ -136,7 +136,7 @@ export function StoriesStrip() {
   };
 
   const getCountdownText = (targetDate: string) => {
-    const diff = new Date(targetDate).getTime() - Date.now();
+    const diff = new Date(targetDate).getTime() - currentTime;
     if (diff <= 0) return 'LIVE!';
     const d = Math.floor(diff / 86400000);
     const h = Math.floor((diff % 86400000) / 3600000);
