@@ -5,16 +5,173 @@ import { useNavigate } from 'react-router-dom';
 import {
   ShoppingBag, Plus, Edit, Trash2, ExternalLink, Search,
   Star, TrendingUp, Eye, Package, Tag, Heart, Sparkles, BadgeCheck,
-  ChevronRight, ArrowLeft, X, Check, Loader2, Grid3x3, LayoutList
+  ChevronRight, ArrowLeft, X, Check, Loader2, Grid3x3, LayoutList,
+  MessageSquare, Send
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatNumber } from '@/lib/utils';
 import { TopBar } from '@/components/layout/TopBar';
+
+// ── Star Rating Display ─────────────────────────────────────────────────────
+function StarRating({ rating, size = 'sm', interactive = false, onRate }: {
+  rating: number; size?: 'sm' | 'md'; interactive?: boolean; onRate?: (r: number) => void;
+}) {
+  const [hover, setHover] = useState(0);
+  const s = size === 'md' ? 'w-5 h-5' : 'w-3.5 h-3.5';
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1,2,3,4,5].map(i => (
+        <button
+          key={i}
+          disabled={!interactive}
+          onClick={() => onRate?.(i)}
+          onMouseEnter={() => interactive && setHover(i)}
+          onMouseLeave={() => interactive && setHover(0)}
+          className={interactive ? 'cursor-pointer transition-transform hover:scale-110' : 'cursor-default'}
+        >
+          <Star
+            className={`${s} transition-colors ${
+              i <= (hover || rating)
+                ? 'text-amber-400 fill-amber-400'
+                : 'text-muted-foreground/30'
+            }`}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Product Reviews Modal ────────────────────────────────────────────────────
+function ProductReviewsModal({ product, onClose }: { product: any; onClose: () => void }) {
+  const { user } = useAuth();
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [myRating, setMyRating] = useState(0);
+  const [myComment, setMyComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [myReview, setMyReview] = useState<any>(null);
+
+  useEffect(() => { fetchReviews(); }, [product.id]);
+
+  const fetchReviews = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('product_reviews')
+      .select('*, user_profiles(username, avatar_url, verified)')
+      .eq('product_id', product.id)
+      .order('created_at', { ascending: false });
+    const all = data ?? [];
+    setReviews(all);
+    if (user) {
+      const mine = all.find((r: any) => r.user_id === user.id);
+      if (mine) { setMyReview(mine); setMyRating(mine.rating); setMyComment(mine.comment ?? ''); }
+    }
+    setLoading(false);
+  };
+
+  const submitReview = async () => {
+    if (!user) { toast.error('Sign in to leave a review'); return; }
+    if (!myRating) { toast.error('Please select a star rating'); return; }
+    setSubmitting(true);
+    const payload = { product_id: product.id, user_id: user.id, rating: myRating, comment: myComment.trim() || null };
+    if (myReview) {
+      const { error } = await supabase.from('product_reviews').update({ rating: myRating, comment: myComment.trim() || null }).eq('id', myReview.id);
+      if (error) toast.error(error.message); else { toast.success('Review updated'); fetchReviews(); }
+    } else {
+      const { error } = await supabase.from('product_reviews').insert(payload);
+      if (error) toast.error(error.message); else { toast.success('Review submitted! ⭐'); fetchReviews(); }
+    }
+    setSubmitting(false);
+  };
+
+  const avgRating = reviews.length ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) : 0;
+  const dist = [5,4,3,2,1].map(n => ({ n, count: reviews.filter(r => r.rating === n).length }));
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="bg-background w-full max-w-lg max-h-[90vh] rounded-t-3xl sm:rounded-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-4 border-b border-border">
+          <div>
+            <h3 className="font-bold text-lg leading-tight line-clamp-1">{product.name}</h3>
+            <div className="flex items-center gap-2 mt-0.5">
+              <StarRating rating={Math.round(avgRating)} />
+              <span className="text-sm font-bold">{avgRating.toFixed(1)}</span>
+              <span className="text-xs text-muted-foreground">({reviews.length} review{reviews.length !== 1 ? 's' : ''})</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-9 h-9 rounded-full bg-muted flex items-center justify-center"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {reviews.length > 0 && (
+            <div className="px-4 py-3 border-b border-border">
+              {dist.map(({ n, count }) => (
+                <div key={n} className="flex items-center gap-2 py-0.5">
+                  <span className="text-xs text-muted-foreground w-3">{n}</span>
+                  <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-400 rounded-full" style={{ width: reviews.length ? `${(count / reviews.length) * 100}%` : '0%' }} />
+                  </div>
+                  <span className="text-xs text-muted-foreground w-5 text-right">{count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {user && user.id !== product.user_id && (
+            <div className="px-4 py-4 border-b border-border">
+              <h4 className="font-semibold text-sm mb-3">{myReview ? 'Update Your Review' : 'Write a Review'}</h4>
+              <StarRating rating={myRating} size="md" interactive onRate={setMyRating} />
+              <textarea
+                value={myComment} onChange={e => setMyComment(e.target.value)}
+                placeholder="Share your experience (optional)…" rows={3} maxLength={400}
+                className="w-full mt-3 px-3 py-2.5 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <button onClick={submitReview} disabled={submitting || !myRating}
+                className="mt-2 flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold disabled:opacity-50">
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                {myReview ? 'Update' : 'Submit Review'}
+              </button>
+            </div>
+          )}
+          <div className="divide-y divide-border">
+            {loading ? (
+              <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+            ) : reviews.length === 0 ? (
+              <div className="text-center py-12">
+                <MessageSquare className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="font-semibold text-sm">No reviews yet</p>
+                <p className="text-xs text-muted-foreground">Be the first to share your experience</p>
+              </div>
+            ) : reviews.map((r: any) => (
+              <div key={r.id} className="px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                    {r.user_profiles?.avatar_url
+                      ? <img src={r.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{r.user_profiles?.username?.[0]?.toUpperCase()}</div>
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-sm">{r.user_profiles?.username}</span>
+                      {r.user_profiles?.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary" />}
+                      <span className="text-xs text-muted-foreground ml-auto">{new Date(r.created_at).toLocaleDateString()}</span>
+                    </div>
+                    <StarRating rating={r.rating} />
+                    {r.comment && <p className="text-sm text-foreground mt-1">{r.comment}</p>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 type ViewMode = 'marketplace' | 'my-products' | 'add-product' | 'edit-product';
 type GridMode = 'grid' | 'list';
-
-const CATEGORIES = ['All', 'Fashion', 'Tech', 'Art', 'Music', 'Food', 'Books', 'Beauty', 'Fitness', 'Other'];
 
 export function ProductsPage() {
   const { user } = useAuth();
@@ -29,6 +186,7 @@ export function ProductsPage() {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [reviewProduct, setReviewProduct] = useState<any | null>(null);
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -483,6 +641,7 @@ export function ProductsPage() {
                     onWishlist={() => toggleWishlist(product.id)}
                     onView={() => trackView(product.id)}
                     onProfile={() => navigate(`/profile/${product.user_profiles?.username}`)}
+                    onReviews={() => setReviewProduct(product)}
                   />
                 ))}
               </div>
@@ -495,6 +654,7 @@ export function ProductsPage() {
                     onWishlist={() => toggleWishlist(product.id)}
                     onView={() => trackView(product.id)}
                     onProfile={() => navigate(`/profile/${product.user_profiles?.username}`)}
+                    onReviews={() => setReviewProduct(product)}
                   />
                 ))}
               </div>
@@ -502,14 +662,19 @@ export function ProductsPage() {
           </div>
         </>
       )}
+
+      {/* Reviews Modal */}
+      {reviewProduct && (
+        <ProductReviewsModal product={reviewProduct} onClose={() => setReviewProduct(null)} />
+      )}
     </div>
   );
 }
 
 // ── Product Card (Grid) ──────────────────────────────────────────────────────
-function ProductCard({ product, wishlisted, onWishlist, onView, onProfile }: {
+function ProductCard({ product, wishlisted, onWishlist, onView, onProfile, onReviews }: {
   product: any; wishlisted: boolean; onWishlist: () => void;
-  onView: () => void; onProfile: () => void;
+  onView: () => void; onProfile: () => void; onReviews: () => void;
 }) {
   return (
     <div className="rounded-2xl overflow-hidden border border-border bg-card hover:shadow-lg transition-all group">
@@ -535,6 +700,13 @@ function ProductCard({ product, wishlisted, onWishlist, onView, onProfile }: {
       <div className="p-3">
         <p className="font-semibold text-sm leading-tight line-clamp-2 mb-1">{product.name}</p>
         <p className="text-base font-black text-primary">${Number(product.price).toFixed(2)}</p>
+        {/* Rating */}
+        {product.review_count > 0 && (
+          <div className="flex items-center gap-1 mt-0.5">
+            <StarRating rating={Math.round(product.avg_rating ?? 0)} />
+            <span className="text-[10px] text-muted-foreground">({product.review_count})</span>
+          </div>
+        )}
         {/* Seller */}
         <button
           onClick={onProfile}
@@ -557,9 +729,13 @@ function ProductCard({ product, wishlisted, onWishlist, onView, onProfile }: {
             Buy Now <ExternalLink className="w-3 h-3" />
           </a>
         ) : (
-          <div className="mt-2.5 flex items-center gap-1 text-xs text-muted-foreground">
-            <Eye className="w-3 h-3" />{product.views_count ?? 0} views
-          </div>
+          <button
+            onClick={onReviews}
+            className="mt-2.5 flex items-center justify-center gap-1 w-full py-2 hover:bg-muted/50 text-muted-foreground text-xs rounded-xl transition-colors"
+          >
+            <MessageSquare className="w-3 h-3" />
+            {product.review_count > 0 ? `${product.review_count} review${product.review_count !== 1 ? 's' : ''}` : 'Write a review'}
+          </button>
         )}
       </div>
     </div>
@@ -567,9 +743,9 @@ function ProductCard({ product, wishlisted, onWishlist, onView, onProfile }: {
 }
 
 // ── Product List Item ────────────────────────────────────────────────────────
-function ProductListItem({ product, wishlisted, onWishlist, onView, onProfile }: {
+function ProductListItem({ product, wishlisted, onWishlist, onView, onProfile, onReviews }: {
   product: any; wishlisted: boolean; onWishlist: () => void;
-  onView: () => void; onProfile: () => void;
+  onView: () => void; onProfile: () => void; onReviews: () => void;
 }) {
   return (
     <div className="flex gap-3 p-3 rounded-2xl border border-border bg-card hover:shadow-md transition-shadow">
@@ -593,6 +769,12 @@ function ProductListItem({ product, wishlisted, onWishlist, onView, onProfile }:
         </div>
         {product.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{product.description}</p>}
         <p className="text-lg font-black text-primary mt-1">${Number(product.price).toFixed(2)}</p>
+        {product.review_count > 0 && (
+          <div className="flex items-center gap-1 mt-0.5">
+            <StarRating rating={Math.round(product.avg_rating ?? 0)} />
+            <span className="text-[10px] text-muted-foreground">({product.review_count})</span>
+          </div>
+        )}
         <div className="flex items-center justify-between mt-1.5">
           <button onClick={onProfile} className="flex items-center gap-1.5 hover:opacity-80">
             {product.user_profiles?.avatar_url
@@ -610,7 +792,13 @@ function ProductListItem({ product, wishlisted, onWishlist, onView, onProfile }:
               Buy <ChevronRight className="w-3 h-3" />
             </a>
           ) : (
-            <span className="text-xs text-muted-foreground flex items-center gap-1"><Eye className="w-3 h-3" />{product.views_count ?? 0}</span>
+            <button
+              onClick={onReviews}
+              className="flex items-center gap-1 px-3 py-1.5 border border-border text-xs text-muted-foreground rounded-full hover:bg-muted/50 transition-colors"
+            >
+              <MessageSquare className="w-3 h-3" />
+              {product.review_count > 0 ? `${product.review_count}` : 'Review'}
+            </button>
           )}
         </div>
       </div>
