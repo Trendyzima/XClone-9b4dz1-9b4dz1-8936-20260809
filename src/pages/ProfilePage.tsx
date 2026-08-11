@@ -523,9 +523,6 @@ export default function ProfilePage() {
       if (profileError) throw profileError;
       setProfile(profileData);
 
-      await Promise.all([
-        fetchPosts(profileData.id),
-
       // OG meta tags for deep link sharing
       (() => {
         const title = `@${profileData.username} on Testagram`;
@@ -535,7 +532,10 @@ export default function ProfilePage() {
         document.title = title;
         setM('og:title', title); setM('og:description', desc); setM('og:image', img);
         setM('og:url', `${window.location.origin}/profile/${profileData.username}`);
-      })()
+      })();
+
+      await Promise.all([
+        fetchPosts(profileData.id),
         fetchThreads(profileData.id),
         fetchReplies(profileData.id),
         fetchMedia(profileData.id),
