@@ -13,6 +13,7 @@ import { StartSpaceDialog } from '@/components/features/StartSpaceDialog';
 import { JoinSpaceDialog } from '@/components/features/JoinSpaceDialog';
 import { ManageSpaceDialog } from '@/components/features/ManageSpaceDialog';
 import { toast } from 'sonner';
+import { useSEO } from '@/hooks/useSEO';
 
 const CATEGORIES = [
   { id: 'all', name: 'All', emoji: '🎙️' },
@@ -49,6 +50,42 @@ export default function SpacesPage() {
   const [liveViewerCounts, setLiveViewerCounts] = useState<Record<string, number>>({});
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // ── SEO — dynamic title reflects live spaces count ──────────────────────
+  const liveSpaces = spaces.filter(s => s.is_live);
+  const topSpace = liveSpaces[0];
+  useSEO({
+    title: liveSpaces.length > 0
+      ? `${liveSpaces.length} Live Space${liveSpaces.length !== 1 ? 's' : ''} — Audio & Podcasts`
+      : 'Spaces — Live Audio & Podcast Rooms',
+    description: topSpace
+      ? `Now live: "${topSpace.title}" with ${topSpace.listener_count ?? 0} listeners. Join live audio rooms, podcasts, and creator spaces on Testagram.`
+      : 'Join live audio rooms, podcast episodes, and creator conversations on Testagram. Start or join a Space now.',
+    url: '/spaces',
+    type: 'website',
+    keywords: 'live audio, podcast, spaces, testagram, creator rooms, live conversations, audio streaming',
+    structuredData: liveSpaces.length > 0 ? {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: 'Live Spaces on Testagram',
+      description: `${liveSpaces.length} live audio rooms currently active on Testagram`,
+      url: 'https://testagram.site/spaces',
+      numberOfItems: Math.min(liveSpaces.length, 5),
+      itemListElement: liveSpaces.slice(0, 5).map((space: any, i: number) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: space.title,
+        url: `https://testagram.site/spaces`,
+        description: `Live space with ${space.listener_count ?? 0} listeners — ${space.category ?? 'general'}`,
+      })),
+    } : {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: 'Spaces — Live Audio on Testagram',
+      description: 'Join live audio rooms, podcast episodes, and creator conversations on Testagram.',
+      url: 'https://testagram.site/spaces',
+    },
+  });
 
   useEffect(() => {
     fetchSpaces();

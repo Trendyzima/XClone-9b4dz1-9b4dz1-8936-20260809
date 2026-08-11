@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, Image as ImageIcon, Video as VideoIcon, X, Wand2, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
+import { pingGoogleSitemap } from '@/lib/pingGoogle';
 
 export default function CreateThreadPage() {
   const { user } = useAuth();
@@ -210,6 +211,7 @@ export default function CreateThreadPage() {
         description: 'Thread published successfully',
       });
 
+      pingGoogleSitemap(); // notify Google crawler about new thread
       navigate('/threads');
     } catch (error: any) {
       console.error('Error creating thread:', error);
