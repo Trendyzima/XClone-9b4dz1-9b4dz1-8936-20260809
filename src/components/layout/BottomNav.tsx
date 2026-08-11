@@ -1,7 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Bell, User, Flame, UserSearch, Inbox } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useEffect, useRef, useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
 export function BottomNav() {

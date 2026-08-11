@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useRef, useEffect } from 'react';
 
 /**
  * FeedAdCard — AdSense native inline card injected every 5th post.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,29 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Loader2, Flame, Coins, Calendar, Trophy, Zap, Gift } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
+
+// ── AdSense banner — push-guarded ─────────────────────────────────────────────
+function DailyRewardsAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 const DAY_REWARDS = [10, 15, 20, 25, 30, 40, 50];
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -166,6 +189,7 @@ export default function DailyRewardsPage() {
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Daily Rewards" showBack />
+      <DailyRewardsAdBanner />
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
