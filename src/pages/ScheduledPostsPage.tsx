@@ -52,7 +52,8 @@ function getCountdown(scheduledFor: string): { label: string; urgent: boolean } 
 
 // ── Live clock to keep countdowns fresh ──────────────────────────────────────
 function useNow(intervalMs = 30_000) {
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => { setNow(new Date()); }, []);
   useEffect(() => {
     const iv = setInterval(() => setNow(new Date()), intervalMs);
     return () => clearInterval(iv);

@@ -1,12 +1,13 @@
 const SITEMAP_URL = 'https://testagram.site/sitemap.xml';
 const PING_COOLDOWN_MS = 60_000;
 
-let lastPingAt = 0;
+// Closure-scoped mutable state — NOT module-level to avoid esbuild non-determinism
+const _ping = { lastAt: 0 };
 
 export async function pingGoogleSitemap(): Promise<void> {
   const now = Date.now();
-  if (now - lastPingAt < PING_COOLDOWN_MS) return;
-  lastPingAt = now;
+  if (now - _ping.lastAt < PING_COOLDOWN_MS) return;
+  _ping.lastAt = now;
   try {
     await fetch(
       `https://www.google.com/ping?sitemap=${encodeURIComponent(SITEMAP_URL)}`,
