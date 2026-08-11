@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Plus, BookOpen, ChevronRight, ChevronLeft, Layers, Loader2,
-  X, Trash2, GripVertical, Lock, Globe, Edit3, Check
+  X, Trash2, Lock, Globe, Edit3, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
@@ -115,11 +115,18 @@ export default function SeriesPage() {
       .insert({ series_id: selectedSeries.id, post_id: postId, position: maxPos });
     if (error?.code === '23505') { toast.error('Post already in this series'); return; }
     if (error) { toast.error('Failed to add post'); return; }
-    // Update item_count
     await supabase.from('post_series').update({ item_count: maxPos }).eq('id', selectedSeries.id);
     toast.success('Post added to series!');
     setShowAddPost(false);
-    fetchSeriesPosts(selectedSeries);
+    await fetchSeriesPosts(selectedSeries);
+    // Notify users who have reading progress on this series
+    try {
+      await supabase.rpc('notify_series_episode_added', {
+        p_series_id: selectedSeries.id,
+        p_series_name: selectedSeries.name,
+        p_episode_number: maxPos,
+      });
+    } catch { /* non-critical */ }
   };
 
   const removePostFromSeries = async (itemId: string) => {

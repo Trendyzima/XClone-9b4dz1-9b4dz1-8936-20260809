@@ -192,6 +192,63 @@ export function StoriesStrip() {
     ? musicCatalogue.filter(t => t.title.toLowerCase().includes(musicSearch.toLowerCase()) || t.artist.toLowerCase().includes(musicSearch.toLowerCase()) || t.genre?.toLowerCase().includes(musicSearch.toLowerCase()))
     : musicCatalogue;
 
+  // ── Follower gate: lock story creation below 500 followers ──────────────
+  const [creatorFollowers, setCreatorFollowers] = useState<number | null>(null);
+  const FOLLOWER_THRESHOLD = 500;
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('user_profiles')
+      .select('followers_count')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setCreatorFollowers(data?.followers_count ?? 0));
+  }, [user?.id]);
+
+  const isCreationLocked = creatorFollowers !== null && creatorFollowers < FOLLOWER_THRESHOLD;
+
+  // ── Story Poll Sticker ────────────────────────────────────────────────────
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['Yes', 'No']);
+  const [showPollPicker, setShowPollPicker] = useState(false);
+  const [pollAdded, setPollAdded] = useState(false);
+  const [storyPollVotes, setStoryPollVotes] = useState<Record<string, { counts: number[]; userVote: number | null }>>({});
+
+  const addPollSticker = () => {
+    if (!pollQuestion.trim()) return;
+    setPollAdded(true);
+    setShowPollPicker(false);
+  };
+
+  const fetchPollVotes = async (storyId: string) => {
+    if (storyPollVotes[storyId]) return;
+    const { data } = await supabase
+      .from('story_poll_votes')
+      .select('option_index, voter_id')
+      .eq('story_id', storyId);
+    const counts = [0, 0];
+    let userVote: number | null = null;
+    (data ?? []).forEach((v: any) => {
+      counts[v.option_index] = (counts[v.option_index] ?? 0) + 1;
+      if (v.voter_id === user?.id) userVote = v.option_index;
+    });
+    setStoryPollVotes(prev => ({ ...prev, [storyId]: { counts, userVote } }));
+  };
+
+  const voteOnStoryPoll = async (storyId: string, optionIdx: number) => {
+    if (!user) return;
+    const current = storyPollVotes[storyId];
+    if (current?.userVote !== null && current?.userVote !== undefined) return;
+    const newCounts = [...(current?.counts ?? [0, 0])];
+    newCounts[optionIdx] = (newCounts[optionIdx] ?? 0) + 1;
+    setStoryPollVotes(prev => ({ ...prev, [storyId]: { counts: newCounts, userVote: optionIdx } }));
+    await supabase.from('story_poll_votes').upsert(
+      { story_id: storyId, voter_id: user.id, option_index: optionIdx },
+      { onConflict: 'story_id,voter_id' }
+    );
+  };
+
   const [stickers, setStickers] = useState<{ emoji: string; x: number; y: number; id: string }[]>([]);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
 
@@ -448,7 +505,7 @@ export function StoriesStrip() {
     const { error: upErr } = await supabase.storage.from('posts').upload(path, pendingFile);
     if (upErr) { toast.error('Upload failed'); setUploading(false); return; }
     const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(path);
-    const stickerMeta = { ...(stickers.length > 0 ? { stickers } : {}), ...(textOverlays.length > 0 ? { textOverlays } : {}), ...(selectedMusic ? { music: { id: selectedMusic.id, title: selectedMusic.title, artist: selectedMusic.artist, cover_url: selectedMusic.cover_url } } : {}), ...(countdownStickers.length > 0 ? { countdownStickers } : {}) };
+    const stickerMeta = { ...(stickers.length > 0 ? { stickers } : {}), ...(textOverlays.length > 0 ? { textOverlays } : {}), ...(selectedMusic ? { music: { id: selectedMusic.id, title: selectedMusic.title, artist: selectedMusic.artist, cover_url: selectedMusic.cover_url } } : {}), ...(countdownStickers.length > 0 ? { countdownStickers } : {}), ...(pollAdded && pollQuestion.trim() ? { poll: { question: pollQuestion.trim(), options: pollOptions } } : {}) };
     const { error: insErr } = await supabase.from('stories').insert({
       user_id: user.id,
       media_url: publicUrl,
@@ -465,6 +522,9 @@ export function StoriesStrip() {
     setStickers([]);
     setTextOverlays([]);
     setCountdownStickers([]);
+    setPollAdded(false);
+    setPollQuestion('');
+    setPollOptions(['Yes', 'No']);
     setShowStickerPicker(false);
     setShowTextInput(false);
     setSelectedMusic(null);
@@ -601,7 +661,14 @@ export function StoriesStrip() {
         {/* Your story */}
         {user && (
           <button
-            onClick={() => hasMyStory ? openViewer(myGroupIdx) : fileInputRef.current?.click()}
+            onClick={() => {
+              if (isCreationLocked) {
+                const needed = FOLLOWER_THRESHOLD - (creatorFollowers ?? 0);
+                toast.error(`Unlock story creation by reaching ${FOLLOWER_THRESHOLD} followers — you need ${needed.toLocaleString()} more`);
+                return;
+              }
+              if (hasMyStory) openViewer(myGroupIdx); else fileInputRef.current?.click();
+            }}
             disabled={uploading}
             className="flex flex-col items-center gap-1 flex-shrink-0 group"
           >
@@ -616,13 +683,15 @@ export function StoriesStrip() {
                 <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-2 border-background">
                   {uploading
                     ? <Loader2 className="w-3 h-3 text-white animate-spin" />
-                    : <Plus className="w-3 h-3 text-white" />
+                    : isCreationLocked
+                      ? <span className="text-[8px]">🔒</span>
+                      : <Plus className="w-3 h-3 text-white" />
                   }
                 </span>
               )}
             </div>
             <span className="text-[10px] text-muted-foreground font-medium leading-none">
-              {hasMyStory ? 'My Story' : 'Add Story'}
+              {hasMyStory ? 'My Story' : isCreationLocked ? '🔒 Locked' : 'Add Story'}
             </span>
           </button>
         )}
@@ -849,6 +918,15 @@ export function StoriesStrip() {
                 <Music className="w-3.5 h-3.5" />
                 Music {selectedMusic ? '✓' : ''}
               </button>
+              {/* Poll Sticker button */}
+              <button
+                onClick={() => { setShowPollPicker(v => !v); setShowTextInput(false); setShowStickerPicker(false); setShowMusicPicker(false); setShowCountdownPicker(false); }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                  showPollPicker ? 'bg-primary border-primary text-white' : pollAdded ? 'bg-primary/30 border-primary/50 text-white' : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                }`}
+              >
+                📊 Poll {pollAdded ? '✓' : ''}
+              </button>
               {/* Countdown Sticker button */}
               <button
                 onClick={() => { setShowCountdownPicker(v => !v); setShowTextInput(false); setShowStickerPicker(false); setShowMusicPicker(false); }}
@@ -898,6 +976,51 @@ export function StoriesStrip() {
                     {cap}
                   </button>
                 ))}
+              </div>
+            )}
+            {/* Poll Picker Panel */}
+            {showPollPicker && (
+              <div className="w-full bg-black/70 backdrop-blur-md rounded-2xl border border-white/20 p-3 space-y-2">
+                <p className="text-white/70 text-[10px] font-semibold uppercase tracking-widest text-center">Add Poll Sticker</p>
+                <input
+                  type="text"
+                  value={pollQuestion}
+                  onChange={e => setPollQuestion(e.target.value)}
+                  placeholder="Ask a question…"
+                  maxLength={60}
+                  className="w-full bg-white/10 text-white placeholder:text-white/40 text-sm border border-white/20 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <div className="flex gap-2">
+                  {pollOptions.map((opt, i) => (
+                    <input
+                      key={i}
+                      type="text"
+                      value={opt}
+                      onChange={e => setPollOptions(prev => prev.map((o, j) => j === i ? e.target.value : o))}
+                      placeholder={`Option ${i + 1}`}
+                      maxLength={30}
+                      className="flex-1 bg-white/10 text-white placeholder:text-white/40 text-sm border border-white/20 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowPollPicker(false)} className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-medium">Cancel</button>
+                  <button onClick={addPollSticker} disabled={!pollQuestion.trim()} className="flex-1 py-2 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold disabled:opacity-50">Add Poll 📊</button>
+                </div>
+              </div>
+            )}
+            {/* Poll preview on creation canvas */}
+            {pollAdded && pollQuestion && (
+              <div className="bg-white/10 border border-white/20 rounded-xl px-3 py-2.5">
+                <p className="text-white text-xs font-bold mb-1.5">{pollQuestion}</p>
+                <div className="flex gap-2">
+                  {pollOptions.map((opt, i) => (
+                    <div key={i} className="flex-1 py-1.5 bg-white/10 rounded-lg text-center text-white text-[11px] font-semibold border border-white/20">
+                      {opt || `Option ${i + 1}`}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => { setPollAdded(false); setPollQuestion(''); setPollOptions(['Yes', 'No']); }} className="mt-1.5 text-[10px] text-white/50 hover:text-white/80">× Remove Poll</button>
               </div>
             )}
             {/* Countdown Sticker Picker */}
@@ -1180,6 +1303,55 @@ export function StoriesStrip() {
                     );
                   })}
                 </>
+              );
+            })()}
+
+            {/* Story Poll Sticker Viewer */}
+            {(() => {
+              const meta = (story as any).metadata;
+              if (meta?.poll && !storyPollVotes[story.id]) fetchPollVotes(story.id);
+              if (!meta?.poll) return null;
+              const poll = meta.poll as { question: string; options: string[] };
+              const voteData = storyPollVotes[story.id];
+              const totalVotes = (voteData?.counts ?? [0, 0]).reduce((a: number, b: number) => a + b, 0);
+              const hasVoted = voteData !== undefined && voteData.userVote !== null && voteData.userVote !== undefined;
+              return (
+                <div className="absolute bottom-20 left-4 right-4 z-30" onClick={e => e.stopPropagation()}>
+                  <div className="bg-black/70 backdrop-blur-md border border-white/30 rounded-2xl p-4">
+                    <p className="text-white font-bold text-sm text-center mb-3">📊 {poll.question}</p>
+                    <div className="flex gap-2">
+                      {poll.options.map((opt, i) => {
+                        const votes = voteData?.counts?.[i] ?? 0;
+                        const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+                        const voted = voteData?.userVote === i;
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => !hasVoted && voteOnStoryPoll(story.id, i)}
+                            disabled={hasVoted}
+                            className={`relative flex-1 rounded-xl overflow-hidden border-2 py-3 px-2 text-center transition-all active:scale-95 ${
+                              voted ? 'border-primary bg-primary/40' :
+                              hasVoted ? 'border-white/20 bg-white/10 opacity-80' :
+                              'border-white/30 bg-white/15 hover:bg-white/25'
+                            }`}
+                          >
+                            {hasVoted && (
+                              <div
+                                className={`absolute inset-y-0 left-0 rounded-xl transition-all duration-700 ${ voted ? 'bg-primary/40' : 'bg-white/10' }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            )}
+                            <span className="relative text-white text-sm font-bold block">{opt}</span>
+                            {hasVoted && <span className="relative text-white/70 text-[10px] block mt-0.5">{pct}%</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {totalVotes > 0 && (
+                      <p className="text-white/40 text-[10px] text-center mt-2">{totalVotes} vote{totalVotes !== 1 ? 's' : ''}</p>
+                    )}
+                  </div>
+                </div>
               );
             })()}
 
