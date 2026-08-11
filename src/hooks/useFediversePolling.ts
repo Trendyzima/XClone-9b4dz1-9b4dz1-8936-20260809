@@ -1,8 +1,6 @@
-/**
- * useFediversePolling — polls the TestagramGateway for new federated
- * notifications every 30 seconds. Uses local DB as fallback.
- */
 import { useState, useEffect, useRef, useCallback } from 'react';
+// useFediversePolling — polls the TestagramGateway for new federated
+// notifications every 30 seconds. Uses local DB as fallback.
 import { supabase } from '@/lib/supabase';
 import * as federation from '@/api/federation';
 
