@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Heart, MessageCircle, Repeat2, Share, Volume2, VolumeX,
   Play, DollarSign, Crown, BadgeCheck, X, Send, Loader2,
+  UserPlus, UserCheck, Quote, Copy, Check,
 } from 'lucide-react';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
@@ -26,10 +27,10 @@ interface Reply {
   user_profiles: { username: string; avatar_url: string | null } | null;
 }
 
-// @__PURE__ — primitive object, no constructor side-effects for esbuild
+// Primitive object — no constructor side-effects
 const _counter = { n: 0 };
 
-// @__PURE__ annotation prevents esbuild tree-shaker non-determinism
+// @__PURE__ annotation prevents esbuild non-determinism
 const authorPremiumCache: Map<string, boolean> = /* @__PURE__ */ new Map();
 
 export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPlayerProps) {
@@ -37,44 +38,72 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
   const progressRef    = useRef<HTMLDivElement>(null);
   const lastTapRef     = useRef<{ time: number; x: number; y: number } | null>(null);
   const heartTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeStartRef  = useRef<{ y: number; time: number } | null>(null);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { user }                = useAuth();
   const { isActive: isPremium } = usePremium();
   const navigate                = useNavigate();
   const { toast }               = useToast();
 
-  const [isPlaying, setIsPlaying]             = useState(false);
-  const [isMuted, setIsMuted]                 = useState(true);
-  const [isLiked, setIsLiked]                 = useState(false);
-  const [isReposted, setIsReposted]           = useState(false);
-  const [likesCount, setLikesCount]           = useState(post.likes_count);
-  const [repostsCount, setRepostsCount]       = useState(post.reposts_count);
-  const [repliesCount, setRepliesCount]       = useState(post.replies_count);
+  const [isPlaying, setIsPlaying]               = useState(false);
+  const [isMuted, setIsMuted]                   = useState(true);
+  const [isLiked, setIsLiked]                   = useState(false);
+  const [isReposted, setIsReposted]             = useState(false);
+  const [isFollowing, setIsFollowing]           = useState(false);
+  const [followLoading, setFollowLoading]       = useState(false);
+  const [likesCount, setLikesCount]             = useState(post.likes_count ?? 0);
+  const [repostsCount, setRepostsCount]         = useState(post.reposts_count ?? 0);
+  const [repliesCount, setRepliesCount]         = useState(post.replies_count ?? 0);
 
   // Ads
-  const [showPrerollAd, setShowPrerollAd]     = useState(false);
-  const [showMidrollAd, setShowMidrollAd]     = useState(false);
+  const [showPrerollAd, setShowPrerollAd]       = useState(false);
+  const [showMidrollAd, setShowMidrollAd]       = useState(false);
   const [adDoneForThisPost, setAdDoneForThisPost] = useState(false);
-  const [midrollDone, setMidrollDone]         = useState(false);
+  const [midrollDone, setMidrollDone]           = useState(false);
 
   // Progress bar
-  const [videoProgress, setVideoProgress]     = useState(0);
-  const [isDragging, setIsDragging]           = useState(false);
+  const [videoProgress, setVideoProgress]       = useState(0);
+  const [isDragging, setIsDragging]             = useState(false);
 
   // Double-tap heart burst
-  const [heartPos, setHeartPos]               = useState<{ x: number; y: number } | null>(null);
+  const [heartPos, setHeartPos]                 = useState<{ x: number; y: number } | null>(null);
 
   // Author premium badge
-  const [isAuthorPremium, setIsAuthorPremium] = useState(false);
+  const [isAuthorPremium, setIsAuthorPremium]   = useState(false);
 
   // Comment sheet
-  const [showComments, setShowComments]       = useState(false);
-  const [comments, setComments]               = useState<Reply[]>([]);
-  const [commentsLoading, setCommentsLoading] = useState(false);
-  const [newComment, setNewComment]           = useState('');
-  const [posting, setPosting]                 = useState(false);
+  const [showComments, setShowComments]         = useState(false);
+  const [comments, setComments]                 = useState<Reply[]>([]);
+  const [commentsLoading, setCommentsLoading]   = useState(false);
+  const [newComment, setNewComment]             = useState('');
+  const [posting, setPosting]                   = useState(false);
 
-  /* ── Author premium cache ──────────────────────────────────────────────── */
+  // Repost sheet
+  const [showRepostSheet, setShowRepostSheet]   = useState(false);
+
+  // Share sheet
+  const [showShareSheet, setShowShareSheet]     = useState(false);
+  const [linkCopied, setLinkCopied]             = useState(false);
+
+  /* ── Load initial like / repost / follow state ──────────────────────── */
+  useEffect(() => {
+    if (!user) return;
+    const uid = user.id;
+    // Check like
+    supabase.from('likes').select('id').eq('user_id', uid).eq('post_id', post.id).maybeSingle()
+      .then(({ data }) => { if (data) setIsLiked(true); });
+    // Check repost
+    supabase.from('reposts').select('id').eq('user_id', uid).eq('post_id', post.id).maybeSingle()
+      .then(({ data }) => { if (data) setIsReposted(true); });
+    // Check follow (skip own posts)
+    if (post.user_id !== uid) {
+      supabase.from('follows').select('id').eq('follower_id', uid).eq('following_id', post.user_id).maybeSingle()
+        .then(({ data }) => { if (data) setIsFollowing(true); });
+    }
+  }, [user?.id, post.id, post.user_id]);
+
+  /* ── Author premium cache ────────────────────────────────────────────── */
   useEffect(() => {
     const uid = post.user_id;
     if (authorPremiumCache.has(uid)) {
@@ -95,7 +124,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
       });
   }, [post.user_id]);
 
-  /* ── Play / pause on active change ────────────────────────────────────── */
+  /* ── Play / pause on active change ──────────────────────────────────── */
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -103,7 +132,6 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     if (isActive) {
       trackView();
       _counter.n++;
-
       const shouldShowAd = !isPremium && !adDoneForThisPost &&
         (post.is_monetized || _counter.n % 3 === 0);
       if (shouldShowAd) {
@@ -113,13 +141,18 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         video.play().then(() => setIsPlaying(true)).catch(() => {});
       }
     } else {
+      // Mute and pause when scrolling away
       video.pause();
+      video.muted = true;
+      setIsMuted(true);
       setIsPlaying(false);
       setShowComments(false);
+      setShowRepostSheet(false);
+      setShowShareSheet(false);
     }
   }, [isActive]);
 
-  /* ── Ad complete ───────────────────────────────────────────────────────── */
+  /* ── Ad complete ─────────────────────────────────────────────────────── */
   const handleAdComplete = () => {
     setShowPrerollAd(false);
     setShowMidrollAd(false);
@@ -127,7 +160,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     if (video) video.play().then(() => setIsPlaying(true)).catch(() => {});
   };
 
-  /* ── Time update → progress + mid-roll trigger ────────────────────────── */
+  /* ── Time update → progress + mid-roll trigger ───────────────────────── */
   const handleTimeUpdate = () => {
     const video = videoRef.current;
     if (!video || isDragging) return;
@@ -141,14 +174,14 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     }
   };
 
-  /* ── Track view ────────────────────────────────────────────────────────── */
+  /* ── Track view ──────────────────────────────────────────────────────── */
   const trackView = async () => {
     try {
       await supabase.rpc('increment_post_view', { post_id_param: post.id });
     } catch (_) {}
   };
 
-  /* ── Toggle play ───────────────────────────────────────────────────────── */
+  /* ── Toggle play ─────────────────────────────────────────────────────── */
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -156,7 +189,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     else              { video.pause(); setIsPlaying(false); }
   };
 
-  /* ── Toggle mute ───────────────────────────────────────────────────────── */
+  /* ── Toggle mute ─────────────────────────────────────────────────────── */
   const toggleMute = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -164,10 +197,10 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     setIsMuted(video.muted);
   };
 
-  /* ── Like (shared logic for tap button + double-tap) ──────────────────── */
+  /* ── Like — one-time only (no unlike) ───────────────────────────────── */
   const triggerLike = useCallback(async () => {
     if (!user) { navigate('/auth'); return; }
-    if (isLiked) return; // double-tap only adds, never removes
+    if (isLiked) return; // already liked — prevent duplicate
     const newCount = likesCount + 1;
     setIsLiked(true);
     setLikesCount(newCount);
@@ -186,32 +219,65 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     }
   }, [user, isLiked, likesCount, post.id, post.user_id]);
 
-  const handleLikeToggle = async () => {
+  /* ── Follow / Unfollow ──────────────────────────────────────────────── */
+  const handleFollow = async () => {
     if (!user) { navigate('/auth'); return; }
-    const newIsLiked = !isLiked;
-    const newCount   = newIsLiked ? likesCount + 1 : Math.max(0, likesCount - 1);
-    setIsLiked(newIsLiked);
-    setLikesCount(newCount);
+    if (post.user_id === user.id) return; // can't follow self
+    setFollowLoading(true);
+    const nowFollowing = !isFollowing;
+    setIsFollowing(nowFollowing);
     try {
-      if (newIsLiked) {
-        await supabase.from('likes').insert({ user_id: user.id, post_id: post.id });
-        await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
-        if (post.user_id !== user.id)
-          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'like', from_user_id: user.id, post_id: post.id });
+      if (nowFollowing) {
+        await supabase.from('follows').insert({ follower_id: user.id, following_id: post.user_id });
+        await supabase.from('notifications').insert({ user_id: post.user_id, type: 'follow', from_user_id: user.id });
       } else {
-        await supabase.from('likes').delete().match({ user_id: user.id, post_id: post.id });
-        await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
+        await supabase.from('follows').delete().match({ follower_id: user.id, following_id: post.user_id });
       }
-      onUpdate?.();
     } catch (_) {
-      setIsLiked(!newIsLiked);
-      setLikesCount(likesCount);
+      setIsFollowing(!nowFollowing);
+    } finally {
+      setFollowLoading(false);
     }
   };
 
-  /* ── Double-tap detection ──────────────────────────────────────────────── */
+  /* ── Repost ──────────────────────────────────────────────────────────── */
+  const handleRepost = async () => {
+    if (!user) { navigate('/auth'); return; }
+    setShowRepostSheet(false);
+    const nowReposted = !isReposted;
+    const newCount    = nowReposted ? repostsCount + 1 : Math.max(0, repostsCount - 1);
+    setIsReposted(nowReposted);
+    setRepostsCount(newCount);
+    try {
+      if (nowReposted) {
+        await supabase.from('reposts').insert({ user_id: user.id, post_id: post.id });
+        await supabase.from('posts').update({ reposts_count: newCount }).eq('id', post.id);
+        if (post.user_id !== user.id)
+          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'repost', from_user_id: user.id, post_id: post.id });
+        toast({ title: 'Reposted' });
+      } else {
+        await supabase.from('reposts').delete().match({ user_id: user.id, post_id: post.id });
+        await supabase.from('posts').update({ reposts_count: newCount }).eq('id', post.id);
+        toast({ title: 'Repost removed' });
+      }
+      onUpdate?.();
+    } catch (_) {
+      setIsReposted(!nowReposted);
+      setRepostsCount(repostsCount);
+    }
+  };
+
+  /* ── Quote repost → navigate to compose ─────────────────────────────── */
+  const handleQuote = () => {
+    setShowRepostSheet(false);
+    const quoteText = encodeURIComponent(
+      `"${(post.content ?? '').slice(0, 100)}" — @${post.user_profiles?.username ?? 'user'}`
+    );
+    navigate(`/?quote=${quoteText}&quote_post_id=${post.id}`);
+  };
+
+  /* ── Double-tap detection ────────────────────────────────────────────── */
   const handleVideoTap = (e: React.MouseEvent<HTMLVideoElement> | React.TouchEvent<HTMLVideoElement>) => {
-    // Don't fire if tapping on controls area (right 80px)
     const target = e.currentTarget.getBoundingClientRect();
     let clientX: number, clientY: number;
     if ('touches' in e) {
@@ -221,18 +287,13 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
       clientX = (e as React.MouseEvent).clientX;
       clientY = (e as React.MouseEvent).clientY;
     }
-
     const relX = clientX - target.left;
     const relY = clientY - target.top;
-
-    // Skip right-edge controls zone
-    if (relX > target.width - 80) return;
+    if (relX > target.width - 80) return; // skip right controls zone
 
     const now  = Date.now();
     const last = lastTapRef.current;
-
     if (last && now - last.time < 300) {
-      // Double tap!
       lastTapRef.current = null;
       const pctX = (relX / target.width) * 100;
       const pctY = (relY / target.height) * 100;
@@ -242,7 +303,6 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
       triggerLike();
     } else {
       lastTapRef.current = { time: now, x: relX, y: relY };
-      // Single tap after 300 ms → toggle play
       setTimeout(() => {
         if (lastTapRef.current && Date.now() - lastTapRef.current.time >= 290) {
           lastTapRef.current = null;
@@ -252,56 +312,41 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     }
   };
 
-  /* ── Seek bar scrub ────────────────────────────────────────────────────── */
+  /* ── Swipe-up to open post ───────────────────────────────────────────── */
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    swipeStartRef.current = { y: e.touches[0].clientY, time: Date.now() };
+  };
+  const handleTouchEndSwipe = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!swipeStartRef.current) return;
+    const dy = swipeStartRef.current.y - e.changedTouches[0].clientY;
+    const dt = Date.now() - swipeStartRef.current.time;
+    swipeStartRef.current = null;
+    // Fast upward swipe (>100px, <350ms) → open post
+    if (dy > 100 && dt < 350 && !showComments && !showRepostSheet && !showShareSheet) {
+      navigate(`/post/${post.id}`);
+    }
+  };
+
+  /* ── Seek bar scrub ──────────────────────────────────────────────────── */
   const seekTo = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     const bar   = progressRef.current;
     const video = videoRef.current;
     if (!bar || !video || !video.duration) return;
-    const rect = bar.getBoundingClientRect();
+    const rect   = bar.getBoundingClientRect();
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const pct  = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const pct    = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     video.currentTime = pct * video.duration;
     setVideoProgress(pct * 100);
   }, []);
 
-  const handleProgressMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    seekTo(e);
-  };
+  const handleProgressMouseDown = (e: React.MouseEvent) => { setIsDragging(true); seekTo(e); };
   const handleProgressMouseMove = (e: React.MouseEvent) => { if (isDragging) seekTo(e); };
-  const handleProgressMouseUp   = ()                      => setIsDragging(false);
-
+  const handleProgressMouseUp   = () => setIsDragging(false);
   const handleProgressTouchStart = (e: React.TouchEvent) => { setIsDragging(true); seekTo(e); };
   const handleProgressTouchMove  = (e: React.TouchEvent) => { if (isDragging) seekTo(e); };
-  const handleProgressTouchEnd   = ()                     => setIsDragging(false);
+  const handleProgressTouchEnd   = () => setIsDragging(false);
 
-  /* ── Repost ────────────────────────────────────────────────────────────── */
-  const handleRepost = async () => {
-    if (!user) { navigate('/auth'); return; }
-    const newIsReposted = !isReposted;
-    const newCount      = newIsReposted ? repostsCount + 1 : Math.max(0, repostsCount - 1);
-    setIsReposted(newIsReposted);
-    setRepostsCount(newCount);
-    try {
-      if (newIsReposted) {
-        await supabase.from('reposts').insert({ user_id: user.id, post_id: post.id });
-        await supabase.from('posts').update({ reposts_count: newCount }).eq('id', post.id);
-        if (post.user_id !== user.id)
-          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'repost', from_user_id: user.id, post_id: post.id });
-        toast({ title: 'Reposted successfully' });
-      } else {
-        await supabase.from('reposts').delete().match({ user_id: user.id, post_id: post.id });
-        await supabase.from('posts').update({ reposts_count: newCount }).eq('id', post.id);
-        toast({ title: 'Repost removed' });
-      }
-      onUpdate?.();
-    } catch (_) {
-      setIsReposted(!newIsReposted);
-      setRepostsCount(repostsCount);
-    }
-  };
-
-  /* ── Comments ──────────────────────────────────────────────────────────── */
+  /* ── Comments ────────────────────────────────────────────────────────── */
   const openComments = async () => {
     setShowComments(true);
     if (comments.length > 0) return;
@@ -334,10 +379,35 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     setPosting(false);
   };
 
-  /* ── Render ────────────────────────────────────────────────────────────── */
-  return (
-    <div className="relative h-screen w-full max-w-full bg-black snap-start snap-always overflow-hidden">
+  /* ── Share ───────────────────────────────────────────────────────────── */
+  const postUrl = `${window.location.origin}/post/${post.id}`;
 
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(postUrl).then(() => {
+      setLinkCopied(true);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setLinkCopied(false), 2000);
+    });
+  };
+
+  const handleNativeShare = () => {
+    if (navigator.share) {
+      navigator.share({ url: postUrl, title: post.content?.slice(0, 80) ?? 'Video' }).catch(() => {});
+    } else {
+      handleCopyLink();
+    }
+    setShowShareSheet(false);
+  };
+
+  /* ── Render ──────────────────────────────────────────────────────────── */
+  const isOwnPost = user?.id === post.user_id;
+
+  return (
+    <div
+      className="relative h-screen w-full max-w-full bg-black snap-start snap-always overflow-hidden"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEndSwipe}
+    >
       {/* Pre-roll ad */}
       {showPrerollAd && (
         <VideoMonetizationAd
@@ -352,7 +422,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
       {showMidrollAd && (
         <div className="absolute inset-0 z-50 flex flex-col">
           <div className="absolute top-2 right-2 z-10 bg-black/60 text-white/70 text-[10px] font-bold px-2 py-0.5 rounded-full">
-            Mid-roll Ad
+            Mid-roll
           </div>
           <VideoMonetizationAd
             postId={post.id}
@@ -363,7 +433,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         </div>
       )}
 
-      {/* ── Video element ─────────────────────────────────────────────────── */}
+      {/* ── Video element ────────────────────────────────────────────────── */}
       <video
         ref={videoRef}
         src={post.video_url || ''}
@@ -378,24 +448,20 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         onTouchEnd={handleVideoTap}
       />
 
-      {/* ── Double-tap heart burst ─────────────────────────────────────────── */}
+      {/* ── Double-tap heart burst ────────────────────────────────────────── */}
       {heartPos && (
         <div
           className="absolute pointer-events-none z-50"
           style={{ left: `${heartPos.x}%`, top: `${heartPos.y}%`, transform: 'translate(-50%, -50%)' }}
         >
-          <Heart
-            className="w-20 h-20 text-pink-500 fill-pink-500 animate-ping"
-            style={{ animationDuration: '0.6s', animationIterationCount: 1 }}
-          />
-          <Heart
-            className="absolute inset-0 w-20 h-20 text-white fill-white opacity-60"
-            style={{ animation: 'scale-up 0.9s ease-out forwards' }}
-          />
+          <Heart className="w-20 h-20 text-pink-500 fill-pink-500 animate-ping"
+            style={{ animationDuration: '0.6s', animationIterationCount: 1 }} />
+          <Heart className="absolute inset-0 w-20 h-20 text-white fill-white opacity-60"
+            style={{ animation: 'scale-up 0.9s ease-out forwards' }} />
         </div>
       )}
 
-      {/* ── Mute button — top-right, always tappable ──────────────────────── */}
+      {/* ── Mute button — top-right, always tappable ─────────────────────── */}
       <button
         onClick={toggleMute}
         className="absolute top-4 right-4 z-30 p-3 bg-black/60 backdrop-blur-sm rounded-full hover:bg-black/80 active:scale-95 transition-all shadow-lg"
@@ -404,7 +470,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
       </button>
 
-      {/* ── Seek / progress bar ── above the bottom info strip ───────────── */}
+      {/* ── Seek / progress bar ───────────────────────────────────────────── */}
       {!showPrerollAd && !showMidrollAd && (
         <div
           ref={progressRef}
@@ -418,56 +484,44 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
           onTouchMove={handleProgressTouchMove}
           onTouchEnd={handleProgressTouchEnd}
         >
-          {/* Hit-area padding */}
           <div className="py-3 px-0">
             <div className="relative h-1 bg-white/20 rounded-full mx-0">
-              {/* Filled track */}
-              <div
-                className="absolute left-0 top-0 h-full bg-white rounded-full transition-none"
-                style={{ width: `${videoProgress}%` }}
-              />
-              {/* Scrub handle */}
-              <div
-                className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-md shadow-black/50 -ml-1.5 transition-opacity"
-                style={{ left: `${videoProgress}%`, opacity: isDragging ? 1 : 0.85 }}
-              />
-              {/* Mid-roll marker at 50% for monetized */}
+              <div className="absolute left-0 top-0 h-full bg-white rounded-full transition-none"
+                style={{ width: `${videoProgress}%` }} />
+              <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-md shadow-black/50 -ml-1.5 transition-opacity"
+                style={{ left: `${videoProgress}%`, opacity: isDragging ? 1 : 0.85 }} />
               {post.is_monetized && !isPremium && !midrollDone && (
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-amber-400 border border-black/40"
-                  style={{ left: '50%', marginLeft: '-4px' }}
-                  title="Ad at 50%"
-                />
+                <div className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-amber-400 border border-black/40"
+                  style={{ left: '50%', marginLeft: '-4px' }} title="Ad at 50%" />
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Overlay: author info + action buttons ─────────────────────────── */}
+      {/* ── Main overlay: author info + action buttons ────────────────────── */}
       <div
         className="absolute inset-0 flex flex-col justify-between p-4 pointer-events-none"
         style={{ maxWidth: '100vw' }}
       >
-        {/* Top: author */}
+        {/* Top: author info + follow button */}
         <div className="flex items-center justify-between text-white pointer-events-auto">
-          <div className="flex items-center space-x-2">
-            <div className="w-10 h-10 rounded-full bg-muted overflow-hidden">
+          <button
+            className="flex items-center space-x-2"
+            onClick={() => navigate(`/profile/${post.user_profiles?.username}`)}
+          >
+            <div className="w-10 h-10 rounded-full bg-muted overflow-hidden border-2 border-white/20">
               {post.user_profiles?.avatar_url ? (
-                <img
-                  src={post.user_profiles.avatar_url}
-                  alt={post.user_profiles.username}
-                  className="w-full h-full object-cover"
-                />
+                <img src={post.user_profiles.avatar_url} alt={post.user_profiles.username} className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-sm font-bold">
+                <div className="w-full h-full flex items-center justify-center text-sm font-bold bg-white/20">
                   {post.user_profiles?.username?.[0]?.toUpperCase()}
                 </div>
               )}
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-bold">{post.user_profiles?.username}</span>
+                <span className="font-bold text-sm">{post.user_profiles?.username}</span>
                 {post.user_profiles?.verified && (
                   <BadgeCheck className="w-3.5 h-3.5 text-primary" fill="currentColor" />
                 )}
@@ -482,11 +536,32 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
                 </div>
               )}
             </div>
-          </div>
-          <div className="w-11" />
+          </button>
+
+          {/* Follow button — hidden for own posts */}
+          {!isOwnPost && (
+            <button
+              onClick={handleFollow}
+              disabled={followLoading}
+              style={{ touchAction: 'manipulation', minWidth: 44, minHeight: 44 }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-bold text-xs transition-all active:scale-95 ${
+                isFollowing
+                  ? 'bg-white/20 text-white border border-white/40'
+                  : 'bg-white text-black hover:bg-white/90'
+              }`}
+            >
+              {followLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : isFollowing ? (
+                <><UserCheck className="w-3.5 h-3.5" /> Following</>
+              ) : (
+                <><UserPlus className="w-3.5 h-3.5" /> Follow</>
+              )}
+            </button>
+          )}
         </div>
 
-        {/* Centre: play icon when paused */}
+        {/* Center: play icon when paused */}
         {!isPlaying && !showPrerollAd && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center">
@@ -502,9 +577,10 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
           </div>
 
           <div className="flex flex-col space-y-4">
-            {/* Like */}
+            {/* Like — one-time only */}
             <button
-              onClick={handleLikeToggle}
+              onClick={triggerLike}
+              style={{ touchAction: 'manipulation' }}
               className="flex flex-col items-center space-y-1 text-white hover:scale-110 active:scale-95 transition-transform"
             >
               <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isLiked ? 'bg-pink-600' : 'bg-black/50'}`}>
@@ -516,6 +592,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
             {/* Comments */}
             <button
               onClick={openComments}
+              style={{ touchAction: 'manipulation' }}
               className="flex flex-col items-center space-y-1 text-white hover:scale-110 active:scale-95 transition-transform"
             >
               <div className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center">
@@ -524,9 +601,10 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
               <span className="text-sm font-semibold">{formatNumber(repliesCount)}</span>
             </button>
 
-            {/* Repost */}
+            {/* Repost — opens sheet */}
             <button
-              onClick={handleRepost}
+              onClick={() => setShowRepostSheet(true)}
+              style={{ touchAction: 'manipulation' }}
               className="flex flex-col items-center space-y-1 text-white hover:scale-110 active:scale-95 transition-transform"
             >
               <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isReposted ? 'bg-green-600' : 'bg-black/50'}`}>
@@ -537,14 +615,8 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
 
             {/* Share */}
             <button
-              onClick={() => {
-                if (navigator.share) {
-                  navigator.share({ url: `${window.location.origin}/post/${post.id}` }).catch(() => {});
-                } else {
-                  navigator.clipboard.writeText(`${window.location.origin}/post/${post.id}`);
-                  toast({ title: 'Link copied!' });
-                }
-              }}
+              onClick={() => setShowShareSheet(true)}
+              style={{ touchAction: 'manipulation' }}
               className="flex flex-col items-center space-y-1 text-white hover:scale-110 active:scale-95 transition-transform"
             >
               <div className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center">
@@ -557,25 +629,13 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
 
       {/* ── Comment sheet ─────────────────────────────────────────────────── */}
       {showComments && (
-        <div
-          className="absolute inset-x-0 bottom-0 z-40 flex flex-col"
-          style={{ height: '70vh' }}
-        >
-          {/* Backdrop tap-to-close */}
-          <div
-            className="absolute inset-x-0 top-0 bottom-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowComments(false)}
-            style={{ height: '100%', zIndex: -1 }}
-          />
-
+        <div className="absolute inset-x-0 bottom-0 z-40 flex flex-col" style={{ height: '70vh' }}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowComments(false)} style={{ zIndex: -1 }} />
           <div className="relative flex flex-col h-full bg-[#111] rounded-t-2xl overflow-hidden border-t border-white/10">
-            {/* Sheet header */}
+            {/* Header */}
             <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-white/10 shrink-0">
               <span className="text-white font-bold text-sm">{repliesCount} Comment{repliesCount !== 1 ? 's' : ''}</span>
-              <button
-                onClick={() => setShowComments(false)}
-                className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-              >
+              <button onClick={() => setShowComments(false)} className="p-1.5 rounded-full text-white/60 hover:text-white hover:bg-white/10">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -583,39 +643,32 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
             {/* Comment list */}
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
               {commentsLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="w-5 h-5 animate-spin text-white/40" />
-                </div>
+                <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-white/40" /></div>
               ) : comments.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-2 text-white/40">
                   <MessageCircle className="w-8 h-8" />
                   <p className="text-sm">No comments yet. Be the first!</p>
                 </div>
-              ) : (
-                comments.map(c => (
-                  <div key={c.id} className="flex gap-3">
-                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 overflow-hidden">
-                      {c.user_profiles?.avatar_url ? (
-                        <img src={c.user_profiles.avatar_url} alt={c.user_profiles.username} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-xs font-bold text-white/60">
-                          {c.user_profiles?.username?.[0]?.toUpperCase() ?? '?'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-white/80 font-semibold text-xs mr-2">
-                        {c.user_profiles?.username ?? 'User'}
-                      </span>
-                      <span className="text-white text-sm break-words">{c.content}</span>
-                    </div>
+              ) : comments.map(c => (
+                <div key={c.id} className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 overflow-hidden">
+                    {c.user_profiles?.avatar_url
+                      ? <img src={c.user_profiles.avatar_url} alt={c.user_profiles.username} className="w-full h-full object-cover" />
+                      : <span className="text-xs font-bold text-white/60">{c.user_profiles?.username?.[0]?.toUpperCase() ?? '?'}</span>}
                   </div>
-                ))
-              )}
+                  <div className="flex-1 min-w-0">
+                    <span className="text-white/80 font-semibold text-xs mr-2">{c.user_profiles?.username ?? 'User'}</span>
+                    <span className="text-white text-sm break-words">{c.content}</span>
+                  </div>
+                </div>
+              ))}
             </div>
 
-            {/* Reply input */}
-            <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-white/10 bg-[#0a0a0a]">
+            {/* Reply input — padded above bottom nav */}
+            <div
+              className="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-white/10 bg-[#0a0a0a]"
+              style={{ paddingBottom: 'calc(72px + env(safe-area-inset-bottom, 0px))' }}
+            >
               <input
                 value={newComment}
                 onChange={e => setNewComment(e.target.value)}
@@ -629,6 +682,100 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
                 className="w-9 h-9 flex items-center justify-center rounded-full bg-white text-black disabled:opacity-40 active:scale-95 transition-all"
               >
                 {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Repost sheet ─────────────────────────────────────────────────── */}
+      {showRepostSheet && (
+        <div className="absolute inset-x-0 bottom-0 z-40">
+          <div className="absolute inset-x-0 bottom-0 top-[-100vh] bg-black/40 backdrop-blur-sm" onClick={() => setShowRepostSheet(false)} />
+          <div
+            className="relative bg-[#111] rounded-t-2xl border-t border-white/10 px-4 pt-4 pb-6"
+            style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}
+          >
+            <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
+            <h3 className="text-white font-bold text-base mb-4">Repost</h3>
+            <div className="space-y-2">
+              <button
+                onClick={handleRepost}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors text-left"
+              >
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isReposted ? 'bg-green-600' : 'bg-white/10'}`}>
+                  <Repeat2 className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-sm">{isReposted ? 'Undo Repost' : 'Repost'}</p>
+                  <p className="text-white/50 text-xs">{isReposted ? 'Remove from your profile' : 'Share instantly to your followers'}</p>
+                </div>
+              </button>
+              <button
+                onClick={handleQuote}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors text-left"
+              >
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                  <Quote className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-sm">Quote</p>
+                  <p className="text-white/50 text-xs">Add your own thoughts to this post</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Share sheet ───────────────────────────────────────────────────── */}
+      {showShareSheet && (
+        <div className="absolute inset-x-0 bottom-0 z-40">
+          <div className="absolute inset-x-0 bottom-0 top-[-100vh] bg-black/40 backdrop-blur-sm" onClick={() => setShowShareSheet(false)} />
+          <div
+            className="relative bg-[#111] rounded-t-2xl border-t border-white/10 px-4 pt-4"
+            style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}
+          >
+            <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-4" />
+            <h3 className="text-white font-bold text-base mb-4">Share</h3>
+            <div className="space-y-2">
+              <button
+                onClick={handleCopyLink}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors text-left"
+              >
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                  {linkCopied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-white" />}
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-sm">{linkCopied ? 'Link Copied!' : 'Copy Link'}</p>
+                  <p className="text-white/50 text-xs truncate max-w-[240px]">{postUrl}</p>
+                </div>
+              </button>
+              {typeof navigator !== 'undefined' && 'share' in navigator && (
+                <button
+                  onClick={handleNativeShare}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors text-left"
+                >
+                  <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                    <Share className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-white font-semibold text-sm">Share via…</p>
+                    <p className="text-white/50 text-xs">WhatsApp, Telegram, Messages…</p>
+                  </div>
+                </button>
+              )}
+              <button
+                onClick={() => { setShowShareSheet(false); navigate(`/messages?share_url=${encodeURIComponent(postUrl)}`); }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors text-left"
+              >
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                  <MessageCircle className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-sm">Send to DM</p>
+                  <p className="text-white/50 text-xs">Share privately with a follower</p>
+                </div>
               </button>
             </div>
           </div>

@@ -35,10 +35,20 @@ const SAMPLE_ADS = [
 ];
 
 export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
-  const [adData] = useState(SAMPLE_ADS[0]);
   const [visible, setVisible] = useState(true);
+  // Only show when ad slot has content — check via window.adsbygoogle length
+  const [hasAd, setHasAd] = useState(false);
   const [impressionTracked, setImpressionTracked] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  // Detect if AdSense has loaded any ads into the slot
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const slots = (window as any).adsbygoogle;
+      setHasAd(Array.isArray(slots) && slots.length > 0);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Track impression via IntersectionObserver
   useEffect(() => {
@@ -55,18 +65,12 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
     return () => observer.disconnect();
   }, [impressionTracked]);
 
-  const handleAdClick = () => {
-    if (adData.url && adData.url !== '#') {
-      window.open(adData.url, '_blank');
-    }
-  };
-
   const handleClose = () => {
     setVisible(false);
     onClose?.();
   };
 
-  if (!visible) return null;
+  if (!visible || !hasAd) return null;
 
   return (
     <div className={`${className} px-2 py-2`}>
@@ -78,7 +82,7 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
 export function injectNativeAds<T>(
   items: T[],
   renderItem: (item: T, index: number) => ReactNode,
-  interval = 6
+  interval = 12 // increased from 6 to avoid triggering AdSense invalid traffic detection
 ): ReactNode[] {
   const result: ReactNode[] = [];
   items.forEach((item, i) => {
