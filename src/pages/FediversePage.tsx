@@ -59,6 +59,7 @@ export default function FediversePage() {
   const [remotePosts, setRemotePosts] = useState<any[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
+  const [isStale, setIsStale] = useState(false); // true while background refresh in progress
   const [federatedFollowing, setFederatedFollowing] = useState<any[]>([]);
   const [federatedFollowers, setFederatedFollowers] = useState<any[]>([]);
   const [gatewayOk, setGatewayOk] = useState<boolean | null>(null);
@@ -260,17 +261,36 @@ export default function FediversePage() {
   };
 
   const fetchFederatedFeed = async () => {
-    setLoadingFeed(true);
+    // Step 1: Show cached DB posts instantly (stale-while-revalidate)
+    const { data: cached } = await supabase
+      .from('remote_posts')
+      .select('*, remote_accounts(username, domain, display_name, avatar_url)')
+      .order('published_at', { ascending: false })
+      .limit(30);
+    if (cached && cached.length > 0) {
+      setRemotePosts(cached);
+      setCachedAt(new Date());
+      setLoadingFeed(false);
+      setIsStale(true); // background refresh will start
+    } else {
+      setLoadingFeed(true);
+    }
+    // Step 2: Fetch fresh from gateway in background
     try {
       const res: any = await federation.getFederatedTimeline({ limit: 30 });
-      const posts = Array.isArray(res) ? res : res?.posts ?? res?.data ?? [];
-      setRemotePosts(posts);
-      cacheFederatedPosts(posts).catch(() => {});
+      const fresh = Array.isArray(res) ? res : res?.posts ?? res?.data ?? [];
+      if (fresh.length > 0) {
+        setRemotePosts(fresh);
+        cacheFederatedPosts(fresh).catch(() => {});
+        setCachedAt(new Date());
+      }
     } catch {
-      const { data } = await supabase.from('remote_posts').select('*, remote_accounts(username, domain, display_name, avatar_url)').order('published_at', { ascending: false }).limit(30);
-      setRemotePosts(data ?? []);
-      if ((data ?? []).length > 0) setCachedAt(new Date());
-    } finally { setLoadingFeed(false); }
+      // Gateway unreachable — already showing cached data, no action needed
+      console.log('[FediversePage] Gateway unreachable, serving from cache');
+    } finally {
+      setLoadingFeed(false);
+      setIsStale(false);
+    }
   };
 
   const fetchFederationStats = async () => {
@@ -721,8 +741,9 @@ export default function FediversePage() {
         <div>
           {cachedAt && (
             <div className="flex items-center gap-2 px-4 py-1.5 bg-muted/30 border-b border-border text-xs text-muted-foreground">
-              <CheckCircle className="w-3 h-3 text-green-500" />
-              Cached · synced {formatDistanceToNow(cachedAt, { addSuffix: true })}
+              {isStale
+                ? <><Loader2 className="w-3 h-3 animate-spin text-primary" />Refreshing feed…</>
+                : <><CheckCircle className="w-3 h-3 text-green-500" />Synced {formatDistanceToNow(cachedAt, { addSuffix: true })}</>}
             </div>
           )}
           {(fedTrendingTags.length > 0 || loadingFedTags) && (

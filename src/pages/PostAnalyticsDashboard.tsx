@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -35,6 +36,7 @@ interface DailyData {
 const PIE_COLORS = ['#22c55e', '#6366f1', '#f59e0b', '#ec4899'];
 
 export default function PostAnalyticsDashboard() {
+  useSEO({ noindex: true, title: 'Post Analytics', url: '/post-analytics' });
   const { postId: paramPostId } = useParams<{ postId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();

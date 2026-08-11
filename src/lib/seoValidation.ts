@@ -73,7 +73,9 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/interests',          label: 'Interest Onboarding',  group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/notification-preferences', label: 'Notif. Prefs', group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
 
-  { path: '/lists',          label: 'Lists',                group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/my-ads',           label: 'My Ads',               group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/create-ad',         label: 'Create Ad',            group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/post-analytics',    label: 'Post Analytics',       group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/lists/{id}',     label: 'List Detail',          group: 'Dynamic',     hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/series',         label: 'Content Series',       group: 'Core',        hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/start-stream',   label: 'Start Stream',         group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },

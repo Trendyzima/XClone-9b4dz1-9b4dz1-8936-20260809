@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -30,6 +31,7 @@ const PAYMENT_MAP: Record<string, { label: string; cls: string }> = {
 };
 
 export default function MyAdsPage() {
+  useSEO({ noindex: true, title: 'My Advertisements', url: '/my-ads' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [ads, setAds] = useState<any[]>([]);
