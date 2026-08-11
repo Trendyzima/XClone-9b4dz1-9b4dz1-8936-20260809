@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { TopBar } from '@/components/layout/TopBar';
@@ -15,6 +16,7 @@ import { toast } from 'sonner';
 const MIN_BUDGET_KES = 500; // KES 500 minimum
 
 export default function CreateAdPage() {
+  useSEO({ noindex: true, title: 'Create Advertisement', url: '/create-ad' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);

@@ -118,6 +118,15 @@ export default function FediversePage() {
   const multiDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (tab === 'feed') {
+      // Push AdSense unit for feed banner slot
+      try {
+        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      } catch (_) {}
+    }
+  }, [tab]);
+
+  useEffect(() => {
     checkGateway();
     fetchFederatedFeed();
     fetchFedTrendingTags();
@@ -746,6 +755,20 @@ export default function FediversePage() {
                 : <><CheckCircle className="w-3 h-3 text-green-500" />Synced {formatDistanceToNow(cachedAt, { addSuffix: true })}</>}
             </div>
           )}
+
+          {/* ── AdSense banner ── fediverse feed monetization ── */}
+          <div className="px-4 py-2 border-b border-border bg-muted/10">
+            <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
+            <ins
+              className="adsbygoogle"
+              style={{ display: 'block', minHeight: 60 }}
+              data-ad-client="ca-pub-7234579833875016"
+              data-ad-slot="2031881558"
+              data-ad-format="auto"
+              data-full-width-responsive="true"
+            />
+          </div>
+
           {(fedTrendingTags.length > 0 || loadingFedTags) && (
             <div className="border-b border-border px-4 py-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">

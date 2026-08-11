@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -18,6 +19,7 @@ interface PlacementPerformance {
 }
 
 export default function AdPerformanceComparison() {
+  useSEO({ noindex: true, title: 'Ad Performance Comparison', url: '/ad-performance' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);

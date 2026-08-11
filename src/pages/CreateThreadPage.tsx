@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +13,7 @@ import { toast as sonnerToast } from 'sonner';
 import { pingGoogleSitemap } from '@/lib/pingGoogle';
 
 export default function CreateThreadPage() {
+  useSEO({ noindex: true, title: 'Create Thread', url: '/create-thread' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
