@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-// ThemeChoice is exported as a standalone type alias (not inline import type)
-// to ensure compatibility with all esbuild syntax checker versions.
 export type ThemeChoice = 'light' | 'dark' | 'system';
 
 /** Detect actual OS preference */

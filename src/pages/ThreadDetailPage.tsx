@@ -8,13 +8,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Send, Sparkles, X, Clock, ChevronUp, ChevronDown, Check, Copy, ExternalLink, QrCode, Link } from 'lucide-react';
 import { useSEO, buildThreadLD, buildOgImageUrl } from '@/hooks/useSEO';
 import { formatDistanceToNow } from 'date-fns';
-import { parseContent, formatNumber } from '@/lib/utils';
+import { parseContent, formatNumber, cn } from '@/lib/utils';
 import { PostCard } from '@/components/features/PostCard';
 import { DynamicAd } from '@/components/features/DynamicAd';
 import { FeedAdCard } from '@/components/features/FeedAdCard';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
-import { cn } from '@/lib/utils';
 
 interface Reply {
   id: string;

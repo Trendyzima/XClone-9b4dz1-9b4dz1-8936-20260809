@@ -1,4 +1,4 @@
-// Safe supabase client — no import-time throws so Vite builds don't fail when env vars are missing.
+
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -41,7 +41,6 @@ if (supabaseUrl && supabaseAnonKey) {
 } else {
   // Don't throw here — export a proxy that throws only when used.
   // This keeps build/SSR systems happy while giving clear runtime errors when the client is actually used.
-  // eslint-disable-next-line no-console
   console.warn(
     '[supabase] VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing. Supabase client will throw when used.'
   );

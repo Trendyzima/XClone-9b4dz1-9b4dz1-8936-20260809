@@ -1,9 +1,3 @@
-/**
- * VideoMonetizationAd
- * Shows a pre-roll / mid-roll overlay ad over a video.
- * - Web: AdSense banner overlay + countdown skip
- * - Native (Capacitor): AdMob interstitial (once per session per video)
- */
 import { useState, useEffect, useRef } from 'react';
 import { X, Volume2, VolumeX } from 'lucide-react';
 import { Capacitor } from '@/lib/capacitor-stub';

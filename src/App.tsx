@@ -12,16 +12,9 @@ import { useCreatorTierAlert } from '@/hooks/useCreatorTierAlert';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from 'sonner';
 import { Loader2 } from 'lucide-react';
-
-// Capacitor — imported from stub so type-checker never touches the native packages
-
-
-// Critical pages — loaded eagerly
 import HomePage from '@/pages/HomePage';
 import AuthPage from '@/pages/AuthPage';
 import VideosPage from '@/pages/VideosPage';
-
-// All other pages — lazy loaded
 const ExplorePage = lazy(() => import('@/pages/ExplorePage'));
 const NotificationsPage = lazy(() => import('@/pages/NotificationsPage'));
 const MessagesPage = lazy(() => import('@/pages/MessagesPage'));
