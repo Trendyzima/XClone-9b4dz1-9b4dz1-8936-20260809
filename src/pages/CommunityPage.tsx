@@ -14,8 +14,9 @@ import {
   Crown, Settings, UserPlus, MessageSquare, Image,
   BookOpen, Plus, Trash2, X,
   ShieldCheck, ShieldOff, MoreVertical, Pin, PinOff,
-  Camera, Check, Send, MessageCircle
+  Camera, Check, Send, MessageCircle, Mail, Calendar
 } from 'lucide-react';
+import { SchedulePostDialog } from '@/components/features/SchedulePostDialog';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
 import { toast as sonnerToast } from 'sonner';
@@ -129,6 +130,28 @@ export default function CommunityPage() {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  // Community post scheduling
+  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  const [scheduleContent, setScheduleContent] = useState('');
+
+  const handleScheduleCommunityPost = async (date: Date) => {
+    if (!user || !community || !scheduleContent.trim()) return;
+    try {
+      const { error } = await supabase.from('scheduled_posts').insert({
+        user_id: user.id,
+        content: scheduleContent.trim(),
+        scheduled_for: date.toISOString(),
+        status: 'pending',
+      });
+      if (error) throw error;
+      sonnerToast.success(`Post scheduled for ${date.toLocaleDateString()}`);
+      setShowScheduleDialog(false);
+      setScheduleContent('');
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
     }
   };
 
@@ -578,6 +601,12 @@ export default function CommunityPage() {
       )}
 
       {/* ── Rules Modal ── */}
+      {showScheduleDialog && (
+        <SchedulePostDialog
+          onClose={() => setShowScheduleDialog(false)}
+          onSchedule={handleScheduleCommunityPost}
+        />
+      )}
       {showRulesModal && (
         <div className="fixed inset-0 z-[200] bg-black/60 flex items-end" onClick={() => { setShowRulesModal(false); setEditingRules(false); setNewRuleText(''); }}>
           <div className="w-full bg-background rounded-t-3xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -836,7 +865,18 @@ export default function CommunityPage() {
                     </div>
                     <div className={`max-w-[75%] flex flex-col gap-0.5 ${ isOwn ? 'items-end' : 'items-start' }`}>
                       {showHeader && !isOwn && (
-                        <span className="text-[11px] font-bold text-foreground px-1">{msg.user_profiles?.username}</span>
+                        <div className="flex items-center gap-1.5 px-1">
+                          <span className="text-[11px] font-bold text-foreground">{msg.user_profiles?.username}</span>
+                          {msg.user_id !== user?.id && (
+                            <button
+                              onClick={() => navigate(`/messages?to=${msg.user_profiles?.username}`)}
+                              className="text-muted-foreground hover:text-primary transition-colors"
+                              title={`DM @${msg.user_profiles?.username}`}
+                            >
+                              <Mail className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       )}
                       <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
                         isOwn
@@ -860,7 +900,26 @@ export default function CommunityPage() {
 
           {/* Input */}
           {isMember ? (
-            <div className="border-t border-border p-3 flex items-center gap-2 bg-background shrink-0">
+            <div className="border-t border-border bg-background shrink-0">
+              {isMember && (
+                <div className="px-3 pt-2 pb-0 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={scheduleContent}
+                    onChange={e => setScheduleContent(e.target.value)}
+                    placeholder="Write to schedule a community post…"
+                    maxLength={280}
+                    className="flex-1 text-xs bg-muted/40 border border-border/60 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30 placeholder:text-muted-foreground/50"
+                  />
+                  <button
+                    onClick={() => { if (scheduleContent.trim()) setShowScheduleDialog(true); else sonnerToast.info('Write something to schedule first'); }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl text-xs font-semibold hover:bg-primary/20 transition-colors shrink-0"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            <div className="p-3 flex items-center gap-2">
               <div className="flex-1 flex items-center gap-2 bg-muted/60 border border-border rounded-2xl px-3 py-2">
                 <input
                   type="text"
@@ -880,6 +939,7 @@ export default function CommunityPage() {
               >
                 {chatSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
+            </div>
             </div>
           ) : (
             <div className="border-t border-border p-4 text-center shrink-0">
