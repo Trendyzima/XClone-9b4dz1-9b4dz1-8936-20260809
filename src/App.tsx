@@ -1,5 +1,5 @@
 import { Analytics, StatusBar, Style, Capacitor } from '@/lib/capacitor-stub';
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from '@/components/layout/AuthProvider';
 import { Sidebar } from '@/components/layout/Sidebar';
