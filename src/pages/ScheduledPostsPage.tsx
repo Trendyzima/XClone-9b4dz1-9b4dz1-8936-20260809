@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -5,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Calendar, Clock, Trash2, CheckCircle, XCircle,
   Image as ImageIcon, Video, FileText, Edit3, Loader2,
-  ChevronLeft, ChevronRight, AlarmClock,
+  ChevronLeft, ChevronRight, AlarmClock, List,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns';
@@ -44,6 +45,8 @@ export function ScheduledPostsPage() {
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [previewTab, setPreviewTab] = useState<'pending' | 'published' | 'failed'>('pending');
+  const [calendarMode, setCalendarMode] = useState<'list' | 'calendar'>('calendar');
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
 
   useEffect(() => {
@@ -161,11 +164,13 @@ export function ScheduledPostsPage() {
             const isToday = new Date().getDate() === day &&
               new Date().getMonth() === calDays.month &&
               new Date().getFullYear() === calDays.year;
+            const isSelected = selectedDay === day;
             return (
-              <div key={day} className="flex flex-col items-center py-0.5">
-                <span className={`text-xs w-6 h-6 flex items-center justify-center rounded-full font-medium ${
-                  isToday ? 'bg-primary text-primary-foreground font-bold' :
-                  count > 0 ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-foreground'
+              <div key={day} className="flex flex-col items-center py-0.5" onClick={() => count > 0 && setSelectedDay(d => d === day ? null : day)}>
+                <span className={`text-xs w-6 h-6 flex items-center justify-center rounded-full font-medium cursor-pointer transition-colors ${
+                  isSelected ? 'bg-blue-500 text-white' : ''} ${!
+                  isSelected ? '' : isToday ? 'bg-primary text-primary-foreground font-bold' :
+                  count > 0 ? 'text-blue-600 dark:text-blue-400 font-semibold hover:bg-blue-500/10' : 'text-foreground'
                 }`}>{day}</span>
                 {count > 0 && (
                   <div className="flex gap-0.5 mt-0.5">
@@ -184,6 +189,51 @@ export function ScheduledPostsPage() {
             {pendingCount} post{pendingCount !== 1 ? 's' : ''} scheduled this month
           </div>
         )}
+        {/* Day detail panel */}
+        {selectedDay !== null && (() => {
+          const dayPosts = posts.filter(p => {
+            const d = new Date(p.scheduled_for);
+            return d.getDate() === selectedDay && d.getMonth() === calDays.month && d.getFullYear() === calDays.year;
+          });
+          if (dayPosts.length === 0) return null;
+          return (
+            <div className="mt-3 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-blue-600">
+                  {new Date(calDays.year, calDays.month, selectedDay).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
+                </p>
+                <button onClick={() => setSelectedDay(null)} className="text-blue-400 hover:text-blue-600"><XCircle className="w-3.5 h-3.5" /></button>
+              </div>
+              <div className="space-y-1.5">
+                {dayPosts.map(p => (
+                  <div key={p.id} className="flex items-center gap-2 bg-background/60 rounded-lg px-2.5 py-2">
+                    <Clock className="w-3 h-3 text-blue-500 shrink-0" />
+                    <span className="text-xs font-semibold text-blue-600">{new Date(p.scheduled_for).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <p className="text-xs text-foreground line-clamp-1 flex-1">{p.content || '(media only)'}</p>
+                    <button onClick={() => deleteScheduledPost(p.id)} className="text-red-400 hover:text-red-600 shrink-0"><Trash2 className="w-3 h-3" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── View mode toggle ── */}
+      <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          {pendingCount > 0 ? `${pendingCount} upcoming` : 'No upcoming posts'}
+        </p>
+        <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
+          <button onClick={() => setCalendarMode('calendar')}
+            className={`p-1.5 rounded-md transition-colors ${calendarMode === 'calendar' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+            <Calendar className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={() => setCalendarMode('list')}
+            className={`p-1.5 rounded-md transition-colors ${calendarMode === 'list' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+            <List className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* ── Hero header ── */}
