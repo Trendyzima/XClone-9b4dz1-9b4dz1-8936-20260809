@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -11,7 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger
 } from '@/components/ui/dialog';
 import {
-  Users, Plus, TrendingUp, Loader2, Search, Lock, Globe, Shield, Crown,
+  Users, Plus, TrendingUp, Loader2, Search, Lock, Globe, Shield,
   Image as ImageIcon, X, Camera, Sparkles
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
@@ -37,14 +37,6 @@ export default function CommunitiesPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
-
-  useSEO({
-    title: 'Discover Communities',
-    description: 'Join communities on Testagram — connect with people who share your passions. Browse public communities on technology, sports, entertainment, lifestyle and more.',
-    url: '/communities',
-    type: 'website',
-    keywords: 'communities, groups, testagram, join, forums, social groups, technology, sports, entertainment',
-  });
   const [communities, setCommunities] = useState<Community[]>([]);
   const [suggestedCommunities, setSuggestedCommunities] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,6 +53,36 @@ export default function CommunitiesPage() {
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+
+  // ItemList JSON-LD — built once communities load, stable reference via useMemo
+  const communitiesJsonLd = useMemo(() => {
+    const top = communities.slice(0, 10);
+    if (top.length === 0) return undefined;
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: 'Top Communities on Testagram',
+      description: 'Browse the most popular communities on Testagram',
+      url: 'https://testagram.site/communities',
+      numberOfItems: top.length,
+      itemListElement: top.map((c: any, i: number) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: c.display_name,
+        url: `https://testagram.site/c/${c.name}`,
+        description: c.description || `${c.display_name} community on Testagram — ${c.member_count?.toLocaleString() ?? 0} members`,
+      })),
+    };
+  }, [communities]);
+
+  useSEO({
+    title: 'Discover Communities',
+    description: 'Join communities on Testagram — connect with people who share your passions. Browse public communities on technology, sports, entertainment, lifestyle and more.',
+    url: '/communities',
+    type: 'website',
+    keywords: 'communities, groups, testagram, join, forums, social groups, technology, sports, entertainment',
+    structuredData: communitiesJsonLd,
+  });
 
   useEffect(() => {
     fetchCommunities();
