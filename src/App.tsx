@@ -82,6 +82,7 @@ const InterestOnboardingPage = lazy(() => import('@/pages/InterestOnboardingPage
 const SeriesPage = lazy(() => import('@/pages/SeriesPage'));
 const PlatformInboxPage = lazy(() => import('@/pages/PlatformInboxPage'));
 const AdAnalyticsPage = lazy(() => import('@/pages/AdAnalyticsPage'));
+const SEOAuditPage = lazy(() => import('@/pages/SEOAuditPage'));
 
 function PageLoader() {
   return (
@@ -195,6 +196,7 @@ function AppInner() {
               <Route path="/ad-analytics" element={<AdAnalyticsPage />} />
               <Route path="/series" element={<SeriesPage />} />
               <Route path="/platform-inbox" element={<PlatformInboxPage />} />
+              <Route path="/admin/seo" element={<SEOAuditPage />} />
             </Routes>
           </Suspense>
         </main>

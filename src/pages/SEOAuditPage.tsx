@@ -88,13 +88,21 @@ function scoreRoute(route: Omit<RouteAudit, 'status'>): RouteAudit['status'] {
   return 'warn';
 }
 
-const STATUS_CFG = {
-  good:    { icon: CheckCircle,    color: 'text-green-600',  bg: 'bg-green-500/10 border-green-500/20',  label: 'Good'    },
-  warn:    { icon: AlertTriangle,  color: 'text-amber-600',  bg: 'bg-amber-500/10 border-amber-500/20',  label: 'Warn'    },
-  missing: { icon: XCircle,        color: 'text-red-600',    bg: 'bg-red-500/10 border-red-500/20',      label: 'Missing' },
-  noindex: { icon: Shield,         color: 'text-slate-500',  bg: 'bg-slate-500/10 border-slate-500/20',  label: 'Noindex' },
-  loading: { icon: Loader2,        color: 'text-primary',    bg: 'bg-primary/10 border-primary/20',      label: '...'     },
+const STATUS_CFG: Record<RouteAudit['status'], { color: string; bg: string; label: string }> = {
+  good:    { color: 'text-green-600',  bg: 'bg-green-500/10 border-green-500/20',  label: 'Good'    },
+  warn:    { color: 'text-amber-600',  bg: 'bg-amber-500/10 border-amber-500/20',  label: 'Warn'    },
+  missing: { color: 'text-red-600',    bg: 'bg-red-500/10 border-red-500/20',      label: 'Missing' },
+  noindex: { color: 'text-slate-500',  bg: 'bg-slate-500/10 border-slate-500/20',  label: 'Noindex' },
+  loading: { color: 'text-primary',    bg: 'bg-primary/10 border-primary/20',      label: '...'     },
 };
+
+function StatusIcon({ status, className }: { status: RouteAudit['status']; className?: string }) {
+  if (status === 'good')    return <CheckCircle className={className} />;
+  if (status === 'warn')    return <AlertTriangle className={className} />;
+  if (status === 'missing') return <XCircle className={className} />;
+  if (status === 'noindex') return <Shield className={className} />;
+  return <Loader2 className={className} />;
+}
 
 const GROUPS = ['Core', 'Hashtags', 'Trending', 'Communities', 'Dynamic', 'Private', 'Admin'];
 
@@ -378,7 +386,6 @@ export default function SEOAuditPage() {
                 <div className="divide-y divide-border">
                   {groupRoutes.map(route => {
                     const cfg = STATUS_CFG[route.status];
-                    const StatusIcon = cfg.icon;
                     return (
                       <div key={route.path} className="px-4 py-3 hover:bg-muted/20 transition-colors">
                         <div className="flex items-start justify-between gap-3">
@@ -386,7 +393,7 @@ export default function SEOAuditPage() {
                             <div className="flex items-center gap-2 mb-0.5">
                               <p className="font-semibold text-sm truncate">{route.label}</p>
                               <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${cfg.bg} ${cfg.color}`}>
-                                <StatusIcon className={`w-2.5 h-2.5 ${route.status === 'loading' ? 'animate-spin' : ''}`} />
+                                <StatusIcon status={route.status} className={`w-2.5 h-2.5 ${route.status === 'loading' ? 'animate-spin' : ''}`} />
                                 {cfg.label}
                               </span>
                             </div>

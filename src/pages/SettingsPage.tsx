@@ -7,8 +7,9 @@ import { Switch } from '@/components/ui/switch';
 import {
   Bell, Lock, Shield, HelpCircle, FileText, LogOut,
   Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check,
-  Sparkles, Heart, ShoppingBag
+  Sparkles, Heart, Volume2, VolumeX, Play
 } from 'lucide-react';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { applyTheme, getStoredThemeChoice } from '@/components/layout/ThemeToggle';
 import { authService } from '@/lib/auth';
 
@@ -20,6 +21,14 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState(true);
   const [privateAccount, setPrivateAccount] = useState(false);
   const [themeChoice, setThemeChoice] = useState<ThemeChoice>(getStoredThemeChoice);
+  const { play: playSound, isEnabled: isSoundEnabled, setEnabled: setSoundEnabled } = useNotificationSound();
+  const [soundsOn, setSoundsOn] = useState(isSoundEnabled());
+
+  const toggleSounds = (v: boolean) => {
+    setSoundEnabled(v);
+    setSoundsOn(v);
+    if (v) playSound('dm');
+  };
 
   // Listen for OS preference changes when in System mode
   useEffect(() => {
@@ -187,18 +196,71 @@ export default function SettingsPage() {
         {/* Notifications */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Notifications</h2>
-          <div className="flex items-center justify-between p-3 hover:bg-muted/50 rounded-xl transition-colors">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between p-3 hover:bg-muted/50 rounded-xl transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center">
+                  <Bell className="w-4 h-4 text-blue-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Push Notifications</p>
+                  <p className="text-xs text-muted-foreground">Likes, replies, follows & more</p>
+                </div>
+              </div>
+              <Switch checked={notifications} onCheckedChange={setNotifications} />
+            </div>
+          </div>
+        </div>
+
+        {/* Sound Settings */}
+        <div className="p-4">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Notification Sounds</h2>
+          {/* Master toggle */}
+          <div className="flex items-center justify-between p-3 hover:bg-muted/50 rounded-xl transition-colors mb-2">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center">
-                <Bell className="w-4 h-4 text-blue-500" />
+              <div className="w-9 h-9 rounded-full bg-violet-500/10 flex items-center justify-center">
+                {soundsOn ? <Volume2 className="w-4 h-4 text-violet-500" /> : <VolumeX className="w-4 h-4 text-muted-foreground" />}
               </div>
               <div>
-                <p className="font-semibold text-sm">Push Notifications</p>
-                <p className="text-xs text-muted-foreground">Likes, replies, follows & more</p>
+                <p className="font-semibold text-sm">Notification Sounds</p>
+                <p className="text-xs text-muted-foreground">{soundsOn ? 'Distinct sounds per event' : 'All sounds muted'}</p>
               </div>
             </div>
-            <Switch checked={notifications} onCheckedChange={setNotifications} />
+            <Switch checked={soundsOn} onCheckedChange={toggleSounds} />
           </div>
+
+          {/* Per-type preview */}
+          {soundsOn && (
+            <div className="bg-muted/30 rounded-2xl p-3 space-y-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1 mb-2">Preview sounds</p>
+              {([
+                { type: 'like'    as const, label: 'Like',    emoji: '❤️', desc: 'Soft two-tone chime'        },
+                { type: 'follow'  as const, label: 'Follow',  emoji: '👤', desc: 'Rising three-note fanfare'  },
+                { type: 'tip'     as const, label: 'Tip',     emoji: '💰', desc: 'Warm coin-drop jingle'      },
+                { type: 'comment' as const, label: 'Comment', emoji: '💬', desc: 'Subtle pop'                 },
+                { type: 'repost'  as const, label: 'Repost',  emoji: '🔁', desc: 'Double-tap click'           },
+                { type: 'dm'      as const, label: 'DM',      emoji: '✉️',  desc: 'Friendly ping'              },
+                { type: 'group'   as const, label: 'Group',   emoji: '👥', desc: 'Richer group chime'         },
+              ]).map(({ type, label, emoji, desc }) => (
+                <button
+                  key={type}
+                  onClick={() => playSound(type)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-background/70 active:scale-[0.98] transition-all group"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg leading-none w-7 text-center">{emoji}</span>
+                    <div className="text-left">
+                      <p className="text-sm font-semibold">{label}</p>
+                      <p className="text-[11px] text-muted-foreground">{desc}</p>
+                    </div>
+                  </div>
+                  <div className="w-7 h-7 rounded-full bg-violet-500/10 group-hover:bg-violet-500/20 flex items-center justify-center transition-colors">
+                    <Play className="w-3 h-3 text-violet-500" fill="currentColor" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Privacy & Security */}
