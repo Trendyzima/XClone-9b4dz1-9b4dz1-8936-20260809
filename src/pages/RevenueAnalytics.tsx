@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,6 +21,7 @@ interface Analytics {
 }
 
 export default function RevenueAnalytics() {
+  useSEO({ noindex: true, title: 'Revenue Analytics', url: '/revenue-analytics' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);

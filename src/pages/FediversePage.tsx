@@ -59,7 +59,7 @@ export default function FediversePage() {
   const [remotePosts, setRemotePosts] = useState<any[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
-  const [isStale, setIsStale] = useState(false); // true while background refresh in progress
+  const [isStale, setIsStale] = useState(false);
   const [federatedFollowing, setFederatedFollowing] = useState<any[]>([]);
   const [federatedFollowers, setFederatedFollowers] = useState<any[]>([]);
   const [gatewayOk, setGatewayOk] = useState<boolean | null>(null);
@@ -117,15 +117,16 @@ export default function FediversePage() {
   const [searchingMulti, setSearchingMulti] = useState(false);
   const multiDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Push AdSense slot when feed tab is active
   useEffect(() => {
     if (tab === 'feed') {
-      // Push AdSense unit for feed banner slot
       try {
         ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
       } catch (_) {}
     }
   }, [tab]);
 
+  // Init on mount
   useEffect(() => {
     checkGateway();
     fetchFederatedFeed();
@@ -136,7 +137,7 @@ export default function FediversePage() {
     }
   }, [user]);
 
-  // Start inbox polling when on inbox tab
+  // Load Mastodon timeline when switching to mastodon tab
   useEffect(() => {
     if (tab === 'mastodon' && mastodonPosts.length === 0) fetchMastodonTimeline(mastodonInstance);
   }, [tab]);
@@ -144,7 +145,6 @@ export default function FediversePage() {
   const fetchMastodonTimeline = async (instance: string) => {
     setLoadingMastodon(true);
     try {
-      // Always route through gateway first to avoid CORS issues
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gateway-relay`, {
@@ -157,7 +157,6 @@ export default function FediversePage() {
         const posts = Array.isArray(d) ? d : d?.statuses ?? d?.data ?? [];
         if (posts.length > 0) { setMastodonPosts(posts); setLoadingMastodon(false); return; }
       }
-      // Fallback: direct Mastodon public API (may be blocked by browser CORS on some instances)
       const directRes = await fetch(`https://${instance}/api/v1/timelines/public?limit=20&local=true`);
       if (!directRes.ok) throw new Error('Direct fetch failed');
       const data = await directRes.json();
@@ -171,7 +170,6 @@ export default function FediversePage() {
     setLoadingDiscovery(true);
     setShowInstanceGrid(true);
     try {
-      // Try official Mastodon server list
       const res = await fetch('https://api.joinmastodon.org/servers?language=&category=&region=&ownership=&registrations=');
       if (!res.ok) throw new Error('API unavailable');
       const data = await res.json();
@@ -187,7 +185,6 @@ export default function FediversePage() {
       }
       throw new Error('empty');
     } catch {
-      // Curated fallback list with known metadata
       setDiscoveredInstances([
         { domain: 'mastodon.social',   total_users: 900000, last_week_users: 15000, description: 'The original Mastodon server' },
         { domain: 'fosstodon.org',     total_users: 120000, last_week_users: 3000,  description: 'Open source & tech community' },
@@ -270,7 +267,6 @@ export default function FediversePage() {
   };
 
   const fetchFederatedFeed = async () => {
-    // Step 1: Show cached DB posts instantly (stale-while-revalidate)
     const { data: cached } = await supabase
       .from('remote_posts')
       .select('*, remote_accounts(username, domain, display_name, avatar_url)')
@@ -280,11 +276,10 @@ export default function FediversePage() {
       setRemotePosts(cached);
       setCachedAt(new Date());
       setLoadingFeed(false);
-      setIsStale(true); // background refresh will start
+      setIsStale(true);
     } else {
       setLoadingFeed(true);
     }
-    // Step 2: Fetch fresh from gateway in background
     try {
       const res: any = await federation.getFederatedTimeline({ limit: 30 });
       const fresh = Array.isArray(res) ? res : res?.posts ?? res?.data ?? [];
@@ -294,7 +289,6 @@ export default function FediversePage() {
         setCachedAt(new Date());
       }
     } catch {
-      // Gateway unreachable — already showing cached data, no action needed
       console.log('[FediversePage] Gateway unreachable, serving from cache');
     } finally {
       setLoadingFeed(false);
@@ -335,7 +329,6 @@ export default function FediversePage() {
     toast.success('All activities marked as processed');
   };
 
-  // Group inbox items by domain from actor_url
   const inboxByDomain: Record<string, any[]> = {};
   for (const item of inboxItems) {
     let domain = '(unknown)';
@@ -385,7 +378,6 @@ export default function FediversePage() {
   const fetchAnalytics = async () => {
     setLoadingAnalytics(true);
     try {
-      // 24h delivery success rate from outbox
       const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
       const { data: outboxData } = await supabase.from('activitypub_outbox').select('created_at, delivered').gte('created_at', since24h);
 
@@ -408,14 +400,12 @@ export default function FediversePage() {
         total: b.total,
       })));
 
-      // Area chart: queue status over 24h (total vs delivered)
       setQueueArea(Object.values(hourBuckets).map(b => ({
         hour: b.hour,
         delivered: b.success,
         pending: b.total - b.success,
       })));
 
-      // Activity type distribution from inbox
       const { data: inboxTypes } = await supabase.from('activitypub_inbox').select('activity_type');
       const typeCounts: Record<string, number> = {};
       (inboxTypes ?? []).forEach((r: any) => {
@@ -423,7 +413,6 @@ export default function FediversePage() {
       });
       setActivityTypePie(Object.entries(typeCounts).map(([name, value]) => ({ name, value })));
 
-      // Top 10 instances from remote_accounts
       const { data: accounts } = await supabase.from('remote_accounts').select('domain');
       const domainCounts: Record<string, number> = {};
       (accounts ?? []).forEach((r: any) => {
@@ -708,7 +697,6 @@ export default function FediversePage() {
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Fediverse · testagram.site" showBack />
 
-      {/* Gateway status */}
       {gatewayOk === false && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs">
           <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -722,7 +710,6 @@ export default function FediversePage() {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border overflow-x-auto flex scrollbar-hide">
         {TABS.map(t => {
           const Icon = t.icon;
@@ -756,7 +743,7 @@ export default function FediversePage() {
             </div>
           )}
 
-          {/* ── AdSense banner ── fediverse feed monetization ── */}
+          {/* AdSense banner — fediverse feed */}
           <div className="px-4 py-2 border-b border-border bg-muted/10">
             <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
             <ins
@@ -811,9 +798,7 @@ export default function FediversePage() {
       {/* ══════════════════ MASTODON TAB ══════════════════ */}
       {tab === 'mastodon' && (
         <div className="space-y-0">
-          {/* Instance selector */}
           <div className="px-4 py-3 bg-muted/20 border-b border-border space-y-3">
-            {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-6 h-6 rounded-full bg-[#6364FF] flex items-center justify-center shrink-0">
@@ -831,7 +816,6 @@ export default function FediversePage() {
               </button>
             </div>
 
-            {/* Quick-access chips */}
             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
               {MASTODON_INSTANCES.map(inst => (
                 <button key={inst}
@@ -846,7 +830,6 @@ export default function FediversePage() {
               ))}
             </div>
 
-            {/* Discovered instances grid */}
             {showInstanceGrid && (
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -882,7 +865,6 @@ export default function FediversePage() {
               </div>
             )}
 
-            {/* Custom instance input */}
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Server className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
@@ -893,11 +875,8 @@ export default function FediversePage() {
                   onKeyDown={e => {
                     if (e.key === 'Enter' && customInstance.trim()) {
                       const inst = customInstance.trim().replace(/^https?:\/\//, '');
-                      setMastodonInstance(inst);
-                      setMastodonPosts([]);
-                      setMastodonSearchResults([]);
-                      fetchMastodonTimeline(inst);
-                      setCustomInstance('');
+                      setMastodonInstance(inst); setMastodonPosts([]); setMastodonSearchResults([]);
+                      fetchMastodonTimeline(inst); setCustomInstance('');
                     }
                   }}
                   className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-xl bg-background focus:outline-none focus:ring-1 focus:ring-[#6364FF]/30 font-mono"
@@ -907,11 +886,8 @@ export default function FediversePage() {
                 onClick={() => {
                   if (!customInstance.trim()) return;
                   const inst = customInstance.trim().replace(/^https?:\/\//, '');
-                  setMastodonInstance(inst);
-                  setMastodonPosts([]);
-                  setMastodonSearchResults([]);
-                  fetchMastodonTimeline(inst);
-                  setCustomInstance('');
+                  setMastodonInstance(inst); setMastodonPosts([]); setMastodonSearchResults([]);
+                  fetchMastodonTimeline(inst); setCustomInstance('');
                 }}
                 disabled={!customInstance.trim()}
                 className="px-3 py-1.5 bg-[#6364FF] text-white text-xs rounded-xl font-semibold disabled:opacity-50 hover:opacity-90 transition-opacity"
@@ -921,7 +897,6 @@ export default function FediversePage() {
             </div>
           </div>
 
-          {/* Search */}
           <div className="px-4 py-3 border-b border-border">
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -939,7 +914,6 @@ export default function FediversePage() {
             </div>
           </div>
 
-          {/* Search results or timeline */}
           {loadingMastodon ? (
             <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-[#6364FF]" /></div>
           ) : (
@@ -1037,14 +1011,11 @@ export default function FediversePage() {
             <div className="divide-y divide-border">
               {Object.entries(inboxByDomain).map(([domain, items]) => (
                 <div key={domain}>
-                  {/* Domain group header */}
                   <div className="px-4 py-2 bg-muted/20 flex items-center gap-2 border-b border-border">
                     <Server className="w-3.5 h-3.5 text-purple-500" />
                     <span className="text-xs font-bold text-purple-600 dark:text-purple-400 font-mono">{domain}</span>
                     <span className="text-xs text-muted-foreground">{items.length} activities</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {items.filter(i => !i.processed).length} unread
-                    </span>
+                    <span className="ml-auto text-xs text-muted-foreground">{items.filter(i => !i.processed).length} unread</span>
                   </div>
                   {items.map((item: any) => (
                     <div key={item.id} className={`px-4 py-3 flex items-start gap-3 hover:bg-muted/5 transition-colors ${!item.processed ? 'border-l-2 border-l-cyan-500' : ''}`}>
@@ -1066,13 +1037,9 @@ export default function FediversePage() {
                             'bg-muted text-muted-foreground border-border'
                           }`}>{item.activity_type}</span>
                           <span className="text-xs text-muted-foreground truncate">{item.actor_url?.split('/').pop()}</span>
-                          <span className="text-xs text-muted-foreground ml-auto">
-                            {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
-                          </span>
+                          <span className="text-xs text-muted-foreground ml-auto">{formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}</span>
                         </div>
-                        {item.object_url && (
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate font-mono">{item.object_url}</p>
-                        )}
+                        {item.object_url && <p className="text-xs text-muted-foreground mt-0.5 truncate font-mono">{item.object_url}</p>}
                         {!item.processed && (
                           <button onClick={async () => {
                             await supabase.from('activitypub_inbox').update({ processed: true }).eq('id', item.id);
@@ -1092,7 +1059,6 @@ export default function FediversePage() {
       {/* ══════════════════ RELAY TAB ══════════════════ */}
       {tab === 'relay' && (
         <div className="p-4 space-y-5">
-          {/* URL Manager */}
           <div className="border border-border rounded-2xl overflow-hidden">
             <div className="px-4 py-3 bg-muted/20 border-b border-border flex items-center gap-2">
               <Radio className="w-4 h-4 text-cyan-500" />
@@ -1115,16 +1081,10 @@ export default function FediversePage() {
                   ))}
                 </div>
               )}
-              {/* Add new relay */}
               <div className="flex gap-2 mt-2">
-                <input
-                  type="url"
-                  placeholder="https://relay.mastodon.host/inbox"
-                  value={newRelayUrl}
-                  onChange={e => setNewRelayUrl(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && addRelayUrl()}
-                  className="flex-1 px-3 py-2 text-sm rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-cyan-500/30 font-mono"
-                />
+                <input type="url" placeholder="https://relay.mastodon.host/inbox" value={newRelayUrl}
+                  onChange={e => setNewRelayUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && addRelayUrl()}
+                  className="flex-1 px-3 py-2 text-sm rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-cyan-500/30 font-mono" />
                 <button onClick={addRelayUrl} disabled={savingRelay || !newRelayUrl.trim()}
                   className="px-4 py-2 bg-cyan-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5 hover:bg-cyan-700 transition-colors">
                   {savingRelay ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -1134,7 +1094,6 @@ export default function FediversePage() {
             </div>
           </div>
 
-          {/* Recent Outbox Activity */}
           <div className="border border-border rounded-2xl overflow-hidden">
             <div className="px-4 py-3 bg-muted/20 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1153,30 +1112,23 @@ export default function FediversePage() {
               ) : (
                 outboxLog.map((item: any) => (
                   <div key={item.id} className="px-4 py-2.5 flex items-center gap-3">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${
-                      item.delivered ? 'bg-green-500/15 text-green-600' : 'bg-amber-500/15 text-amber-600'
-                    }`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${item.delivered ? 'bg-green-500/15 text-green-600' : 'bg-amber-500/15 text-amber-600'}`}>
                       {item.delivered ? '✓' : '⏳'}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold">{item.activity_type}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
-                          item.delivered ? 'bg-green-500/10 text-green-600' : 'bg-amber-500/10 text-amber-600'
-                        }`}>{item.delivered ? 'Delivered' : 'Pending'}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${item.delivered ? 'bg-green-500/10 text-green-600' : 'bg-amber-500/10 text-amber-600'}`}>{item.delivered ? 'Delivered' : 'Pending'}</span>
                       </div>
                       {item.object_id && <p className="text-[10px] text-muted-foreground font-mono truncate">{item.object_id}</p>}
                     </div>
-                    <span className="text-[10px] text-muted-foreground shrink-0">
-                      {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
-                    </span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}</span>
                   </div>
                 ))
               )}
             </div>
           </div>
 
-          {/* Delivery stats */}
           <div className="grid grid-cols-3 gap-3">
             {[
               { label: 'Total Sent', value: outboxLog.length, color: 'text-cyan-600' },
@@ -1199,34 +1151,23 @@ export default function FediversePage() {
             <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
           ) : (
             <>
-              {/* 24h Delivery Rate */}
               <div className="border border-border rounded-2xl p-4 bg-card">
-                <h3 className="font-bold text-sm flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  24h Delivery Success Rate
-                </h3>
+                <h3 className="font-bold text-sm flex items-center gap-2 mb-3"><div className="w-2 h-2 rounded-full bg-green-500" />24h Delivery Success Rate</h3>
                 {deliveryChart.some(d => d.total > 0) ? (
                   <ResponsiveContainer width="100%" height={160}>
                     <LineChart data={deliveryChart} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis dataKey="hour" tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} interval={3} />
                       <YAxis tick={{ fontSize: 9 }} domain={[0, 100]} tickFormatter={v => `${v}%`} />
-                      <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }}
-                        formatter={(v: any) => [`${v}%`, 'Success Rate']} />
+                      <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [`${v}%`, 'Success Rate']} />
                       <Line type="monotone" dataKey="rate" stroke="#06b6d4" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls={false} />
                     </LineChart>
                   </ResponsiveContainer>
-                ) : (
-                  <div className="h-[160px] flex items-center justify-center text-muted-foreground text-sm">No outbox data in last 24h</div>
-                )}
+                ) : <div className="h-[160px] flex items-center justify-center text-muted-foreground text-sm">No outbox data in last 24h</div>}
               </div>
 
-              {/* Activity Type Distribution (Pie) */}
               <div className="border border-border rounded-2xl p-4 bg-card">
-                <h3 className="font-bold text-sm flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-violet-500" />
-                  Activity Types Distribution
-                </h3>
+                <h3 className="font-bold text-sm flex items-center gap-2 mb-3"><div className="w-2 h-2 rounded-full bg-violet-500" />Activity Types Distribution</h3>
                 {activityTypePie.length > 0 ? (
                   <div className="flex items-center gap-4">
                     <ResponsiveContainer width="50%" height={140}>
@@ -1250,43 +1191,32 @@ export default function FediversePage() {
                 ) : <p className="text-center py-8 text-sm text-muted-foreground">No inbox activity data yet</p>}
               </div>
 
-              {/* Top 10 Instances */}
               <div className="border border-border rounded-2xl p-4 bg-card">
-                <h3 className="font-bold text-sm flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-cyan-500" />
-                  Top 10 Connected Instances
-                </h3>
+                <h3 className="font-bold text-sm flex items-center gap-2 mb-3"><div className="w-2 h-2 rounded-full bg-cyan-500" />Top 10 Connected Instances</h3>
                 {topInstances.length > 0 ? (
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={topInstances} layout="vertical" margin={{ top: 0, right: 10, left: 60, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
                       <XAxis type="number" tick={{ fontSize: 9 }} />
                       <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} width={55} />
-                      <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }}
-                        formatter={(v: any) => [v, 'Accounts']} />
+                      <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [v, 'Accounts']} />
                       <Bar dataKey="accounts" fill="#06b6d4" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : <p className="text-center py-8 text-sm text-muted-foreground">No remote account data yet</p>}
               </div>
 
-              {/* Queue Status Area */}
               <div className="border border-border rounded-2xl p-4 bg-card">
-                <h3 className="font-bold text-sm flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-amber-500" />
-                  Queue Status (24h)
-                </h3>
+                <h3 className="font-bold text-sm flex items-center gap-2 mb-3"><div className="w-2 h-2 rounded-full bg-amber-500" />Queue Status (24h)</h3>
                 {queueArea.some(d => d.delivered + d.pending > 0) ? (
                   <ResponsiveContainer width="100%" height={140}>
                     <AreaChart data={queueArea} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                       <defs>
                         <linearGradient id="gradDelivered" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                         </linearGradient>
                         <linearGradient id="gradPending" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} /><stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -1308,24 +1238,18 @@ export default function FediversePage() {
       {/* ══════════════════ DISCOVER TAB ══════════════════ */}
       {tab === 'discover' && (
         <div className="p-4 space-y-4">
-          {/* Multi-table live search */}
           <div className="border border-cyan-500/20 rounded-2xl bg-cyan-500/3 p-4 space-y-3">
             <p className="text-sm font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-2">
               <Search className="w-4 h-4" /> Multi-table Fediverse Search
             </p>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              <input
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                placeholder="Search posts, actors, domains…"
-                value={multiQuery}
-                onChange={e => setMultiQuery(e.target.value)}
-              />
+              <input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                placeholder="Search posts, actors, domains…" value={multiQuery} onChange={e => setMultiQuery(e.target.value)} />
               {searchingMulti && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />}
             </div>
             {multiQuery.trim() && (multiResults.actors.length > 0 || multiResults.posts.length > 0) && (
               <div className="space-y-3">
-                {/* Actor results */}
                 {multiResults.actors.length > 0 && (
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5 flex items-center gap-1"><Users className="w-3 h-3" />Actors ({multiResults.actors.length})</p>
@@ -1355,7 +1279,6 @@ export default function FediversePage() {
                     </div>
                   </div>
                 )}
-                {/* Post results */}
                 {multiResults.posts.length > 0 && (
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5 flex items-center gap-1"><Rss className="w-3 h-3" />Posts ({multiResults.posts.length})</p>
@@ -1371,17 +1294,12 @@ export default function FediversePage() {
             )}
           </div>
 
-          {/* Handle lookup */}
           <div className="border border-border rounded-xl p-4 space-y-3">
             <p className="text-sm font-semibold">Actor Lookup by Handle</p>
             <div className="flex gap-2">
-              <input
-                className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                placeholder="@alice@mastodon.social"
-                value={searchHandle}
-                onChange={e => setSearchHandle(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSearch()}
-              />
+              <input className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="@alice@mastodon.social" value={searchHandle}
+                onChange={e => setSearchHandle(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />
               <button onClick={handleSearch} disabled={searching || !searchHandle.trim()}
                 className="px-4 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2">
                 {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
@@ -1416,17 +1334,12 @@ export default function FediversePage() {
             )}
           </div>
 
-          {/* Keyword search */}
           <div className="border border-border rounded-xl p-4 space-y-3">
             <p className="text-sm font-semibold">Keyword Post Search via Gateway</p>
             <div className="flex gap-2">
-              <input
-                className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                placeholder="Search by keyword, hashtag…"
-                value={keywordQuery}
-                onChange={e => setKeywordQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleKeywordSearch()}
-              />
+              <input className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="Search by keyword, hashtag…" value={keywordQuery}
+                onChange={e => setKeywordQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleKeywordSearch()} />
               <button onClick={handleKeywordSearch} disabled={searchingKeyword || !keywordQuery.trim()}
                 className="px-4 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2">
                 {searchingKeyword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
@@ -1443,7 +1356,6 @@ export default function FediversePage() {
             )}
           </div>
 
-          {/* Federation stats */}
           {user && (
             <div className="grid grid-cols-2 gap-3">
               <div className="border border-border rounded-xl p-3 text-center">
