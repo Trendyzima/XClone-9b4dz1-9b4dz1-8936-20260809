@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
@@ -22,6 +22,28 @@ import {
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+
+function AdminPanelAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface PlatformStats {
@@ -353,6 +375,7 @@ export default function AdminPanel() {
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-4">
       <TopBar title="Admin Command Center" showBack />
+      <AdminPanelAdBanner />
 
       <div className="p-4 max-w-4xl mx-auto space-y-6">
         {/* Hero Header */}

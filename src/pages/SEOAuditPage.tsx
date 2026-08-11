@@ -1,17 +1,4 @@
-/**
- * SEO Audit Page — admin-only view of SEO coverage across all major routes.
- * Route: /admin/seo
- *
- * Shows for each route:
- *  - Canonical URL
- *  - Meta title (length indicator)
- *  - Meta description (length indicator)
- *  - Structured data (JSON-LD) present or not
- *  - Open Graph image present or not
- *  - noindex flag
- *  - Status badge (Good / Warn / Missing)
- */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/hooks/useAuth';
@@ -24,6 +11,28 @@ import {
 import { toast } from 'sonner';
 import { SEO_COVERAGE, scoreSEORoute, type SEORoute } from '@/lib/seoValidation';
 
+function SEOAuditAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
+
 const BASE = 'https://testagram.site';
 
 interface RouteAudit {
@@ -33,7 +42,6 @@ interface RouteAudit {
   hasUseSEO: boolean;
   hasStructuredData: boolean;
   noindex: boolean;
-  /** Runtime-fetched meta values (null = not yet fetched) */
   title: string | null;
   description: string | null;
   ogImage: string | null;
@@ -41,7 +49,6 @@ interface RouteAudit {
   status: 'good' | 'warn' | 'missing' | 'noindex' | 'loading';
 }
 
-// Static manifest — sourced from seoValidation.ts (single source of truth)
 const ROUTE_MANIFEST: Omit<RouteAudit, 'title' | 'description' | 'ogImage' | 'canonical' | 'status'>[] =
   SEO_COVERAGE.map(r => ({
     path: r.path,
@@ -174,6 +181,7 @@ export default function SEOAuditPage() {
     return (
       <div className="min-h-screen bg-background">
         <TopBar title="SEO Audit" showBack />
+        <SEOAuditAdBanner />
         <div className="flex flex-col items-center justify-center py-24 text-center px-6">
           <Shield className="w-16 h-16 text-destructive/40 mb-4" />
           <h2 className="text-xl font-bold">Admin Access Required</h2>
@@ -186,6 +194,7 @@ export default function SEOAuditPage() {
   return (
     <div className="min-h-screen bg-background pb-20">
       <TopBar title="SEO Audit" showBack />
+      <SEOAuditAdBanner />
 
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b border-border bg-gradient-to-br from-primary/5 to-background">
@@ -207,14 +216,12 @@ export default function SEOAuditPage() {
 
         {/* Score ring + stats */}
         <div className="mt-4 grid grid-cols-5 gap-2">
-          {/* Overall score */}
           <div className="col-span-1 flex flex-col items-center justify-center bg-muted/30 rounded-2xl p-3 border border-border">
             <div className={`text-3xl font-black ${score >= 70 ? 'text-green-600' : score >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
               {isNaN(score) ? '—' : `${score}%`}
             </div>
             <p className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide mt-0.5">Score</p>
           </div>
-          {/* Counts */}
           {[
             { label: 'Good',    count: counts.good,    color: 'text-green-600' },
             { label: 'Warn',    count: counts.warn,    color: 'text-amber-600' },
@@ -240,10 +247,9 @@ export default function SEOAuditPage() {
         <div className="mt-3">
           <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden flex">
             {(() => {
-              const indexable = routes.length - counts.noindex;
-              const goodPct    = indexable > 0 ? (counts.good    / routes.length) * 100 : 0;
-              const warnPct    = indexable > 0 ? (counts.warn    / routes.length) * 100 : 0;
-              const missingPct = indexable > 0 ? (counts.missing / routes.length) * 100 : 0;
+              const goodPct    = (counts.good    / routes.length) * 100;
+              const warnPct    = (counts.warn    / routes.length) * 100;
+              const missingPct = (counts.missing / routes.length) * 100;
               const noindexPct = (counts.noindex / routes.length) * 100;
               return (
                 <>
@@ -368,7 +374,6 @@ export default function SEOAuditPage() {
 
           return (
             <div key={group} className="border border-border rounded-2xl overflow-hidden">
-              {/* Group header */}
               <button
                 onClick={() => toggleGroup(group)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors"
@@ -384,7 +389,6 @@ export default function SEOAuditPage() {
                 {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
               </button>
 
-              {/* Routes */}
               {isExpanded && (
                 <div className="divide-y divide-border">
                   {groupRoutes.map(route => {
@@ -402,7 +406,6 @@ export default function SEOAuditPage() {
                             </div>
                             <p className="text-[11px] text-muted-foreground font-mono truncate">{route.path}</p>
 
-                            {/* Coverage chips */}
                             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                               <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-semibold border ${
                                 route.hasUseSEO ? 'bg-green-500/10 text-green-600 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'
@@ -425,7 +428,6 @@ export default function SEOAuditPage() {
                             </div>
                           </div>
 
-                          {/* Actions */}
                           <div className="flex gap-1.5 shrink-0">
                             {!route.path.includes('{') && (
                               <a
@@ -441,7 +443,6 @@ export default function SEOAuditPage() {
                           </div>
                         </div>
 
-                        {/* Recommendations */}
                         {route.status === 'missing' && (
                           <div className="mt-2 px-2 py-1.5 bg-red-500/5 border border-red-500/15 rounded-lg">
                             <p className="text-[10px] text-red-600 font-medium">
