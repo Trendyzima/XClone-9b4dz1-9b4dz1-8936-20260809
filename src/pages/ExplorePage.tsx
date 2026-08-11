@@ -4,7 +4,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
 import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check, Trophy, Gift, Clock, Hash, ChevronRight, Loader2, BookOpen, Eye, Play, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { TrendingVideosSection } from '@/components/features/TrendingVideosSection';
-import { formatDistanceToNow, isPast } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
