@@ -11,6 +11,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber } from '@/lib/utils';
 import { PostCard } from '@/components/features/PostCard';
 import { DynamicAd } from '@/components/features/DynamicAd';
+import { FeedAdCard } from '@/components/features/FeedAdCard';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -880,11 +881,8 @@ export default function ThreadDetailPage() {
           </div>
         )}
 
-        {/* ── Wise Brain Ad after thread content ── */}
-        <div className="border-t border-border px-4 py-3">
-          <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest text-center mb-1">🧠 Wise Brain Ad</p>
-          <DynamicAd location="feed_inline" className="rounded-2xl overflow-hidden" />
-        </div>
+        {/* ── AdSense slot after thread content ── */}
+        <FeedAdCard />
 
         {/* Replies */}
         {replies.length > 0 && (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -91,7 +91,6 @@ export default function CommunitiesPage() {
 
   const fetchSuggestions = async () => {
     if (!user) return;
-    // Generate fresh suggestions then fetch them
     await supabase.rpc('generate_community_suggestions', { p_user_id: user.id }).catch(() => {});
     const { data } = await supabase
       .from('community_suggestions')
@@ -188,7 +187,6 @@ export default function CommunitiesPage() {
 
       if (error) throw error;
 
-      // Auto-join as owner
       await supabase.from('community_members').insert({
         community_id: data.id,
         user_id: user.id,
@@ -441,6 +439,9 @@ export default function CommunitiesPage() {
         </div>
       )}
 
+      {/* AdSense banner — communities page */}
+      <CommunitiesAdBanner />
+
       {/* Communities List */}
       <div className="p-4 space-y-3">
         {/* ── Community Suggestions Strip ── */}
@@ -569,6 +570,29 @@ export default function CommunitiesPage() {
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+// ── AdSense banner — mounted once, push-guarded ───────────────────────────────────────────────────
+function CommunitiesAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-3 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
     </div>
   );
 }
