@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+function CommunitiesAdBanner() { return <PageAdBanner />; }
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -575,5 +577,3 @@ export default function CommunitiesPage() {
 }
 
 // ── AdSense banner — mounted once, push-guarded ───────────────────────────────────────────────────
-import { PageAdBanner } from '@/components/features/AdSenseAd';
-function CommunitiesAdBanner() { return <PageAdBanner />; }

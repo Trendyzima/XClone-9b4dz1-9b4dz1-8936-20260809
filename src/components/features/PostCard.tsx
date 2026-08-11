@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon, Crown } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon, Crown, Megaphone } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types/app-types';
 import { formatDistanceToNow } from 'date-fns';
@@ -590,6 +590,12 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                         className="w-full text-left px-4 py-3 hover:bg-muted flex items-center gap-2 rounded-t-lg"
                       >
                         <MoreHorizontal className="w-4 h-4" /> Edit post
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(false); navigate(`/create-ad?from_post=${post.id}&title=${encodeURIComponent(post.content.slice(0, 80))}&desc=${encodeURIComponent(post.content.slice(0, 200))}&img=${encodeURIComponent((post as any).image_url ?? '')}&vid=${encodeURIComponent((post as any).video_url ?? '')}`); }}
+                        className="w-full text-left px-4 py-3 hover:bg-muted flex items-center gap-2"
+                      >
+                        <Megaphone className="w-4 h-4 text-amber-500" /> Boost as Ad
                       </button>
                       {editHistory.length > 0 && (
                         <button

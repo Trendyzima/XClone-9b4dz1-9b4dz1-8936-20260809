@@ -14,27 +14,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 
-function AdminAdsAdBanner() {
-  const pushed = useRef(false);
-  useEffect(() => {
-    if (pushed.current) return;
-    pushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
-  return (
-    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
-      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
-      <ins
-        className="adsbygoogle"
-        style={{ display: 'block', minHeight: 60 }}
-        data-ad-client="ca-pub-2458567543017441"
-        data-ad-slot="2031881558"
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
-    </div>
-  );
-}
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+function AdminAdsAdBanner() { return <PageAdBanner />; }
 
 type AdStatus = 'pending' | 'active' | 'rejected' | 'paused';
 
@@ -121,6 +102,16 @@ export default function AdminAdsDashboard() {
           type: 'ad_active',
           from_user_id: user!.id,
         }).catch(() => {});
+        // platform_inbox message
+        await supabase.from('platform_inbox').insert({
+          user_id: ad.user_id,
+          subject: '🎉 Your ad is now live!',
+          body: `Your ad "${ad.title}" has been approved and is now live. Users will start seeing it in their feeds.${note ? `\n\nAdmin note: ${note}` : ''}`,
+          type: 'update',
+          icon_emoji: '✅',
+          cta_label: 'View My Ads',
+          cta_url: '/my-ads',
+        }).catch(() => {});
       }
       fetchAds(); fetchStats();
     }
@@ -146,6 +137,16 @@ export default function AdminAdsDashboard() {
           user_id: ad.user_id,
           type: 'ad_rejected',
           from_user_id: user!.id,
+        }).catch(() => {});
+        // platform_inbox message with rejection reason
+        await supabase.from('platform_inbox').insert({
+          user_id: ad.user_id,
+          subject: '❌ Ad not approved',
+          body: `Your ad "${ad.title}" was not approved.\n\nReason: ${note}\n\nYou can edit and resubmit your ad from My Ads page.`,
+          type: 'update',
+          icon_emoji: '❌',
+          cta_label: 'View My Ads',
+          cta_url: '/my-ads',
         }).catch(() => {});
       }
       fetchAds(); fetchStats();
