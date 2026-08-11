@@ -1,4 +1,3 @@
-
 import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon, Crown } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types/app-types';
@@ -38,15 +37,14 @@ interface PostCardProps {
   onUpdate?: () => void;
 }
 
-// Per-post premium status cache to avoid N+1 fetches
+// Module-level cache: post author uid → has active premium
 const premiumCache = new Map<string, boolean>();
 
 export function PostCard({ post, onUpdate }: PostCardProps) {
   const { user } = useAuth();
-  // Check if the post author has premium (for crown badge)
-  const [isAuthorPremium, setIsAuthorPremium] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [isAuthorPremium, setIsAuthorPremium] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [isReposted, setIsReposted] = useState(false);
   const [likesCount, setLikesCount] = useState(post.likes_count);
@@ -69,27 +67,25 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   const [showEditHistory, setShowEditHistory] = useState(false);
   const editHistory: any[] = (post as any).edit_history ?? [];
 
-  // Fetch author premium status once
+  // Fetch author premium status using the static supabase import (no dynamic import)
   useEffect(() => {
     const uid = post.user_id;
     if (premiumCache.has(uid)) {
       setIsAuthorPremium(premiumCache.get(uid)!);
       return;
     }
-    import('@/lib/supabase').then(({ supabase }) => {
-      supabase
-        .from('premium_subscriptions')
-        .select('id')
-        .eq('user_id', uid)
-        .eq('status', 'active')
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle()
-        .then(({ data }) => {
-          const has = !!data;
-          premiumCache.set(uid, has);
-          setIsAuthorPremium(has);
-        });
-    });
+    supabase
+      .from('premium_subscriptions')
+      .select('id')
+      .eq('user_id', uid)
+      .eq('status', 'active')
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle()
+      .then(({ data }) => {
+        const has = !!data;
+        premiumCache.set(uid, has);
+        setIsAuthorPremium(has);
+      });
   }, [post.user_id]);
 
   // Post Reactions
@@ -124,7 +120,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     const prevReaction = userReaction;
 
     if (prevReaction === emoji) {
-      // Remove reaction
       setUserReaction(null);
       setReactionCounts(prev => {
         const updated = { ...prev };
@@ -141,7 +136,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
       }
     } else {
-      // Add / switch reaction
       setUserReaction(emoji);
       setReactionCounts(prev => {
         const updated = { ...prev };
@@ -156,7 +150,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         { post_id: post.id, user_id: user.id, emoji },
         { onConflict: 'post_id,user_id' }
       );
-      // Sync ❤️ with likes table
       if (emoji === '❤️' && !isLiked) {
         const newCount = likesCount + 1;
         setIsLiked(true);
@@ -248,7 +241,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   };
 
   const fetchAnalytics = useCallback(async () => {
-    if (analytics) return; // already loaded
+    if (analytics) return;
     setLoadingAnalytics(true);
     const { data } = await supabase
       .from('post_analytics')
@@ -268,7 +261,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     setShowEngagement(false);
   }, []);
 
-  // Long-press for mobile
   const handleViewsMouseDown = () => {
     tooltipTimer.current = setTimeout(openTooltip, 500);
   };
@@ -315,10 +307,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     setInlinePosting(false);
   };
 
-  const nestReplies = (flat: any[]) => {
-    // For replies table (no parent_reply_id — flat threaded), just show flat
-    return flat;
-  };
+  const nestReplies = (flat: any[]) => flat;
 
   // Tip dialog state
   const [showTipDialog, setShowTipDialog] = useState(false);
@@ -330,32 +319,30 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     if (!user) { navigate('/auth'); return; }
     if (!tipAmount || tipAmount <= 0) return;
     setTippingLoading(true);
-    try { // Added try-catch block here
-      // Use the new platform-cut RPC — 85% to creator, 15% to platform
-        const { error: tipErr } = await supabase.rpc('send_tip_with_platform_cut', {
-          p_from_user_id: user.id,
-          p_to_user_id: post.user_id,
-          p_amount: tipAmount,
-          p_message: tipMessage.trim() || null,
-          p_post_id: post.id,
-        });
-        if (tipErr) {
-          // Fallback to old direct method if RPC not available
-          const { data: wallet } = await supabase.from('user_wallets').select('id,balance').eq('user_id', user.id).maybeSingle();
-          if (!wallet || Number(wallet.balance) < tipAmount) {
-            toast({ title: 'Insufficient balance', description: 'Top up your wallet to send tips', variant: 'destructive' }); return;
-          }
-          await supabase.from('user_wallets').update({ balance: Number(wallet.balance) - tipAmount }).eq('user_id', user.id);
-          await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: post.user_id, amount: tipAmount, message: tipMessage.trim() || null, post_id: post.id });
-          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
-          await supabase.from('creator_earnings').insert({ user_id: post.user_id, source: 'tips', amount: tipAmount, post_id: post.id, status: 'paid' }).catch(() => {});
-        } else {
-          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
+    try {
+      const { error: tipErr } = await supabase.rpc('send_tip_with_platform_cut', {
+        p_from_user_id: user.id,
+        p_to_user_id: post.user_id,
+        p_amount: tipAmount,
+        p_message: tipMessage.trim() || null,
+        p_post_id: post.id,
+      });
+      if (tipErr) {
+        const { data: wallet } = await supabase.from('user_wallets').select('id,balance').eq('user_id', user.id).maybeSingle();
+        if (!wallet || Number(wallet.balance) < tipAmount) {
+          toast({ title: 'Insufficient balance', description: 'Top up your wallet to send tips', variant: 'destructive' }); return;
         }
-        toast({ title: `Tip of $${tipAmount} sent!`, description: `You tipped @${post.user_profiles?.username}` });
-        setShowTipDialog(false);
-        setTipAmount(null);
-        setTipMessage('');
+        await supabase.from('user_wallets').update({ balance: Number(wallet.balance) - tipAmount }).eq('user_id', user.id);
+        await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: post.user_id, amount: tipAmount, message: tipMessage.trim() || null, post_id: post.id });
+        await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
+        await supabase.from('creator_earnings').insert({ user_id: post.user_id, source: 'tips', amount: tipAmount, post_id: post.id, status: 'paid' }).catch(() => {});
+      } else {
+        await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
+      }
+      toast({ title: `Tip of $${tipAmount} sent!`, description: `You tipped @${post.user_profiles?.username}` });
+      setShowTipDialog(false);
+      setTipAmount(null);
+      setTipMessage('');
     } catch (err: any) {
       toast({ title: 'Tip failed', description: err.message, variant: 'destructive' });
     } finally {
@@ -399,138 +386,68 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     videoRef2.current?.play().catch(() => {});
   };
 
-  // Get media URLs (support both legacy single image and new multi-image)
-  const mediaUrls = post.media_urls && post.media_urls.length > 0 
-    ? post.media_urls 
-    : post.image_url 
-      ? [post.image_url] 
+  const mediaUrls = post.media_urls && post.media_urls.length > 0
+    ? post.media_urls
+    : post.image_url
+      ? [post.image_url]
       : [];
 
-  // Determine boost label
   const boostLabel = post.is_boosted
-    ? post.boost_type === 'paid'
-      ? 'Sponsored Content'
-      : 'Boosted Content'
+    ? post.boost_type === 'paid' ? 'Sponsored Content' : 'Boosted Content'
     : null;
 
-  // Fetch poll if it exists
   useEffect(() => {
     const fetchPoll = async () => {
       const { data } = await supabase
         .from('polls')
-        .select(`
-          *,
-          options:poll_options(*)
-        `)
+        .select('*, options:poll_options(*)')
         .eq('post_id', post.id)
         .maybeSingle();
-
       if (data) setPoll(data);
     };
-
     fetchPoll();
   }, [post.id]);
 
-  // Check if user has already liked/reposted this post
   useEffect(() => {
     if (!user) return;
-
     const checkUserInteractions = async () => {
       try {
-        // Check if liked
         const { data: likeData } = await supabase
-          .from('likes')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('post_id', post.id)
-          .maybeSingle();
-
+          .from('likes').select('id').eq('user_id', user.id).eq('post_id', post.id).maybeSingle();
         setIsLiked(!!likeData);
-
-        // Check if reposted
         const { data: repostData } = await supabase
-          .from('reposts')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('post_id', post.id)
-          .maybeSingle();
-
+          .from('reposts').select('id').eq('user_id', user.id).eq('post_id', post.id).maybeSingle();
         setIsReposted(!!repostData);
       } catch (error) {
         console.error('Error checking user interactions:', error);
       }
     };
-
     checkUserInteractions();
   }, [user, post.id]);
 
   const handleLike = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) {
-      navigate('/auth');
-      return;
-    }
-
+    if (!user) { navigate('/auth'); return; }
     const newIsLiked = !isLiked;
     const newCount = newIsLiked ? likesCount + 1 : Math.max(0, likesCount - 1);
-
     setIsLiked(newIsLiked);
     setLikesCount(newCount);
-
     try {
       if (newIsLiked) {
-        const { error: insertError } = await supabase
-          .from('likes')
-          .insert({ user_id: user.id, post_id: post.id });
-        
-        if (insertError) throw insertError;
-
-        const { error: updateError } = await supabase
-          .from('posts')
-          .update({ likes_count: newCount })
-          .eq('id', post.id);
-        
-        if (updateError) throw updateError;
-        
+        await supabase.from('likes').insert({ user_id: user.id, post_id: post.id });
+        await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
         if (post.user_id !== user.id) {
-          await supabase.from('notifications').insert({
-            user_id: post.user_id,
-            type: 'like',
-            from_user_id: user.id,
-            post_id: post.id,
-          });
-          // Send push notification
-          sendActivityNotification({
-            recipientUserId: post.user_id,
-            title: 'New Like',
-            body: `${user.username} liked your post`,
-            data: { route: `/post/${post.id}`, type: 'like' }
-          });
+          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'like', from_user_id: user.id, post_id: post.id });
+          sendActivityNotification({ recipientUserId: post.user_id, title: 'New Like', body: `${user.username} liked your post`, data: { route: `/post/${post.id}`, type: 'like' } });
         }
       } else {
-        const { error: deleteError } = await supabase
-          .from('likes')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('post_id', post.id);
-        
-        if (deleteError) throw deleteError;
-
-        const { error: updateError } = await supabase
-          .from('posts')
-          .update({ likes_count: newCount })
-          .eq('id', post.id);
-        
-        if (updateError) throw updateError;
+        await supabase.from('likes').delete().eq('user_id', user.id).eq('post_id', post.id);
+        await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
       }
       onUpdate?.();
     } catch (error: any) {
       console.error('Like error:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to like post',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message || 'Failed to like post', variant: 'destructive' });
       setIsLiked(!newIsLiked);
       setLikesCount(likesCount);
     }
@@ -538,74 +455,29 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
   const handleRepost = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) {
-      navigate('/auth');
-      return;
-    }
-
+    if (!user) { navigate('/auth'); return; }
     const newIsReposted = !isReposted;
     const newCount = newIsReposted ? repostsCount + 1 : Math.max(0, repostsCount - 1);
-
     setIsReposted(newIsReposted);
     setRepostsCount(newCount);
-
     try {
       if (newIsReposted) {
-        const { error: insertError } = await supabase
-          .from('reposts')
-          .insert({ user_id: user.id, post_id: post.id });
-        
-        if (insertError) throw insertError;
-
-        const { error: updateError } = await supabase
-          .from('posts')
-          .update({ reposts_count: newCount })
-          .eq('id', post.id);
-        
-        if (updateError) throw updateError;
-        
+        await supabase.from('reposts').insert({ user_id: user.id, post_id: post.id });
+        await supabase.from('posts').update({ reposts_count: newCount }).eq('id', post.id);
         if (post.user_id !== user.id) {
-          await supabase.from('notifications').insert({
-            user_id: post.user_id,
-            type: 'repost',
-            from_user_id: user.id,
-            post_id: post.id,
-          });
-          sendActivityNotification({
-            recipientUserId: post.user_id,
-            title: 'New Repost',
-            body: `${user.username} reposted your post`,
-            data: { route: `/post/${post.id}`, type: 'repost' }
-          });
+          await supabase.from('notifications').insert({ user_id: post.user_id, type: 'repost', from_user_id: user.id, post_id: post.id });
+          sendActivityNotification({ recipientUserId: post.user_id, title: 'New Repost', body: `${user.username} reposted your post`, data: { route: `/post/${post.id}`, type: 'repost' } });
         }
-        
         toast({ title: 'Reposted successfully' });
       } else {
-        const { error: deleteError } = await supabase
-          .from('reposts')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('post_id', post.id);
-        
-        if (deleteError) throw deleteError;
-
-        const { error: updateError } = await supabase
-          .from('posts')
-          .update({ reposts_count: newCount })
-          .eq('id', post.id);
-        
-        if (updateError) throw updateError;
-        
+        await supabase.from('reposts').delete().eq('user_id', user.id).eq('post_id', post.id);
+        await supabase.from('posts').update({ reposts_count: newCount }).eq('id', post.id);
         toast({ title: 'Repost removed' });
       }
       onUpdate?.();
     } catch (error: any) {
       console.error('Repost error:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to repost',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message || 'Failed to repost', variant: 'destructive' });
       setIsReposted(!newIsReposted);
       setRepostsCount(repostsCount);
     }
@@ -615,42 +487,21 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     e.stopPropagation();
     const url = `${window.location.origin}/post/${post.id}`;
     const shareText = `${post.content.slice(0, 150)}${post.content.length > 150 ? '\u2026' : ''}`;
-
     const trackShare = () => {
       setShareCount(c => c + 1);
-      // Fire-and-forget analytics increment
-      supabase.from('post_analytics')
-        .select('id, shares')
-        .eq('post_id', post.id)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data?.id) {
-            supabase.from('post_analytics')
-              .update({ shares: (data.shares || 0) + 1 })
-              .eq('id', data.id)
-              .catch(() => {});
-          } else {
-            supabase.from('post_analytics')
-              .insert({ post_id: post.id, shares: 1 })
-              .catch(() => {});
-          }
-        });
+      supabase.from('post_analytics').select('id, shares').eq('post_id', post.id).maybeSingle().then(({ data }) => {
+        if (data?.id) supabase.from('post_analytics').update({ shares: (data.shares || 0) + 1 }).eq('id', data.id).catch(() => {});
+        else supabase.from('post_analytics').insert({ post_id: post.id, shares: 1 }).catch(() => {});
+      });
     };
-
     if (navigator.share) {
       try {
-        await navigator.share({
-          title: `@${post.user_profiles?.username} on Tsocial`,
-          text: shareText,
-          url,
-        });
+        await navigator.share({ title: `@${post.user_profiles?.username} on Tsocial`, text: shareText, url });
         trackShare();
       } catch (err: any) {
-        // User cancelled (AbortError) — do nothing; other errors fall back to dialog
         if (err?.name !== 'AbortError') setShowShareDialog(true);
       }
     } else {
-      // No Web Share API — try clipboard first, then open dialog
       try {
         await navigator.clipboard.writeText(url);
         toast({ title: 'Link copied!', description: 'Post link copied to clipboard' });
@@ -661,67 +512,40 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     }
   };
 
-  const handlePostClick = () => {
-    navigate(`/post/${post.id}`);
-  };
+  const handlePostClick = () => { navigate(`/post/${post.id}`); };
 
   const handleDelete = async () => {
-    if (!window.confirm('Are you sure you want to delete this post? This action cannot be undone.')) {
-      return;
-    }
-
+    if (!window.confirm('Are you sure you want to delete this post? This action cannot be undone.')) return;
     try {
-      const { error } = await supabase
-        .from('posts')
-        .delete()
-        .eq('id', post.id)
-        .eq('user_id', user?.id);
-
+      const { error } = await supabase.from('posts').delete().eq('id', post.id).eq('user_id', user?.id);
       if (error) throw error;
-
       toast({ title: 'Post deleted successfully' });
       onUpdate?.();
     } catch (error: any) {
       console.error('Error deleting post:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to delete post',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message || 'Failed to delete post', variant: 'destructive' });
     }
   };
 
   return (
-    <div 
+    <div
       className="border-b border-border p-4 hover:bg-muted/5 transition-colors cursor-pointer"
       onClick={handlePostClick}
     >
-      {/* Boost label */}
       {boostLabel && (
-        <div className={`flex items-center gap-1.5 text-xs font-semibold mb-2 px-1 ${
-          boostLabel === 'Sponsored Content'
-            ? 'text-blue-500'
-            : 'text-amber-500'
-        }`}>
+        <div className={`flex items-center gap-1.5 text-xs font-semibold mb-2 px-1 ${boostLabel === 'Sponsored Content' ? 'text-blue-500' : 'text-amber-500'}`}>
           {boostLabel === 'Sponsored Content'
             ? <><TrendingUp className="w-3 h-3" /> Sponsored Content</>
             : <><Zap className="w-3 h-3" /> Boosted Content</>}
         </div>
       )}
       <div className="flex space-x-3">
-        <div 
+        <div
           className="w-10 h-10 rounded-full bg-muted flex-shrink-0 overflow-hidden cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/profile/${post.user_profiles?.username}`);
-          }}
+          onClick={(e) => { e.stopPropagation(); navigate(`/profile/${post.user_profiles?.username}`); }}
         >
           {post.user_profiles?.avatar_url ? (
-            <img
-              src={post.user_profiles.avatar_url}
-              alt={post.user_profiles.username}
-              className="w-full h-full object-cover"
-            />
+            <img src={post.user_profiles.avatar_url} alt={post.user_profiles.username} className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-sm font-semibold">
               {post.user_profiles?.username[0]?.toUpperCase()}
@@ -731,25 +555,18 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
-            <div 
+            <div
               className="flex items-center space-x-1 min-w-0 cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/profile/${post.user_profiles?.username}`);
-              }}
+              onClick={(e) => { e.stopPropagation(); navigate(`/profile/${post.user_profiles?.username}`); }}
             >
-              <span className="font-bold text-foreground truncate">
-                {post.user_profiles?.username}
-              </span>
+              <span className="font-bold text-foreground truncate">{post.user_profiles?.username}</span>
               {post.user_profiles?.verified && (
                 <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" fill="currentColor" />
               )}
               {isAuthorPremium && (
                 <Crown className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="currentColor" title="Premium Member" />
               )}
-              <span className="text-muted-foreground text-sm truncate">
-                @{post.user_profiles?.username}
-              </span>
+              <span className="text-muted-foreground text-sm truncate">@{post.user_profiles?.username}</span>
               <span className="text-muted-foreground text-sm flex-shrink-0">·</span>
               <span className="text-muted-foreground text-sm flex-shrink-0">
                 {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
@@ -757,71 +574,42 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             </div>
             {user?.id === post.user_id && (
               <div className="relative flex-shrink-0">
-                <button 
+                <button
                   className="text-muted-foreground hover:text-primary p-2 -mr-2"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowDeleteMenu(!showDeleteMenu);
-                  }}
+                  onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(!showDeleteMenu); }}
                   title="Options"
                 >
                   <MoreHorizontal className="w-5 h-5" />
                 </button>
                 {showDeleteMenu && (
                   <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowDeleteMenu(false);
-                      }}
-                    />
+                    <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(false); }} />
                     <div className="absolute right-0 mt-2 w-48 bg-background border border-border rounded-lg shadow-lg z-50">
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowEditDialog(true);
-                          setShowDeleteMenu(false);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); setShowEditDialog(true); setShowDeleteMenu(false); }}
                         className="w-full text-left px-4 py-3 hover:bg-muted flex items-center gap-2 rounded-t-lg"
                       >
-                        <MoreHorizontal className="w-4 h-4" />
-                        Edit post
+                        <MoreHorizontal className="w-4 h-4" /> Edit post
                       </button>
                       {editHistory.length > 0 && (
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowEditHistory(true);
-                            setShowDeleteMenu(false);
-                          }}
+                          onClick={(e) => { e.stopPropagation(); setShowEditHistory(true); setShowDeleteMenu(false); }}
                           className="w-full text-left px-4 py-3 hover:bg-muted flex items-center gap-2"
                         >
-                          <History className="w-4 h-4 text-blue-500" />
-                          Edit History
+                          <History className="w-4 h-4 text-blue-500" /> Edit History
                         </button>
                       )}
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowDeleteMenu(false);
-                          navigate(`/post-analytics/${post.id}`);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(false); navigate(`/post-analytics/${post.id}`); }}
                         className="w-full text-left px-4 py-3 hover:bg-muted flex items-center gap-2"
                       >
-                        <BarChart3 className="w-4 h-4 text-blue-500" />
-                        Post Analytics
+                        <BarChart3 className="w-4 h-4 text-blue-500" /> Post Analytics
                       </button>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowDeleteMenu(false);
-                          handleDelete();
-                        }}
+                        onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(false); handleDelete(); }}
                         className="w-full text-left px-4 py-3 hover:bg-destructive/10 text-destructive flex items-center gap-2 rounded-b-lg"
                       >
-                        <Trash2 className="w-4 h-4" />
-                        Delete post
+                        <Trash2 className="w-4 h-4" /> Delete post
                       </button>
                     </div>
                   </>
@@ -830,15 +618,10 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             )}
           </div>
 
-          <div 
+          <div
             className="post-content text-foreground mt-1 whitespace-pre-wrap break-words"
             dangerouslySetInnerHTML={{ __html: parseContent(showTranslation && translatedContent ? translatedContent : post.content) }}
-            onClick={(e) => {
-              const target = e.target as HTMLElement;
-              if (target.tagName === 'A') {
-                e.stopPropagation();
-              }
-            }}
+            onClick={(e) => { const target = e.target as HTMLElement; if (target.tagName === 'A') e.stopPropagation(); }}
           />
 
           {/* Translate button with multi-language picker */}
@@ -849,13 +632,9 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                   onClick={handleTranslate}
                   className={`flex items-center gap-1 text-xs font-medium transition-colors ${showTranslation ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
                 >
-                  {translating
-                    ? <TransLoader className="w-3 h-3 animate-spin" />
-                    : <Languages className="w-3 h-3" />
-                  }
+                  {translating ? <TransLoader className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
                   {translating ? 'Translating…' : showTranslation ? 'Show original' : 'Translate'}
                 </button>
-                {/* Language picker toggle */}
                 {!showTranslation && !translating && (
                   <button
                     onClick={e => { e.stopPropagation(); setShowLangPicker(p => !p); }}
@@ -875,9 +654,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                       <button
                         key={lang.code}
                         onClick={e => { setTargetLang(lang.code); handleTranslate(e, lang.code); }}
-                        className={`flex items-center gap-2 w-full px-3 py-2.5 text-xs font-medium hover:bg-muted transition-colors text-left ${
-                          targetLang === lang.code ? 'bg-primary/5 text-primary' : ''
-                        }`}
+                        className={`flex items-center gap-2 w-full px-3 py-2.5 text-xs font-medium hover:bg-muted transition-colors text-left ${targetLang === lang.code ? 'bg-primary/5 text-primary' : ''}`}
                       >
                         <span>{lang.flag}</span>{lang.label}
                       </button>
@@ -925,21 +702,11 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             <div className={`mt-3 gap-2 rounded-2xl overflow-hidden ${
               mediaUrls.length === 1 ? 'grid grid-cols-1' :
               mediaUrls.length === 2 ? 'grid grid-cols-2' :
-              mediaUrls.length === 3 ? 'grid grid-cols-2' :
               'grid grid-cols-2'
             }`}>
               {mediaUrls.map((url: string, index: number) => (
-                <div 
-                  key={index}
-                  className={`relative overflow-hidden ${
-                    mediaUrls.length === 3 && index === 0 ? 'col-span-2' : ''
-                  }`}
-                >
-                  <img 
-                    src={url} 
-                    alt={`Post media ${index + 1}`} 
-                    className="w-full h-full object-cover max-h-96" 
-                  />
+                <div key={index} className={`relative overflow-hidden ${mediaUrls.length === 3 && index === 0 ? 'col-span-2' : ''}`}>
+                  <img src={url} alt={`Post media ${index + 1}`} className="w-full h-full object-cover max-h-96" />
                 </div>
               ))}
             </div>
@@ -985,7 +752,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               <BarChart3 className="w-3 h-3 opacity-40" />
             </button>
 
-            {/* Tooltip popover */}
             {showEngagement && (
               <div
                 ref={tooltipRef}
@@ -1019,14 +785,13 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                     </div>
                   </div>
                 ) : null}
-                {/* Arrow */}
                 <div className="absolute -bottom-1.5 left-4 w-3 h-3 bg-background border-r border-b border-border rotate-45" />
               </div>
             )}
           </div>
 
           <div className="flex justify-between mt-3 max-w-md">
-            <button 
+            <button
               className="flex items-center space-x-2 text-muted-foreground hover:text-primary transition-colors group"
               onClick={toggleComments}
             >
@@ -1039,10 +804,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
             <button
               onClick={handleRepost}
-              className={cn(
-                'flex items-center space-x-2 transition-colors group',
-                isReposted ? 'text-green-500' : 'text-muted-foreground hover:text-green-500'
-              )}
+              className={cn('flex items-center space-x-2 transition-colors group', isReposted ? 'text-green-500' : 'text-muted-foreground hover:text-green-500')}
             >
               <div className="p-2 rounded-full group-hover:bg-green-500/10 transition-colors">
                 <Repeat2 className="w-5 h-5" />
@@ -1056,19 +818,13 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 onClick={(e) => { e.stopPropagation(); setShowReactionPicker(p => !p); }}
                 onMouseEnter={() => setShowReactionPicker(true)}
                 onMouseLeave={() => setShowReactionPicker(false)}
-                className={cn(
-                  'flex items-center space-x-1.5 transition-colors group',
-                  userReaction ? 'text-pink-600' : 'text-muted-foreground hover:text-pink-600'
-                )}
+                className={cn('flex items-center space-x-1.5 transition-colors group', userReaction ? 'text-pink-600' : 'text-muted-foreground hover:text-pink-600')}
               >
                 <div className="p-2 rounded-full group-hover:bg-pink-600/10 transition-colors">
-                  {userReaction
-                    ? <span className="text-base leading-none">{userReaction}</span>
-                    : <Heart className="w-5 h-5" />}
+                  {userReaction ? <span className="text-base leading-none">{userReaction}</span> : <Heart className="w-5 h-5" />}
                 </div>
                 <span className="text-sm">{formatNumber(likesCount)}</span>
               </button>
-              {/* Reaction picker flyout */}
               {showReactionPicker && (
                 <div
                   className="absolute bottom-full mb-1 left-0 flex gap-0.5 bg-background border border-border rounded-full px-2 py-1.5 shadow-xl z-50"
@@ -1093,7 +849,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               )}
             </div>
 
-            <button 
+            <button
               className="flex items-center space-x-2 text-muted-foreground hover:text-primary transition-colors group"
               onClick={handleNativeShare}
             >
@@ -1107,7 +863,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               <BookmarkButton postId={post.id} />
             </div>
 
-            {/* Tip + Report buttons — only for other people's posts */}
             {user && user.id !== post.user_id && (
               <button
                 className="flex items-center space-x-2 text-muted-foreground hover:text-amber-500 transition-colors group"
@@ -1135,10 +890,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               <>
                 <button
                   className="flex items-center space-x-2 text-muted-foreground hover:text-primary transition-colors group"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowOneClickBoost(true);
-                  }}
+                  onClick={(e) => { e.stopPropagation(); setShowOneClickBoost(true); }}
                   title="Boost Post"
                 >
                   <div className="p-2 rounded-full group-hover:bg-primary/10 transition-colors">
@@ -1147,10 +899,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 </button>
                 <button
                   className="flex items-center space-x-2 text-muted-foreground hover:text-amber-500 transition-colors group"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowRewardedBoost(true);
-                  }}
+                  onClick={(e) => { e.stopPropagation(); setShowRewardedBoost(true); }}
                   title="Free Boost (Watch Ad)"
                 >
                   <div className="p-2 rounded-full group-hover:bg-amber-500/10 transition-colors">
@@ -1166,7 +915,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
       {/* ── Inline Comment Thread ──────────────────────────────────── */}
       {showComments && (
         <div className="mt-2 border-t border-border pt-3 space-y-3" onClick={e => e.stopPropagation()}>
-          {/* Comment input */}
           {user && (
             <div className="flex items-start gap-2 px-1">
               <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0 mt-1">
@@ -1195,7 +943,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             </div>
           )}
 
-          {/* Comment list */}
           {inlineLoading ? (
             <div className="flex justify-center py-3">
               <TransLoader className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -1206,10 +953,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             <div className="space-y-0.5">
               {nestReplies(inlineReplies).slice(0, expandedReplies.has('all') ? 999 : 5).map((reply: any) => (
                 <div key={reply.id} className="flex gap-2 px-1 py-2 rounded-xl hover:bg-muted/30 transition-colors group">
-                  <button
-                    onClick={() => navigate(`/profile/${reply.user_profiles?.username}`)}
-                    className="shrink-0"
-                  >
+                  <button onClick={() => navigate(`/profile/${reply.user_profiles?.username}`)} className="shrink-0">
                     <div className="w-7 h-7 rounded-full bg-muted overflow-hidden">
                       {reply.user_profiles?.avatar_url
                         ? <img src={reply.user_profiles.avatar_url} alt={reply.user_profiles.username} className="w-full h-full object-cover" />
@@ -1225,7 +969,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                       </span>
                     </div>
                     <p className="text-sm leading-relaxed mt-0.5 break-words">{reply.content}</p>
-                    {/* Reply to comment */}
                     {user && (
                       <button
                         onClick={() => setReplyingToId(replyingToId === reply.id ? null : reply.id)}
@@ -1246,8 +989,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                           autoFocus
                           maxLength={280}
                         />
-                        <button onClick={() => postInlineReply(reply.id)} disabled={!replyText.trim()}
-                          className="text-primary disabled:opacity-30">
+                        <button onClick={() => postInlineReply(reply.id)} disabled={!replyText.trim()} className="text-primary disabled:opacity-30">
                           <SendIcon className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -1255,14 +997,9 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                   </div>
                 </div>
               ))}
-              {/* Show more / less toggle */}
               {inlineReplies.length > 5 && (
                 <button
-                  onClick={() => setExpandedReplies(prev => {
-                    const n = new Set(prev);
-                    if (n.has('all')) n.delete('all'); else n.add('all');
-                    return n;
-                  })}
+                  onClick={() => setExpandedReplies(prev => { const n = new Set(prev); if (n.has('all')) n.delete('all'); else n.add('all'); return n; })}
                   className="w-full text-xs text-primary font-semibold py-2 hover:bg-primary/5 rounded-xl transition-colors flex items-center justify-center gap-1"
                 >
                   {expandedReplies.has('all')
@@ -1283,37 +1020,21 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         </div>
       )}
 
-      <SharePostDialog
-        open={showShareDialog}
-        onOpenChange={setShowShareDialog}
-        post={post}
-      />
+      <SharePostDialog open={showShareDialog} onOpenChange={setShowShareDialog} post={post} />
 
-      {/* ── Edit History Bottom Sheet ── */}
       {showEditHistory && editHistory.length > 0 && (
-        <div
-          className="fixed inset-0 z-[250] bg-black/60"
-          onClick={(e) => { e.stopPropagation(); setShowEditHistory(false); }}
-        >
-          <div
-            className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl max-h-[80vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
+        <div className="fixed inset-0 z-[250] bg-black/60" onClick={(e) => { e.stopPropagation(); setShowEditHistory(false); }}>
+          <div className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <History className="w-5 h-5 text-blue-500" />
                 <h2 className="font-bold text-base">Edit History</h2>
                 <span className="text-xs bg-blue-500/10 text-blue-600 font-semibold px-2 py-0.5 rounded-full">{editHistory.length} edit{editHistory.length !== 1 ? 's' : ''}</span>
               </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowEditHistory(false); }}
-                className="p-2 rounded-full hover:bg-muted transition-colors"
-              >
+              <button onClick={(e) => { e.stopPropagation(); setShowEditHistory(false); }} className="p-2 rounded-full hover:bg-muted transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            {/* Current version */}
             <div className="px-5 py-4 border-b border-border bg-green-500/3">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-green-600 bg-green-500/10 px-2 py-0.5 rounded-full">Current</span>
@@ -1325,7 +1046,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               </div>
               <p className="text-sm leading-relaxed whitespace-pre-wrap break-words text-green-800 dark:text-green-300 bg-green-500/5 rounded-xl px-3 py-2.5">{post.content}</p>
             </div>
-            {/* Previous versions — most-recent first */}
             {[...editHistory].reverse().map((entry: any, idx: number) => (
               <div key={idx} className="px-5 py-4 border-b border-border last:border-0">
                 <div className="flex items-center gap-2 mb-2">
@@ -1345,7 +1065,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         </div>
       )}
 
-      {/* Tip Dialog */}
       {showTipDialog && (
         <div className="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center p-4" onClick={(e) => { e.stopPropagation(); setShowTipDialog(false); }}>
           <div className="bg-background border border-border rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -1363,9 +1082,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             <div className="grid grid-cols-3 gap-2 mb-4">
               {[1, 5, 10].map(amt => (
                 <button key={amt} onClick={() => setTipAmount(tipAmount === amt ? null : amt)}
-                  className={`py-3 rounded-xl font-bold text-lg border-2 transition-all ${
-                    tipAmount === amt ? 'border-amber-500 bg-amber-500/10 text-amber-600' : 'border-border hover:border-amber-400'
-                  }`}>${amt}</button>
+                  className={`py-3 rounded-xl font-bold text-lg border-2 transition-all ${tipAmount === amt ? 'border-amber-500 bg-amber-500/10 text-amber-600' : 'border-border hover:border-amber-400'}`}>${amt}</button>
               ))}
             </div>
             <input
@@ -1383,8 +1100,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               className="w-full px-3 py-2 border border-border rounded-xl text-sm bg-background mb-4 focus:outline-none focus:ring-2 focus:ring-amber-500/30 resize-none"
             />
             <div className="flex gap-2">
-              <button onClick={() => { setShowTipDialog(false); setTipAmount(null); setTipMessage(''); }}
-                className="flex-1 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted">Cancel</button>
+              <button onClick={() => { setShowTipDialog(false); setTipAmount(null); setTipMessage(''); }} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted">Cancel</button>
               <button onClick={handleSendTip} disabled={!tipAmount || tippingLoading}
                 className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-1.5">
                 {tippingLoading ? <TransLoader className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
@@ -1395,7 +1111,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         </div>
       )}
 
-      {/* Report Dialog */}
       {showReportDialog && (
         <div className="fixed inset-0 z-[350] bg-black/60" onClick={(e) => { e.stopPropagation(); setShowReportDialog(false); }}>
           <div className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1411,9 +1126,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             <div className="space-y-2">
               {REPORT_CATEGORIES.map(cat => (
                 <button key={cat.id} onClick={() => setReportCategory(cat.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${
-                    reportCategory === cat.id ? 'border-red-500 bg-red-500/5' : 'border-border hover:border-red-500/30 hover:bg-red-500/3'
-                  }`}>
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all ${reportCategory === cat.id ? 'border-red-500 bg-red-500/5' : 'border-border hover:border-red-500/30 hover:bg-red-500/3'}`}>
                   <span className="text-xl shrink-0">{cat.emoji}</span>
                   <div className="flex-1">
                     <p className="text-sm font-semibold">{cat.label}</p>
@@ -1443,27 +1156,16 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             open={showEditDialog}
             onOpenChange={setShowEditDialog}
             post={post}
-            onSuccess={() => {
-              onUpdate?.();
-              toast({ title: 'Post updated' });
-            }}
+            onSuccess={() => { onUpdate?.(); toast({ title: 'Post updated' }); }}
           />
-          <BoostPostDialog
-            open={showBoostDialog}
-            onOpenChange={setShowBoostDialog}
-            postId={post.id}
-          />
+          <BoostPostDialog open={showBoostDialog} onOpenChange={setShowBoostDialog} postId={post.id} />
           <Dialog open={showOneClickBoost} onOpenChange={setShowOneClickBoost}>
             <DialogContent className="max-w-lg max-h-[92vh] flex flex-col p-0 overflow-hidden">
               <DialogHeader className="px-6 pt-5 pb-2 shrink-0 border-b border-border">
                 <DialogTitle>Boost Your Post</DialogTitle>
               </DialogHeader>
               <div className="overflow-y-auto flex-1 px-6 py-4">
-                <OneClickBoost
-                  postId={post.id}
-                  postContent={post.content}
-                  onClose={() => setShowOneClickBoost(false)}
-                />
+                <OneClickBoost postId={post.id} postContent={post.content} onClose={() => setShowOneClickBoost(false)} />
               </div>
             </DialogContent>
           </Dialog>
