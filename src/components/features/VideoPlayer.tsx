@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Heart, MessageCircle, Repeat2, Share, Volume2, VolumeX,
   Play, DollarSign, Crown, BadgeCheck, X, Send, Loader2,
-  UserPlus, UserCheck, Quote, Copy, Check, Bookmark, BookmarkCheck, Layers,
+  UserPlus, UserCheck, Quote, Copy, Check, Bookmark, BookmarkCheck, Layers, Download,
 } from 'lucide-react';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
@@ -465,6 +465,37 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     );
   };
 
+  /* ── Video download ──────────────────────────────────────────────────── */
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    if (!post.video_url) return;
+    // Blob downloads are blocked on iOS Safari — detect and skip
+    const isIosSafari = /iphone|ipad|ipod/i.test(navigator.userAgent) && !/chrome|crios|fxios/i.test(navigator.userAgent);
+    if (isIosSafari) {
+      // On iOS, open the URL directly — Safari will offer a save option
+      window.open(post.video_url, '_blank');
+      return;
+    }
+    setDownloading(true);
+    try {
+      const res = await fetch(post.video_url);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `video-${post.id}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+    } catch {
+      toast({ title: 'Download failed', description: 'Could not download this video' });
+    } finally {
+      setDownloading(false);
+      setShowShareSheet(false);
+    }
+  };
+
   /* ── Share ───────────────────────────────────────────────────────────── */
   // Build URL lazily inside callbacks — avoids window.location at render scope
   const getPostUrl = () => `${window.location.origin}/post/${post.id}`;
@@ -912,6 +943,22 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
                   <p className="text-white/50 text-xs">Share privately with a follower</p>
                 </div>
               </button>
+              {/* Download video — hidden on iOS Safari where blob download is blocked */}
+              {post.is_video && post.video_url && (
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors text-left disabled:opacity-60"
+                >
+                  <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                    {downloading ? <Loader2 className="w-5 h-5 text-white animate-spin" /> : <Download className="w-5 h-5 text-white" />}
+                  </div>
+                  <div>
+                    <p className="text-white font-semibold text-sm">{downloading ? 'Downloading…' : 'Download Video'}</p>
+                    <p className="text-white/50 text-xs">Save to your device</p>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </div>

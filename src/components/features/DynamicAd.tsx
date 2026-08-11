@@ -17,7 +17,7 @@ interface AdPlacement {
 }
 
 // Track slots already pushed to avoid double-push
-const pushedSlots = new Set<string>();
+const pushedSlots: Set<string> = /* @__PURE__ */ new Set<string>();
 
 export function DynamicAd({ location, className = '' }: DynamicAdProps) {
   const [adPlacements, setAdPlacements] = useState<AdPlacement[]>([]);
@@ -66,34 +66,55 @@ export function DynamicAd({ location, className = '' }: DynamicAdProps) {
 }
 
 function WebAdSense({ adSlot, adId, onLoad }: { adSlot: string; adId: string; onLoad: () => void }) {
-  const insRef = useRef<HTMLModElement>(null);
-  const key = `${adId}-${adSlot}`;
+  const insRef  = useRef<HTMLModElement>(null);
+  const key     = `${adId}-${adSlot}`;
+  const [filled, setFilled] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (pushedSlots.has(key)) return;
     const timer = setTimeout(() => {
       try {
         if (typeof window !== 'undefined') {
-          window.adsbygoogle = window.adsbygoogle || [];
-          window.adsbygoogle.push({});
+          ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
           pushedSlots.add(key);
           onLoad();
         }
       } catch (_) {}
     }, 300);
-    return () => clearTimeout(timer);
-  }, [key, onLoad]); // Removed the eslint-disable-next-line comment
+
+    // Check fill status after AdSense has had time to respond
+    const checkFill = () => {
+      const el = insRef.current;
+      if (!el) { setFilled(false); return; }
+      const status = el.getAttribute('data-ad-status');
+      if (status === 'unfilled') { setFilled(false); return; }
+      setFilled(el.children.length > 0 || (el as any).offsetHeight > 4);
+    };
+    const t1 = setTimeout(checkFill, 1800);
+    const t2 = setTimeout(checkFill, 3500);
+
+    return () => { clearTimeout(timer); clearTimeout(t1); clearTimeout(t2); };
+  }, [key, onLoad]);
+
+  // Collapse completely if unfilled — no dead space
+  if (filled === false) return null;
 
   return (
     <div>
-      <p className="text-[10px] text-center text-muted-foreground/50 mb-0.5 uppercase tracking-wider">Sponsored</p>
+      {/* Native-style ad label */}
+      <div className="flex items-center gap-1.5 mb-1 px-1">
+        <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50">Sponsored</span>
+        <span className="text-[9px] font-bold uppercase tracking-widest px-1 py-0.5 rounded-sm bg-amber-500/10 text-amber-500 border border-amber-500/15">Ad</span>
+      </div>
+      {/* No minHeight — collapses if empty */}
       <ins
         ref={insRef}
         className="adsbygoogle"
-        style={{ display: 'block', minHeight: 60 }}
-        data-ad-client="ca-app-pub-7234579833875016"
+        style={{ display: 'block' }}
+        data-ad-client="ca-pub-2458567543017441"
         data-ad-slot={adSlot}
-        data-ad-format="auto"
+        data-ad-format="fluid"
+        data-ad-layout="in-article"
         data-full-width-responsive="true"
       />
     </div>

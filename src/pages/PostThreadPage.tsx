@@ -16,24 +16,9 @@ import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
 
-function PostThreadAdBanner() {
-  const ref = useRef(false);
-  useEffect(() => {
-    if (ref.current) return;
-    ref.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
-  return (
-    <ins
-      className="adsbygoogle"
-      style={{ display: 'block' }}
-      data-ad-client="ca-pub-2458567543017441"
-      data-ad-slot="2031881558"
-      data-ad-format="auto"
-      data-full-width-responsive="true"
-    />
-  );
-}
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+
+function PostThreadAdBanner() { return <PageAdBanner />; }
 
 interface Reply {
   id: string;

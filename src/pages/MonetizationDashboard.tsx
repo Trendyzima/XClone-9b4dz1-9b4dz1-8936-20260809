@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -17,28 +18,9 @@ import {
   ResponsiveContainer, Legend, PieChart, Pie, Cell
 } from 'recharts';
 
-// ── AdSense banner — push-guarded ─────────────────────────────────────────────
-function MonetizationAdBanner() {
-  const pushed = useRef(false);
-  useEffect(() => {
-    if (pushed.current) return;
-    pushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
-  return (
-    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
-      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
-      <ins
-        className="adsbygoogle"
-        style={{ display: 'block', minHeight: 60 }}
-        data-ad-client="ca-pub-2458567543017441"
-        data-ad-slot="2031881558"
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
-    </div>
-  );
-}
+// ── AdSense banner ───────────────────────────────────────────────────────────
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+function MonetizationAdBanner() { return <PageAdBanner />; }
 const MON_MIN_FOLLOWERS = 500;
 const MON_MIN_POSTS     = 3000;
 const MON_MIN_VIDEOS    = 100;
@@ -332,8 +314,8 @@ export function MonetizationDashboard() {
                   <div>
                     <h2 className="text-lg font-bold">{isEligible ? "You're eligible to monetize!" : 'Unlock Monetization'}</h2>
                     <p className="text-sm text-muted-foreground">
-                      {isEligible ? `You've reached ${MONETIZATION_THRESHOLD.toLocaleString()} followers. Start earning!`
-                        : `Reach ${MONETIZATION_THRESHOLD.toLocaleString()} followers to unlock monetization`}
+                      {isEligible ? `You've reached ${MON_MIN_FOLLOWERS.toLocaleString()} followers. Start earning!`
+                        : `Reach ${MON_MIN_FOLLOWERS.toLocaleString()} followers to unlock monetization`}
                     </p>
                   </div>
                 </div>
@@ -341,7 +323,7 @@ export function MonetizationDashboard() {
                   <div className="mb-4">
                     <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
                       <span>{subscriberCount.toLocaleString()} followers</span>
-                      <span>{MONETIZATION_THRESHOLD.toLocaleString()} required</span>
+                      <span>{MON_MIN_FOLLOWERS.toLocaleString()} required</span>
                     </div>
                     <div className="h-2.5 bg-muted rounded-full overflow-hidden">
                       <div className="h-full bg-gradient-to-r from-primary to-green-500 rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
