@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { VideoPlayer } from '@/components/features/VideoPlayer';
 import { supabase } from '@/lib/supabase';
 import { Post } from '@/types/app-types';
-import { Loader2, Gift, X, Zap, Play, TrendingUp } from 'lucide-react';
+import { Loader2, Gift, X, Zap, Play } from 'lucide-react';
 import { initAdMob, showInterstitial, showRewarded, ADMOB_CONFIG } from '@/lib/admob';
 import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
