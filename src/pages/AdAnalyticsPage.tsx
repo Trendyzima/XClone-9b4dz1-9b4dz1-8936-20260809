@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -16,6 +16,28 @@ import {
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow, subDays, format } from 'date-fns';
+
+function AdAnalyticsAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 export default function AdAnalyticsPage() {
   useSEO({ noindex: true, title: 'Ad Analytics', url: '/ad-analytics' });
@@ -136,6 +158,8 @@ export default function AdAnalyticsPage() {
     return (
       <div className="min-h-screen bg-background pb-16">
         <TopBar title="Ad Analytics" showBack />
+      <AdAnalyticsAdBanner />
+        <AdAnalyticsAdBanner />
         <div className="flex items-center justify-center py-24">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
@@ -158,6 +182,7 @@ export default function AdAnalyticsPage() {
   return (
     <div className="min-h-screen bg-background pb-20">
       <TopBar title="Ad Analytics" showBack />
+      <AdAnalyticsAdBanner />
 
       <div className="max-w-3xl mx-auto p-4 space-y-5">
         {/* Platform overview cards */}

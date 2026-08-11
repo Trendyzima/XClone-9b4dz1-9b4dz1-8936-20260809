@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -6,6 +6,28 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { Check, Loader2, Sparkles, ArrowRight, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+
+function InterestsAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 interface InterestCategory {
   label: string;
@@ -218,6 +240,7 @@ export default function InterestOnboardingPage() {
   return (
     <div className="min-h-screen bg-background pb-32">
       <TopBar title="Your Interests" showBack />
+      <InterestsAdBanner />
 
       {/* Hero */}
       <div className="px-4 py-5 border-b border-border bg-gradient-to-br from-primary/5 to-transparent">

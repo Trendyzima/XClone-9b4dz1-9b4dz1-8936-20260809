@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -16,6 +16,28 @@ import {
 import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+
+function BoostAnalyticsAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
@@ -112,6 +134,8 @@ export default function BoostAnalyticsPage() {
     return (
       <div className="min-h-screen bg-background pb-16">
         <TopBar title="Boost Analytics" showBack />
+      <BoostAnalyticsAdBanner />
+        <BoostAnalyticsAdBanner />
         <div className="max-w-2xl mx-auto p-6 text-center py-20">
           <AlertCircle className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
           <h2 className="text-xl font-bold mb-2">No Active Boost</h2>
@@ -153,6 +177,7 @@ export default function BoostAnalyticsPage() {
   return (
     <div className="min-h-screen bg-background pb-20">
       <TopBar title="Boost Analytics" showBack />
+      <BoostAnalyticsAdBanner />
 
       <div className="max-w-4xl mx-auto p-4 space-y-5">
 

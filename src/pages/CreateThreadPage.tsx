@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,28 @@ import { Loader2, Image as ImageIcon, Video as VideoIcon, X, Wand2, Sparkles } f
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 import { pingGoogleSitemap } from '@/lib/pingGoogle';
+
+function CreateThreadAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 export default function CreateThreadPage() {
   useSEO({ noindex: true, title: 'Create Thread', url: '/create-thread' });
@@ -230,6 +252,7 @@ export default function CreateThreadPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Create Thread" showBack />
+      <CreateThreadAdBanner />
 
       <div className="max-w-2xl mx-auto p-4 space-y-6">
         <div>
