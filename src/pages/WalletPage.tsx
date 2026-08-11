@@ -76,15 +76,16 @@ function getLoyaltyTier(totalDeposited: number) {
 }
 
 function verifyBiometric(credentialId: string): Promise<boolean> {
-  const allowed = [{ type: 'public-key' as const, id: Uint8Array.from(atob(credentialId), (c: string) => c.charCodeAt(0)) }];
-  return navigator.credentials.get({
+  const rawId = Uint8Array.from(atob(credentialId), ch => ch.charCodeAt(0));
+  const opts: any = {
     publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: allowed,
+      allowCredentials: [{ type: 'public-key', id: rawId }],
       userVerification: 'required',
       timeout: 60000,
     },
-  }).then(c => !!c).catch(() => false);
+  };
+  return navigator.credentials.get(opts).then(c => !!c).catch(() => false);
 }
 
 // ── Currency Badge ────────────────────────────────────────────────────────
@@ -103,8 +104,10 @@ function CurrencyBadge({ currency, onChange }: { currency: CurrencyCode; onChang
 
 // ── Loyalty Badge ─────────────────────────────────────────────────────────
 function LoyaltyBadge({ totalDeposited }: { totalDeposited: number }) {
-  const tier = getLoyaltyTier(totalDeposited);
-  const nextTier = LOYALTY_TIERS.find(t => t.min > totalDeposited);
+  const { tier, nextTier } = useMemo(() => ({
+    tier: getLoyaltyTier(totalDeposited),
+    nextTier: LOYALTY_TIERS.find(t => t.min > totalDeposited),
+  }), [totalDeposited]);
   return (
     <div className="flex flex-col gap-0.5">
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black border ${tier.bg} ${tier.border} ${tier.color}`}>
