@@ -1,7 +1,6 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function DiscoverAdBanner() { return <PageAdBanner />; }
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Link } from 'react-router-dom';
@@ -40,6 +39,7 @@ const REASON_LABELS: Record<string, string> = {
   active: 'Very active',
 };
 
+function DiscoverAdBanner() { return <PageAdBanner />; }
 export default function DiscoverPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('suggested');

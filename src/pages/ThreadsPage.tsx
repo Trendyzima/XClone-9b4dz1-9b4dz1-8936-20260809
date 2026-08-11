@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function ThreadsAdBanner() { return <PageAdBanner />; }
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
@@ -30,6 +29,7 @@ interface Thread {
   };
 }
 
+function ThreadsAdBanner() { return <PageAdBanner />; }
 export default function ThreadsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();

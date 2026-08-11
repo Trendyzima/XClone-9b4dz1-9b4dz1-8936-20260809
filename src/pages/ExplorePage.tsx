@@ -1,7 +1,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function ExploreAdBanner() { return <PageAdBanner />; }
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
@@ -16,6 +15,7 @@ import { useSEO } from '@/hooks/useSEO';
 
 type ExploreTab = 'Explore' | 'Trending' | 'News' | 'Sports' | 'Entertainment';
 
+function ExploreAdBanner() { return <PageAdBanner />; }
 export default function ExplorePage() {
   const { user } = useAuth();
   const navigate = useNavigate();

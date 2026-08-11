@@ -1,7 +1,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function LiveStreamAdBanner() { return <PageAdBanner />; }
 import { useSEO } from '@/hooks/useSEO';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -34,6 +33,7 @@ interface FloatReaction {
 
 const REACTION_EMOJIS = ['❤️', '🔥', '😂', '👏', '😮', '🎉'];
 
+function LiveStreamAdBanner() { return <PageAdBanner />; }
 export default function LiveStreamPage() {
   const { streamId } = useParams();
   const { user } = useAuth();
@@ -525,26 +525,3 @@ export default function LiveStreamPage() {
   );
 }
 
-// ── AdSense banner sub-component (push-guarded) ───────────────────────────────
-// ad banner — defined above
-function UnusedLiveStreamAdBanner() { // Renamed to avoid name collision with the first LiveStreamAdBanner
-  const pushed = useRef(false);
-  useEffect(() => {
-    if (pushed.current) return;
-    pushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
-  return (
-    <div className="bg-background border-t border-border px-4 py-3">
-      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
-      <ins
-        className="adsbygoogle"
-        style={{ display: 'block', minHeight: 60 }}
-        data-ad-client="ca-pub-2458567543017441"
-        data-ad-slot="2031881558"
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
-    </div>
-  );
-}
