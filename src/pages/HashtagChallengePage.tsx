@@ -11,6 +11,7 @@ import {
 import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow, isPast, format } from 'date-fns';
 import { toast } from 'sonner';
+import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
 
 export default function HashtagChallengePage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +25,49 @@ export default function HashtagChallengePage() {
   const [hasEntered, setHasEntered] = useState(false);
   const [entering, setEntering] = useState(false);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+
+  // ── SEO — dynamic challenge hash as OG image + Event JSON-LD ──────────────────────
+  const challengeHashtag = challenge?.hashtags?.tag ?? '';
+  useSEO({
+    title: challenge ? `#${challengeHashtag} Challenge — ${challenge.title}` : 'Hashtag Challenge',
+    description: challenge
+      ? `${challenge.description || challenge.title} — ${challenge.entry_count ?? 0} entries. ${challenge.prize ? `Prize: ${challenge.prize}.` : ''} Ends ${format(new Date(challenge.end_date ?? Date.now()), 'MMM d, yyyy')}.`
+      : 'Join a trending hashtag challenge on Testagram.',
+    image: challengeHashtag ? buildOgImageUrl({ tag: challengeHashtag }) : undefined,
+    url: id ? `/challenge/${id}` : '/explore',
+    type: 'website',
+    keywords: challenge ? `#${challengeHashtag}, challenge, contest, testagram, ${challenge.title}` : 'hashtag challenge, testagram',
+    structuredData: challenge ? {
+      '@context': 'https://schema.org',
+      '@type': 'Event',
+      name: challenge.title,
+      description: challenge.description || challenge.title,
+      url: `https://testagram.site/challenge/${id}`,
+      startDate: challenge.created_at,
+      endDate: challenge.end_date,
+      eventStatus: isPast(new Date(challenge.end_date ?? Date.now()))
+        ? 'https://schema.org/EventCancelled'
+        : 'https://schema.org/EventScheduled',
+      eventAttendanceMode: 'https://schema.org/OnlineEventAttendanceMode',
+      location: {
+        '@type': 'VirtualLocation',
+        url: `https://testagram.site/hashtag/${challengeHashtag}`,
+      },
+      organizer: challenge.user_profiles ? {
+        '@type': 'Person',
+        name: challenge.user_profiles.username,
+        url: `https://testagram.site/profile/${challenge.user_profiles.username}`,
+      } : { '@type': 'Organization', name: 'Testagram' },
+      offers: challenge.prize ? {
+        '@type': 'Offer',
+        name: 'Challenge Prize',
+        description: challenge.prize,
+        price: '0',
+        priceCurrency: 'USD',
+        url: `https://testagram.site/challenge/${id}`,
+      } : undefined,
+    } : undefined,
+  });
 
   const fetchChallenge = useCallback(async () => {
     if (!id) return;

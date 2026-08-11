@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { TopBar } from '@/components/layout/TopBar';
+import { useSEO } from '@/hooks/useSEO';
 
 // ── Star Rating Display ─────────────────────────────────────────────────────
 function StarRating({ rating, size = 'sm', interactive = false, onRate }: {
@@ -506,6 +507,38 @@ export function ProductsPage() {
   const filteredProducts = allProducts.filter(p => {
     if (!search) return true;
     return p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase());
+  });
+
+  // ── SEO — Marketplace with ItemList JSON-LD from featured products ───
+  const productsJsonLd = featuredProducts.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'Featured Products on Testagram Marketplace',
+    description: 'Discover handpicked products from verified creators on Testagram',
+    url: 'https://testagram.site/products',
+    numberOfItems: featuredProducts.length,
+    itemListElement: featuredProducts.map((p: any, i: number) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: p.name,
+      url: p.external_link || `https://testagram.site/products`,
+      description: p.description || p.name,
+      image: p.image_url || undefined,
+      offers: {
+        '@type': 'Offer',
+        price: Number(p.price).toFixed(2),
+        priceCurrency: 'USD',
+        availability: (p.stock ?? 1) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+      },
+    })),
+  } : undefined;
+  useSEO({
+    title: 'Marketplace — Shop Creator Products',
+    description: `Browse ${allProducts.length} products from verified creators on Testagram. Shop handmade items, digital goods, and exclusive creator merchandise.`,
+    url: '/products',
+    type: 'website',
+    keywords: 'marketplace, creator products, shop, buy, testagram, handmade, digital goods, merchandise',
+    structuredData: productsJsonLd,
   });
 
   // ── Add/Edit Form ─────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import {
   Loader2, Users, Clock, ChevronRight, Radio, Bookmark,
   BookmarkCheck
 } from 'lucide-react';
-import { formatDistanceToNow, format } from 'date-fns';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { useSEO } from '@/hooks/useSEO';
