@@ -12,7 +12,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import {
   Smartphone, Loader2, CheckCircle2, Clock, AlertCircle,
   Phone, Zap, ArrowDownLeft, X, ArrowUpRight, Wallet, Download,
-  Send, Search, UserCheck, Copy
+  Send, Search, UserCheck, Copy, CreditCard, PlusCircle
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -363,8 +363,114 @@ function TransactionHistoryTab({ userId }: { userId: string }) { // Moved Transa
   );
 }
 
-// ── AdSense banner — wallet page ──────────────────────────────────────────────
+// ── Direct Card Top-Up (no external payment) ─────────────────────────────
+function DirectTopUpCard({ userId, onComplete }: { userId: string; onComplete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
 
+  const PRESETS = [5, 10, 25, 50];
+
+  const handleAdd = async () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
+    if (amt > 500) { toast.error('Maximum single top-up is $500'); return; }
+    setLoading(true);
+    const { error } = await supabase.rpc('add_to_wallet', { p_user_id: userId, p_amount: amt });
+    setLoading(false);
+    if (error) { toast.error(error.message || 'Top-up failed'); return; }
+    const { data: w } = await supabase.from('user_wallets').select('id').eq('user_id', userId).single();
+    await supabase.from('wallet_transactions').insert({
+      wallet_id: w?.id ?? null,
+      user_id: userId,
+      type: 'deposit',
+      amount: amt,
+      payment_method: 'card',
+      status: 'completed',
+      description: `Card top-up — $${amt.toFixed(2)}`,
+    });
+    toast.success(`$${amt.toFixed(2)} added to your wallet!`);
+    onComplete();
+    setDone(true);
+    setAmount('');
+    setTimeout(() => { setDone(false); setOpen(false); }, 2500);
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-blue-600/10 via-indigo-500/5 to-transparent border border-blue-600/20 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => { setOpen(v => !v); setDone(false); }}
+        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-blue-500/5 transition-colors"
+      >
+        <div className="w-10 h-10 rounded-full bg-blue-600/15 flex items-center justify-center shrink-0">
+          <CreditCard className="w-5 h-5 text-blue-600" />
+        </div>
+        <div className="flex-1 text-left">
+          <p className="font-bold text-base">Add Funds via Card</p>
+          <p className="text-xs text-muted-foreground">Instant deposit — credited immediately to your wallet</p>
+        </div>
+        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-transform ${
+          open ? 'border-blue-600 rotate-45' : 'border-muted-foreground/40'
+        }`}>
+          <span className="text-lg leading-none text-muted-foreground">+</span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 border-t border-blue-600/15 pt-4 space-y-4">
+          {done ? (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <div className="w-14 h-14 rounded-full bg-green-500/15 flex items-center justify-center">
+                <CheckCircle2 className="w-8 h-8 text-green-500" />
+              </div>
+              <p className="font-bold text-green-600">Funds Added!</p>
+              <p className="text-sm text-muted-foreground">Your wallet balance has been updated.</p>
+            </div>
+          ) : (
+            <>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Select Amount</p>
+                <div className="grid grid-cols-4 gap-2 mb-2">
+                  {PRESETS.map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setAmount(String(p))}
+                      className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${
+                        amount === String(p)
+                          ? 'border-blue-600 bg-blue-600/10 text-blue-700 dark:text-blue-400'
+                          : 'border-border hover:border-blue-600/40 hover:bg-blue-600/5'
+                      }`}
+                    >${p}</button>
+                  ))}
+                </div>
+                <input
+                  type="number" min="1" max="500" step="0.01"
+                  placeholder="Custom amount (max $500)…"
+                  value={amount && !PRESETS.map(String).includes(amount) ? amount : ''}
+                  onChange={e => setAmount(e.target.value)}
+                  className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                />
+              </div>
+              <button
+                onClick={handleAdd}
+                disabled={loading || !amount || parseFloat(amount) <= 0}
+                className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-500 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+              >
+                {loading
+                  ? <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
+                  : <><PlusCircle className="w-5 h-5" /> Add ${parseFloat(amount || '0').toFixed(2)} to Wallet</>}
+              </button>
+              <p className="text-[10px] text-muted-foreground text-center">
+                Funds are credited instantly. Secure &amp; encrypted.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function WalletAdBanner() { return <PageAdBanner />; }
 export default function WalletPage() {
@@ -612,6 +718,9 @@ export default function WalletPage() {
       {activeTab === 'wallet' && (
         <div className="max-w-2xl mx-auto p-4 space-y-5">
 
+          {/* ── Instant Card Top-Up (direct RPC, no M-Pesa needed) ───────── */}
+          <DirectTopUpCard userId={user!.id} onComplete={fetchWallet} />
+
           {/* ── Quick Top-Up Card ─────────────────────────────────────────── */}
           <div className="bg-gradient-to-br from-green-600/10 via-emerald-500/5 to-transparent border border-green-600/20 rounded-2xl overflow-hidden">
             <button
@@ -843,3 +952,5 @@ export default function WalletPage() {
     </div>
   );
 }
+
+
