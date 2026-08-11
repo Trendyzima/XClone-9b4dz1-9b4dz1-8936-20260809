@@ -4,7 +4,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
-import { Post } from '@/types';
+import { Post } from '@/types/app-types';
 import { useAuth } from '@/hooks/useAuth';
 import { Loader2, TrendingUp, Check, Users } from 'lucide-react';
 import { toast } from 'sonner';

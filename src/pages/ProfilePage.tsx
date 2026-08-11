@@ -14,7 +14,7 @@ import { usePageBanner } from '@/hooks/usePageBanner';
 import { ADMOB_CONFIG } from '@/lib/admob';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
-import { Post } from '@/types';
+import { Post } from '@/types/app-types';
 
 export default function ProfilePage() {
   const { username } = useParams();

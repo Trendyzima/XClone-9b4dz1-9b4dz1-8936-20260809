@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { User } from '@supabase/supabase-js';
-import { AuthUser } from '@/types';
+import { AuthUser } from '@/types/app-types';
 
 export function mapSupabaseUser(user: User): AuthUser {
   return {

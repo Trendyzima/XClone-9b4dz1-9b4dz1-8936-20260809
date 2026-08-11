@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Heart, MessageCircle, Repeat2, Share, Volume2, VolumeX, Play, DollarSign } from 'lucide-react';
-import { Post } from '@/types';
+import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';

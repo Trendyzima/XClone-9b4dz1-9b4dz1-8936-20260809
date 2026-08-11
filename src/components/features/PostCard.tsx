@@ -1,6 +1,6 @@
 import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile, DollarSign, Play, Coins, Flag, Check as CheckIcon } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
-import { Post } from '@/types';
+import { Post } from '@/types/app-types';
 import { formatDistanceToNow } from 'date-fns';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';

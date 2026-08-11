@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { UserSuggestion as UserSuggestionType } from '@/types';
+import { UserSuggestion as UserSuggestionType } from '@/types/app-types';
 import { Button } from '@/components/ui/button';
 import { BadgeCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';

@@ -13,7 +13,7 @@ import {
   BookOpen, Plus, Trash2, X, ChevronDown, ChevronUp,
   ShieldCheck, ShieldOff, MoreVertical, Pin, PinOff
 } from 'lucide-react';
-import { Post } from '@/types';
+import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
 import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
 

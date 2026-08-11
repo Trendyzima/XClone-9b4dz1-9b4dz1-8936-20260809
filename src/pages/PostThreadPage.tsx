@@ -8,7 +8,7 @@ import { CreatePollDialog } from '@/components/features/CreatePollDialog';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
-import { Post } from '@/types';
+import { Post } from '@/types/app-types';
 import { Loader2, Send, BadgeCheck, Twitter, Facebook, Link2, MessageCircle, BarChart3, X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';

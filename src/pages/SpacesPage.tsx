@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
-import { Space } from '@/types';
+import { Space } from '@/types/app-types';
 import { Radio, Users, Mic, Loader2, Headphones, Video, Settings, BadgeCheck, Lock } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';

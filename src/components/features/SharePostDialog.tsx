@@ -17,7 +17,7 @@ import {
   Linkedin,
   MessageCircle
 } from 'lucide-react';
-import { Post } from '@/types';
+import { Post } from '@/types/app-types';
 
 interface SharePostDialogProps {
   open: boolean;
