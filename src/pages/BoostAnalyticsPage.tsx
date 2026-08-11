@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
@@ -19,6 +20,7 @@ import { formatDistanceToNow } from 'date-fns';
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function BoostAnalyticsPage() {
+  useSEO({ noindex: true, title: 'Boost Analytics', url: '/boost-analytics' });
   const { postId } = useParams<{ postId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();

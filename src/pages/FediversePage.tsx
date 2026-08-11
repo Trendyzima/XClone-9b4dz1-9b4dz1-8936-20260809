@@ -134,23 +134,26 @@ export default function FediversePage() {
   const fetchMastodonTimeline = async (instance: string) => {
     setLoadingMastodon(true);
     try {
-      const res = await fetch(`https://${instance}/api/v1/timelines/public?limit=20&local=true`);
-      if (!res.ok) throw new Error('Failed to fetch');
-      const data = await res.json();
+      // Always route through gateway first to avoid CORS issues
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gateway-relay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ action: 'public_timeline', instance, limit: 20 }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        const posts = Array.isArray(d) ? d : d?.statuses ?? d?.data ?? [];
+        if (posts.length > 0) { setMastodonPosts(posts); setLoadingMastodon(false); return; }
+      }
+      // Fallback: direct Mastodon public API (may be blocked by browser CORS on some instances)
+      const directRes = await fetch(`https://${instance}/api/v1/timelines/public?limit=20&local=true`);
+      if (!directRes.ok) throw new Error('Direct fetch failed');
+      const data = await directRes.json();
       setMastodonPosts(Array.isArray(data) ? data : []);
     } catch {
-      // fallback to gateway
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData.session?.access_token;
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gateway-relay`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ action: 'public_timeline', instance, limit: 20 }),
-        });
-        const d = await res.json();
-        setMastodonPosts(Array.isArray(d) ? d : d?.statuses ?? []);
-      } catch { setMastodonPosts([]); }
+      setMastodonPosts([]);
     } finally { setLoadingMastodon(false); }
   };
 

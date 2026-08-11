@@ -23,7 +23,7 @@ export const SEO_COVERAGE: SEORoute[] = [
   // ── Core public pages ──────────────────────────────────────────────────────
   { path: '/',            label: 'Home Feed',     group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/explore',     label: 'Explore',       group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/videos',      label: 'Videos',        group: 'Core',       hasUseSEO: true,  hasStructuredData: false, noindex: false },
+  { path: '/videos',      label: 'Videos',        group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/threads',     label: 'Threads',       group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/search',      label: 'Search',        group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/communities', label: 'Communities',   group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
@@ -78,6 +78,8 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/series',         label: 'Content Series',       group: 'Core',        hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/start-stream',   label: 'Start Stream',         group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/ad-analytics',   label: 'Ad Analytics',         group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/boost-analytics/{postId}', label: 'Boost Analytics', group: 'Private', hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/rewards',            label: 'Rewarded Ads',     group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin',              label: 'Admin Panel',          group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin/ads',          label: 'Admin — Ads',          group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin/revenue',      label: 'Admin — Revenue',      group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
