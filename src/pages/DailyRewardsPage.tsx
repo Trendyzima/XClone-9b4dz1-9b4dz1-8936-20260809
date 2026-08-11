@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
@@ -25,6 +26,7 @@ function isYesterday(date: Date) {
 
 export default function DailyRewardsPage() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Daily Rewards', url: '/rewards' });
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);

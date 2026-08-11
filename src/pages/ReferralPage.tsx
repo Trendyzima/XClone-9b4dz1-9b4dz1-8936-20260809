@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Link } from 'react-router-dom';
@@ -34,6 +35,7 @@ interface ReferralRecord {
 }
 
 export default function ReferralPage() {
+  useSEO({ noindex: true, title: 'Referrals', url: '/referrals' });
   const { user } = useAuth();
   const [referrals, setReferrals] = useState<ReferralRecord[]>([]);
   const [totalCredits, setTotalCredits] = useState(0);

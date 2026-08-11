@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -196,6 +197,7 @@ function buildDefaults(): NotifPref[] {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function NotificationPreferencesPage() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Notification Preferences', url: '/notification-preferences' });
   const navigate = useNavigate();
   const [prefs, setPrefs] = useState<Record<string, NotifPref>>({});
   const [loading, setLoading] = useState(true);

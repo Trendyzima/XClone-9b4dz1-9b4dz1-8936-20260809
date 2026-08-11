@@ -19,7 +19,7 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
-import { useSEO } from '@/hooks/useSEO';
+import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
 
 type Tab = 'feed' | 'inbox' | 'relay' | 'analytics' | 'discover' | 'identity' | 'mastodon';
 
@@ -31,6 +31,7 @@ export default function FediversePage() {
     description: 'Follow and interact with accounts from Mastodon, Pixelfed, and other ActivityPub platforms directly from Testagram. Join the open federated social web.',
     url: '/fediverse',
     type: 'website',
+    image: buildOgImageUrl({ username: 'fediverse' }),
     keywords: 'fediverse, activitypub, mastodon, federated social media, open web, testagram fediverse',
     structuredData: {
       '@context': 'https://schema.org',

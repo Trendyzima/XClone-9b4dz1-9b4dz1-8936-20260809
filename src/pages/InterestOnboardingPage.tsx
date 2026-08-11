@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/hooks/useAuth';
@@ -110,6 +111,7 @@ const MIN_SELECTIONS = 5;
 
 export default function InterestOnboardingPage() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Choose Your Interests', url: '/interests' });
   const navigate = useNavigate();
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);

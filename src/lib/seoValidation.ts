@@ -64,6 +64,14 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/history',            label: 'Browsing History',     group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/platform-inbox',     label: 'Platform Inbox',       group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/creator-studio',     label: 'Creator Studio',       group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/wishlist',           label: 'Wishlist',             group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/monetization',       label: 'Monetization',         group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/analytics',          label: 'Analytics',            group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/verify',             label: 'Verification Request', group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/rewards',            label: 'Daily Rewards',        group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/referrals',          label: 'Referrals',            group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/interests',          label: 'Interest Onboarding',  group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/notification-preferences', label: 'Notif. Prefs', group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
 
   // ── Admin pages (all noindex) ──────────────────────────────────────────────
   { path: '/admin',              label: 'Admin Panel',          group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },

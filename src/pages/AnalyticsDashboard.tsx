@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -34,6 +35,7 @@ interface PostWithAnalytics {
 
 export default function AnalyticsDashboard() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Analytics', url: '/analytics' });
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [overviewStats, setOverviewStats] = useState({

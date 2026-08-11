@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -31,6 +32,7 @@ const CREDIT_COSTS: Record<string, number> = {
 
 export function MonetizationDashboard() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Monetization', url: '/monetization' });
   const navigate = useNavigate();
 
   const [stats, setStats] = useState({
