@@ -305,16 +305,6 @@ export default function CommunityPage() {
     return () => { supabase.removeChannel(sub); };
   }, [community?.id]);
 
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    AdMob.showBanner({
-      adId: 'ca-app-pub-7234579833875016/8657343194',
-      adSize: BannerAdSize.BANNER,
-      position: BannerAdPosition.BOTTOM_CENTER,
-    });
-    return () => { AdMob.hideBanner(); };
-  }, []);
-
   const fetchCommunity = async () => {
     if (!name) return;
     try {

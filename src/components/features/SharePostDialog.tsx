@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -12,12 +12,14 @@ import {
   Link, 
   Copy, 
   Check,
-  Facebook,
   Twitter,
   Linkedin,
-  MessageCircle
+  MessageCircle,
+  Share2,
+  QrCode
 } from 'lucide-react';
 import { Post } from '@/types/app-types';
+import { buildOgImageUrl } from '@/hooks/useSEO';
 
 interface SharePostDialogProps {
   open: boolean;
@@ -29,9 +31,38 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
 
-  // Generate shareable link
+  // Generate shareable link + dynamic OG image URL
   const shareUrl = `${window.location.origin}/post/${post.id}`;
-  const shareText = `${post.content.substring(0, 100)}${post.content.length > 100 ? '...' : ''}`;
+  const rawText = (post.content ?? '').replace(/<[^>]*>/g, '');
+  const shareText = `${rawText.substring(0, 100)}${rawText.length > 100 ? '...' : ''}`;
+  const ogImageUrl = buildOgImageUrl({ post: post.id });
+
+  // Inject OG meta tags so crawlers and messaging apps see the dynamic post card
+  useEffect(() => {
+    if (!open) return;
+    const setM = (p: string, c: string) => {
+      let el = document.querySelector(`meta[property="${p}"]`) as HTMLMetaElement | null;
+      if (!el) { el = document.createElement('meta'); el.setAttribute('property', p); document.head.appendChild(el); }
+      el.setAttribute('content', c);
+    };
+    const setN = (n: string, c: string) => {
+      let el = document.querySelector(`meta[name="${n}"]`) as HTMLMetaElement | null;
+      if (!el) { el = document.createElement('meta'); el.setAttribute('name', n); document.head.appendChild(el); }
+      el.setAttribute('content', c);
+    };
+    const title = shareText || 'Post on Testagram';
+    setM('og:title', title);
+    setM('og:description', shareText || 'Read this post on Testagram');
+    setM('og:image', ogImageUrl);
+    setM('og:image:width', '1200');
+    setM('og:image:height', '630');
+    setM('og:url', shareUrl);
+    setM('og:type', 'article');
+    setN('twitter:card', 'summary_large_image');
+    setN('twitter:image', ogImageUrl);
+    setN('twitter:title', title);
+    setN('twitter:description', shareText);
+  }, [open, shareUrl, ogImageUrl, shareText]);
 
   const copyToClipboard = async () => {
     try {
@@ -57,6 +88,7 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
   };
 
   const shareToFacebook = () => {
+    // Facebook reads og:image from the page — our injected meta tag handles this
     const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
     window.open(url, '_blank');
   };
@@ -113,6 +145,18 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
             </Button>
           </div>
 
+          {/* OG preview card — what will appear when link is shared */}
+          {(post.image_url || post.video_url) && (
+            <div className="rounded-xl overflow-hidden border border-border bg-muted/30">
+              <img
+                src={ogImageUrl}
+                alt="Post preview"
+                className="w-full h-40 object-cover"
+                onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <Button
               variant="outline"
@@ -127,7 +171,7 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
               onClick={shareToFacebook}
               className="w-full"
             >
-              <Facebook className="w-4 h-4 mr-2" />
+              <Share2 className="w-4 h-4 mr-2" />
               Facebook
             </Button>
             <Button
@@ -159,10 +203,10 @@ export function SharePostDialog({ open, onOpenChange, post }: SharePostDialogPro
             </Button>
           )}
 
-          <div className="bg-muted/50 p-3 rounded-lg">
-            <p className="text-sm text-muted-foreground">
-              Share this post with your friends and followers across different platforms.
-            </p>
+          {/* QR badge */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 px-3 py-2 rounded-xl">
+            <QrCode className="w-3.5 h-3.5 shrink-0" />
+            <span>Dynamic preview card is generated for every social share</span>
           </div>
         </div>
       </DialogContent>

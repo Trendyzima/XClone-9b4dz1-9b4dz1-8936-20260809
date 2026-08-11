@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { pingGoogleSitemap } from '@/lib/pingGoogle';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe, Wand2, AtSign, Sparkles } from 'lucide-react';
@@ -465,17 +466,17 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
 
         if (scheduleError) throw scheduleError;
 
-        setContent('');
-        setImages([]);
-        setVideo(null);
-        setPollData(null);
-        setGifUrl(null);
-        setScheduledDate(null);
-        setTaggedProducts([]);
-        toast({ title: 'Success', description: 'Post scheduled successfully' });
-        onSuccess?.();
-        setLoading(false);
-        return;
+      setContent('');
+      setImages([]);
+      setVideo(null);
+      setPollData(null);
+      setGifUrl(null);
+      setScheduledDate(null);
+      setTaggedProducts([]);
+      toast({ title: 'Success', description: 'Post scheduled successfully' });
+      onSuccess?.();
+      setLoading(false);
+      return;
       }
 
       // Prepare post data - CRITICAL FIX FOR VIDEO
@@ -640,6 +641,7 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
       setPostToFediverse(false);
       sonnerToast.success('Post created successfully!');
       toast({ title: 'Success', description: 'Post created successfully' });
+      pingGoogleSitemap(); // fire-and-forget SEO ping
       onSuccess?.();
     } catch (error: any) {
       console.error('Post error:', error);

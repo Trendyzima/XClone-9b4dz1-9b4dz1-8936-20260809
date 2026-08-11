@@ -4,12 +4,14 @@
  *
  * Query params:
  *   ?username=    → Profile card (avatar, name, bio, follower count)
- *   ?thread=      → Thread card (title, author, excerpt, views)
+ *   ?thread=      → Thread card (title, author, excerpt, cover image, views)
+ *   ?post=        → Post card (content excerpt, image/video thumbnail, likes)
  *   ?community=   → Community card (icon, name, member count)
  *   ?tag=         → Hashtag card (#tag, post count)
  *
- * Returns: image/svg+xml (crawlers and Open Graph support SVG)
- * For PNG: browsers render the SVG, and og: crawlers accept SVG directly.
+ * Returns: image/svg+xml
+ * Crawlers and Open Graph both accept SVG for OG images.
+ * For PNG support: serve via a converter proxy or use a cdn with SVG→PNG support.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -18,7 +20,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const BRAND_COLOR = '#7c3aed'; // Testagram violet
+const BRAND_COLOR = '#7c3aed';
 const BRAND_LIGHT = '#ede9fe';
 const BASE = 'https://testagram.site';
 
@@ -64,7 +66,7 @@ function formatNum(n: number): string {
 
 function makeSvg(content: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
     <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0f0721"/>
@@ -75,15 +77,22 @@ function makeSvg(content: string): string {
       <stop offset="0%" stop-color="${BRAND_COLOR}"/>
       <stop offset="100%" stop-color="#2563eb"/>
     </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-    </filter>
+    <linearGradient id="overlayGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f0721" stop-opacity="0.95"/>
+      <stop offset="65%" stop-color="#1e0a3c" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#0f0721" stop-opacity="0.3"/>
+    </linearGradient>
     <clipPath id="avatarClip">
       <circle cx="120" cy="200" r="64"/>
     </clipPath>
     <clipPath id="communityClip">
       <rect x="48" y="136" width="128" height="128" rx="24"/>
+    </clipPath>
+    <clipPath id="mediaCoverClip">
+      <rect x="640" y="0" width="560" height="630" rx="0"/>
+    </clipPath>
+    <clipPath id="postThumbClip">
+      <rect x="700" y="80" width="440" height="300" rx="20"/>
     </clipPath>
   </defs>
 
@@ -174,7 +183,7 @@ function profileSvg(p: {
 }
 
 function threadSvg(t: {
-  id: string; title: string; content: string; cover_image?: string;
+  id: string; title: string; content: string; cover_image?: string; media_url?: string;
   views_count?: number; likes_count?: number;
   user_profiles?: { username?: string; avatar_url?: string; verified?: boolean };
 }): string {
@@ -185,7 +194,26 @@ function threadSvg(t: {
   const views = formatNum(t.views_count ?? 0);
   const likes = formatNum(t.likes_count ?? 0);
 
+  // Use actual cover image or media thumbnail as the right panel background
+  const coverUrl = t.cover_image || t.media_url;
+  const rightPanel = coverUrl
+    ? `
+  <!-- Actual thread cover image fills the right side -->
+  <image href="${escapeXml(coverUrl)}" x="640" y="0" width="560" height="630"
+    clip-path="url(#mediaCoverClip)" preserveAspectRatio="xMidYMid slice"/>
+  <!-- Dark gradient overlay so left text remains readable -->
+  <rect x="0" y="0" width="1200" height="630" fill="url(#overlayGrad)"/>
+  `
+    : `
+  <!-- Decorative right panel (no cover image) -->
+  <rect x="760" y="80" width="380" height="460" rx="24" fill="white" opacity="0.03" stroke="white" stroke-width="1" stroke-opacity="0.07"/>
+  <text x="950" y="260" font-family="system-ui" font-size="100" text-anchor="middle" opacity="0.1">📖</text>
+  <text x="950" y="360" font-family="system-ui,-apple-system,sans-serif" font-size="16" fill="white" opacity="0.2" text-anchor="middle">Read on Testagram</text>
+  `;
+
   return `
+  ${rightPanel}
+
   <!-- Article label -->
   <rect x="48" y="90" width="110" height="32" rx="16" fill="${BRAND_COLOR}" opacity="0.25" stroke="${BRAND_COLOR}" stroke-width="1"/>
   <text x="103" y="111" font-family="system-ui,-apple-system,sans-serif" font-size="14" font-weight="700" fill="${BRAND_LIGHT}" text-anchor="middle">📝 THREAD</text>
@@ -213,22 +241,98 @@ function threadSvg(t: {
   <!-- Stats -->
   <text x="320" y="522" font-family="system-ui,-apple-system,sans-serif" font-size="20" fill="white" opacity="0.4">👁 ${escapeXml(views)}</text>
   <text x="420" y="522" font-family="system-ui,-apple-system,sans-serif" font-size="20" fill="white" opacity="0.4">❤ ${escapeXml(likes)}</text>
+  `;
+}
 
-  <!-- Right panel -->
+function postSvg(p: {
+  id: string; content: string; image_url?: string; video_url?: string;
+  likes_count?: number; views_count?: number; reposts_count?: number;
+  user_profiles?: { username?: string; avatar_url?: string; verified?: boolean };
+}): string {
+  const text = p.content?.replace(/<[^>]*>/g, '') ?? '';
+  const textLines = wrapText(text, 52, 4);
+  const author = p.user_profiles?.username ?? 'unknown';
+  const likes = formatNum(p.likes_count ?? 0);
+  const views = formatNum(p.views_count ?? 0);
+  const reposts = formatNum(p.reposts_count ?? 0);
+
+  // Embed actual image/video thumbnail on the right side
+  const mediaUrl = p.image_url || p.video_url;
+  const isVideo = !p.image_url && !!p.video_url;
+
+  const rightPanel = mediaUrl
+    ? `
+  <!-- Actual post media fills the right side -->
+  <image href="${escapeXml(mediaUrl)}" x="640" y="0" width="560" height="630"
+    clip-path="url(#mediaCoverClip)" preserveAspectRatio="xMidYMid slice"/>
+  <!-- Gradient overlay -->
+  <rect x="0" y="0" width="1200" height="630" fill="url(#overlayGrad)"/>
+  ${isVideo ? `
+  <!-- Video play indicator -->
+  <circle cx="920" cy="315" r="44" fill="white" opacity="0.15"/>
+  <polygon points="905,295 905,335 945,315" fill="white" opacity="0.9"/>
+  ` : ''}
+  `
+    : `
   <rect x="760" y="80" width="380" height="460" rx="24" fill="white" opacity="0.03" stroke="white" stroke-width="1" stroke-opacity="0.07"/>
-  <text x="950" y="260" font-family="system-ui" font-size="100" text-anchor="middle" opacity="0.1">📖</text>
-  <text x="950" y="360" font-family="system-ui,-apple-system,sans-serif" font-size="16" fill="white" opacity="0.2" text-anchor="middle">Read on Testagram</text>
+  <text x="950" y="300" font-family="system-ui" font-size="100" text-anchor="middle" opacity="0.08">${isVideo ? '▶' : '📝'}</text>
+  `;
+
+  const avatarEl = p.user_profiles?.avatar_url
+    ? `<image href="${escapeXml(p.user_profiles.avatar_url)}" x="48" y="90" width="56" height="56" clip-path="url(#avatarClip)" preserveAspectRatio="xMidYMid slice" style="clip-path: circle(28px at 76px 118px)"/>`
+    : `<circle cx="76" cy="118" r="28" fill="${BRAND_COLOR}" opacity="0.4"/>
+       <text x="76" y="126" font-family="system-ui" font-size="22" fill="white" text-anchor="middle" font-weight="700">${escapeXml(author[0]?.toUpperCase() ?? '?')}</text>`;
+
+  return `
+  ${rightPanel}
+
+  <!-- Post label -->
+  <rect x="48" y="56" width="86" height="28" rx="14" fill="${BRAND_COLOR}" opacity="0.22" stroke="${BRAND_COLOR}" stroke-width="1"/>
+  <text x="91" y="75" font-family="system-ui,-apple-system,sans-serif" font-size="13" font-weight="700" fill="${BRAND_LIGHT}" text-anchor="middle">POST</text>
+
+  <!-- Author row -->
+  <circle cx="76" cy="118" r="30" fill="none" stroke="url(#accentGrad)" stroke-width="2" opacity="0.7"/>
+  ${avatarEl}
+  <text x="118" y="113" font-family="system-ui,-apple-system,sans-serif" font-size="20" font-weight="700" fill="white">@${escapeXml(truncate(author, 18))}</text>
+  ${p.user_profiles?.verified ? `<text x="${118 + Math.min(author.length, 18) * 12 + 4}" y="113" font-family="system-ui" font-size="16" fill="${BRAND_COLOR}">✓</text>` : ''}
+
+  <!-- Content lines -->
+  ${textLines.map((line, i) => `
+  <text x="48" y="${170 + i * 44}" font-family="system-ui,-apple-system,sans-serif" font-size="34" font-weight="600" fill="white">
+    ${escapeXml(line)}
+  </text>`).join('')}
+
+  <!-- Stats row -->
+  <rect x="48" y="460" width="520" height="68" rx="20" fill="white" opacity="0.05" stroke="white" stroke-width="1" stroke-opacity="0.08"/>
+  <text x="80" y="490" font-family="system-ui,-apple-system,sans-serif" font-size="26" font-weight="800" fill="white">${escapeXml(likes)}</text>
+  <text x="80" y="514" font-family="system-ui,-apple-system,sans-serif" font-size="13" fill="white" opacity="0.45">likes</text>
+  <text x="200" y="490" font-family="system-ui,-apple-system,sans-serif" font-size="26" font-weight="800" fill="white">${escapeXml(views)}</text>
+  <text x="200" y="514" font-family="system-ui,-apple-system,sans-serif" font-size="13" fill="white" opacity="0.45">views</text>
+  <text x="320" y="490" font-family="system-ui,-apple-system,sans-serif" font-size="26" font-weight="800" fill="white">${escapeXml(reposts)}</text>
+  <text x="320" y="514" font-family="system-ui,-apple-system,sans-serif" font-size="13" fill="white" opacity="0.45">reposts</text>
   `;
 }
 
 function communitySvg(c: {
   name: string; display_name: string; description?: string;
-  icon_url?: string; member_count?: number; post_count?: number;
+  icon_url?: string; banner_url?: string; member_count?: number; post_count?: number;
 }): string {
   const desc = truncate(c.description ?? '', 130);
   const descLines = wrapText(desc, 60, 3);
   const members = formatNum(c.member_count ?? 0);
   const posts = formatNum(c.post_count ?? 0);
+
+  // Use banner_url as right-panel background if available
+  const bannerPanel = c.banner_url
+    ? `
+  <image href="${escapeXml(c.banner_url)}" x="640" y="0" width="560" height="630"
+    clip-path="url(#mediaCoverClip)" preserveAspectRatio="xMidYMid slice"/>
+  <rect x="0" y="0" width="1200" height="630" fill="url(#overlayGrad)"/>
+  `
+    : `
+  <rect x="760" y="80" width="380" height="460" rx="24" fill="white" opacity="0.03" stroke="white" stroke-width="1" stroke-opacity="0.07"/>
+  <text x="950" y="250" font-family="system-ui" font-size="100" text-anchor="middle" opacity="0.1">👥</text>
+  `;
 
   const iconEl = c.icon_url
     ? `<image href="${escapeXml(c.icon_url)}" x="48" y="136" width="128" height="128" clip-path="url(#communityClip)" preserveAspectRatio="xMidYMid slice"/>`
@@ -236,6 +340,8 @@ function communitySvg(c: {
        <text x="112" y="215" font-family="system-ui" font-size="60" text-anchor="middle" opacity="0.8">${escapeXml(c.display_name[0]?.toUpperCase() ?? 'C')}</text>`;
 
   return `
+  ${bannerPanel}
+
   <!-- Community label -->
   <rect x="48" y="84" width="154" height="32" rx="16" fill="${BRAND_COLOR}" opacity="0.22" stroke="${BRAND_COLOR}" stroke-width="1"/>
   <text x="125" y="105" font-family="system-ui,-apple-system,sans-serif" font-size="14" font-weight="700" fill="${BRAND_LIGHT}" text-anchor="middle">🌐 COMMUNITY</text>
@@ -264,10 +370,6 @@ function communitySvg(c: {
   <rect x="264" y="492" width="180" height="68" rx="16" fill="white" opacity="0.06" stroke="white" stroke-width="1" stroke-opacity="0.1"/>
   <text x="354" y="522" font-family="system-ui,-apple-system,sans-serif" font-size="30" font-weight="800" fill="white" text-anchor="middle">${escapeXml(posts)}</text>
   <text x="354" y="548" font-family="system-ui,-apple-system,sans-serif" font-size="13" fill="white" opacity="0.45" text-anchor="middle">posts</text>
-
-  <!-- Right decorative panel -->
-  <rect x="760" y="80" width="380" height="460" rx="24" fill="white" opacity="0.03" stroke="white" stroke-width="1" stroke-opacity="0.07"/>
-  <text x="950" y="250" font-family="system-ui" font-size="100" text-anchor="middle" opacity="0.1">👥</text>
   `;
 }
 
@@ -317,6 +419,7 @@ Deno.serve(async (req: Request) => {
     const url = new URL(req.url);
     const username = url.searchParams.get('username');
     const threadId = url.searchParams.get('thread');
+    const postId = url.searchParams.get('post');
     const communityName = url.searchParams.get('community');
     const tag = url.searchParams.get('tag');
 
@@ -339,16 +442,25 @@ Deno.serve(async (req: Request) => {
     } else if (threadId) {
       const { data: thread } = await supabase
         .from('threads')
-        .select('id, title, content, cover_image, views_count, likes_count, user_profiles(username, avatar_url, verified)')
+        .select('id, title, content, cover_image, media_url, views_count, likes_count, user_profiles(username, avatar_url, verified)')
         .eq('id', threadId)
         .maybeSingle();
 
       svgContent = thread ? threadSvg(thread) : defaultSvg();
 
+    } else if (postId) {
+      const { data: post } = await supabase
+        .from('posts')
+        .select('id, content, image_url, video_url, likes_count, views_count, reposts_count, user_profiles(username, avatar_url, verified)')
+        .eq('id', postId)
+        .maybeSingle();
+
+      svgContent = post ? postSvg(post) : defaultSvg();
+
     } else if (communityName) {
       const { data: community } = await supabase
         .from('communities')
-        .select('name, display_name, description, icon_url, member_count, post_count')
+        .select('name, display_name, description, icon_url, banner_url, member_count, post_count')
         .eq('name', communityName)
         .eq('is_private', false)
         .maybeSingle();

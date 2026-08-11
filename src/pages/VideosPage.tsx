@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { Post } from '@/types/app-types';
 import { Loader2, Gift, X, Zap, Play, TrendingUp } from 'lucide-react';
 import { initAdMob, showInterstitial, showRewarded, ADMOB_CONFIG } from '@/lib/admob';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -17,6 +18,33 @@ export default function VideosPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkProcessed = useRef(false);
   const [videos, setVideos] = useState<Post[]>([]);
+
+  const activeVideo = videos[0]; // use first/top video for SEO meta
+  useSEO({
+    title: 'Trending Videos',
+    description: 'Watch short videos from creators around the world on Testagram. Discover trending clips, go viral, and earn from your content.',
+    url: '/videos',
+    type: 'website',
+    keywords: 'short videos, trending clips, viral videos, creators, testagram, tiktok-style, video feed',
+    structuredData: activeVideo ? {
+      '@context': 'https://schema.org',
+      '@type': 'VideoObject',
+      name: (activeVideo as any).content?.replace(/<[^>]*>/g, '').slice(0, 80) || 'Video on Testagram',
+      description: (activeVideo as any).content?.replace(/<[^>]*>/g, '').slice(0, 200) || 'Watch this video on Testagram',
+      thumbnailUrl: (activeVideo as any).image_url || 'https://testagram.site/app-icon.jpg',
+      uploadDate: (activeVideo as any).created_at,
+      contentUrl: (activeVideo as any).video_url,
+      author: {
+        '@type': 'Person',
+        name: (activeVideo as any).user_profiles?.username ?? 'Creator',
+        url: `https://testagram.site/profile/${(activeVideo as any).user_profiles?.username}`,
+      },
+      interactionStatistic: [
+        { '@type': 'InteractionCounter', interactionType: 'https://schema.org/WatchAction', userInteractionCount: (activeVideo as any).views_count ?? 0 },
+        { '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction', userInteractionCount: (activeVideo as any).likes_count ?? 0 },
+      ],
+    } : undefined,
+  });
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
   const [page, setPage] = useState(0);
