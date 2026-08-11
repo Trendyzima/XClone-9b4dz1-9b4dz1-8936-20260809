@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
+import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
 
 interface Reply {
   id: string;
@@ -30,56 +31,6 @@ interface Reply {
   };
 }
 
-// Inject OG meta tags dynamically for social sharing previews
-function injectPostMeta(post: Post) {
-  const title = `${post.user_profiles?.username || 'Post'} on Testagram`;
-  const description = post.content?.slice(0, 200) || 'View this post on Testagram';
-
-  // Priority: media_urls[0] > image_url > video thumbnail via CDN > app icon
-  let image = 'https://testagram.site/app-icon.jpg';
-  if (post.media_urls && post.media_urls.length > 0) {
-    image = post.media_urls[0];
-  } else if (post.image_url) {
-    image = post.image_url;
-  } else if (post.is_video && post.video_url) {
-    // For videos, try to use the video URL itself as og:image type video/mp4
-    // Many scrapers will use og:image so we keep the app icon fallback
-    image = 'https://testagram.site/app-icon.jpg';
-  }
-
-  const url = `${window.location.origin}/post/${post.id}`;
-
-  const setMeta = (property: string, content: string) => {
-    let el = document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement | null;
-    if (!el) { el = document.createElement('meta'); el.setAttribute('property', property); document.head.appendChild(el); }
-    el.setAttribute('content', content);
-  };
-  const setNameMeta = (name: string, content: string) => {
-    let el = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
-    if (!el) { el = document.createElement('meta'); el.setAttribute('name', name); document.head.appendChild(el); }
-    el.setAttribute('content', content);
-  };
-
-  document.title = title;
-  setMeta('og:title', title);
-  setMeta('og:description', description);
-  setMeta('og:image', image);
-  setMeta('og:image:width', '1200');
-  setMeta('og:image:height', '630');
-  setMeta('og:url', url);
-  setMeta('og:type', post.is_video ? 'video.other' : 'article');
-  setMeta('og:site_name', 'Testagram');
-  if (post.is_video && post.video_url) {
-    setMeta('og:video', post.video_url);
-    setMeta('og:video:type', 'video/mp4');
-  }
-  setNameMeta('twitter:card', (post.media_urls?.length || post.image_url) ? 'summary_large_image' : 'summary');
-  setNameMeta('twitter:title', title);
-  setNameMeta('twitter:description', description);
-  setNameMeta('twitter:image', image);
-  setNameMeta('twitter:site', '@testagram');
-  setNameMeta('description', description);
-}
 
 export default function PostThreadPage() {
   const { postId } = useParams<{ postId: string }>();
@@ -88,6 +39,8 @@ export default function PostThreadPage() {
   const { toast } = useToast();
 
   const [post, setPost] = useState<Post | null>(null);
+  // useSEO — placed after ALL useState/useRef declarations below
+
   const [replies, setReplies] = useState<Reply[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
@@ -103,6 +56,40 @@ export default function PostThreadPage() {
   // Poll in reply state
   const [showPollDialog, setShowPollDialog] = useState(false);
   const [replyPollData, setReplyPollData] = useState<{ question: string; options: string[]; duration: number } | null>(null);
+
+  // Dynamic SEO — injected once post loads, upgrades to og-image edge function card
+  useSEO({
+    title: post
+      ? `${post.user_profiles?.username ?? 'Post'} on Testagram`
+      : 'Post — Testagram',
+    description: post
+      ? (post.content?.replace(/<[^>]*>/g, '').slice(0, 155) || 'View this post on Testagram')
+      : 'View this post on Testagram',
+    image: post ? buildOgImageUrl({ post: post.id }) : undefined,
+    url: postId ? `/post/${postId}` : undefined,
+    type: post?.is_video ? 'video.other' : 'article',
+    keywords: post ? `${post.user_profiles?.username ?? ''}, testagram, post, social media` : undefined,
+    structuredData: post ? {
+      '@context': 'https://schema.org',
+      '@type': 'SocialMediaPosting',
+      headline: (post.content?.replace(/<[^>]*>/g, '').slice(0, 110) || 'Post on Testagram'),
+      text: post.content?.replace(/<[^>]*>/g, '').slice(0, 500),
+      datePublished: post.created_at,
+      url: `https://testagram.site/post/${post.id}`,
+      image: post.image_url || (post.media_urls?.[0]) || buildOgImageUrl({ post: post.id }),
+      author: {
+        '@type': 'Person',
+        name: post.user_profiles?.username ?? 'Creator',
+        url: `https://testagram.site/profile/${post.user_profiles?.username}`,
+      },
+      interactionStatistic: [
+        { '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction', userInteractionCount: post.likes_count ?? 0 },
+        { '@type': 'InteractionCounter', interactionType: 'https://schema.org/CommentAction', userInteractionCount: post.replies_count ?? 0 },
+        { '@type': 'InteractionCounter', interactionType: 'https://schema.org/WatchAction', userInteractionCount: post.views_count ?? 0 },
+      ],
+      sharedContent: post.is_video && post.video_url ? { '@type': 'VideoObject', contentUrl: post.video_url } : undefined,
+    } : undefined,
+  });
 
   // Poll reply count every 10s — show floating pill when new replies arrive
   useEffect(() => {
@@ -172,10 +159,7 @@ export default function PostThreadPage() {
       if (postError) throw postError;
       setPost(postData);
 
-      // Inject OG tags for social sharing / link unfurling
-      if (postData) { // Added check for postData to ensure it's not null before passing to injectPostMeta
-        injectPostMeta(postData);
-      }
+      // OG tags are now managed by useSEO hook via buildOgImageUrl({ post: id })
 
 
       // Increment view count
