@@ -77,7 +77,7 @@ export function VideoMonetizationAd({
   if (adDismissed || Capacitor.isNativePlatform()) return null;
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col pointer-events-auto">
+    <div className="absolute inset-0 z-40 flex flex-col pointer-events-auto">
       {/* Dark overlay */}
       <div className="absolute inset-0 bg-black/80" />
 
@@ -113,19 +113,23 @@ export function VideoMonetizationAd({
         </p>
       </div>
 
-      {/* Skip button */}
-      <div className="relative z-10 flex justify-end items-center p-4 pb-8">
+      {/* Skip button — fixed bottom-right, always above everything */}
+      <div className="relative z-20 flex justify-end items-center px-5 py-5">
         {canSkip ? (
           <button
             onClick={handleSkip}
-            className="flex items-center gap-2 px-4 py-2 bg-white text-black font-bold text-sm rounded-full hover:bg-white/90 transition-all shadow-lg"
+            style={{ touchAction: 'manipulation', minWidth: 44, minHeight: 44 }}
+            className="flex items-center gap-2 px-5 py-3 bg-white text-black font-bold text-sm rounded-full active:scale-95 transition-all shadow-xl"
           >
             <X className="w-4 h-4" />
             Skip Ad
           </button>
         ) : (
-          <div className="flex items-center gap-2 px-4 py-2 bg-black/60 border border-white/30 text-white text-sm rounded-full">
-            <span>Skip in {countdown}s</span>
+          <div
+            style={{ minWidth: 44, minHeight: 44 }}
+            className="flex items-center justify-center gap-2 px-5 py-3 bg-black/70 border border-white/40 text-white text-sm font-semibold rounded-full"
+          >
+            Skip in {countdown}s
           </div>
         )}
       </div>

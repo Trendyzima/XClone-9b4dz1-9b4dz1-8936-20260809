@@ -238,6 +238,15 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         </div>
       )}
 
+      {/* ── Mute / unmute — fixed top-right, always tappable ── */}
+      <button
+        onClick={toggleMute}
+        className="absolute top-4 right-4 z-30 p-3 bg-black/60 backdrop-blur-sm rounded-full hover:bg-black/80 active:scale-95 transition-all shadow-lg"
+        style={{ touchAction: 'manipulation' }}
+      >
+        {isMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
+      </button>
+
       <div className="absolute inset-0 flex flex-col justify-between p-4 pointer-events-none" style={{ maxWidth: '100vw' }}>
         <div className="flex items-center justify-between text-white pointer-events-auto">
           <div className="flex items-center space-x-2">
@@ -268,12 +277,8 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
               )}
             </div>
           </div>
-          <button
-            onClick={toggleMute}
-            className="p-2 bg-black/50 rounded-full hover:bg-black/70 transition-colors"
-          >
-            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-          </button>
+          {/* spacer — mute button is now absolutely positioned above */}
+          <div className="w-11" />
         </div>
 
         {!isPlaying && !showPrerollAd && (
