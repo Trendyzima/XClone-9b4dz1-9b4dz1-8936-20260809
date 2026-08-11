@@ -129,7 +129,8 @@ export function useSEO({
         }
       });
     };
-  }, [title, description, image, url, type, noindex, keywords, JSON.stringify(structuredData)]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, description, image, url, type, noindex, keywords]);
 }
 
 // ── Pre-built structured data builders ──────────────────────────────────────

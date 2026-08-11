@@ -5,13 +5,14 @@ import { PostCard } from '@/components/features/PostCard';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import {
-  TrendingUp, Hash, Users, Loader2, RefreshCw, CheckCircle,
-  MessageCircle, ArrowUpRight, ArrowDownRight, Minus,
+  TrendingUp, Hash, Loader2, RefreshCw, CheckCircle,
+  MessageCircle, ArrowUpRight,
   Flame, BarChart2, Crown, BadgeCheck
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
 import { DynamicAd } from '@/components/features/DynamicAd';
+import { useSEO } from '@/hooks/useSEO';
 
 const CATEGORY_CONFIG: Record<string, { emoji: string; color: string; bg: string; border: string }> = {
   technology:    { emoji: '💻', color: 'text-blue-600',   bg: 'bg-blue-500/10',   border: 'border-blue-500/20' },
@@ -25,37 +26,6 @@ const CATEGORY_CONFIG: Record<string, { emoji: string; color: string; bg: string
 };
 
 const DEFAULT_CAT = { emoji: '🔥', color: 'text-primary', bg: 'bg-primary/10', border: 'border-primary/20' };
-
-function MiniSparkline({ values }: { values: number[] }) {
-  if (values.length < 2) return null;
-  const max = Math.max(...values, 1);
-  const w = 60; const h = 24;
-  const pts = values.map((v, i) => {
-    const x = (i / (values.length - 1)) * w;
-    const y = h - (v / max) * h;
-    return `${x},${y}`;
-  }).join(' ');
-  const last = values[values.length - 1];
-  const prev = values[values.length - 2];
-  const trending = last > prev ? 'up' : last < prev ? 'down' : 'flat';
-  return (
-    <div className="flex items-center gap-1">
-      <svg width={w} height={h} className="overflow-visible">
-        <polyline
-          points={pts}
-          fill="none"
-          stroke={trending === 'up' ? '#22c55e' : trending === 'down' ? '#ef4444' : '#94a3b8'}
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-      {trending === 'up' && <ArrowUpRight className="w-3 h-3 text-green-500 shrink-0" />}
-      {trending === 'down' && <ArrowDownRight className="w-3 h-3 text-red-500 shrink-0" />}
-      {trending === 'flat' && <Minus className="w-3 h-3 text-muted-foreground shrink-0" />}
-    </div>
-  );
-}
 
 export default function TrendingTopicFeedPage() {
   const { topic } = useParams<{ topic: string }>();
@@ -79,6 +49,16 @@ export default function TrendingTopicFeedPage() {
   const [change24h, setChange24h] = useState<number | null>(null);
 
   const decodedTopic = decodeURIComponent(topic ?? '');
+
+  useSEO({
+    title: decodedTopic ? `${decodedTopic} — Trending on Testagram` : 'Trending',
+    description: topicData
+      ? `${postCount.toLocaleString()} posts about ${decodedTopic} in the last 7 days. Join the conversation on Testagram.`
+      : `See what's trending with ${decodedTopic} on Testagram.`,
+    url: `/trending/${encodeURIComponent(decodedTopic)}`,
+    type: 'website',
+    keywords: `${decodedTopic}, trending, testagram, social media`,
+  });
 
   const computeSparkline = (rawPosts: any[]) => {
     const now = Date.now();
