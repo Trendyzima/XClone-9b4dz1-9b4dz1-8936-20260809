@@ -2,7 +2,7 @@
 const fs   = require('fs');
 const path = require('path');
 
-/* ─── Surgical Vite-chunk patcher (same logic as _patch-vite.cjs) ─────────── */
+/* ─── Surgical Vite-chunk patcher ─────────────────────────────────────────── */
 function fixSource(src) {
   if (!src.includes('code??')) return src;
   let o = src;
@@ -39,53 +39,109 @@ patchViteChunks();
 /* ─── Vite config ──────────────────────────────────────────────────────────── */
 const { defineConfig } = require('vite');
 
-// Try to load @vitejs/plugin-react — it provides proper JSX + TSX handling
 let reactPlugin = null;
 try {
   const { default: react } = require('@vitejs/plugin-react');
   reactPlugin = react();
 } catch (_) {}
 
-const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
+const root = __dirname;
+const src  = path.join(root, 'src');
+const stub = path.join(src, 'lib', 'capacitor-stub.ts');
 
-/* ─── Rollup plugin: resolve extensionless TypeScript imports ──────────────── *
- * During Rollup's bundling phase, imports like `@/components/layout/AuthProvider`
- * resolve to an absolute path WITHOUT a .tsx extension. This plugin adds it.
+/* ─── Helper: resolve extensionless path to a real file ───────────────────── */
+const TS_EXTS = ['.tsx', '.ts', '.jsx', '.js'];
+
+function resolveWithExts(base) {
+  for (const ext of TS_EXTS) {
+    const full = base + ext;
+    if (fs.existsSync(full)) return full;
+  }
+  for (const ext of TS_EXTS) {
+    const full = path.join(base, 'index' + ext);
+    if (fs.existsSync(full)) return full;
+  }
+  return null;
+}
+
+/* ─── Plugin: resolve & load extensionless TypeScript imports ─────────────── *
+ * Two hooks work together:
+ *   resolveId — fires before alias expansion for @/ paths
+ *   load      — safety-net: catches absolute paths that slipped through
+ *               without an extension (after alias expansion by Vite internals)
  */
 const resolveTypescriptExtensions = {
   name: 'resolve-ts-extensions',
   enforce: 'pre',
-  resolveId(source, importer) {
-    // Skip: already has an extension, or a bare specifier without @/ prefix
-    if (/\.[jt]sx?$/.test(source)) return null;
-    if (source.startsWith('\0')) return null;
-    if (!source.startsWith('/') && !source.startsWith('.') && !source.startsWith('@/')) return null;
 
-    let base;
+  resolveId(source, importer) {
+    if (source.startsWith('\0')) return null;
+    if (/\.[jt]sx?(\?.*)?$/.test(source)) return null;
+
+    let base = null;
+
     if (source.startsWith('@/')) {
-      base = path.join(__dirname, 'src', source.slice(2));
+      base = path.join(src, source.slice(2));
     } else if (source.startsWith('/')) {
       base = source;
-    } else if (importer) {
-      const importerDir = path.dirname(importer.split('?')[0]);
-      base = path.join(importerDir, source);
+    } else if (source.startsWith('.') && importer) {
+      const dir = path.dirname(importer.replace(/\?.*$/, ''));
+      base = path.join(dir, source);
     } else {
       return null;
     }
 
-    const exts = ['.tsx', '.ts', '.jsx', '.js'];
-
-    for (const ext of exts) {
-      const full = base + ext;
-      if (fs.existsSync(full)) return full;
-    }
-    for (const ext of exts) {
-      const full = path.join(base, 'index' + ext);
-      if (fs.existsSync(full)) return full;
-    }
-
-    return null;
+    const resolved = resolveWithExts(base);
+    return resolved || null;
   },
+
+  load(id) {
+    // Safety-net: if Rollup asks us to load an extensionless absolute path
+    // (happens when Vite's alias plugin expands @/ AFTER our resolveId ran),
+    // try appending extensions before the load-fallback plugin errors out.
+    if (!id || id.startsWith('\0')) return null;
+    if (/\.[jt]sx?(\?.*)?$/.test(id)) return null;
+    if (!path.isAbsolute(id)) return null;
+
+    const resolved = resolveWithExts(id);
+    if (!resolved) return null;
+
+    try {
+      const code = fs.readFileSync(resolved, 'utf8');
+      return { code, map: null };
+    } catch (_) {
+      return null;
+    }
+  },
+};
+
+/* ─── Explicit aliases for every layout + feature component in App.tsx ───── *
+ * Belt-and-suspenders: even if the plugin fails, these direct aliases ensure
+ * Vite can always find the critical entry-point imports.
+ */
+function a(rel) { return path.join(src, rel); }
+
+const layoutAliases = {
+  '@/components/layout/AuthProvider':       a('components/layout/AuthProvider.tsx'),
+  '@/components/layout/Sidebar':            a('components/layout/Sidebar.tsx'),
+  '@/components/layout/RightSidebar':       a('components/layout/RightSidebar.tsx'),
+  '@/components/layout/BottomNav':          a('components/layout/BottomNav.tsx'),
+  '@/components/layout/FloatingActionButton': a('components/layout/FloatingActionButton.tsx'),
+  '@/components/layout/TopBar':             a('components/layout/TopBar.tsx'),
+  '@/components/layout/ThemeToggle':        a('components/layout/ThemeToggle.tsx'),
+  '@/components/layout/MobileSidebarDrawer': a('components/layout/MobileSidebarDrawer.tsx'),
+  '@/components/features/LiveSpaceBanner':  a('components/features/LiveSpaceBanner.tsx'),
+  '@/components/features/LiveNotificationBanner': a('components/features/LiveNotificationBanner.tsx'),
+  '@/hooks/useCreatorTierAlert':            a('hooks/useCreatorTierAlert.ts'),
+  '@/lib/supabase':                         a('lib/supabase.ts'),
+  '@/lib/auth':                             a('lib/auth.ts'),
+  '@/lib/utils':                            a('lib/utils.ts'),
+  '@/stores/authStore':                     a('stores/authStore.ts'),
+  '@/hooks/useAuth':                        a('hooks/useAuth.ts'),
+  '@/hooks/useSEO':                         a('hooks/useSEO.ts'),
+  '@/hooks/usePremium':                     a('hooks/usePremium.ts'),
+  '@/hooks/useWallet':                      a('hooks/useWallet.ts'),
+  '@/hooks/useFollow':                      a('hooks/useFollow.ts'),
 };
 
 module.exports = defineConfig({
@@ -94,7 +150,9 @@ module.exports = defineConfig({
     port: 8080,
   },
 
-  plugins: reactPlugin ? [reactPlugin, resolveTypescriptExtensions] : [resolveTypescriptExtensions],
+  plugins: reactPlugin
+    ? [reactPlugin, resolveTypescriptExtensions]
+    : [resolveTypescriptExtensions],
 
   esbuild: {
     jsx: 'automatic',
@@ -105,29 +163,34 @@ module.exports = defineConfig({
     extensions: ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'],
     dedupe: ['react', 'react-dom'],
     alias: {
-      '@': path.resolve(__dirname, 'src'),
-      '@capacitor/core':                         stub,
-      '@capacitor/status-bar':                   stub,
-      '@capacitor/app':                          stub,
-      '@capacitor/device':                       stub,
-      '@capacitor/filesystem':                   stub,
-      '@capacitor/network':                      stub,
-      '@capacitor/push-notifications':           stub,
-      '@capacitor/share':                        stub,
-      '@capacitor-community/admob':              stub,
-      '@capacitor-community/firebase-analytics': stub,
-      '@capacitor-community/media':              stub,
-      '@capgo/capacitor-updater':                stub,
-      '@vercel/analytics/react':                 stub,
+      // Capacitor / Vercel stubs
+      '@capacitor/core':                          stub,
+      '@capacitor/status-bar':                    stub,
+      '@capacitor/app':                           stub,
+      '@capacitor/device':                        stub,
+      '@capacitor/filesystem':                    stub,
+      '@capacitor/network':                       stub,
+      '@capacitor/push-notifications':            stub,
+      '@capacitor/share':                         stub,
+      '@capacitor-community/admob':               stub,
+      '@capacitor-community/firebase-analytics':  stub,
+      '@capacitor-community/media':               stub,
+      '@capgo/capacitor-updater':                 stub,
+      '@vercel/analytics/react':                  stub,
+
+      // Explicit layout / hook aliases (belt-and-suspenders)
+      ...layoutAliases,
+
+      // Generic @ path alias — must come LAST so specific aliases win
+      '@': src,
     },
   },
 
   build: {
-    commonjsOptions: {
-      transformMixedEsModules: true,
-    },
+    commonjsOptions: { transformMixedEsModules: true },
     rollupOptions: {
-      external: (id) => /\.test\.[jt]sx?$/.test(id) || /\.spec\.[jt]sx?$/.test(id),
+      external: (id) =>
+        /\.test\.[jt]sx?$/.test(id) || /\.spec\.[jt]sx?$/.test(id),
       plugins: [
         {
           name: 'vite-chunk-repatch',

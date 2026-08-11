@@ -2,10 +2,9 @@ android/
 ios/
 .git/
 *.log
-*.md
 bunfig.toml
 capacitor.config.json
-components/
+/components/
 node_modules/*
 !node_modules/_preload-fix/
 supabase/migrations/
