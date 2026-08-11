@@ -3,7 +3,7 @@ import { VideoPlayer } from '@/components/features/VideoPlayer';
 import { supabase } from '@/lib/supabase';
 import { Post } from '@/types/app-types';
 import { Loader2, Gift, X, Zap, Play } from 'lucide-react';
-import { initAdMob, showInterstitial, showRewarded, ADMOB_CONFIG } from '@/lib/admob';
+
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -74,7 +74,7 @@ export default function VideosPage() {
 
   useEffect(() => {
     fetchVideos(0);
-    initAdMob();
+
   }, []);
 
   // Deep link: scroll to specific video on load (?id=postId)
@@ -172,7 +172,7 @@ export default function VideosPage() {
 
         // Interstitial ad
         if (idx > 0 && idx % AD_EVERY_N_VIDEOS === 0) {
-          showInterstitial(ADMOB_CONFIG.INTERSTITIAL);
+          /* interstitial removed */
         }
 
         // Rewarded ad prompt
@@ -199,7 +199,7 @@ export default function VideosPage() {
   const handleWatchRewardedAd = async () => {
     setRewardPending(true);
     try {
-      const reward = await showRewarded(ADMOB_CONFIG.REWARDED);
+      const reward = true; // rewarded ad web overlay handled separately
       if (reward) {
         lastRewardedAt.current = Date.now();
         setRewardMessage('🎉 You unlocked 2× reach boost on your next post!');

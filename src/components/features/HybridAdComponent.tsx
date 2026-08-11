@@ -31,7 +31,7 @@ export function HybridAdComponent({ location, className = '', position }: Hybrid
 
   const fetchAdConfig = async () => {
     try {
-      const network = isMobile ? 'admob' : 'adsense';
+      const network = 'adsense';
       
       const { data, error } = await supabase
         .from('ad_placements')

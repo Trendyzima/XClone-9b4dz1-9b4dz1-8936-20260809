@@ -15,7 +15,6 @@ import { Loader2 } from 'lucide-react';
 
 // Capacitor — imported from stub so type-checker never touches the native packages
 import { StatusBar, Style, Capacitor } from '@/lib/capacitor-stub';
-import { showInterstitial, initAdMob } from '@/lib/admob';
 
 // Critical pages — loaded eagerly
 import HomePage from '@/pages/HomePage';
@@ -95,9 +94,6 @@ function PageLoader() {
 }
 
 // ─── Inner app — has access to router context ─────────────────────────────────
-let navCount = 0;
-const INTERSTITIAL_EVERY = 5;
-
 function AppInner() {
   const location = useLocation();
   useCreatorTierAlert();
@@ -114,17 +110,9 @@ function AppInner() {
       } catch {
         try { await StatusBar.hide(); } catch (_) {}
       }
-      setTimeout(() => initAdMob().catch(() => {}), 3000);
     })();
   }, []);
 
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    navCount++;
-    if (navCount % INTERSTITIAL_EVERY === 0) {
-      setTimeout(() => showInterstitial().catch(() => {}), 800);
-    }
-  }, [location.pathname]);
 
   return (
     <AuthProvider>

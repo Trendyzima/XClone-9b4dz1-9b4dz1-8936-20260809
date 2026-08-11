@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { Capacitor } from '@/lib/capacitor-stub';
-import { ADMOB_CONFIG, AD_REVENUE_SPLIT, isAdMobSupported, initAdMob } from '@/lib/admob';
 import { Sparkles, ExternalLink, X } from 'lucide-react';
 import { AdSenseAd } from '@/components/features/AdSenseAd';
 
@@ -9,7 +7,7 @@ interface NativeAdCardProps {
   className?: string;
 }
 
-// Simulated native-style ad data for web (AdMob native only works on native)
+// Simulated native-style ad data for web fallback
 const SAMPLE_ADS = [
   {
     headline: 'Grow Your Business Online',
@@ -38,7 +36,7 @@ const SAMPLE_ADS = [
 ];
 
 export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
-  const [adData, setAdData] = useState(SAMPLE_ADS[Math.floor(Math.random() * SAMPLE_ADS.length)]);
+  const [adData] = useState(SAMPLE_ADS[Math.floor(Math.random() * SAMPLE_ADS.length)]);
   const [visible, setVisible] = useState(true);
   const [impressionTracked, setImpressionTracked] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -50,7 +48,6 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
       (entries) => {
         if (entries[0].isIntersecting && !impressionTracked) {
           setImpressionTracked(true);
-          trackImpression();
         }
       },
       { threshold: 0.5 }
@@ -59,24 +56,7 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
     return () => observer.disconnect();
   }, [impressionTracked]);
 
-  const trackImpression = async () => {
-    // On native, AdMob native ads handle this automatically
-    if (isAdMobSupported()) {
-      try {
-        await initAdMob();
-        console.log('[NativeAd] Impression tracked via AdMob native unit:', ADMOB_CONFIG.NATIVE);
-      } catch (e) {
-        console.warn('[NativeAd] Impression tracking error:', e);
-      }
-    }
-    console.log('[NativeAd] Impression tracked — ad unit:', ADMOB_CONFIG.NATIVE);
-  };
-
   const handleAdClick = () => {
-    // Revenue attribution: native click
-    const estimatedCPM = AD_REVENUE_SPLIT.ESTIMATED_CPM.native;
-    const estimatedRevenue = estimatedCPM / 1000; // per impression
-    console.log(`[NativeAd] Click — estimated revenue: $${estimatedRevenue.toFixed(5)}`);
     if (adData.url && adData.url !== '#') {
       window.open(adData.url, '_blank');
     }
@@ -87,15 +67,12 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
     onClose?.();
   };
 
-  // On web, render AdSense directly instead of simulated ad cards
-  const isNative = isAdMobSupported();
-  if (!isNative && !Capacitor.isNativePlatform()) {
-    return (
-      <div className={`${className} px-2 py-2`}>
-        <AdSenseAd adSlot="3193754134" adFormat="auto" fullWidthResponsive />
-      </div>
-    );
-  }
+  // Always render AdSense on web
+  return (
+    <div className={`${className} px-2 py-2`}>
+      <AdSenseAd adSlot="3193754134" adFormat="auto" fullWidthResponsive />
+    </div>
+  );
 
   if (!visible) return null;
 
@@ -104,7 +81,6 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
       ref={cardRef}
       className={`relative border border-border bg-card rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 ${className}`}
     >
-      {/* Sponsored badge */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
         <div className="flex items-center gap-1.5">
           <Sparkles className="w-3 h-3 text-amber-500" />
@@ -112,44 +88,17 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
             Sponsored
           </span>
         </div>
-        <button
-          onClick={handleClose}
-          className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground"
-          title="Close ad"
-        >
+        <button onClick={handleClose} className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground" title="Close ad">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
-
-      {/* Ad Content */}
-      <button
-        onClick={handleAdClick}
-        className="w-full text-left px-4 pb-4"
-      >
-        {/* Hero image */}
+      <button onClick={handleAdClick} className="w-full text-left px-4 pb-4">
         <div className="rounded-xl overflow-hidden mb-3 aspect-video bg-muted">
-          <img
-            src={adData.image}
-            alt={adData.headline}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
+          <img src={adData.image} alt={adData.headline} className="w-full h-full object-cover" loading="lazy" />
         </div>
-
-        {/* Advertiser */}
         <p className="text-xs text-muted-foreground mb-1">{adData.advertiser}</p>
-
-        {/* Headline */}
-        <h3 className="font-bold text-foreground text-base leading-tight mb-1">
-          {adData.headline}
-        </h3>
-
-        {/* Body */}
-        <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-          {adData.body}
-        </p>
-
-        {/* CTA */}
+        <h3 className="font-bold text-foreground text-base leading-tight mb-1">{adData.headline}</h3>
+        <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{adData.body}</p>
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-sm font-semibold px-4 py-2 rounded-full">
             {adData.cta}
@@ -162,10 +111,6 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
   );
 }
 
-/**
- * Feed-level native ad injector.
- * Wraps any array of React nodes and inserts a NativeAdCard every N items.
- */
 export function injectNativeAds<T>(
   items: T[],
   renderItem: (item: T, index: number) => React.ReactNode,

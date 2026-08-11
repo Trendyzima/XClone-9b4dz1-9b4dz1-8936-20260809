@@ -12,7 +12,7 @@ import { formatDistanceToNow, format, isToday } from 'date-fns';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
-import { AD_REVENUE_SPLIT, ADMOB_CONFIG, showRewarded, isAdMobSupported } from '@/lib/admob';
+import { AD_REVENUE_SPLIT } from '@/lib/admob';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MAX_ADS_PER_DAY = 10;
@@ -197,13 +197,7 @@ export default function RewardedAdHistory() {
     setWatching(true);
     try {
       // Native: use AdMob rewarded video. Web: overlay with AdSense
-      let completed = false;
-      if (isAdMobSupported()) {
-        const reward = await showRewarded(ADMOB_CONFIG.REWARDED);
-        completed = reward !== null;
-      } else {
-        completed = await showWebRewardedAd();
-      }
+      const completed = await showWebRewardedAd();
 
       if (!completed) {
         toast.error('Ad skipped — no reward granted');
@@ -232,7 +226,7 @@ export default function RewardedAdHistory() {
           user_id: user.id,
           reward_type: 'reach_boost',
           reward_amount: 2,
-          ad_unit: ADMOB_CONFIG.REWARDED,
+          ad_unit: 'rewarded_ad_web',
           used: false,
           expires_at: expiresAt,
         }),
@@ -250,7 +244,7 @@ export default function RewardedAdHistory() {
             ad_type: 'rewarded',
             bonus: bonusCredits,
             streak: streak + 1,
-            ad_unit: ADMOB_CONFIG.REWARDED,
+            ad_unit: 'rewarded_ad_web',
           },
         }),
         // 4. Creator earnings (30% of gross)

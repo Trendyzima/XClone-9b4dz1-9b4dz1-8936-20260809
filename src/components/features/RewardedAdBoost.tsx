@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Capacitor } from '@/lib/capacitor-stub';
-import { showRewarded, ADMOB_CONFIG, AD_REVENUE_SPLIT, isAdMobSupported } from '@/lib/admob';
+import { AD_REVENUE_SPLIT } from '@/lib/admob';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -53,10 +52,9 @@ const BOOST_OPTIONS = [
   },
 ];
 
-// Simulated AdSense rewarded ad for web platform
+// Countdown overlay (no AdSense in overlays per policy)
 async function showWebRewardedAd(): Promise<boolean> {
   return new Promise((resolve) => {
-    // Create a fullscreen ad overlay that mimics a rewarded ad
     const overlay = document.createElement('div');
     overlay.style.cssText = `
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -66,7 +64,6 @@ async function showWebRewardedAd(): Promise<boolean> {
     `;
 
     let timeLeft = 5;
-    let canSkip = false;
 
     const adHtml = `
       <div style="max-width:360px; width:90%; text-align:center;">
@@ -95,8 +92,6 @@ async function showWebRewardedAd(): Promise<boolean> {
     overlay.innerHTML = adHtml;
     document.body.appendChild(overlay);
 
-    // Note: AdSense is not placed in modal overlays per policy
-
     const timerEl = overlay.querySelector('#timer-count') as HTMLElement;
     const timerLabel = overlay.querySelector('#ad-timer') as HTMLElement;
     const skipBtn = overlay.querySelector('#skip-btn') as HTMLButtonElement;
@@ -106,12 +101,8 @@ async function showWebRewardedAd(): Promise<boolean> {
       if (timerEl) timerEl.textContent = `${timeLeft}s`;
       if (timeLeft <= 0) {
         clearInterval(countdown);
-        canSkip = true;
         if (timerLabel) timerLabel.style.display = 'none';
-        if (skipBtn) {
-          skipBtn.disabled = false;
-          skipBtn.style.opacity = '1';
-        }
+        if (skipBtn) { skipBtn.disabled = false; skipBtn.style.opacity = '1'; }
       }
     }, 1000);
 
@@ -127,33 +118,19 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
   const { user } = useAuth();
   const [selected, setSelected] = useState(BOOST_OPTIONS[0]);
   const [boostState, setBoostState] = useState<BoostState>('idle');
-  const isNative = isAdMobSupported();
 
   const handleWatchAd = async () => {
     if (!user) { toast.error('Sign in to boost posts'); return; }
     setBoostState('loading');
-
     try {
-      let adCompleted = false;
-
-      if (isNative) {
-        // Real AdMob rewarded ad on native
-        setBoostState('watching');
-        const reward = await showRewarded(ADMOB_CONFIG.REWARDED);
-        adCompleted = !!reward;
-      } else {
-        // Web: show a real AdSense rewarded overlay
-        setBoostState('watching');
-        adCompleted = await showWebRewardedAd();
-      }
+      setBoostState('watching');
+      const adCompleted = await showWebRewardedAd();
 
       if (!adCompleted) {
         toast.error('Ad not completed — boost not applied');
         setBoostState('idle');
         return;
       }
-
-      // Apply boost
       setBoostState('applying');
       await applyBoost();
     } catch (e: any) {
@@ -165,25 +142,21 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
 
   const applyBoost = async () => {
     if (!user) return;
-
     try {
-      // Ad-rewarded boosts last 1 hour only
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 1);
 
-      // Record the reward unlock
       await supabase.from('rewarded_ad_unlocks').insert({
         user_id: user.id,
         reward_type: selected.rewardType,
         reward_amount: selected.rewardAmount,
-        ad_unit: ADMOB_CONFIG.REWARDED,
+        ad_unit: 'rewarded_boost',
         used: true,
         expires_at: expiresAt.toISOString(),
       }).then(({ error }) => {
         if (error) console.warn('[RewardedBoost] Reward insert warn:', error.message);
       });
 
-      // Apply the boost to boosted_posts
       const { error: boostError } = await supabase.from('boosted_posts').insert({
         post_id: postId,
         user_id: user.id,
@@ -193,28 +166,23 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
         is_sponsored: false,
         end_date: expiresAt.toISOString(),
       });
-
       if (boostError && !boostError.message.includes('duplicate')) {
         console.warn('[RewardedBoost] Boost insert warn:', boostError.message);
       }
 
-      // Award 25 credits to the user's wallet
       await supabase.from('user_wallets')
         .upsert({ user_id: user.id, credits: 25 }, { onConflict: 'user_id' })
         .then(() => {});
 
-      // Log credit transaction
       await supabase.from('credit_transactions').insert({
         user_id: user.id,
         amount: 25,
         reason: 'rewarded_ad_boost',
-        metadata: { post_id: postId, boost_type: selected.rewardType }
+        metadata: { post_id: postId, boost_type: selected.rewardType },
       }).then(() => {});
 
-      // Track creator earnings (30% of rewarded ad CPM)
       const estimatedRevenue = AD_REVENUE_SPLIT.ESTIMATED_CPM.rewarded / 1000;
       const creatorShare = estimatedRevenue * AD_REVENUE_SPLIT.CREATOR_SHARE;
-
       try {
         await supabase.from('creator_earnings').insert({
           user_id: user.id,
@@ -223,7 +191,7 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
           post_id: postId,
           status: 'pending',
         });
-      } catch (_earnErr) { /* non-critical */ }
+      } catch (_) { /* non-critical */ }
 
       setBoostState('success');
       toast.success(`${selected.label} applied! +25 credits earned.`);
@@ -235,7 +203,6 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
     }
   };
 
-  // ── Success state ─────────────────────────────────────────────────────────
   if (boostState === 'success') {
     return (
       <div className="flex flex-col items-center justify-center py-8 gap-4">
@@ -244,41 +211,28 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
         </div>
         <div className="text-center">
           <h3 className="font-bold text-lg text-foreground mb-1">{selected.label} Applied!</h3>
-          <p className="text-sm text-muted-foreground">
-            Your post reach is boosted for the next 1 hour.
-          </p>
+          <p className="text-sm text-muted-foreground">Your post reach is boosted for the next 1 hour.</p>
           <div className="mt-3 flex items-center justify-center gap-2 text-green-600 font-semibold">
             <Coins className="w-4 h-4" />
             <span>+25 credits added to your wallet!</span>
           </div>
         </div>
-        <Button onClick={onClose} className="w-full">
-          Done
-        </Button>
+        <Button onClick={onClose} className="w-full">Done</Button>
       </div>
     );
   }
 
-  // ── Watching / Applying state ─────────────────────────────────────────────
   if (boostState === 'watching' || boostState === 'applying' || boostState === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center py-10 gap-4">
         <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
-          {boostState === 'applying' ? (
-            <Zap className="w-8 h-8 text-primary animate-pulse" />
-          ) : (
-            <Play className="w-8 h-8 text-primary" />
-          )}
+          {boostState === 'applying'
+            ? <Zap className="w-8 h-8 text-primary animate-pulse" />
+            : <Play className="w-8 h-8 text-primary" />}
         </div>
         <div className="text-center">
           <h3 className="font-bold text-foreground mb-1">
-            {boostState === 'applying'
-              ? 'Applying Boost...'
-              : boostState === 'loading'
-              ? 'Loading Ad...'
-              : isNative
-              ? 'Watching Ad...'
-              : 'Opening Ad...'}
+            {boostState === 'applying' ? 'Applying Boost...' : boostState === 'loading' ? 'Loading Ad...' : 'Opening Ad...'}
           </h3>
           <p className="text-sm text-muted-foreground">
             {boostState === 'applying'
@@ -293,20 +247,15 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="bg-gradient-to-br from-primary/10 to-purple-500/10 rounded-xl p-4 text-center">
         <Gift className="w-8 h-8 text-primary mx-auto mb-2" />
         <h3 className="font-bold text-foreground text-lg">Free Post Boost</h3>
-        <p className="text-sm text-muted-foreground mt-1">
-          Watch a short ad to boost your post reach — completely free!
-        </p>
+        <p className="text-sm text-muted-foreground mt-1">Watch a short ad to boost your post reach — completely free!</p>
         <div className="mt-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-green-600">
-          <Coins className="w-3.5 h-3.5" />
-          <span>+25 credits rewarded per ad</span>
+          <Coins className="w-3.5 h-3.5" /><span>+25 credits rewarded per ad</span>
         </div>
       </div>
 
-      {/* Post preview */}
       {postContent && (
         <div className="bg-muted/30 border border-border rounded-lg p-3">
           <p className="text-xs text-muted-foreground mb-1 font-medium">Boosting:</p>
@@ -314,20 +263,12 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
         </div>
       )}
 
-      {/* Boost options */}
       <div className="space-y-2">
         <p className="text-sm font-semibold text-foreground">Choose boost type:</p>
         {BOOST_OPTIONS.map(opt => (
-          <button
-            key={opt.id}
-            onClick={() => setSelected(opt)}
-            className={cn(
-              'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
-              selected.id === opt.id
-                ? `${opt.bg} ${opt.border} border-2`
-                : 'bg-card border-border hover:bg-muted/30'
-            )}
-          >
+          <button key={opt.id} onClick={() => setSelected(opt)}
+            className={cn('w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
+              selected.id === opt.id ? `${opt.bg} ${opt.border} border-2` : 'bg-card border-border hover:bg-muted/30')}>
             <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0', opt.bg)}>
               <opt.icon className={cn('w-5 h-5', opt.color)} />
             </div>
@@ -335,19 +276,14 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
               <p className="font-semibold text-foreground text-sm">{opt.label}</p>
               <p className="text-xs text-muted-foreground">{opt.description}</p>
             </div>
-            <div className={cn(
-              'w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0',
-              selected.id === opt.id ? 'border-current' : 'border-muted-foreground'
-            )}>
-              {selected.id === opt.id && (
-                <div className={cn('w-2.5 h-2.5 rounded-full', opt.color.replace('text-', 'bg-'))} />
-              )}
+            <div className={cn('w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0',
+              selected.id === opt.id ? 'border-current' : 'border-muted-foreground')}>
+              {selected.id === opt.id && <div className={cn('w-2.5 h-2.5 rounded-full', opt.color.replace('text-', 'bg-'))} />}
             </div>
           </button>
         ))}
       </div>
 
-      {/* Revenue info */}
       <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex items-start gap-2">
         <TrendingUp className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-green-700 dark:text-green-400">
@@ -355,20 +291,11 @@ export function RewardedAdBoost({ postId, postContent, onClose, onBoostApplied }
         </p>
       </div>
 
-      {/* CTA */}
-      <Button
-        onClick={handleWatchAd}
-        disabled={boostState !== 'idle'}
-        className="w-full gap-2 h-12 text-base font-semibold"
-      >
-        <Play className="w-5 h-5" />
-        Watch Ad &amp; Boost Post
+      <Button onClick={handleWatchAd} disabled={boostState !== 'idle'} className="w-full gap-2 h-12 text-base font-semibold">
+        <Play className="w-5 h-5" />Watch Ad &amp; Boost Post
       </Button>
 
-      <button
-        onClick={onClose}
-        className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
-      >
+      <button onClick={onClose} className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors py-1">
         Maybe later
       </button>
     </div>
