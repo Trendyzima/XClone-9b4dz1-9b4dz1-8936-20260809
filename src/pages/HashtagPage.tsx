@@ -36,23 +36,7 @@ export default function HashtagPage() {
     url: `/hashtag/${tag}`,
     type: 'website',
     keywords: `${tag}, #${tag}, testagram, trending, social media, hashtag, posts`,
-    structuredData: hashtag ? [
-      buildHashtagLD(tag ?? '', hashtag.usage_count ?? 0),
-      posts.length > 0 ? {
-        '@context': 'https://schema.org',
-        '@type': 'ItemList',
-        name: `Top posts for #${tag}`,
-        description: `Most popular posts tagged #${tag} on Testagram`,
-        url: `https://testagram.site/hashtag/${tag}`,
-        numberOfItems: Math.min(posts.length, 5),
-        itemListElement: posts.slice(0, 5).map((p: any, i: number) => ({
-          '@type': 'ListItem',
-          position: i + 1,
-          name: (p.content ?? '').replace(/<[^>]*>/g, '').slice(0, 80),
-          url: `https://testagram.site/post/${p.id}`,
-        })),
-      } : null,
-    ].filter(Boolean) : undefined,
+    structuredData: hashtag ? buildHashtagLD(tag ?? '', hashtag.usage_count ?? 0) : undefined,
   });
 
   useEffect(() => {

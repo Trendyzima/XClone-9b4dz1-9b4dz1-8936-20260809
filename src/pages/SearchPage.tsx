@@ -15,12 +15,42 @@ import * as federation from '@/api/federation';
 import { formatNumber } from '@/lib/utils';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { DynamicAd } from '@/components/features/DynamicAd';
+import { useSEO } from '@/hooks/useSEO';
 
 export default function SearchPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [query, setQuery] = useState(searchParams.get('q') || '');
+
+  // ── SEO — dynamic title + WebSite SearchAction JSON-LD ──────────────────
+  useSEO({
+    title: query.trim()
+      ? `Search: "${query.trim()}" — Testagram`
+      : 'Search — Discover People, Posts & Hashtags',
+    description: query.trim()
+      ? `Testagram search results for "${query.trim()}". Find posts, people, hashtags, and communities.`
+      : 'Search Testagram to find creators, posts, trending hashtags, and communities from around the world.',
+    url: query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : '/search',
+    type: 'website',
+    keywords: query.trim()
+      ? `${query.trim()}, search, testagram, find, discover`
+      : 'search, discover, find people, hashtags, testagram, communities',
+    structuredData: {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'Testagram',
+      url: 'https://testagram.site',
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: {
+          '@type': 'EntryPoint',
+          urlTemplate: 'https://testagram.site/search?q={search_term_string}',
+        },
+        'query-input': 'required name=search_term_string',
+      },
+    },
+  });
   const [activeTab, setActiveTab] = useState('For You');
   const [posts, setPosts] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);

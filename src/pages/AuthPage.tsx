@@ -8,8 +8,10 @@ import { useAuthStore } from '@/stores/authStore';
 import { Loader2 } from 'lucide-react';
 import { AdMob, BannerAdSize, BannerAdPosition } from '@/lib/capacitor-stub';
 import { supabase } from '@/lib/supabase';
+import { useSEO } from '@/hooks/useSEO';
 
 export default function AuthPage() {
+  useSEO({ noindex: true, title: 'Sign In', url: '/auth' });
   const [mode, setMode] = useState<'signin' | 'signup' | 'verify'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

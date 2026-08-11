@@ -35,6 +35,21 @@ export default function ThreadsPage() {
 
   // ── SEO — dynamic title + ItemList JSON-LD from top 5 threads ─────────────
   const topThreads = threads.filter(t => t.views_count > 0).slice(0, 5);
+  const threadsJsonLd = topThreads.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'Trending Threads on Testagram',
+    description: 'Top long-form articles and stories from creators on Testagram',
+    url: 'https://testagram.site/threads',
+    numberOfItems: topThreads.length,
+    itemListElement: topThreads.map((t, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: t.title,
+      url: `https://testagram.site/thread/${t.id}`,
+      image: t.cover_image || undefined,
+    })),
+  } : undefined;
   useSEO({
     title: threads.length > 0
       ? `Threads — ${formatNumber(threads.length)} stories & articles`
@@ -43,22 +58,7 @@ export default function ThreadsPage() {
     url: '/threads',
     type: 'website',
     keywords: 'threads, articles, long-form, stories, testagram, creator writing, opinion, trending',
-    structuredData: topThreads.length > 0 ? {
-      '@context': 'https://schema.org',
-      '@type': 'ItemList',
-      name: 'Trending Threads on Testagram',
-      description: 'Top long-form articles and stories from creators on Testagram',
-      url: 'https://testagram.site/threads',
-      numberOfItems: topThreads.length,
-      itemListElement: topThreads.map((t, i) => ({
-        '@type': 'ListItem',
-        position: i + 1,
-        name: t.title,
-        url: `https://testagram.site/thread/${t.id}`,
-        description: t.content.replace(/<[^>]*>/g, '').slice(0, 150),
-        image: t.cover_image || undefined,
-      })),
-    } : undefined,
+    structuredData: threadsJsonLd,
   });
 
   const tabs = ['For You', 'Following', 'Trending'];
