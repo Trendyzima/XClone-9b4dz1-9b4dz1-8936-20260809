@@ -39,7 +39,9 @@ function MonetizationAdBanner() {
     </div>
   );
 }
-const MONETIZATION_THRESHOLD = 500;
+const MON_MIN_FOLLOWERS = 500;
+const MON_MIN_POSTS     = 3000;
+const MON_MIN_VIDEOS    = 100;
 
 const CREDIT_PACKAGES = [
   { credits: 500,   price: 4.99,  label: 'Starter', color: 'from-blue-500 to-cyan-500',     popular: false },
@@ -57,6 +59,8 @@ export function MonetizationDashboard() {
   useSEO({ noindex: true, title: 'Monetization', url: '/monetization' });
   const navigate = useNavigate();
 
+  const [postCount, setPostCount]   = useState(0);
+  const [videoCount, setVideoCount] = useState(0);
   const [stats, setStats] = useState({
     totalEarnings: 0, videoRevenue: 0, subscriptions: 0,
     tips: 0, videoViews: 0, productSales: 0, rewardedAdEarnings: 0,
@@ -95,7 +99,7 @@ export function MonetizationDashboard() {
   const fetchAll = async () => {
     if (!user) return;
     try {
-      const [monRes, profileRes, earningsRes, subsRes, tipsRes, videosRes, walletRes, dailyRes] = await Promise.all([
+      const [monRes, profileRes, earningsRes, subsRes, tipsRes, videosRes, walletRes, dailyRes, postCountRes, videoCountRes] = await Promise.all([
         supabase.from('user_monetization').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('user_profiles').select('subscriber_count, followers_count, is_creator, can_monetize').eq('id', user.id).single(),
         supabase.from('creator_earnings').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
@@ -104,6 +108,8 @@ export function MonetizationDashboard() {
         supabase.from('posts').select('views_count').eq('user_id', user.id).eq('is_video', true),
         supabase.from('user_wallets').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('daily_rewards').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('posts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('posts').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_video', true),
       ]);
 
       setMonetizationStatus(monRes.data);
@@ -111,6 +117,8 @@ export function MonetizationDashboard() {
       setWalletData(walletRes.data);
       setCredits(walletRes.data?.credits || 0);
       setDailyReward(dailyRes.data);
+      setPostCount(postCountRes.count ?? 0);
+      setVideoCount(videoCountRes.count ?? 0);
 
       const earningsList = earningsRes.data || [];
       setEarnings(earningsList);
@@ -179,8 +187,14 @@ export function MonetizationDashboard() {
   const enableMonetization = async () => {
     if (!user) return;
     const subscriberCount = userProfile?.subscriber_count || userProfile?.followers_count || 0;
-    if (subscriberCount < MONETIZATION_THRESHOLD) {
-      toast.error(`You need ${MONETIZATION_THRESHOLD.toLocaleString()} followers to monetize`); return;
+    if (subscriberCount < MON_MIN_FOLLOWERS) {
+      toast.error(`You need ${MON_MIN_FOLLOWERS.toLocaleString()} followers to monetize`); return;
+    }
+    if (postCount < MON_MIN_POSTS) {
+      toast.error(`You need at least ${MON_MIN_POSTS.toLocaleString()} posts to monetize`); return;
+    }
+    if (videoCount < MON_MIN_VIDEOS) {
+      toast.error(`You need at least ${MON_MIN_VIDEOS} videos to monetize`); return;
     }
     try {
       await supabase.from('user_monetization')
@@ -235,8 +249,11 @@ export function MonetizationDashboard() {
   );
 
   const subscriberCount = userProfile?.subscriber_count || userProfile?.followers_count || 0;
-  const isEligible = subscriberCount >= MONETIZATION_THRESHOLD;
-  const progressPct = Math.min(100, (subscriberCount / MONETIZATION_THRESHOLD) * 100);
+  const followersMet = subscriberCount >= MON_MIN_FOLLOWERS;
+  const postsMet     = postCount >= MON_MIN_POSTS;
+  const videosMet    = videoCount >= MON_MIN_VIDEOS;
+  const isEligible   = followersMet && postsMet && videosMet;
+  const progressPct  = Math.min(100, (subscriberCount / MON_MIN_FOLLOWERS) * 100);
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
@@ -333,9 +350,10 @@ export function MonetizationDashboard() {
                 )}
                 <div className="space-y-2 mb-4">
                   {[
-                    { label: `${MONETIZATION_THRESHOLD}+ followers`, met: isEligible },
+                    { label: `${MON_MIN_FOLLOWERS.toLocaleString()}+ followers (${subscriberCount.toLocaleString()} / ${MON_MIN_FOLLOWERS.toLocaleString()})`, met: followersMet },
+                    { label: `${MON_MIN_POSTS.toLocaleString()}+ posts (${postCount.toLocaleString()} / ${MON_MIN_POSTS.toLocaleString()})`, met: postsMet },
+                    { label: `${MON_MIN_VIDEOS}+ videos (${videoCount} / ${MON_MIN_VIDEOS})`, met: videosMet },
                     { label: 'Active account in good standing', met: true },
-                    { label: 'Post original content', met: true },
                   ].map((req, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm">
                       {req.met ? <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" /> : <XCircle className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
@@ -345,7 +363,7 @@ export function MonetizationDashboard() {
                 </div>
                 <button onClick={enableMonetization} disabled={!isEligible}
                   className={`w-full py-3 rounded-full font-semibold transition-all ${isEligible ? 'bg-primary text-primary-foreground hover:opacity-90' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}>
-                  {isEligible ? 'Enable Monetization' : `Need ${(MONETIZATION_THRESHOLD - subscriberCount).toLocaleString()} more followers`}
+                  {isEligible ? 'Enable Monetization' : !followersMet ? `Need ${(MON_MIN_FOLLOWERS - subscriberCount).toLocaleString()} more followers` : !postsMet ? `Need ${(MON_MIN_POSTS - postCount).toLocaleString()} more posts` : `Need ${MON_MIN_VIDEOS - videoCount} more videos`}
                 </button>
               </div>
             )}

@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
 import { useSEO, buildProfileLD, buildOgImageUrl } from '@/hooks/useSEO';
@@ -376,7 +376,9 @@ export default function ProfilePage() {
     setLoadingGifts(false);
   };
 
-  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
+  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
+  // Derived: videos are posts where is_video=true
+  const videoPosts = posts.filter(p => p.is_video && p.video_url);
 
   useEffect(() => {
     if (username) fetchProfile();
@@ -1083,6 +1085,56 @@ export default function ProfilePage() {
               })}
             </div>
           ) : <div className="text-center py-12 text-muted-foreground"><p>No media yet</p></div>
+        )}
+
+        {activeTab === 'Videos' && (
+          <div className="p-3">
+            {videoPosts.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground">
+                <Play className="w-14 h-14 mx-auto mb-4 opacity-20" />
+                <p className="font-semibold text-lg">No videos yet</p>
+                <p className="text-sm">Upload short videos to appear here</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {videoPosts.map((post) => (
+                  <button
+                    key={post.id}
+                    onClick={() => navigate(`/videos?id=${post.id}`)}
+                    className="relative rounded-xl overflow-hidden bg-black aspect-[9/16] hover:scale-[1.02] active:scale-[0.98] transition-transform focus:outline-none"
+                  >
+                    {/* Video thumbnail */}
+                    <video
+                      src={`${post.video_url}#t=0.5`}
+                      className="w-full h-full object-cover"
+                      muted
+                      preload="metadata"
+                    />
+                    {/* Gradient overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                    {/* Play icon */}
+                    <div className="absolute top-2 right-2 w-7 h-7 bg-black/50 rounded-full flex items-center justify-center">
+                      <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
+                    </div>
+                    {/* Stats */}
+                    <div className="absolute bottom-2 left-2 right-2">
+                      <p className="text-white text-[10px] font-medium line-clamp-2 mb-1 leading-tight">
+                        {post.content?.slice(0, 60)}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-0.5 text-white/70 text-[10px]">
+                          <Heart className="w-2.5 h-2.5" />{formatNumber(post.likes_count ?? 0)}
+                        </span>
+                        <span className="flex items-center gap-0.5 text-white/70 text-[10px]">
+                          <Eye className="w-2.5 h-2.5" />{formatNumber(post.views_count ?? 0)}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'Gifts' && (
