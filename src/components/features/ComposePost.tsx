@@ -21,6 +21,26 @@ interface ComposePostProps {
 export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [followersCount, setFollowersCount] = useState<number | null>(null);
+  const [followerCheckDone, setFollowerCheckDone] = useState(false);
+
+  // Check follower count to gate content creation at 500
+  useEffect(() => {
+    if (!user) { setFollowerCheckDone(true); return; }
+    supabase
+      .from('user_profiles')
+      .select('followers_count')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        setFollowersCount(data?.followers_count ?? 0);
+        setFollowerCheckDone(true);
+      });
+  }, [user?.id]);
+
+  const FOLLOWER_THRESHOLD = 500;
+  const isLocked = followerCheckDone && followersCount !== null && followersCount < FOLLOWER_THRESHOLD;
+
   const [content, setContent] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [video, setVideo] = useState<File | null>(null);
@@ -201,6 +221,50 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
         <Button onClick={() => navigate('/auth')} className="rounded-full px-6">
           Sign in
         </Button>
+      </div>
+    );
+  }
+
+  // Show locked state if < 500 followers
+  if (isLocked) {
+    const needed = FOLLOWER_THRESHOLD - (followersCount ?? 0);
+    const pct = Math.min(((followersCount ?? 0) / FOLLOWER_THRESHOLD) * 100, 100);
+    return (
+      <div className="border-b border-border p-5">
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5 text-center">
+          <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+            <span className="text-3xl">🔒</span>
+          </div>
+          <h3 className="font-bold text-base mb-1">Content Creation Locked</h3>
+          <p className="text-sm text-muted-foreground mb-3">
+            Grow your audience to unlock posting. You need{' '}
+            <span className="font-bold text-primary">{needed.toLocaleString()} more followers</span> to unlock content creation.
+          </p>
+          {/* Progress bar */}
+          <div className="w-full bg-muted rounded-full h-2.5 mb-2 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-primary to-blue-500 rounded-full transition-all duration-500"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            {(followersCount ?? 0).toLocaleString()} / {FOLLOWER_THRESHOLD.toLocaleString()} followers
+          </p>
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => navigate(`/profile/${user.username}`)}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90 transition-opacity"
+            >
+              View My Profile
+            </button>
+            <button
+              onClick={() => navigate('/discover')}
+              className="px-4 py-2 border border-border rounded-full text-sm font-semibold hover:bg-muted transition-colors"
+            >
+              Discover People
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

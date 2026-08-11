@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import {
   Loader2, Trophy, Flame, Users, BadgeCheck, Share2, Check,
-  DollarSign, Calendar, ChevronLeft, ChevronRight, Crown, Clock
+  DollarSign, Calendar, ChevronLeft, ChevronRight, Crown, Clock, Star
 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
-import { formatDistanceToNow, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, subMonths } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, subMonths } from 'date-fns';
 
-type Tab = 'followers' | 'earners' | 'streaks' | 'tippers' | 'video';
+type Tab = 'followers' | 'earners' | 'streaks' | 'tippers' | 'video' | 'creators';
 type SeasonType = 'current' | 'weekly' | 'monthly';
 
 interface LeaderboardEntry {
@@ -105,11 +106,60 @@ export default function LeaderboardPage() {
     { id: 'streaks',   label: 'Streaks',     icon: <Flame className="w-3.5 h-3.5 text-orange-400" /> },
     { id: 'tippers',   label: 'Top Tippers', icon: <DollarSign className="w-3.5 h-3.5 text-yellow-500" /> },
     { id: 'video',     label: 'Video',       icon: <span className="text-xs">🎬</span> },
+    { id: 'creators',  label: 'Creators',    icon: <Star className="w-3.5 h-3.5 text-amber-500" /> },
   ];
+  // Creators leaderboard state
+  const [creatorsData, setCreatorsData] = useState<any[]>([]);
+  const [creatorsLoading, setCreatorsLoading] = useState(false);
+  const [creatorsTimeframe, setCreatorsTimeframe] = useState<'monthly' | 'alltime'>('monthly');
 
   useEffect(() => {
     if (seasonView === 'current') fetchLeaderboard(tab);
   }, [tab, seasonView]);
+
+  useEffect(() => {
+    if (tab === 'creators' && seasonView === 'current') fetchCreatorsLeaderboard(creatorsTimeframe);
+  }, [tab, creatorsTimeframe, seasonView]);
+
+  const fetchCreatorsLeaderboard = async (timeframe: 'monthly' | 'alltime') => {
+    setCreatorsLoading(true);
+    try {
+      let q = supabase
+        .from('creator_earnings')
+        .select('user_id, amount');
+      if (timeframe === 'monthly') {
+        const start = startOfMonth(new Date()).toISOString();
+        q = (q as any).gte('created_at', start);
+      }
+      const { data: earnings } = await q;
+      if (earnings && earnings.length > 0) {
+        const totals: Record<string, number> = {};
+        earnings.forEach((e: any) => {
+          totals[e.user_id] = (totals[e.user_id] ?? 0) + Number(e.amount);
+        });
+        const sorted = Object.entries(totals).sort(([, a], [, b]) => b - a).slice(0, 20);
+        const uids = sorted.map(([id]) => id);
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, username, avatar_url, verified, creator_tier, followers_count')
+          .in('id', uids);
+        const profileMap: Record<string, any> = {};
+        (profiles ?? []).forEach((p: any) => { profileMap[p.id] = p; });
+        setCreatorsData(
+          sorted
+            .filter(([id]) => profileMap[id])
+            .map(([id, total]) => ({ ...profileMap[id], total_earnings: total }))
+        );
+      } else {
+        setCreatorsData([]);
+      }
+    } catch (e) {
+      console.error('fetchCreatorsLeaderboard error:', e);
+      setCreatorsData([]);
+    } finally {
+      setCreatorsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (seasonView !== 'current' && seasons[selectedSeasonIdx]) {
@@ -472,11 +522,22 @@ export default function LeaderboardPage() {
       )}
 
       {/* Content */}
-      {isSeasonLoading ? (
+      {/* Creator Leaderboard Panel */}
+      {tab === 'creators' && seasonView === 'current' && (
+        <CreatorLeaderboard
+          data={creatorsData}
+          loading={creatorsLoading}
+          timeframe={creatorsTimeframe}
+          onTimeframeChange={setCreatorsTimeframe}
+          onNavigate={(p) => navigate(p)}
+        />
+      )}
+
+      {(tab !== 'creators' || seasonView !== 'current') && isSeasonLoading ? (
         <div className="flex items-center justify-center py-24">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
-      ) : displayData.length === 0 ? (
+      ) : (tab !== 'creators' || seasonView !== 'current') && displayData.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
           <Trophy className="w-16 h-16 mb-4 opacity-20" />
           <p className="font-semibold text-lg">No entries</p>
@@ -484,7 +545,7 @@ export default function LeaderboardPage() {
             {seasonView !== 'current' ? 'No data for this season yet' : 'Be the first on the leaderboard!'}
           </p>
         </div>
-      ) : (
+      ) : (tab !== 'creators' || seasonView !== 'current') && (
         <>
           {/* Top 3 Podium */}
           {top3.length > 0 && (
@@ -540,6 +601,159 @@ export default function LeaderboardPage() {
               </button>
             ))}
           </div>
+        </>
+      )}
+
+    </div>
+  );
+}
+
+// ── Creator Leaderboard Panel ─────────────────────────────────────────────────
+function CreatorLeaderboard({
+  data, loading, timeframe, onTimeframeChange, onNavigate
+}: {
+  data: any[];
+  loading: boolean;
+  timeframe: 'monthly' | 'alltime';
+  onTimeframeChange: (t: 'monthly' | 'alltime') => void;
+  onNavigate: (p: string) => void;
+}) {
+  const TIER_CFG: Record<string, { icon: string; color: string }> = {
+    gold:   { icon: '🥇', color: 'text-yellow-600' },
+    silver: { icon: '🥈', color: 'text-slate-500' },
+    bronze: { icon: '🥉', color: 'text-amber-700' },
+    free:   { icon: '⭐', color: 'text-muted-foreground' },
+  };
+
+  const chartData = data.slice(0, 10).map(c => ({
+    name: '@' + (c.username?.slice(0, 8) ?? ''),
+    earnings: parseFloat(c.total_earnings?.toFixed(2) ?? '0'),
+  }));
+
+  return (
+    <div className="pb-20">
+      {/* Header */}
+      <div className="px-4 py-4 bg-gradient-to-br from-amber-500/10 via-yellow-400/5 to-transparent border-b border-border">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+            <Star className="w-5 h-5 text-amber-600" />
+          </div>
+          <div>
+            <h2 className="font-bold text-base">Creator Leaderboard</h2>
+            <p className="text-xs text-muted-foreground">Top creators by earnings</p>
+          </div>
+        </div>
+        {/* Timeframe toggle */}
+        <div className="flex gap-2">
+          {(['monthly', 'alltime'] as const).map(t => (
+            <button key={t} onClick={() => onTimeframeChange(t)}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                timeframe === t ? 'bg-amber-500 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}>
+              {t === 'monthly' ? '📅 This Month' : '🏆 All Time'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+        </div>
+      ) : data.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+          <Star className="w-16 h-16 mb-4 opacity-20" />
+          <p className="font-semibold">No creator earnings yet</p>
+          <p className="text-sm mt-1">Start earning from tips, subscriptions and ad revenue</p>
+          <button onClick={() => onNavigate('/monetization')} className="mt-4 px-5 py-2.5 bg-amber-500 text-white rounded-full text-sm font-bold hover:bg-amber-600 transition-colors">
+            Enable Monetization
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* BarChart top 10 */}
+          <div className="px-4 py-4 border-b border-border">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Top 10 Earnings Chart</p>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 4 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  formatter={(val: number) => [`$${val.toFixed(2)}`, 'Earnings']}
+                  contentStyle={{ fontSize: 11, borderRadius: 8 }}
+                />
+                <Bar dataKey="earnings" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Top 3 podium */}
+          <div className="p-4 space-y-3">
+            {data.slice(0, 3).map((creator, i) => {
+              const tier = creator.creator_tier ?? 'free';
+              const cfg = TIER_CFG[tier] ?? TIER_CFG['free'];
+              const rankEmojis = ['🥇', '🥈', '🥉'];
+              return (
+                <button key={creator.id} onClick={() => onNavigate(`/profile/${creator.username}`)}
+                  className={`w-full flex items-center gap-4 p-4 rounded-2xl border bg-gradient-to-r text-left transition-all hover:scale-[1.01] ${
+                    i === 0 ? 'from-yellow-400/20 to-amber-300/10 border-yellow-400/30' :
+                    i === 1 ? 'from-slate-400/20 to-slate-300/10 border-slate-300/30' :
+                    'from-amber-700/20 to-amber-600/10 border-amber-600/30'
+                  }`}>
+                  <span className="text-3xl shrink-0">{rankEmojis[i]}</span>
+                  <div className={`w-12 h-12 rounded-full bg-muted overflow-hidden shrink-0 ring-2 ${
+                    i === 0 ? 'ring-yellow-400/50' : i === 1 ? 'ring-slate-300/50' : 'ring-amber-600/50'
+                  }`}>
+                    {creator.avatar_url
+                      ? <img src={creator.avatar_url} alt={creator.username} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center font-bold text-lg">{creator.username[0]?.toUpperCase()}</div>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <p className="font-bold text-base truncate">{creator.username}</p>
+                      {creator.verified && <BadgeCheck className="w-4 h-4 text-primary shrink-0" fill="currentColor" />}
+                      <span className="text-sm shrink-0">{cfg.icon}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{(creator.followers_count ?? 0).toLocaleString()} followers</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-2xl font-black text-amber-600">${creator.total_earnings?.toFixed(2)}</p>
+                    <p className="text-[10px] text-muted-foreground font-medium">earned</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Remaining list */}
+          {data.length > 3 && (
+            <div className="divide-y divide-border border-t border-border">
+              {data.slice(3).map((creator, i) => {
+                const tier = creator.creator_tier ?? 'free';
+                const cfg = TIER_CFG[tier] ?? TIER_CFG['free'];
+                return (
+                  <button key={creator.id} onClick={() => onNavigate(`/profile/${creator.username}`)}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors text-left">
+                    <span className="w-8 text-center text-sm font-bold text-muted-foreground shrink-0">{i + 4}</span>
+                    <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
+                      {creator.avatar_url
+                        ? <img src={creator.avatar_url} alt={creator.username} className="w-full h-full object-cover" />
+                        : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{creator.username[0]?.toUpperCase()}</div>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1">
+                        <p className="font-semibold text-sm truncate">{creator.username}</p>
+                        {creator.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary shrink-0" fill="currentColor" />}
+                        <span className="text-xs shrink-0">{cfg.icon}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{(creator.followers_count ?? 0).toLocaleString()} followers</p>
+                    </div>
+                    <p className="font-bold text-sm shrink-0 text-amber-600">${creator.total_earnings?.toFixed(2)}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
     </div>
