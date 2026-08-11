@@ -8,7 +8,7 @@ import {
   CheckCircle2, XCircle, Clock, Eye, MousePointer, DollarSign,
   Loader2, RefreshCw, BadgeCheck, Megaphone, AlertTriangle,
   TrendingUp, BarChart3, User, ExternalLink, ChevronDown, ChevronUp,
-  ShieldCheck, ShieldX, Search, Filter
+  ShieldCheck, ShieldX, Search, Filter, Send
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -168,6 +168,28 @@ export default function AdminAdsDashboard() {
     setProcessingId(null);
   };
 
+  const [sendingDigest, setSendingDigest] = useState(false);
+
+  const sendDigestToAll = async () => {
+    setSendingDigest(true);
+    try {
+      await supabase.from('platform_inbox').insert({
+        user_id: null,
+        subject: '📊 Weekly Platform Digest',
+        body: `Platform update: ${stats.active} active ads, ${stats.pending} pending review. Total ad revenue: $${stats.totalRevenue.toFixed(2)}. Reach thousands of users — create an ad today!`,
+        type: 'news',
+        icon_emoji: '📊',
+        cta_label: 'Create an Ad',
+        cta_url: '/create-ad',
+      });
+      toast.success('Digest broadcast sent to all users');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to send digest');
+    } finally {
+      setSendingDigest(false);
+    }
+  };
+
   if (isAdmin === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -238,12 +260,20 @@ export default function AdminAdsDashboard() {
         </div>
       </div>
 
-      {/* Refresh */}
+      {/* Refresh + Digest */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <p className="text-xs text-muted-foreground">{filtered.length} ads</p>
-        <button onClick={() => { fetchAds(); fetchStats(); }} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-          <RefreshCw className="w-3.5 h-3.5" />Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={sendDigestToAll} disabled={sendingDigest}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-50">
+            {sendingDigest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            Broadcast Digest
+          </button>
+          <span className="text-border">|</span>
+          <button onClick={() => { fetchAds(); fetchStats(); }} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" />Refresh
+          </button>
+        </div>
       </div>
 
       {/* Ad List */}

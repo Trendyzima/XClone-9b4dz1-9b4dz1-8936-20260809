@@ -1,4 +1,7 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+function LiveStreamAdBanner() { return <PageAdBanner />; }
 import { useSEO } from '@/hooks/useSEO';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -523,7 +526,8 @@ export default function LiveStreamPage() {
 }
 
 // ── AdSense banner sub-component (push-guarded) ───────────────────────────────
-function LiveStreamAdBanner() {
+// ad banner — defined above
+function UnusedLiveStreamAdBanner() { // Renamed to avoid name collision with the first LiveStreamAdBanner
   const pushed = useRef(false);
   useEffect(() => {
     if (pushed.current) return;

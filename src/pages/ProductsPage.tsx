@@ -1,4 +1,6 @@
+
 import { useState, useEffect, useRef } from 'react';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
@@ -20,7 +22,7 @@ function StarRating({ rating, size = 'sm', interactive = false, onRate }: {
   const s = size === 'md' ? 'w-5 h-5' : 'w-3.5 h-3.5';
   return (
     <div className="flex items-center gap-0.5">
-      {[1,2,3,4,5].map(i => (
+      {[1, 2, 3, 4, 5].map(i => (
         <button key={i} disabled={!interactive} onClick={() => onRate?.(i)}
           onMouseEnter={() => interactive && setHover(i)} onMouseLeave={() => interactive && setHover(0)}
           className={interactive ? 'cursor-pointer transition-transform hover:scale-110' : 'cursor-default'}>
@@ -297,7 +299,7 @@ function ProductReviewsModal({ product, onClose }: { product: any; onClose: () =
   };
 
   const avgRating = reviews.length ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) : 0;
-  const dist = [5,4,3,2,1].map(n => ({ n, count: reviews.filter(r => r.rating === n).length }));
+  const dist = [5, 4, 3, 2, 1].map(n => ({ n, count: reviews.filter(r => r.rating === n).length }));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center" onClick={onClose}>
@@ -406,19 +408,22 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false);
 
   // Wishlist (localStorage) — lazy initializer removed to avoid esbuild non-determinism
-  const [wishlist, setWishlist] = useState<Set<string>>(/* @__PURE__ */ new Set<string>());
-  useEffect(() => {
+  const [wishlist, setWishlist] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem('product_wishlist');
-      if (raw) setWishlist(new Set(JSON.parse(raw) as string[]));
-    } catch {}
-  }, []);
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch { }
+    return new Set<string>();
+  });
+
+  useEffect(() => {
+    localStorage.setItem('product_wishlist', JSON.stringify([...wishlist]));
+  }, [wishlist]);
 
   const toggleWishlist = (id: string) => {
     setWishlist(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
-      localStorage.setItem('product_wishlist', JSON.stringify([...next]));
       return next;
     });
   };
@@ -487,7 +492,7 @@ export function ProductsPage() {
   };
 
   const trackView = async (productId: string) => {
-    await supabase.rpc('increment', { row_id: productId, table_name: 'products', column_name: 'views_count' }).catch(() => {});
+    await supabase.rpc('increment', { row_id: productId, table_name: 'products', column_name: 'views_count' }).catch(() => { });
   };
 
   const resetForm = () => {
@@ -711,7 +716,7 @@ export function ProductsPage() {
       </div>
 
       {/* AdSense banner — marketplace page */}
-      <ProductsAdBanner />
+      <ProductsAdBannerComponent />
 
       {loading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
@@ -865,12 +870,13 @@ function ProductCard({ product, wishlisted, onWishlist, onView, onProfile, onRev
 }
 
 // ── AdSense banner — mounted once, push-guarded ─────────────────────────────────────────────────
-function ProductsAdBanner() {
+// ad banner — defined above
+function ProductsAdBannerComponent() {
   const pushed = useRef(false);
   useEffect(() => {
     if (pushed.current) return;
     pushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) { }
   }, []);
   return (
     <div className="mx-4 mt-3 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">

@@ -1,4 +1,27 @@
+
 import { useState, useEffect, useRef } from 'react';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+function ExploreAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="px-4 py-3 border-b border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
@@ -442,7 +465,7 @@ export default function ExplorePage() {
               <div className="divide-y divide-border">
                 {newsItems.map((item) => (
                   <button key={item.id} onClick={() => navigateTopic(item.topic)} className="w-full text-left px-4 py-3 hover:bg-muted/30 transition-colors">
-                    <h3 className="font-semibold text-base leading-snug">{item.topic}</h3>
+                    <h3 className="font-bold text-base leading-snug">{item.topic}</h3>
                     <p className="text-xs text-muted-foreground mt-1">· {item.category} · {formatNumber(item.posts_count)} posts</p>
                   </button>
                 ))}
@@ -565,24 +588,6 @@ export default function ExplorePage() {
 }
 
 // ── AdSense banner — mounted once, push-guarded ─────────────────────────────────────────────────────
-function ExploreAdBanner() {
-  const pushed = useRef(false);
-  useEffect(() => {
-    if (pushed.current) return;
-    pushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
-  return (
-    <div className="px-4 py-3 border-b border-border bg-muted/5">
-      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
-      <ins
-        className="adsbygoogle"
-        style={{ display: 'block', minHeight: 60 }}
-        data-ad-client="ca-pub-2458567543017441"
-        data-ad-slot="2031881558"
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
-    </div>
-  );
-}
+// ad banner — defined above
+function _unused_explore() { return null; }
+
