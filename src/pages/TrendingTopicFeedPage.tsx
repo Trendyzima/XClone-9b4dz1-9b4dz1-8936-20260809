@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+function TrendingAdBanner() { return <PageAdBanner />; }
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
@@ -14,27 +16,7 @@ import { toast } from 'sonner';
 import { DynamicAd } from '@/components/features/DynamicAd';
 import { useSEO } from '@/hooks/useSEO';
 
-function TrendingAdBanner() {
-  const pushed = useRef(false);
-  useEffect(() => {
-    if (pushed.current) return;
-    pushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
-  return (
-    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
-      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
-      <ins
-        className="adsbygoogle"
-        style={{ display: 'block', minHeight: 60 }}
-        data-ad-client="ca-pub-2458567543017441"
-        data-ad-slot="2031881558"
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
-    </div>
-  );
-}
+// TrendingAdBanner is defined above
 
 const CATEGORY_CONFIG: Record<string, { emoji: string; color: string; bg: string; border: string }> = {
   technology:    { emoji: '💻', color: 'text-blue-600',   bg: 'bg-blue-500/10',   border: 'border-blue-500/20' },

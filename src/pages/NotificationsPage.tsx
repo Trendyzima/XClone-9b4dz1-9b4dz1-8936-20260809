@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -15,28 +16,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import { useFediversePolling } from '@/hooks/useFediversePolling';
 
-// ── AdSense banner — push-guarded ─────────────────────────────────────────────
-function NotificationsAdBanner() {
-  const pushed = useRef(false);
-  useEffect(() => {
-    if (pushed.current) return;
-    pushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
-  return (
-    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
-      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
-      <ins
-        className="adsbygoogle"
-        style={{ display: 'block', minHeight: 60 }}
-        data-ad-client="ca-pub-2458567543017441"
-        data-ad-slot="2031881558"
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
-    </div>
-  );
-}
+function NotificationsAdBanner() { return <PageAdBanner />; }
 
 const PAGE_SIZE = 20;
 

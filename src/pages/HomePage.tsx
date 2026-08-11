@@ -19,6 +19,7 @@ import { DynamicAd } from '@/components/features/DynamicAd';
 import { NativeAdCard } from '@/components/features/NativeAdCard';
 import { useSEO } from '@/hooks/useSEO';
 import { SponsoredPostCard } from '@/components/features/SponsoredPostCard';
+import { UserAdCard } from '@/components/features/UserAdCard';
 import { FeedAdCard } from '@/components/features/FeedAdCard';
 import { StoriesStrip } from '@/components/features/StoriesStrip';
 import * as federation from '@/api/federation';
@@ -33,6 +34,7 @@ type FeedItem =
   | { type: 'thread'; data: any }
   | { type: 'fedpost'; data: any }
   | { type: 'sponsored'; data: any }
+  | { type: 'user-ad'; data: any }
   | { type: 'user-suggestions'; data: null }
   | { type: 'recommended'; data: any }
   | { type: 'product-spotlight'; data: any[] }
@@ -57,6 +59,7 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<Tab>('foryou');
   const [page, setPage] = useState(0);
   const [sponsoredPosts, setSponsoredPosts] = useState<any[]>([]);
+  const [userAds, setUserAds] = useState<any[]>([]);
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
   const [trendingHashtags, setTrendingHashtags] = useState<any[]>([]);
   const [recommendedPosts, setRecommendedPosts] = useState<any[]>([]);
@@ -291,6 +294,20 @@ export default function HomePage() {
     setPublicSeries(data ?? []);
   }, []);
 
+  // Fetch user-created ads (approved, paid) for inline feed injection
+  const fetchUserAds = async () => {
+    try {
+      const { data } = await supabase
+        .from('user_ads')
+        .select('*, user_profiles!user_ads_user_id_fkey(id, username, avatar_url, verified)')
+        .eq('status', 'active')
+        .eq('payment_status', 'paid')
+        .order('created_at', { ascending: false })
+        .limit(5);
+      setUserAds(data ?? []);
+    } catch { setUserAds([]); }
+  };
+
   // Only show ads that users actually created AND admin approved (status=active, payment=paid)
   const fetchSponsoredContent = async () => {
     try {
@@ -498,6 +515,7 @@ export default function HomePage() {
 
       const withExtras: FeedItem[] = [];
       let sponsoredIdx = 0;
+      let userAdIdx = 0;
       let suggestionInserted = false;
       let recoIdx = 0;
       let productSpotlightInserted = false;
@@ -529,7 +547,10 @@ export default function HomePage() {
           seriesWidgetInserted = true;
         }
 
-        if ((i + 1) % (6 + Math.floor(Math.random() * 3)) === 0 && sponsoredIdx < sponsoredPosts.length) {
+        // User-created ads — inject every 7 posts (non-random for determinism)
+        if ((i + 1) % 7 === 0 && userAdIdx < userAds.length) {
+          withExtras.push({ type: 'user-ad', data: userAds[userAdIdx++] });
+        } else if ((i + 1) % 10 === 0 && sponsoredIdx < sponsoredPosts.length) {
           withExtras.push({ type: 'sponsored', data: sponsoredPosts[sponsoredIdx++] });
         }
       }
@@ -584,6 +605,7 @@ export default function HomePage() {
     fetchRecommendations();
     fetchProductSpotlight();
     fetchPublicSeries();
+    fetchUserAds();
   }, [activeTab, user?.id]);
 
   // Trending hashtags — refresh every 2 minutes
@@ -769,6 +791,8 @@ export default function HomePage() {
                 <FederatedPostCard post={item.data} />
               ) : item.type === 'sponsored' ? (
                 <SponsoredPostCard post={item.data} />
+              ) : item.type === 'user-ad' ? (
+                <UserAdCard ad={item.data} />
               ) : item.type === 'user-suggestions' ? (
                 <InlineSuggestions />
               ) : item.type === 'recommended' ? (
