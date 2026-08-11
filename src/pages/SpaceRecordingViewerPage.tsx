@@ -11,6 +11,7 @@ import {
 import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
+import { useSEO } from '@/hooks/useSEO';
 
 interface Chapter {
   time: number;   // seconds
@@ -38,6 +39,55 @@ export default function SpaceRecordingViewerPage() {
   const [buffered, setBuffered] = useState(0);
   const [bookmarked, setBookmarked] = useState(false);
   const [activeChapter, setActiveChapter] = useState<number>(-1);
+
+  // ── SEO — PodcastEpisode JSON-LD ────────────────────────────────────────
+  useSEO({
+    title: recording
+      ? `${recording.title} — ${space?.title ?? 'Space Recording'}`
+      : 'Space Recording',
+    description: recording
+      ? `Listen to "${recording.title}" hosted by @${host?.username ?? 'creator'} on Testagram Spaces. Duration: ${Math.floor((recording.duration ?? 0) / 60)}m ${(recording.duration ?? 0) % 60}s.`
+      : 'Listen to a recorded audio space on Testagram.',
+    image: space?.artwork_url || recording?.thumbnail_url || 'https://testagram.site/app-icon.jpg',
+    url: id ? `/space-recording/${id}` : '/spaces',
+    type: 'website',
+    keywords: `podcast, audio space, ${space?.category ?? 'general'}, testagram, live audio, recording`,
+    structuredData: recording ? {
+      '@context': 'https://schema.org',
+      '@type': 'PodcastEpisode',
+      name: recording.title,
+      description: space?.description || recording.title,
+      url: `https://testagram.site/space-recording/${id}`,
+      datePublished: recording.created_at,
+      duration: recording.duration ? `PT${Math.floor(recording.duration / 60)}M${recording.duration % 60}S` : undefined,
+      associatedMedia: recording.audio_url ? {
+        '@type': 'MediaObject',
+        contentUrl: recording.audio_url,
+        encodingFormat: 'audio/mpeg',
+        duration: recording.duration ? `PT${Math.floor(recording.duration / 60)}M${recording.duration % 60}S` : undefined,
+      } : undefined,
+      partOfSeries: space?.title ? {
+        '@type': 'PodcastSeries',
+        name: space.title,
+        url: 'https://testagram.site/spaces',
+      } : undefined,
+      author: host ? {
+        '@type': 'Person',
+        name: host.username,
+        url: `https://testagram.site/profile/${host.username}`,
+      } : undefined,
+      publisher: {
+        '@type': 'Organization',
+        name: 'Testagram',
+        logo: { '@type': 'ImageObject', url: 'https://testagram.site/tsocial-logo.png' },
+      },
+      interactionStatistic: {
+        '@type': 'InteractionCounter',
+        interactionType: 'https://schema.org/ListenAction',
+        userInteractionCount: recording.listener_count ?? 0,
+      },
+    } : undefined,
+  });
 
   // Parse transcript for chapters (lines starting with [00:00])
   const chapters: Chapter[] = [];

@@ -69,19 +69,43 @@ function buildSeasons(): Season[] {
 }
 
 export default function LeaderboardPage() {
-  useSEO({
-    title: 'Top Creator Leaderboard',
-    description: 'See the top-earning creators on Testagram ranked by followers, earnings, and engagement. Join the creator economy today.',
-    url: '/leaderboard',
-    type: 'website',
-    keywords: 'leaderboard, top creators, testagram, creator earnings, followers ranking',
-  });
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('followers');
   const [data, setData] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [leaderboardShared, setLeaderboardShared] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // ── SEO — dynamic top-3 title + ItemList JSON-LD ──────────────────────
+  const topCreators = data.slice(0, 3).map(e => `@${e.username}`);
+  const seoMetricLabel = tab === 'streaks' ? 'streak days' : tab === 'earners' ? 'earnings' : tab === 'tippers' ? 'tips sent' : tab === 'video' ? 'video views' : 'followers';
+  const seoFormatValue = (val: number) => tab === 'earners' || tab === 'tippers' ? `$${val.toFixed(2)}` : tab === 'streaks' ? `Day ${val}` : formatNumber(val);
+  useSEO({
+    title: topCreators.length > 0
+      ? `Leaderboard — ${topCreators.join(', ')}`
+      : 'Top Creator Leaderboard',
+    description: data.length > 0
+      ? `Top creators on Testagram ranked by ${seoMetricLabel}. Leading: ${topCreators.join(', ')}. Join the creator economy and get discovered.`
+      : 'See the top-earning creators on Testagram ranked by followers, earnings, and engagement. Join the creator economy today.',
+    url: '/leaderboard',
+    type: 'website',
+    keywords: 'leaderboard, top creators, testagram, creator earnings, followers ranking, viral creators',
+    structuredData: data.length > 0 ? {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: `Testagram Creator Leaderboard — Top ${seoMetricLabel}`,
+      description: `Top creators on Testagram ranked by ${seoMetricLabel}`,
+      url: 'https://testagram.site/leaderboard',
+      numberOfItems: Math.min(data.length, 5),
+      itemListElement: data.slice(0, 5).map((entry, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: entry.username,
+        url: `https://testagram.site/profile/${entry.username}`,
+        description: seoFormatValue(entry.value) + ' ' + seoMetricLabel,
+      })),
+    } : undefined,
+  });
 
   // Season state
   const [seasonView, setSeasonView] = useState<SeasonType>('current');
