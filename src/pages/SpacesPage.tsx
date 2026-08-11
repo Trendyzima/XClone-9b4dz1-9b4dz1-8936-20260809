@@ -1,8 +1,9 @@
+
 import { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { Space } from '@/types/app-types';
-import { Radio, Users, Mic, Loader2, Headphones, Video, Settings, BadgeCheck, Lock, Play, Clock, Hash } from 'lucide-react';
+import { Radio, Users, Mic, Loader2, Headphones, Video, Settings, BadgeCheck, Lock, Play, Clock, Hash, Rss } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -166,6 +167,13 @@ export default function SpacesPage() {
             <Headphones className="w-3.5 h-3.5" />
             <strong className="text-foreground">{allRecordings.length}</strong> recordings
           </span>
+          {user && (
+            <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/functions/v1/podcast-rss?username=${userProfile?.username ?? ''}`); toast.success('RSS feed URL copied!'); }}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-orange-500 transition-colors ml-auto" title="Copy RSS feed URL">
+              <Rss className="w-3.5 h-3.5" /> RSS
+            </button>
+          )}
+          {/* Removed the empty <span> here */}
         </div>
       </div>
 

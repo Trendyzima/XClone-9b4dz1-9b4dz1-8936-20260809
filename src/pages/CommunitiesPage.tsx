@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   Users, Plus, TrendingUp, Loader2, Search, Lock, Globe, Shield, Crown,
-  Image as ImageIcon, X, Camera
+  Image as ImageIcon, X, Camera, Sparkles
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
@@ -39,6 +39,7 @@ export default function CommunitiesPage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [communities, setCommunities] = useState<Community[]>([]);
+  const [suggestedCommunities, setSuggestedCommunities] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -56,6 +57,7 @@ export default function CommunitiesPage() {
 
   useEffect(() => {
     fetchCommunities();
+    if (user) fetchSuggestions();
   }, [user, activeTab]);
 
   useEffect(() => {
@@ -69,6 +71,21 @@ export default function CommunitiesPage() {
     });
     return () => { AdMob.hideBanner(); };
   }, []);
+
+  const fetchSuggestions = async () => {
+    if (!user) return;
+    // Generate fresh suggestions then fetch them
+    await supabase.rpc('generate_community_suggestions', { p_user_id: user.id }).catch(() => {});
+    const { data } = await supabase
+      .from('community_suggestions')
+      .select('community_id, reason, communities(*)')
+      .eq('user_id', user.id)
+      .order('score', { ascending: false })
+      .limit(5);
+    if (data) {
+      setSuggestedCommunities(data.map((d: any) => ({ ...d.communities, _reason: d.reason })).filter(Boolean));
+    }
+  };
 
   const fetchCommunities = async () => {
     try {
@@ -409,6 +426,41 @@ export default function CommunitiesPage() {
 
       {/* Communities List */}
       <div className="p-4 space-y-3">
+        {/* ── Community Suggestions Strip ── */}
+        {user && suggestedCommunities.length > 0 && activeTab !== 'joined' && !searchQuery && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-primary" />
+              <h3 className="font-bold text-sm">Suggested for You</h3>
+            </div>
+            <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+              {suggestedCommunities.map((sc: any) => (
+                <div key={sc.id} className="flex-shrink-0 w-44 border border-border rounded-2xl overflow-hidden hover:border-primary/30 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/c/${sc.name}`)}
+                >
+                  <div className="h-14 bg-gradient-to-br from-primary/20 to-purple-500/20 overflow-hidden">
+                    {sc.banner_url ? <img src={sc.banner_url} className="w-full h-full object-cover" alt="" /> : null}
+                  </div>
+                  <div className="p-2.5">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <div className="w-7 h-7 rounded-lg bg-muted overflow-hidden shrink-0">
+                        {sc.icon_url ? <img src={sc.icon_url} className="w-full h-full object-cover" alt="" /> : <span className="w-full h-full flex items-center justify-center font-bold text-xs text-primary">{sc.display_name[0]}</span>}
+                      </div>
+                      <p className="font-bold text-xs truncate">{sc.display_name}</p>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">{formatNumber(sc.member_count)} members</p>
+                    {sc._reason && <p className="text-[10px] text-primary mt-0.5">{sc._reason}</p>}
+                    <button onClick={e => { e.stopPropagation(); handleJoin(sc.id); }}
+                      className="mt-2 w-full py-1 text-[10px] font-bold bg-primary text-white rounded-lg hover:opacity-90 transition-opacity">
+                      Join
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <Users className="w-12 h-12 mx-auto mb-3 opacity-40" />

@@ -10,6 +10,7 @@ import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Insta
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
+import { usePremium } from '@/hooks/usePremium';
 import { usePageBanner } from '@/hooks/usePageBanner';
 import { ADMOB_CONFIG } from '@/lib/admob';
 import { formatDistanceToNow } from 'date-fns';
@@ -316,7 +317,7 @@ export default function ProfilePage() {
     setTimeout(() => setProfileShared(false), 2000);
   };
 
-  // Profile page banner — shown at bottom, above bottom nav, after 2.5s
+  const { isActive: isPremiumUser } = usePremium();
   usePageBanner({ adId: ADMOB_CONFIG.BANNER_PROFILE, margin: 64, delay: 2500 });
 
   const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Likes', 'Tips', 'Followers', 'Following'];
@@ -932,6 +933,10 @@ export default function ProfilePage() {
               <h2 className="text-xl font-bold">{profile.username}</h2>
               {profile.verified && (
                 <BadgeCheck className="w-5 h-5 text-primary" fill="currentColor" />
+              )}
+              {/* Premium crown badge */}
+              {(isOwnProfile ? isPremiumUser : false) && (
+                <Crown className="w-4 h-4 text-amber-500" fill="currentColor" title="Premium Member" />
               )}
               {/* Creator badge tier */}
               {(() => {

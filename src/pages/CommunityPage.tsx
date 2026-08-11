@@ -7,15 +7,19 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Loader2, Users, TrendingUp, Lock, Globe, Shield,
   Crown, Settings, UserPlus, MessageSquare, Image,
-  BookOpen, Plus, Trash2, X, ChevronDown, ChevronUp,
-  ShieldCheck, ShieldOff, MoreVertical, Pin, PinOff
+  BookOpen, Plus, Trash2, X,
+  ShieldCheck, ShieldOff, MoreVertical, Pin, PinOff,
+  Camera, Check
 } from 'lucide-react';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
 import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
+import { toast as sonnerToast } from 'sonner';
 
 interface Community {
   id: string;
@@ -64,6 +68,72 @@ export default function CommunityPage() {
   // Role management
   const [promotingMemberId, setPromotingMemberId] = useState<string | null>(null);
   const [showRoleMenu, setShowRoleMenu] = useState<string | null>(null);
+  // Edit community state (owner/admin)
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState({ display_name: '', description: '' });
+  const [editIconFile, setEditIconFile] = useState<File | null>(null);
+  const [editIconPreview, setEditIconPreview] = useState<string | null>(null);
+  const [editBannerFile, setEditBannerFile] = useState<File | null>(null);
+  const [editBannerPreview, setEditBannerPreview] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const openEditDialog = () => {
+    if (!community) return;
+    setEditForm({ display_name: community.display_name, description: community.description ?? '' });
+    setEditIconPreview(community.icon_url ?? null);
+    setEditBannerPreview(community.banner_url ?? null);
+    setEditIconFile(null);
+    setEditBannerFile(null);
+    setShowEditDialog(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!community) return;
+    setSavingEdit(true);
+    try {
+      let iconUrl = community.icon_url ?? null;
+      let bannerUrl = community.banner_url ?? null;
+
+      const uploadImage = async (file: File, path: string) => {
+        const ext = file.name.split('.').pop();
+        const fileName = `${path}/${Date.now()}.${ext}`;
+        const { error } = await supabase.storage.from('posts').upload(fileName, file, { upsert: true });
+        if (error) throw error;
+        const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(fileName);
+        return publicUrl;
+      };
+
+      if (editIconFile) iconUrl = await uploadImage(editIconFile, `communities/icons/${user!.id}`);
+      if (editBannerFile) bannerUrl = await uploadImage(editBannerFile, `communities/banners/${user!.id}`);
+
+      const { error } = await supabase
+        .from('communities')
+        .update({
+          display_name: editForm.display_name.trim() || community.display_name,
+          description: editForm.description.trim(),
+          icon_url: iconUrl,
+          banner_url: bannerUrl,
+        })
+        .eq('id', community.id);
+
+      if (error) throw error;
+
+      setCommunity(prev => prev ? {
+        ...prev,
+        display_name: editForm.display_name.trim() || prev.display_name,
+        description: editForm.description.trim(),
+        icon_url: iconUrl ?? prev.icon_url,
+        banner_url: bannerUrl ?? prev.banner_url,
+      } : null);
+      setShowEditDialog(false);
+      sonnerToast.success('Community updated!');
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   // Pinned posts
   const [pinnedPostIds, setPinnedPostIds] = useState<Set<string>>(new Set());
 
@@ -334,6 +404,15 @@ export default function CommunityPage() {
           <p className="mt-3 text-sm text-muted-foreground">{community.description}</p>
         )}
 
+        {/* Edit Community button — owner/admin only */}
+        {isAdmin && (
+          <button onClick={openEditDialog}
+            className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border hover:bg-muted transition-colors text-xs font-semibold text-muted-foreground hover:text-foreground">
+            <Settings className="w-3.5 h-3.5" />
+            Edit Community
+          </button>
+        )}
+
         {/* Rules button */}
         {rules.length > 0 && (
           <button
@@ -370,6 +449,87 @@ export default function CommunityPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Edit Community Modal ── */}
+      {showEditDialog && isAdmin && (
+        <div className="fixed inset-0 z-[300] bg-black/60 flex items-end" onClick={() => setShowEditDialog(false)}>
+          <div className="w-full bg-background rounded-t-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-primary" />
+                <h2 className="font-bold text-lg">Edit Community</h2>
+              </div>
+              <button onClick={() => setShowEditDialog(false)} className="p-2 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="px-5 py-4 space-y-5">
+              {/* Banner upload */}
+              <div>
+                <p className="text-sm font-semibold mb-2">Banner Image</p>
+                <div className="relative h-28 rounded-xl overflow-hidden border-2 border-dashed border-border cursor-pointer hover:border-primary/50 transition-colors bg-gradient-to-r from-primary/10 to-purple-500/10">
+                  {editBannerPreview && <img src={editBannerPreview} className="w-full h-full object-cover" alt="" />}
+                  <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer gap-1">
+                    <Camera className="w-6 h-6 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">{editBannerPreview ? 'Change banner' : 'Upload banner'}</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setEditBannerFile(f); setEditBannerPreview(URL.createObjectURL(f)); } }} />
+                  </label>
+                  {editBannerPreview && (
+                    <button onClick={e => { e.preventDefault(); setEditBannerFile(null); setEditBannerPreview(null); }}
+                      className="absolute top-2 right-2 w-7 h-7 bg-black/70 rounded-full flex items-center justify-center text-white z-10">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Icon upload */}
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-2xl bg-primary/10 border-2 border-dashed border-border overflow-hidden flex items-center justify-center">
+                    {editIconPreview
+                      ? <img src={editIconPreview} className="w-full h-full object-cover" alt="" />
+                      : <span className="text-2xl font-bold text-primary">{community.display_name[0]}</span>}
+                  </div>
+                  <label className="absolute inset-0 cursor-pointer rounded-2xl">
+                    <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setEditIconFile(f); setEditIconPreview(URL.createObjectURL(f)); } }} />
+                  </label>
+                  <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center shadow">
+                    <Camera className="w-3 h-3 text-white" />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">Community Icon</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Tap icon to change</p>
+                  {editIconPreview && editIconPreview !== community.icon_url && (
+                    <button onClick={() => { setEditIconFile(null); setEditIconPreview(community.icon_url ?? null); }} className="text-xs text-destructive mt-1">Revert</button>
+                  )}
+                </div>
+              </div>
+
+              {/* Display name */}
+              <div>
+                <label className="text-sm font-semibold block mb-1.5">Display Name</label>
+                <Input value={editForm.display_name} onChange={e => setEditForm(p => ({ ...p, display_name: e.target.value }))} placeholder="Community Display Name" maxLength={60} />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="text-sm font-semibold block mb-1.5">Description</label>
+                <Textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="What is this community about?" rows={3} maxLength={300} />
+                <p className="text-xs text-muted-foreground text-right mt-1">{editForm.description.length}/300</p>
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={() => setShowEditDialog(false)} className="flex-1 py-3 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors">Cancel</button>
+                <button onClick={handleSaveEdit} disabled={savingEdit || !editForm.display_name.trim()}
+                  className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 transition-colors hover:opacity-90">
+                  {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Rules Modal ── */}
       {showRulesModal && (
