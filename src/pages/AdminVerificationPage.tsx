@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -46,6 +47,7 @@ const TIER_CONFIG: Record<string, { label: string; color: string; bg: string; ic
 
 export default function AdminVerificationPage() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Admin — Verifications', url: '/admin/verify' });
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);

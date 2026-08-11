@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -19,6 +20,7 @@ interface FraudAlert {
 }
 
 export default function FraudDetection() {
+  useSEO({ noindex: true, title: 'Admin — Fraud Detection', url: '/admin/fraud' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);

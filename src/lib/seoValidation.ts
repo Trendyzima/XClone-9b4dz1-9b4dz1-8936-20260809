@@ -30,11 +30,11 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/leaderboard', label: 'Leaderboard',   group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/spaces',      label: 'Spaces',        group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/products',    label: 'Products',      group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/discover',    label: 'Discover',      group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
+  { path: '/discover',    label: 'Discover',      group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/fediverse',   label: 'Fediverse',     group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/premium',     label: 'Premium',       group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
+  { path: '/premium',     label: 'Premium',       group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/ai',          label: 'AI',            group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/help',        label: 'Help',          group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
+  { path: '/help',        label: 'Help',          group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
 
   // ── SEO-enhanced pages ─────────────────────────────────────────────────────
   { path: '/hashtag/technology', label: '#technology',          group: 'Hashtags',    hasUseSEO: true,  hasStructuredData: true,  noindex: false },

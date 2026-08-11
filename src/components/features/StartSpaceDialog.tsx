@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { pingGoogleSitemap } from '@/lib/pingGoogle';
 import { Radio, Loader2, Video } from 'lucide-react';
 
 interface StartSpaceDialogProps {
@@ -53,6 +54,7 @@ export function StartSpaceDialog({ open, onOpenChange, onSuccess }: StartSpaceDi
         description: 'Your audio space is now live.',
       });
 
+      pingGoogleSitemap(); // notify Google crawler about new live space
       setFormData({ title: '', description: '' });
       setHasVideo(false);
       onOpenChange(false);

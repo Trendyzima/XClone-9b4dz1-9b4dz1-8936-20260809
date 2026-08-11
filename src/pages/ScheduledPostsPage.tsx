@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
@@ -38,6 +39,7 @@ function useNow(intervalMs = 30_000) {
 }
 
 export function ScheduledPostsPage() {
+  useSEO({ noindex: true, title: 'Scheduled Posts', url: '/scheduled' });
   const { user } = useAuth();
   const navigate = useNavigate();
   useNow(); // refreshes every 30s — triggers re-render of countdowns via forceUpdate

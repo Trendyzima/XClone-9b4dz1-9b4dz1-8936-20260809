@@ -1,9 +1,64 @@
 import { TopBar } from '@/components/layout/TopBar';
+import { useSEO } from '@/hooks/useSEO';
 import { Search, HelpCircle, MessageCircle, Shield, CreditCard, User } from 'lucide-react';
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 
 export default function HelpPage() {
+  useSEO({
+    title: 'Help Center — Testagram Support',
+    description: 'Find answers to common questions about Testagram. Learn how to post, earn money, manage your account, report issues, and get the most out of your experience.',
+    url: '/help',
+    type: 'website',
+    keywords: 'help, support, faq, testagram help, how to, account, payments, creators',
+    structuredData: {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: 'How do I earn money on Testagram?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'You can earn through tips from followers, paid subscriptions, ad revenue sharing (once eligible), product sales in the marketplace, and M-Pesa/PayPal wallet top-ups.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How do I get verified on Testagram?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Go to Settings > Verification Request and choose a tier (Basic, Creator, Business, or Celebrity). Pay the one-time verification fee and an admin will review your account within 24 hours.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How do I report a post or user?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Tap the three-dot menu on any post and select "Report". For user reports, visit their profile and tap the menu. All reports are reviewed by our moderation team.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How does M-Pesa payment work on Testagram?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Go to Wallet and tap Deposit. Enter your M-Pesa phone number and amount. An STK push notification will appear on your phone — enter your M-Pesa PIN to complete the transaction.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'What is Testagram Premium?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Testagram Premium is a subscription that removes all ads, gives you a Premium badge, unlocks exclusive creator tools, and provides priority customer support. Available monthly or annually.',
+          },
+        },
+      ],
+    },
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
 
   const categories = [
