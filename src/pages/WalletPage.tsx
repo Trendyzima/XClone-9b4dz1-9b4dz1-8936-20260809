@@ -47,9 +47,9 @@ function fmtAmt(usd: number, cur: CurrencyCode): string {
     : `${c.symbol}${v.toFixed(2)}`;
 }
 
-async function hashPin(pin: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin + 'tsocial-pin-v1'));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+function hashPin(pin: string): Promise<string> {
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin + 'tsocial-pin-v1'))
+    .then(buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join(''));
 }
 
 const MPESA_SECRETS = [
@@ -143,7 +143,7 @@ function PinEntryModal({ title, onConfirm, onCancel }: {
 
 // ── PIN Setup Card ────────────────────────────────────────────────────────
 function PinSetupCard({ userId, pinHash, onSaved }: { userId: string; pinHash: string | null; onSaved: () => void }) {
-  const hasPin = !!pinHash;
+  const hasPin = useMemo(() => !!pinHash, [pinHash]);
   const [mode, setMode]         = useState<'idle' | 'setup' | 'change' | 'remove'>('idle');
   const [oldPin, setOldPin]     = useState('');
   const [newPin, setNewPin]     = useState('');
@@ -1305,6 +1305,15 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
   );
 }
 
+const WALLET_TABS: { key: ActiveTab; label: string }[] = [
+  { key: 'wallet',    label: '💳 Wallet'    },
+  { key: 'send',      label: '💸 Send'      },
+  { key: 'receive',   label: '📥 Receive'   },
+  { key: 'history',   label: '📋 History'   },
+  { key: 'analytics', label: '📊 Analytics' },
+  { key: 'referrals', label: '👥 Referrals' },
+];
+
 // ── Ad Banner + Page ──────────────────────────────────────────────────────
 function WalletAdBanner() { return <PageAdBanner />; }
 
@@ -1555,17 +1564,12 @@ export default function WalletPage() {
     executeWithdraw();
   };
 
-  const walletBalance = Number(wallet?.balance ?? 0);
-  const username      = user?.username ?? user?.email?.split('@')[0] ?? 'me';
+  const { walletBalance, username } = useMemo(() => ({
+    walletBalance: Number(wallet?.balance ?? 0),
+    username:      user?.username ?? user?.email?.split('@')[0] ?? 'me',
+  }), [wallet, user]);
 
-  const TABS = [
-    { key: 'wallet'    as const, label: '💳 Wallet'   },
-    { key: 'send'      as const, label: '💸 Send'     },
-    { key: 'receive'   as const, label: '📥 Receive'  },
-    { key: 'history'   as const, label: '📋 History'  },
-    { key: 'analytics' as const, label: '📊 Analytics'},
-    { key: 'referrals' as const, label: '👥 Referrals'},
-  ];
+
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
@@ -1577,7 +1581,7 @@ export default function WalletPage() {
       {/* Tab bar */}
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
         <div className="flex max-w-2xl mx-auto overflow-x-auto scrollbar-hide">
-          {TABS.map(t => (
+          {WALLET_TABS.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)}
               className={`flex-shrink-0 flex-1 py-3 font-semibold text-xs border-b-2 transition-colors whitespace-nowrap px-1 ${
                 activeTab === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'
