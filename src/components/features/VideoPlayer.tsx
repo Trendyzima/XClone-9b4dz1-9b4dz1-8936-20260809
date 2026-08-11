@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Heart, MessageCircle, Repeat2, Share, Volume2, VolumeX,
   Play, DollarSign, Crown, BadgeCheck, X, Send, Loader2,
-  UserPlus, UserCheck, Quote, Copy, Check, Bookmark, BookmarkCheck,
+  UserPlus, UserCheck, Quote, Copy, Check, Bookmark, BookmarkCheck, Layers,
 } from 'lucide-react';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
@@ -86,6 +86,9 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
 
   // Bookmark
   const [isBookmarked, setIsBookmarked]         = useState(false);
+
+  // Caption expand/collapse
+  const [captionExpanded, setCaptionExpanded]   = useState(false);
 
   /* ── Load initial like / repost / follow state ──────────────────────── */
   useEffect(() => {
@@ -280,6 +283,15 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     navigate(`/?quote=${quoteText}&quote_post_id=${post.id}`);
   };
 
+  /* ── Duet / Stitch → navigate to compose with original video ────────── */
+  const handleDuet = () => {
+    setShowRepostSheet(false);
+    if (!post.video_url) { return; }
+    const duetUrl  = encodeURIComponent(post.video_url);
+    const duetMeta = encodeURIComponent(`Duet with @${post.user_profiles?.username ?? 'creator'}`);
+    navigate(`/?duet_url=${duetUrl}&duet_post_id=${post.id}&duet_meta=${duetMeta}`);
+  };
+
   /* ── Double-tap detection ────────────────────────────────────────────── */
   const handleVideoTap = (e: React.MouseEvent<HTMLVideoElement> | React.TouchEvent<HTMLVideoElement>) => {
     const target = e.currentTarget.getBoundingClientRect();
@@ -434,10 +446,31 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     });
   };
 
+  /* ── Truncated caption (first 120 chars) for collapsed view ─────────── */
+  const renderShortCaption = (content: string) => {
+    if (!content) return null;
+    const limit = 120;
+    if (content.length <= limit) return renderCaption(content);
+    return (
+      <>
+        {renderCaption(content.slice(0, limit))}
+        {'… '}
+        <span
+          className="text-white/60 font-semibold cursor-pointer active:text-white"
+          onClick={e => { e.stopPropagation(); setCaptionExpanded(true); }}
+        >
+          more
+        </span>
+      </>
+    );
+  };
+
   /* ── Share ───────────────────────────────────────────────────────────── */
-  const postUrl = `${window.location.origin}/post/${post.id}`;
+  // Build URL lazily inside callbacks — avoids window.location at render scope
+  const getPostUrl = () => `${window.location.origin}/post/${post.id}`;
 
   const handleCopyLink = () => {
+    const postUrl = getPostUrl();
     navigator.clipboard.writeText(postUrl).then(() => {
       setLinkCopied(true);
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -446,6 +479,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
   };
 
   const handleNativeShare = () => {
+    const postUrl = getPostUrl();
     if (navigator.share) {
       navigator.share({ url: postUrl, title: post.content?.slice(0, 80) ?? 'Video' }).catch(() => {});
     } else {
@@ -628,9 +662,21 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         {/* Bottom: caption + action buttons */}
         <div className="flex justify-between items-end text-white pointer-events-auto pb-14">
           <div className="flex-1 pr-4">
-            <p className="font-semibold text-sm leading-snug line-clamp-3 pointer-events-auto">
-              {renderCaption(post.content ?? '')}
-            </p>
+            <div className="pointer-events-auto">
+              <p className="text-sm leading-snug font-semibold">
+                {captionExpanded
+                  ? renderCaption(post.content ?? '')
+                  : renderShortCaption(post.content ?? '')}
+              </p>
+              {captionExpanded && (post.content ?? '').length > 120 && (
+                <button
+                  className="text-white/50 text-xs mt-0.5 active:text-white"
+                  onClick={e => { e.stopPropagation(); setCaptionExpanded(false); }}
+                >
+                  less
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-col space-y-4">
@@ -699,9 +745,15 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         </div>
       </div>
 
-      {/* ── Comment sheet ─────────────────────────────────────────────────── */}
+      {/* ── Comment sheet — sits ABOVE the bottom nav bar ───────────────────── */}
       {showComments && (
-        <div className="absolute inset-x-0 bottom-0 z-40 flex flex-col" style={{ height: '70vh' }}>
+        <div
+          className="absolute inset-x-0 z-40 flex flex-col"
+          style={{
+            bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))',
+            height: 'calc(70vh - 64px - env(safe-area-inset-bottom, 0px))',
+          }}
+        >
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowComments(false)} style={{ zIndex: -1 }} />
           <div className="relative flex flex-col h-full bg-[#111] rounded-t-2xl overflow-hidden border-t border-white/10">
             {/* Header */}
@@ -736,11 +788,8 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
               ))}
             </div>
 
-            {/* Reply input — padded above bottom nav */}
-            <div
-              className="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-white/10 bg-[#0a0a0a]"
-              style={{ paddingBottom: 'calc(72px + env(safe-area-inset-bottom, 0px))' }}
-            >
+            {/* Reply input */}
+            <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-white/10 bg-[#0a0a0a]">
               <input
                 value={newComment}
                 onChange={e => setNewComment(e.target.value)}
@@ -795,6 +844,20 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
                   <p className="text-white/50 text-xs">Add your own thoughts to this post</p>
                 </div>
               </button>
+              {post.is_video && post.video_url && (
+                <button
+                  onClick={handleDuet}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors text-left"
+                >
+                  <div className="w-10 h-10 rounded-full bg-sky-500/20 flex items-center justify-center">
+                    <Layers className="w-5 h-5 text-sky-400" />
+                  </div>
+                  <div>
+                    <p className="text-white font-semibold text-sm">Duet / Stitch</p>
+                    <p className="text-white/50 text-xs">Record your reaction alongside this video</p>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -820,7 +883,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
                 </div>
                 <div>
                   <p className="text-white font-semibold text-sm">{linkCopied ? 'Link Copied!' : 'Copy Link'}</p>
-                  <p className="text-white/50 text-xs truncate max-w-[240px]">{postUrl}</p>
+                  <p className="text-white/50 text-xs truncate max-w-[240px]">{getPostUrl()}</p>
                 </div>
               </button>
               {typeof navigator !== 'undefined' && 'share' in navigator && (
@@ -838,7 +901,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
                 </button>
               )}
               <button
-                onClick={() => { setShowShareSheet(false); navigate(`/messages?share_url=${encodeURIComponent(postUrl)}`); }}
+                onClick={() => { setShowShareSheet(false); navigate(`/messages?share_url=${encodeURIComponent(getPostUrl())}`); }}
                 className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors text-left"
               >
                 <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
