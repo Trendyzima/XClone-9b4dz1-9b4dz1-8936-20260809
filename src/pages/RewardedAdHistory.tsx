@@ -311,9 +311,7 @@ export default function RewardedAdHistory() {
   const activeRewards = rewards.filter(
     r => !r.used && (!r.expires_at || new Date(r.expires_at) > new Date())
   );
-  const history = rewards.filter(
-    r => r.used || (r.expires_at && new Date(r.expires_at) <= new Date())
-  );
+  // expired/used rewards shown inline in the full rewards list below
   const adsRemaining = MAX_ADS_PER_DAY - todayCount;
   const progressPct = Math.round((todayCount / MAX_ADS_PER_DAY) * 100);
 

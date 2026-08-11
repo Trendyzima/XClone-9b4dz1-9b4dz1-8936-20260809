@@ -13,8 +13,7 @@ import {
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
-import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
-import { ADMOB_CONFIG } from '@/lib/admob';
+
 
 const STATUS_MAP: Record<string, { label: string; icon: any; cls: string }> = {
   active:   { label: 'Active',   icon: CheckCircle2, cls: 'text-green-500 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' },

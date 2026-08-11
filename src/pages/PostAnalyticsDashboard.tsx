@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import {
   Eye, Heart, Repeat2, MessageCircle, Share2, TrendingUp,
-  Zap, DollarSign, Users, BarChart3, Loader2, ArrowLeft
+  Zap, DollarSign, BarChart3, Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
