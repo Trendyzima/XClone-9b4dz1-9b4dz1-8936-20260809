@@ -11,8 +11,6 @@ import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { useSEO } from '@/hooks/useSEO';
 
-// ThreadsAdBanner is defined above
-
 interface Thread {
   id: string;
   user_id: string;
@@ -63,8 +61,6 @@ export default function ThreadsPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('For You');
-
-// ThreadsAdBanner is rendered below the tabs
 
   // ── SEO — dynamic title + ItemList JSON-LD from top 5 threads ─────────────
   const topThreads = threads.filter(t => t.views_count > 0).slice(0, 5);
