@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -6,6 +6,29 @@ import { List, Plus, Lock, Globe, Users, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { TopBar } from '@/components/layout/TopBar';
+
+// ── AdSense banner — push-guarded ─────────────────────────────────────────────
+function ListsAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 export function ListsPage() {
   const { user } = useAuth();
@@ -54,6 +77,7 @@ export function ListsPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Lists" showBack />
+      <ListsAdBanner />
       <div className="max-w-2xl mx-auto">
       <div className="border-b border-border p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
