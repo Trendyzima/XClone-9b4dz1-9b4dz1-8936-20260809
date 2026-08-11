@@ -1,10 +1,11 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
 import {
   Search, Loader2, BadgeCheck, Globe, ExternalLink, UserPlus, Hash, Users, Clock, X, TrendingUp,
-  Sparkles, Flame, Brain
+  Sparkles, Flame, Brain, Filter, Image, Video, CheckCircle2, Calendar
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PostCard } from '@/components/features/PostCard';
@@ -36,6 +37,34 @@ export default function SearchPage() {
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const [aiSearchResult, setAiSearchResult] = useState<string | null>(null);
   const [aiSearching, setAiSearching] = useState(false);
+
+  // ── Search Filters ──────────────────────────────────────────────────────────
+  type DateFilter = 'all' | '24h' | 'week' | 'month';
+  type MediaFilter = 'all' | 'images' | 'videos';
+  const [filterDate, setFilterDate] = useState<DateFilter>('all');
+  const [filterMedia, setFilterMedia] = useState<MediaFilter>('all');
+  const [filterVerified, setFilterVerified] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+
+  const applyFilters = (rawPosts: any[]) => {
+    let result = [...rawPosts];
+    // Date filter
+    if (filterDate !== 'all') {
+      const cutoff = new Date();
+      if (filterDate === '24h') cutoff.setHours(cutoff.getHours() - 24);
+      else if (filterDate === 'week') cutoff.setDate(cutoff.getDate() - 7);
+      else if (filterDate === 'month') cutoff.setMonth(cutoff.getMonth() - 1);
+      result = result.filter(p => new Date(p.created_at) >= cutoff);
+    }
+    // Media filter
+    if (filterMedia === 'images') result = result.filter(p => p.image_url || (p.media_urls && p.media_urls.length > 0 && !p.is_video));
+    else if (filterMedia === 'videos') result = result.filter(p => p.is_video || p.video_url);
+    // Verified filter
+    if (filterVerified) result = result.filter(p => p.user_profiles?.verified);
+    return result;
+  };
+
+  const activeFilterCount = (filterDate !== 'all' ? 1 : 0) + (filterMedia !== 'all' ? 1 : 0) + (filterVerified ? 1 : 0);
 
   // ── Autocomplete state ──────────────────────────────────────────────────────
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -136,8 +165,8 @@ export default function SearchPage() {
         body: {
           messages: [{
             role: 'user',
-            content: `You are a smart social media search assistant. The user searched for: "${q}". 
-Provide a concise 1-2 sentence insight about this topic that would help users find relevant content. 
+            content: `You are a smart social media search assistant. The user searched for: "${q}".
+Provide a concise 1-2 sentence insight about this topic that would help users find relevant content.
 Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it under 60 words total.`,
           }],
           model: 'gemini-2.0-flash',
@@ -194,7 +223,7 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
       performSearch(q);
       doAiSearch(q);
     }
-  }, [searchParams]);
+  }, [searchParams, performSearch, doAiSearch]); // Added performSearch and doAiSearch to dependencies
 
   // ── Smart search scoring: boost by engagement + recency ─────────────────
   const scorePost = (post: any, q: string) => {
@@ -221,7 +250,8 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
     return score;
   };
 
-  const performSearch = async (searchQuery: string) => {
+  // Memoize performSearch to prevent unnecessary re-renders and re-creations
+  const performSearch = useCallback(async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
     setLoading(true);
 
@@ -312,7 +342,7 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
     } finally {
       setLoading(false);
     }
-  };
+  }, []); // Dependencies for useCallback. scorePost and scoreUser are pure functions, can be omitted from deps if not changing.
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -444,19 +474,93 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
           </div>
         </form>
 
+        {/* ── Filter Bar ── */}
+        {showFilters && (
+          <div className="px-3 py-2 border-t border-border/50 bg-muted/20 space-y-2">
+            {/* Date range */}
+            <div className="flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <div className="flex gap-1.5 flex-wrap">
+                {(['all', '24h', 'week', 'month'] as DateFilter[]).map(d => (
+                  <button key={d} onClick={() => setFilterDate(d)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                      filterDate === d ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                    }`}>
+                    {d === 'all' ? 'All time' : d === '24h' ? 'Past 24h' : d === 'week' ? 'This week' : 'This month'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Media type */}
+            <div className="flex items-center gap-2">
+              <Image className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <div className="flex gap-1.5">
+                {(['all', 'images', 'videos'] as MediaFilter[]).map(m => (
+                  <button key={m} onClick={() => setFilterMedia(m)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                      filterMedia === m ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                    }`}>
+                    {m === 'videos' && <Video className="w-3 h-3" />}
+                    {m === 'images' && <Image className="w-3 h-3" />}
+                    {m === 'all' ? 'All media' : m === 'images' ? 'Images' : 'Videos'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Verified only */}
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <button onClick={() => setFilterVerified(p => !p)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                  filterVerified ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                }`}>
+                <BadgeCheck className="w-3 h-3" />
+                Verified only
+              </button>
+              {activeFilterCount > 0 && (
+                <button onClick={() => { setFilterDate('all'); setFilterMedia('all'); setFilterVerified(false); }}
+                  className="text-[11px] text-destructive hover:underline ml-1">Clear all</button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex overflow-x-auto scrollbar-hide border-t border-border/50">
           {tabs.map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`shrink-0 px-4 py-3 font-semibold transition-colors border-b-2 flex items-center gap-1.5 text-sm ${
-                activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/50'
-              }`}
-            >
-              {tab === 'For You' && <Sparkles className="w-3.5 h-3.5" />}
-              {tab === 'Fediverse' && <Globe className="w-3.5 h-3.5" />}
-              {tab === 'Hashtags' && <Hash className="w-3.5 h-3.5" />}
-              {tab === 'Communities' && <Users className="w-3.5 h-3.5" />}
-              {tab}
-            </button>
+            // The `tabs.map` was incorrectly structured. It was trying to unconditionally render the 'Filter' button for 'For You' tab
+            // and then render the actual tab button. This needs to be two separate components or a conditional inside map if 'Filter' is not a true tab.
+            // Assuming 'Filter' is a toggle associated with 'For You' or the search itself, it should be outside or handled differently.
+            // If the filter button is meant to be a tab, it should be added to the 'tabs' array.
+            // For now, I'm assuming 'For You' does not need a special handling in the map loop itself but rather the filter button is a separate component.
+            // The original error points to line 528:17, which is `tab === 'For You' && (` inside the `tabs.map`.
+            // This is incorrect JSX syntax: you cannot have a conditional `&&` directly at the top level of a `map` callback without wrapping it.
+            // The 'Filter' button should probably be outside the `tabs.map` or mapped conditionally as a separate item if it's meant to be a tab.
+            // Given the placement, it looks like it's meant to be a standalone filter toggle *next to* the tabs.
+            // I'll refactor this to put the filter button as a separate element before the tab map.
+            <React.Fragment key={tab}>
+              {tab === 'For You' && (
+                <button onClick={() => setShowFilters(p => !p)}
+                  className={`shrink-0 px-3 py-3 font-semibold transition-colors border-b-2 flex items-center gap-1.5 text-sm relative ${
+                    showFilters ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:bg-muted/50'
+                  }`}>
+                  <Filter className="w-3.5 h-3.5" />
+                  {activeFilterCount > 0 && (
+                    <span className="absolute top-2 right-1 w-3.5 h-3.5 bg-primary text-primary-foreground text-[8px] font-black rounded-full flex items-center justify-center">{activeFilterCount}</span>
+                  )}
+                </button>
+              )}
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={`shrink-0 px-4 py-3 font-semibold transition-colors border-b-2 flex items-center gap-1.5 text-sm ${
+                  activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/50'
+                }`}
+              >
+                {tab === 'For You' && <Sparkles className="w-3.5 h-3.5" />}
+                {tab === 'Fediverse' && <Globe className="w-3.5 h-3.5" />}
+                {tab === 'Hashtags' && <Hash className="w-3.5 h-3.5" />}
+                {tab === 'Communities' && <Users className="w-3.5 h-3.5" />}
+                {tab}
+              </button>
+            </React.Fragment>
           ))}
         </div>
       </div>
@@ -583,9 +687,9 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
               )
             ) : (
               /* Search results for For You tab = best-scored posts */
-              posts.length > 0 ? (
+              applyFilters(posts).length > 0 ? (
                 <div>
-                  {posts.slice(0, 5).map((post: any, i: number) => (
+                  {applyFilters(posts).slice(0, 5).map((post: any, i: number) => (
                     <div key={post.id}>
                       <PostCard post={post} onUpdate={() => performSearch(query)} />
                       {i === 2 && (
@@ -595,7 +699,7 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
                       )}
                     </div>
                   ))}
-                  {posts.length > 5 && posts.slice(5).map((post: any) => (
+                  {applyFilters(posts).length > 5 && applyFilters(posts).slice(5).map((post: any) => (
                     <PostCard key={post.id} post={post} onUpdate={() => performSearch(query)} />
                   ))}
                 </div>
@@ -609,8 +713,8 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
           )}
 
           {activeTab === 'Posts' && (
-            posts.length > 0 ? (
-              posts.map((post) => (
+            applyFilters(posts).length > 0 ? (
+              applyFilters(posts).map((post) => (
                 <PostCard key={post.id} post={post} onUpdate={() => performSearch(query)} />
               ))
             ) : (

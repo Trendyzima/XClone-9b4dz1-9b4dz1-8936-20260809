@@ -311,9 +311,36 @@ export default function ProfilePage() {
   };
 
   const { isActive: isPremiumUser } = usePremium();
-  usePageBanner({ adId: ADMOB_CONFIG.BANNER_PROFILE, margin: 64, delay: 2500 });
 
-  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Likes', 'Tips', 'Followers', 'Following'];
+  // ── Gift History ────────────────────────────────────────────────────────────
+  const [giftHistory, setGiftHistory] = useState<any[]>([]);
+  const [loadingGifts, setLoadingGifts] = useState(false);
+
+  const fetchGiftHistory = async (userId: string) => {
+    setLoadingGifts(true);
+    const { data } = await supabase
+      .from('premium_subscriptions')
+      .select('*')
+      .or(`user_id.eq.${userId}`)
+      .order('started_at', { ascending: false })
+      .limit(50);
+    if (!data || data.length === 0) { setGiftHistory([]); setLoadingGifts(false); return; }
+    // Fetch gifter info from platform_inbox notifications for this user
+    const { data: inbox } = await supabase
+      .from('platform_inbox')
+      .select('body, sent_at, user_id')
+      .eq('user_id', userId)
+      .ilike('subject', '%gift%')
+      .order('sent_at', { ascending: false })
+      .limit(30);
+    setGiftHistory(data.map((sub: any) => ({
+      ...sub,
+      inboxHint: (inbox ?? []).find((m: any) => Math.abs(new Date(m.sent_at).getTime() - new Date(sub.started_at).getTime()) < 60000),
+    })));
+    setLoadingGifts(false);
+  };
+
+  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
 
   useEffect(() => {
     if (username) fetchProfile();
@@ -456,6 +483,7 @@ export default function ProfilePage() {
         fetchProfileViews7d(profileData.id),
         fetchSubscription(profileData.id),
         trackProfileView(profileData.id),
+        fetchGiftHistory(profileData.id),
       ]);
       if (currentUser && currentUser.id !== profileData.id) checkBlockMuteStatus(profileData.id);
     } catch (error) {
@@ -1018,6 +1046,78 @@ export default function ProfilePage() {
               })}
             </div>
           ) : <div className="text-center py-12 text-muted-foreground"><p>No media yet</p></div>
+        )}
+
+        {activeTab === 'Gifts' && (
+          loadingGifts ? (
+            <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+          ) : giftHistory.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <Crown className="w-12 h-12 mx-auto mb-3 opacity-20" />
+              <p className="font-semibold">No gift history yet</p>
+              <p className="text-sm mt-1">Premium gifts sent or received will appear here</p>
+              {isOwnProfile && (
+                <button onClick={() => navigate('/premium')}
+                  className="mt-4 px-5 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 text-white rounded-full text-sm font-bold shadow-sm shadow-amber-500/20 hover:opacity-90">
+                  Get Premium
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {giftHistory.map((sub: any) => {
+                const isActive = sub.status === 'active' && new Date(sub.expires_at) > new Date();
+                const isExpired = sub.status === 'expired' || (sub.expires_at && new Date(sub.expires_at) <= new Date());
+                const hint = sub.inboxHint?.body ?? '';
+                const gifterMatch = hint.match(/@(\w+)\s+gifted you/);
+                const gifterName = gifterMatch?.[1] ?? null;
+                const isReceived = sub.user_id === profile.id;
+                return (
+                  <div key={sub.id} className="p-4 hover:bg-muted/5 transition-colors flex items-center gap-3">
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                      isActive ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-muted border border-border'
+                    }`}>
+                      <Crown className={`w-6 h-6 ${isActive ? 'text-amber-500' : 'text-muted-foreground'}`} fill={isActive ? 'currentColor' : 'none'} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">
+                          {isReceived ? (
+                            gifterName ? `From @${gifterName}` : 'Premium Gift'
+                          ) : 'Gift Sent'}
+                        </span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          isActive ? 'bg-amber-500/15 text-amber-600' :
+                          isExpired ? 'bg-muted text-muted-foreground' :
+                          'bg-primary/10 text-primary'
+                        }`}>
+                          {isActive ? '✓ Active' : isExpired ? 'Expired' : sub.status}
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 font-semibold capitalize">{sub.plan}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {sub.started_at ? formatDistanceToNow(new Date(sub.started_at), { addSuffix: true }) : ''}
+                        {sub.expires_at && ` · Expires ${new Date(sub.expires_at).toLocaleDateString()}`}
+                      </p>
+                      {isActive && sub.expires_at && (
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full"
+                              style={{ width: `${Math.max(5, Math.min(100, ((new Date(sub.expires_at).getTime() - Date.now()) / (30 * 24 * 60 * 60 * 1000)) * 100))}%` }}
+                            />
+                          </div>
+                          <span className="text-[9px] text-muted-foreground shrink-0">
+                            {Math.max(0, Math.ceil((new Date(sub.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))}d left
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-base font-bold shrink-0 text-amber-600">${Number(sub.price).toFixed(2)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
 
         {activeTab === 'Tips' && (
