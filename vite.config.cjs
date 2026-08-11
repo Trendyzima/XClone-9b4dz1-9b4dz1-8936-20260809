@@ -39,8 +39,6 @@ patchViteChunks();
 
 const { defineConfig } = require('vite');
 
-patchViteChunks();
-
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
 
 module.exports = defineConfig({
@@ -59,10 +57,8 @@ module.exports = defineConfig({
         jsx: 'react-jsx',
         jsxImportSource: 'react',
         module: 'ESNext',
-        moduleResolution: 'bundler',
-        allowImportingTsExtensions: true,
+        moduleResolution: 'node',
         resolveJsonModule: true,
-        noEmit: true,
         strict: false,
         skipLibCheck: true,
         baseUrl: '.',
@@ -72,6 +68,7 @@ module.exports = defineConfig({
   },
 
   resolve: {
+    extensions: ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'],
     dedupe: ['react', 'react-dom'],
     alias: {
       '@': path.resolve(__dirname, 'src'),
