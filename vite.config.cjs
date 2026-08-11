@@ -2,44 +2,96 @@
 const fs   = require('fs');
 const path = require('path');
 
+/* ─── Surgical Vite-chunk patcher (same logic as _patch-vite.cjs) ─────────── */
 function fixSource(src) {
   if (!src.includes('code??')) return src;
-  let out = src;
-  out = out.split('code??"", ').join('code, ');
-  out = out.split("code??'', ").join('code, ');
-  out = out.split('code??"",').join('code,');
-  out = out.split("code??'',").join('code,');
-  out = out.split('code??""').join('code');
-  out = out.split("code??''").join('code');
-  return out;
-}
-
-function applyFixToDisk(fpath) {
-  try { fs.chmodSync(fpath, 0o644); } catch (_) {}
-  let src;
-  try { src = fs.readFileSync(fpath, 'utf8'); } catch (_) { return; }
-  if (!src.includes('code??')) return;
-  const fixed = fixSource(src);
-  if (fixed === src) return;
-  try {
-    fs.writeFileSync(fpath, fixed, 'utf8');
-    try { fs.chmodSync(fpath, 0o444); } catch (_) {}
-  } catch (_) {}
+  let o = src;
+  o = o.split('code??"", ').join('code, ');
+  o = o.split("code??'', ").join('code, ');
+  o = o.split('code??"",').join('code,');
+  o = o.split("code??'',").join('code,');
+  o = o.split('code??""').join('code');
+  o = o.split("code??''").join('code');
+  return o;
 }
 
 function patchViteChunks() {
-  const chunksDir = path.join(__dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks');
-  if (!fs.existsSync(chunksDir)) return;
+  const dir = path.join(__dirname, 'node_modules', 'vite', 'dist', 'node', 'chunks');
+  if (!fs.existsSync(dir)) return;
   let files;
-  try { files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js')); } catch (_) { return; }
-  for (const fname of files) applyFixToDisk(path.join(chunksDir, fname));
+  try { files = fs.readdirSync(dir).filter(f => f.endsWith('.js')); } catch (_) { return; }
+  for (const f of files) {
+    const fp = path.join(dir, f);
+    try {
+      try { fs.chmodSync(fp, 0o644); } catch (_) {}
+      const src = fs.readFileSync(fp, 'utf8');
+      if (!src.includes('code??')) { try { fs.chmodSync(fp, 0o444); } catch (_) {} continue; }
+      const out = fixSource(src);
+      if (out === src) { try { fs.chmodSync(fp, 0o444); } catch (_) {} continue; }
+      fs.writeFileSync(fp, out, 'utf8');
+      try { fs.chmodSync(fp, 0o444); } catch (_) {}
+    } catch (_) {}
+  }
 }
 
 patchViteChunks();
 
+/* ─── Vite config ──────────────────────────────────────────────────────────── */
 const { defineConfig } = require('vite');
 
+// Try to load @vitejs/plugin-react — it provides proper JSX + TSX handling
+let reactPlugin = null;
+try {
+  const { default: react } = require('@vitejs/plugin-react');
+  reactPlugin = react();
+} catch (_) {}
+
 const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
+
+/* ─── Rollup plugin: resolve extensionless TypeScript imports ──────────────── *
+ * During Rollup's bundling phase, imports like `@/components/layout/AuthProvider`
+ * resolve to an absolute path WITHOUT a .tsx extension. This plugin adds it.
+ */
+const resolveTypescriptExtensions = {
+  name: 'resolve-ts-extensions',
+  resolveId: {
+    order: 'pre',
+    handler(source, importer) {
+      // Skip: already has an extension, or a bare module (no slash, no dot-start)
+      if (/\.[jt]sx?$/.test(source)) return null;
+      if (source.startsWith('\0')) return null;
+      if (!source.startsWith('/') && !source.startsWith('.') && !source.startsWith('@/')) return null;
+
+      let base;
+      if (source.startsWith('@/')) {
+        base = path.join(__dirname, 'src', source.slice(2));
+      } else if (source.startsWith('/')) {
+        base = source;
+      } else if (importer) {
+        const importerDir = path.dirname(importer.split('?')[0]);
+        base = path.join(importerDir, source);
+      } else {
+        return null;
+      }
+
+      const exts = ['.tsx', '.ts', '.jsx', '.js'];
+
+      // Try direct extensions
+      for (const ext of exts) {
+        const full = base + ext;
+        if (fs.existsSync(full)) return full;
+      }
+
+      // Try index files
+      for (const ext of exts) {
+        const full = path.join(base, 'index' + ext);
+        if (fs.existsSync(full)) return full;
+      }
+
+      return null;
+    },
+  },
+};
 
 module.exports = defineConfig({
   server: {
@@ -47,24 +99,11 @@ module.exports = defineConfig({
     port: 8080,
   },
 
+  plugins: reactPlugin ? [reactPlugin] : [],
+
   esbuild: {
     jsx: 'automatic',
     jsxImportSource: 'react',
-    tsconfigRaw: {
-      compilerOptions: {
-        target: 'ES2020',
-        useDefineForClassFields: true,
-        jsx: 'react-jsx',
-        jsxImportSource: 'react',
-        module: 'ESNext',
-        moduleResolution: 'node',
-        resolveJsonModule: true,
-        strict: false,
-        skipLibCheck: true,
-        baseUrl: '.',
-        paths: { '@/*': ['./src/*'] },
-      },
-    },
   },
 
   resolve: {
@@ -93,7 +132,9 @@ module.exports = defineConfig({
       transformMixedEsModules: true,
     },
     rollupOptions: {
+      external: (id) => /\.test\.[jt]sx?$/.test(id) || /\.spec\.[jt]sx?$/.test(id),
       plugins: [
+        resolveTypescriptExtensions,
         {
           name: 'vite-chunk-repatch',
           buildStart() { patchViteChunks(); },
