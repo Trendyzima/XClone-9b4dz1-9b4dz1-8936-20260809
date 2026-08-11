@@ -12,8 +12,8 @@ import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend, PieChart, Pie, Cell
 } from 'recharts';
 
 const MONETIZATION_THRESHOLD = 500;
@@ -39,6 +39,8 @@ export function MonetizationDashboard() {
   });
   const [earnings, setEarnings]   = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [monthlyChartData, setMonthlyChartData] = useState<any[]>([]);
+  const [sourceChartData, setSourceChartData] = useState<any[]>([]);
   const [loading, setLoading]     = useState(true);
   const [monetizationStatus, setMonetizationStatus] = useState<any>(null);
   const [userProfile, setUserProfile]   = useState<any>(null);
@@ -47,6 +49,19 @@ export function MonetizationDashboard() {
   const [dailyReward, setDailyReward]   = useState<any>(null);
   const [claimingReward, setClaimingReward] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'credits' | 'earnings'>('overview');
+
+  // ── Earnings Milestone Alerts ──────────────────────────────────────────────
+  const MILESTONES = [1, 10, 50, 100, 500, 1000];
+  const checkMilestones = (total: number) => {
+    const alerted = JSON.parse(localStorage.getItem('earnings_milestones_alerted') || '[]') as number[];
+    for (const m of MILESTONES) {
+      if (total >= m && !alerted.includes(m)) {
+        toast.success(`🎉 Milestone reached: $${m} earned!`, { duration: 6000, description: 'Keep creating amazing content!' });
+        alerted.push(m);
+      }
+    }
+    localStorage.setItem('earnings_milestones_alerted', JSON.stringify(alerted));
+  };
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -93,6 +108,27 @@ export function MonetizationDashboard() {
         platform: parseFloat((byDay[d] * (70 / 30)).toFixed(5)),
       })));
 
+      // Build 6-month chart
+      const months6 = Array.from({ length: 6 }, (_, i) => {
+        const d = new Date(); d.setMonth(d.getMonth() - (5 - i)); d.setDate(1);
+        return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleDateString([], { month: 'short' }) };
+      });
+      const byMonth: Record<string, Record<string, number>> = {};
+      months6.forEach(m => { byMonth[m.key] = { tips: 0, subscriptions: 0, video_ads: 0, product_sales: 0, other: 0 }; });
+      earningsList.forEach((e: any) => {
+        const mo = e.created_at?.slice(0, 7);
+        if (mo && byMonth[mo]) {
+          const src = ['tips', 'subscriptions', 'video_ads', 'product_sales'].includes(e.source) ? e.source : 'other';
+          byMonth[mo][src] = (byMonth[mo][src] || 0) + Number(e.amount);
+        }
+      });
+      setMonthlyChartData(months6.map(m => ({ month: m.label, ...byMonth[m.key] })));
+
+      // Source breakdown for pie
+      const srcTotals: Record<string, number> = {};
+      earningsList.forEach((e: any) => { srcTotals[e.source] = (srcTotals[e.source] || 0) + Number(e.amount); });
+      setSourceChartData(Object.entries(srcTotals).map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: parseFloat(value.toFixed(4)) })));
+
       const total      = earningsList.reduce((s: number, e: any) => s + Number(e.amount), 0);
       const videoRev   = earningsList.filter((e: any) => e.source === 'video_ads').reduce((s: number, e: any) => s + Number(e.amount), 0);
       const productRev = earningsList.filter((e: any) => e.source === 'product_sales').reduce((s: number, e: any) => s + Number(e.amount), 0);
@@ -106,6 +142,8 @@ export function MonetizationDashboard() {
         videoRevenue: videoRev, subscriptions: subsRevenue, tips: tipsRevenue,
         videoViews: totalViews, productSales: productRev, rewardedAdEarnings: rewardedRev,
       });
+      // Fire milestone alerts after stats are computed
+      checkMilestones(total + subsRevenue + tipsRevenue);
     } catch (err) {
       console.error(err);
       toast.error('Failed to load monetization data');
@@ -429,29 +467,81 @@ export function MonetizationDashboard() {
         {/* ─── EARNINGS ─── */}
         {activeTab === 'earnings' && (
           <>
-            {/* 7-day revenue chart */}
+            {/* 6-month earnings by source BarChart */}
+            <div className="bg-card border border-border rounded-2xl p-4">
+              <h3 className="font-bold mb-4 flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-primary" />
+                Monthly Earnings by Source
+              </h3>
+              {monthlyChartData.some(d => d.tips > 0 || d.subscriptions > 0 || d.video_ads > 0 || d.product_sales > 0) ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={monthlyChartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(val: any, name: string) => [`$${Number(val).toFixed(2)}`, name.replace(/_/g, ' ')]} />
+                    <Legend />
+                    <Bar dataKey="tips" stackId="a" fill="#f59e0b" name="Tips" radius={[0,0,0,0]} />
+                    <Bar dataKey="subscriptions" stackId="a" fill="#6366f1" name="Subscriptions" />
+                    <Bar dataKey="video_ads" stackId="a" fill="#22c55e" name="Video Ads" />
+                    <Bar dataKey="product_sales" stackId="a" fill="#ec4899" name="Products" />
+                    <Bar dataKey="other" stackId="a" fill="#94a3b8" name="Other" radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">No monthly data yet — start earning!</div>
+              )}
+            </div>
+
+            {/* Revenue split trend — 30/70 */}
             {chartData.some(d => d.creator > 0) && (
               <div className="bg-card border border-border rounded-2xl p-4">
                 <h3 className="font-bold mb-4 flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-primary" />
-                  7-Day Revenue (30% / 70% Split)
+                  7-Day Revenue Split (You 30% · Platform 70%)
                 </h3>
-                <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      formatter={(val: any, name: string) => [
-                        `$${Number(val).toFixed(5)}`,
-                        name === 'creator' ? 'Your 30%' : 'Platform 70%'
-                      ]}
-                    />
+                    <Tooltip formatter={(val: any, name: string) => [`$${Number(val).toFixed(5)}`, name === 'creator' ? 'Your 30%' : 'Platform 70%']} />
                     <Legend formatter={v => v === 'creator' ? 'Your 30%' : 'Platform 70%'} />
-                    <Bar dataKey="creator"  fill="#22c55e" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="platform" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                  </BarChart>
+                    <Line type="monotone" dataKey="creator" stroke="#22c55e" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="platform" stroke="#6366f1" strokeWidth={2} dot={false} />
+                  </LineChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Source breakdown pie */}
+            {sourceChartData.length > 0 && (
+              <div className="bg-card border border-border rounded-2xl p-4">
+                <h3 className="font-bold mb-4 flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-primary" />
+                  Earnings by Source
+                </h3>
+                <div className="flex items-center gap-4">
+                  <ResponsiveContainer width={140} height={140}>
+                    <PieChart>
+                      <Pie data={sourceChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} innerRadius={35}>
+                        {sourceChartData.map((_, i) => (
+                          <Cell key={i} fill={['#f59e0b','#6366f1','#22c55e','#ec4899','#94a3b8'][i % 5]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v: any) => `$${Number(v).toFixed(4)}`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex-1 space-y-1">
+                    {sourceChartData.map((s, i) => (
+                      <div key={s.name} className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ['#f59e0b','#6366f1','#22c55e','#ec4899','#94a3b8'][i % 5] }} />
+                        <span className="text-xs capitalize flex-1">{s.name}</span>
+                        <span className="text-xs font-bold">${Number(s.value).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 

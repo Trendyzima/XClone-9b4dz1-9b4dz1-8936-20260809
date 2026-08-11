@@ -39,6 +39,26 @@ export function StoriesStrip() {
   const [activeStoryIdx, setActiveStoryIdx] = useState(0);
   const [progressPct, setProgressPct] = useState(0);
 
+  // Story Music Playback in viewer
+  const storyAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const stopStoryAudio = () => {
+    if (storyAudioRef.current) {
+      storyAudioRef.current.pause();
+      storyAudioRef.current.currentTime = 0;
+      storyAudioRef.current = null;
+    }
+  };
+
+  const playStoryAudio = (previewUrl: string) => {
+    stopStoryAudio();
+    const audio = new Audio(previewUrl);
+    audio.loop = true;
+    audio.volume = 0.6;
+    audio.play().catch(() => {});
+    storyAudioRef.current = audio;
+  };
+
   // Caption input
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingCaption, setPendingCaption] = useState('');
@@ -281,6 +301,7 @@ export function StoriesStrip() {
   }, [viewerGroupIdx, activeStoryIdx, groups, markViewed]);
 
   const closeViewer = () => {
+    stopStoryAudio();
     setViewerGroupIdx(null);
     setReplyText('');
     setShowViewers(false);
@@ -288,12 +309,17 @@ export function StoriesStrip() {
   };
 
   const openViewer = (groupIdx: number) => {
+    stopStoryAudio();
     setViewerGroupIdx(groupIdx);
     setActiveStoryIdx(0);
     setShowViewers(false);
     setStoryViewers([]);
     const story = groups[groupIdx]?.stories[0];
-    if (story && !viewedIds.has(story.id)) markViewed(story.id);
+    if (story) {
+      if (!viewedIds.has(story.id)) markViewed(story.id);
+      const meta = (story as any).metadata;
+      if (meta?.music?.preview_url) playStoryAudio(meta.music.preview_url);
+    }
   };
 
   const advance = () => {
@@ -306,11 +332,17 @@ export function StoriesStrip() {
       const ni = activeStoryIdx + 1;
       setActiveStoryIdx(ni);
       markViewed(g.stories[ni].id);
+      const meta = (g.stories[ni] as any).metadata;
+      if (meta?.music?.preview_url) playStoryAudio(meta.music.preview_url);
+      else stopStoryAudio();
     } else if (viewerGroupIdx < groups.length - 1) {
       const ng = viewerGroupIdx + 1;
       setViewerGroupIdx(ng);
       setActiveStoryIdx(0);
       markViewed(groups[ng].stories[0].id);
+      const meta = (groups[ng].stories[0] as any).metadata;
+      if (meta?.music?.preview_url) playStoryAudio(meta.music.preview_url);
+      else stopStoryAudio();
     } else {
       closeViewer();
     }
@@ -321,11 +353,20 @@ export function StoriesStrip() {
     setShowViewers(false);
     if (viewerGroupIdx === null) return;
     if (activeStoryIdx > 0) {
-      setActiveStoryIdx(prev => prev - 1);
+      const pi = activeStoryIdx - 1;
+      setActiveStoryIdx(pi);
+      const g = groups[viewerGroupIdx];
+      const meta = (g?.stories[pi] as any)?.metadata;
+      if (meta?.music?.preview_url) playStoryAudio(meta.music.preview_url);
+      else stopStoryAudio();
     } else if (viewerGroupIdx > 0) {
       const pg = viewerGroupIdx - 1;
       setViewerGroupIdx(pg);
-      setActiveStoryIdx(groups[pg].stories.length - 1);
+      const lastIdx = groups[pg].stories.length - 1;
+      setActiveStoryIdx(lastIdx);
+      const meta = (groups[pg].stories[lastIdx] as any)?.metadata;
+      if (meta?.music?.preview_url) playStoryAudio(meta.music.preview_url);
+      else stopStoryAudio();
     }
   };
 

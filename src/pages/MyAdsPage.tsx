@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Megaphone, Eye, MousePointer, DollarSign, Loader2, Plus,
   Pause, Play, Trash2, CheckCircle2, Clock, XCircle, AlertCircle,
-  TrendingUp, BarChart3
+  TrendingUp, BarChart3, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
@@ -91,6 +91,21 @@ export default function MyAdsPage() {
     }
     await supabase.from('user_ads').update({ status: 'active' }).eq('id', adId);
     toast.success('Ad resumed');
+    fetchAds();
+  };
+
+  const renewAd = async (adId: string) => {
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 30);
+    await supabase.from('user_ads').update({
+      status: 'active',
+      spent: 0,
+      impressions: 0,
+      clicks: 0,
+      start_date: new Date().toISOString(),
+      end_date: endDate.toISOString(),
+    }).eq('id', adId);
+    toast.success('Ad renewed for 30 days! 🚀');
     fetchAds();
   };
 
@@ -222,6 +237,21 @@ export default function MyAdsPage() {
                       ))}
                     </div>
 
+                    {/* Completed / budget exhausted alert + renewal */}
+                    {ad.status === 'completed' && (
+                      <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl mb-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-0.5">
+                            {ad.budget > 0 && ad.spent >= ad.budget ? 'Budget fully utilized' : 'Campaign ended'}
+                          </p>
+                          <p className="text-xs text-amber-600 dark:text-amber-500">
+                            Renew to keep delivering impressions.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Admin notes on rejected ads */}
                     {ad.status === 'rejected' && ad.admin_notes && (
                       <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
@@ -253,6 +283,11 @@ export default function MyAdsPage() {
                       {ad.status === 'paused' && (
                         <Button size="sm" onClick={() => resumeAd(ad.id)} className="flex-1 rounded-lg">
                           <Play className="w-3.5 h-3.5 mr-1.5" /> Resume
+                        </Button>
+                      )}
+                      {ad.status === 'completed' && (
+                        <Button size="sm" onClick={() => renewAd(ad.id)} className="flex-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white">
+                          <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Renew (30d)
                         </Button>
                       )}
                       <Button

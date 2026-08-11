@@ -11,9 +11,15 @@ import {
   Coins,
   ArrowRight,
   PartyPopper,
+  TrendingUp,
+  Calendar,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
+} from 'recharts';
+import { subDays, format, startOfDay } from 'date-fns';
 
 interface ReferralRecord {
   id: string;
@@ -33,6 +39,7 @@ export default function ReferralPage() {
   const [totalCredits, setTotalCredits] = useState(0);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [chartData, setChartData] = useState<any[]>([]);
 
   const referralLink = user
     ? `${window.location.origin}/auth?ref=${user.id}`
@@ -57,10 +64,26 @@ export default function ReferralPage() {
       .order('created_at', { ascending: false });
 
     if (data) {
-      setReferrals(data as ReferralRecord[]);
-      setTotalCredits(data.reduce((s, r) => s + (r.credits_awarded ?? 0), 0));
+      const list = data as ReferralRecord[];
+      setReferrals(list);
+      setTotalCredits(list.reduce((s, r) => s + (r.credits_awarded ?? 0), 0));
+      buildChart(list);
     }
     setLoading(false);
+  };
+
+  const buildChart = (list: ReferralRecord[]) => {
+    // Build 30-day referral timeline
+    const days = Array.from({ length: 30 }, (_, i) => {
+      const d = subDays(new Date(), 29 - i);
+      return { date: format(d, 'MM/dd'), key: format(startOfDay(d), 'yyyy-MM-dd'), referrals: 0, credits: 0 };
+    });
+    list.forEach(r => {
+      const dayKey = format(startOfDay(new Date(r.created_at)), 'yyyy-MM-dd');
+      const entry = days.find(d => d.key === dayKey);
+      if (entry) { entry.referrals += 1; entry.credits += r.credits_awarded ?? 100; }
+    });
+    setChartData(days);
   };
 
   const copyLink = async () => {
@@ -113,6 +136,54 @@ export default function ReferralPage() {
       </div>
 
       <div className="px-4 space-y-4 pt-4">
+        {/* 30-day timeline chart */}
+        {referrals.length > 0 && (
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="w-4 h-4 text-primary" />
+              <h3 className="font-bold text-sm">Referral Activity (30 days)</h3>
+              <span className="ml-auto text-xs text-muted-foreground flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                {referrals.length} total
+              </span>
+            </div>
+            <ResponsiveContainer width="100%" height={140}>
+              <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="refGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} interval={6} />
+                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                <Tooltip
+                  formatter={(val: any, name: string) => [
+                    name === 'referrals' ? `${val} friend${val !== 1 ? 's' : ''}` : `${val} credits`,
+                    name === 'referrals' ? 'Referrals' : 'Credits'
+                  ]}
+                  contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', fontSize: 12 }}
+                />
+                <Area type="monotone" dataKey="referrals" stroke="hsl(var(--primary))" fill="url(#refGrad)" strokeWidth={2} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+            {/* Credit breakdown */}
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {[
+                { label: 'This Week', value: chartData.slice(-7).reduce((s, d) => s + d.referrals, 0), unit: 'friends' },
+                { label: 'This Month', value: chartData.reduce((s, d) => s + d.referrals, 0), unit: 'friends' },
+                { label: 'Credits 30d', value: chartData.reduce((s, d) => s + d.credits, 0), unit: 'cr' },
+              ].map(s => (
+                <div key={s.label} className="text-center bg-muted/30 rounded-xl py-2.5">
+                  <p className="text-base font-black text-primary">{s.value.toLocaleString()}</p>
+                  <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Stats hero */}
         <div className="rounded-2xl bg-gradient-to-br from-primary/15 via-purple-500/10 to-blue-500/5 border border-primary/20 p-5 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full -translate-y-8 translate-x-8" />

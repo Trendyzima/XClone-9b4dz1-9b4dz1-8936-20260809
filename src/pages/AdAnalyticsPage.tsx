@@ -10,7 +10,7 @@ import {
 import {
   Eye, MousePointer, TrendingUp, DollarSign, Loader2,
   Megaphone, Plus, BarChart3, Pause, Play, ChevronDown,
-  ArrowUpRight, Clock, CheckCircle2, XCircle, Zap
+  ArrowUpRight, Clock, CheckCircle2, XCircle, Zap, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
@@ -108,6 +108,26 @@ export default function AdAnalyticsPage() {
     setAds(prev => prev.map(a => a.id === ad.id ? updated : a));
     setSelectedAd(updated);
     toast.success(newStatus === 'active' ? 'Ad resumed' : 'Ad paused');
+  };
+
+  const renewAd = async (ad: any) => {
+    // Reset budget, spent, end_date +30d and reactivate
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 30);
+    const updated = {
+      status: 'active',
+      spent: 0,
+      impressions: 0,
+      clicks: 0,
+      start_date: new Date().toISOString(),
+      end_date: endDate.toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await supabase.from('user_ads').update(updated).eq('id', ad.id);
+    const newAd = { ...ad, ...updated };
+    setAds(prev => prev.map(a => a.id === ad.id ? newAd : a));
+    setSelectedAd(newAd);
+    toast.success('Ad renewed for 30 days! 🚀');
   };
 
   if (loading) {
@@ -221,6 +241,28 @@ export default function AdAnalyticsPage() {
 
             {selectedAd && (
               <>
+                {/* Ad completed / renewal banner */}
+                {selectedAd.status === 'completed' && (
+                  <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/30 rounded-2xl p-4">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="font-bold text-sm text-amber-700 dark:text-amber-400">Ad Campaign Ended</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {selectedAd.budget > 0 && selectedAd.spent >= selectedAd.budget
+                            ? `Budget of KES ${selectedAd.budget.toLocaleString()} has been fully utilized.`
+                            : 'Your campaign end date has passed.'}
+                          {' '}Renew to keep reaching your audience.
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={() => renewAd(selectedAd)}
+                      className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm transition-colors">
+                      <RefreshCw className="w-4 h-4" /> Renew Campaign (30 days)
+                    </button>
+                  </div>
+                )}
+
                 {/* Selected ad KPIs */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[

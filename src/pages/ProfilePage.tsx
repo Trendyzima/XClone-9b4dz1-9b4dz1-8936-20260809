@@ -95,6 +95,7 @@ export default function ProfilePage() {
   const [tipSent, setTipSent] = useState(false);
   // Highlights
   const [highlights, setHighlights] = useState<any[]>([]);
+  const [highlightViewCounts, setHighlightViewCounts] = useState<Record<string, number>>({});
   const [showCreateHighlight, setShowCreateHighlight] = useState(false);
   const [highlightTitle, setHighlightTitle] = useState('');
   // Highlight reorder drag state
@@ -332,7 +333,21 @@ export default function ProfilePage() {
       .select('*')
       .eq('user_id', userId)
       .order('sort_order', { ascending: true });
-    setHighlights(data ?? []);
+    const list = data ?? [];
+    setHighlights(list);
+    // Fetch view counts for all story_ids across all highlights
+    const allStoryIds = list.flatMap((h: any) => h.story_ids ?? []) as string[];
+    if (allStoryIds.length > 0) {
+      const { data: viewData } = await supabase
+        .from('story_views')
+        .select('story_id')
+        .in('story_id', allStoryIds);
+      const counts: Record<string, number> = {};
+      list.forEach((h: any) => {
+        counts[h.id] = (viewData ?? []).filter((v: any) => (h.story_ids ?? []).includes(v.story_id)).length;
+      });
+      setHighlightViewCounts(counts);
+    }
   };
 
   const updateHighlightOrder = async (newOrder: any[]) => {
@@ -1052,7 +1067,9 @@ export default function ProfilePage() {
                   <span className="text-[10px] text-muted-foreground font-medium">New</span>
                 </button>
               )}
-              {highlights.map((h: any, hIdx: number) => (
+              {highlights.map((h: any, hIdx: number) => {
+                const viewCount = highlightViewCounts[h.id] ?? 0;
+                return (
                 <div
                   key={h.id}
                   draggable={isOwnProfile}
@@ -1081,15 +1098,24 @@ export default function ProfilePage() {
                       : ''
                   }`}
                 >
-                  <button
-                    onClick={() => openHighlightViewer(h)}
-                    className="w-16 h-16 rounded-full ring-2 ring-offset-2 ring-offset-background ring-muted-foreground/20 hover:ring-primary/50 transition-all overflow-hidden bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center"
-                    title={isOwnProfile ? 'Drag to reorder' : ''}
-                  >
-                    {h.cover_url
-                      ? <img src={h.cover_url} alt={h.title} className="w-full h-full object-cover" />
-                      : <Star className="w-6 h-6 text-primary" />}
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => openHighlightViewer(h)}
+                      className="w-16 h-16 rounded-full ring-2 ring-offset-2 ring-offset-background ring-muted-foreground/20 hover:ring-primary/50 transition-all overflow-hidden bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center"
+                      title={isOwnProfile ? 'Drag to reorder' : ''}
+                    >
+                      {h.cover_url
+                        ? <img src={h.cover_url} alt={h.title} className="w-full h-full object-cover" />
+                        : <Star className="w-6 h-6 text-primary" />}
+                    </button>
+                    {/* View count badge — own profile analytics */}
+                    {isOwnProfile && viewCount > 0 && (
+                      <div className="absolute -bottom-0.5 -right-0.5 flex items-center gap-0.5 bg-background border border-border rounded-full px-1.5 py-0.5 shadow-sm">
+                        <Eye className="w-2.5 h-2.5 text-blue-500" />
+                        <span className="text-[9px] font-bold text-blue-600">{viewCount > 999 ? `${(viewCount/1000).toFixed(1)}k` : viewCount}</span>
+                      </div>
+                    )}
+                  </div>
                   <span className="text-[10px] font-medium max-w-[64px] truncate text-center">{h.title}</span>
                   {/* Delete option for own profile */}
                   {isOwnProfile && (
@@ -1099,7 +1125,8 @@ export default function ProfilePage() {
                     >Remove</button>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
