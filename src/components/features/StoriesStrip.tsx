@@ -155,6 +155,7 @@ export function StoriesStrip() {
 
   const [stickers, setStickers] = useState<{ emoji: string; x: number; y: number; id: string }[]>([]);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
+
   const [draggingSticker, setDraggingSticker] = useState<string | null>(null);
   const storyPreviewRef = useRef<HTMLDivElement>(null);
   const STICKER_EMOJIS = ['❤️','😂','🔥','😍','👏','🎉','💯','😎','🙏','💪','🤩','😢','😡','👀','✨','🌟','🎵','🌈','🦋','💫','🤑','😜','🙌','💥','🌸'];

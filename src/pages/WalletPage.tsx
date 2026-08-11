@@ -30,7 +30,6 @@ function SendMoneyTab({ userId, walletBalance, onComplete }: { userId: string; w
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
-  const { supabase: _, ...rest } = { supabase: null }; // placeholder
 
   const searchUsers = async (q: string) => {
     setQuery(q);
