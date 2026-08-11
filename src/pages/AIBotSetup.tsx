@@ -134,7 +134,7 @@ export default function AIBotSetup() {
                 Use a CRON service to trigger the bot every hour:
               </p>
               <code className="block mt-2 p-2 bg-muted rounded text-xs break-all">
-                {SUPABASE_URL}/functions/v1/ai-news-bot
+                {import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-news-bot
               </code>
               <p className="text-muted-foreground text-xs mt-2">
                 Recommended: <a href="https://cron-job.org" target="_blank" className="text-primary hover:underline">cron-job.org</a> or GitHub Actions
