@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,6 +28,7 @@ const WISHLIST_KEY = 'product_wishlist';
 
 export default function WishlistPage() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Wishlist', url: '/wishlist' });
   const navigate = useNavigate();
   const [wishlistIds, setWishlistIds] = useState<string[]>([]);
   const [products, setProducts] = useState<WishlistProduct[]>([]);
