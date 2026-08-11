@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +18,7 @@ import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow, subDays, format } from 'date-fns';
 
 export default function AdAnalyticsPage() {
+  useSEO({ noindex: true, title: 'Ad Analytics', url: '/ad-analytics' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [ads, setAds] = useState<any[]>([]);

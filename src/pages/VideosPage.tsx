@@ -5,7 +5,6 @@ import { Post } from '@/types/app-types';
 import { Loader2, Gift, X, Zap, Play } from 'lucide-react';
 import { initAdMob, showInterstitial, showRewarded, ADMOB_CONFIG } from '@/lib/admob';
 import { useSEO } from '@/hooks/useSEO';
-import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const AD_EVERY_N_VIDEOS = 4;
@@ -13,37 +12,49 @@ const PRELOAD_AHEAD = 2;
 const PAGE_SIZE = 20;
 
 export default function VideosPage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkProcessed = useRef(false);
   const [videos, setVideos] = useState<Post[]>([]);
 
-  const activeVideo = videos[0]; // use first/top video for SEO meta
+  // Top 5 videos for SEO ItemList JSON-LD
+  const topVideos = videos.slice(0, 5);
+  const videosJsonLd = topVideos.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'Trending Videos on Testagram',
+    description: 'Top short videos from creators around the world on Testagram.',
+    url: 'https://testagram.site/videos',
+    numberOfItems: topVideos.length,
+    itemListElement: topVideos.map((v: any, i: number) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      item: {
+        '@type': 'VideoObject',
+        name: v.content?.replace(/<[^>]*>/g, '').slice(0, 80) || 'Video on Testagram',
+        description: v.content?.replace(/<[^>]*>/g, '').slice(0, 200) || 'Watch this video on Testagram',
+        thumbnailUrl: v.image_url || 'https://testagram.site/app-icon.jpg',
+        uploadDate: v.created_at,
+        contentUrl: v.video_url,
+        author: {
+          '@type': 'Person',
+          name: v.user_profiles?.username ?? 'Creator',
+          url: `https://testagram.site/profile/${v.user_profiles?.username}`,
+        },
+        interactionStatistic: [
+          { '@type': 'InteractionCounter', interactionType: 'https://schema.org/WatchAction', userInteractionCount: v.views_count ?? 0 },
+          { '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction', userInteractionCount: v.likes_count ?? 0 },
+        ],
+      },
+    })),
+  } : undefined;
   useSEO({
     title: 'Trending Videos',
     description: 'Watch short videos from creators around the world on Testagram. Discover trending clips, go viral, and earn from your content.',
     url: '/videos',
     type: 'website',
     keywords: 'short videos, trending clips, viral videos, creators, testagram, tiktok-style, video feed',
-    structuredData: activeVideo ? {
-      '@context': 'https://schema.org',
-      '@type': 'VideoObject',
-      name: (activeVideo as any).content?.replace(/<[^>]*>/g, '').slice(0, 80) || 'Video on Testagram',
-      description: (activeVideo as any).content?.replace(/<[^>]*>/g, '').slice(0, 200) || 'Watch this video on Testagram',
-      thumbnailUrl: (activeVideo as any).image_url || 'https://testagram.site/app-icon.jpg',
-      uploadDate: (activeVideo as any).created_at,
-      contentUrl: (activeVideo as any).video_url,
-      author: {
-        '@type': 'Person',
-        name: (activeVideo as any).user_profiles?.username ?? 'Creator',
-        url: `https://testagram.site/profile/${(activeVideo as any).user_profiles?.username}`,
-      },
-      interactionStatistic: [
-        { '@type': 'InteractionCounter', interactionType: 'https://schema.org/WatchAction', userInteractionCount: (activeVideo as any).views_count ?? 0 },
-        { '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction', userInteractionCount: (activeVideo as any).likes_count ?? 0 },
-      ],
-    } : undefined,
+    structuredData: videosJsonLd,
   });
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -51,7 +62,6 @@ export default function VideosPage() {
   const [hasMore, setHasMore] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIndexRef = useRef(0);
-  const lastScrollTop = useRef(0);
 
   // Rewarded ad state
   const [showRewardPrompt, setShowRewardPrompt] = useState(false);

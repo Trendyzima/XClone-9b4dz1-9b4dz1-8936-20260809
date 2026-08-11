@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { TopBar } from '@/components/layout/TopBar';
@@ -101,6 +102,7 @@ function showWebRewardedAd(): Promise<boolean> {
 }
 
 export default function RewardedAdHistory() {
+  useSEO({ noindex: true, title: 'Rewarded Ad History', url: '/rewards' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [rewards, setRewards] = useState<RewardUnlock[]>([]);
