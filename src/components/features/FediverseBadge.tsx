@@ -1,8 +1,3 @@
-/**
- * FediverseBadge – shows @username@testagram.site handle
- * with copy button and optional remote follower count.
- * Used on ProfilePage.
- */
 import { useState } from 'react';
 import { Globe, Copy, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';

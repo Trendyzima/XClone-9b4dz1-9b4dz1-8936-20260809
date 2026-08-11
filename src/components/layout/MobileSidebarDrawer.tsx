@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import {
   Menu, Home, Hash, Bell, Mail, Radio, Sparkles, Bookmark, List, History,
@@ -6,7 +7,6 @@ import {
   Gift, Wallet, Users, Megaphone, BadgeCheck, UserPlus, Shield, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { authService } from '@/lib/auth';

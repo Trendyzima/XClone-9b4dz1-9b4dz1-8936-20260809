@@ -1,13 +1,3 @@
-/**
- * federation.ts — Testagram Federation API client
- *
- * All gateway calls go through the `gateway-relay` Supabase Edge Function.
- * This eliminates CORS issues and the dependency on an external Vercel service.
- *
- * The edge function is the authoritative gateway and serves data from the
- * local Supabase DB, federating with remote ActivityPub instances as needed.
- */
-
 import { supabase } from '@/lib/supabase';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 

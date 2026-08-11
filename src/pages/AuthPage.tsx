@@ -6,7 +6,6 @@ import { useToast } from '@/hooks/use-toast';
 import { authService } from '@/lib/auth';
 import { useAuthStore } from '@/stores/authStore';
 import { Loader2 } from 'lucide-react';
-
 import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
 
