@@ -1,8 +1,3 @@
-/**
- * admob.ts — AdMob removed; all exports are web-compatible no-ops.
- * The same API surface is preserved so every import site compiles without changes.
- */
-
 import { BannerAdPosition } from '@/lib/capacitor-stub';
 
 // ── Config (kept for call-site compatibility) ────────────────────────────────
@@ -27,13 +22,11 @@ export const AD_REVENUE_SPLIT = {
   },
 } as const;
 
-// ── Platform guard ───────────────────────────────────────────────────────────
 /** Always false — AdMob is no longer active */
 export function isAdMobSupported(): boolean {
   return false;
 }
 
-// ── No-op stubs ──────────────────────────────────────────────────────────────
 export async function initAdMob() {}
 
 export async function showBanner(
