@@ -255,6 +255,12 @@ export function ProductsPage() {
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-muted-foreground">{myProducts.length} product{myProducts.length !== 1 ? 's' : ''} listed</p>
             <button
+              onClick={() => navigate('/wishlist')}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+            >
+              <Heart className="w-3.5 h-3.5" /> Wishlist ({(() => { try { return JSON.parse(localStorage.getItem('product_wishlist') || '[]').length; } catch { return 0; } })()})
+            </button>
+            <button
               onClick={() => { resetForm(); setViewMode('add-product'); }}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90 transition-opacity"
             >

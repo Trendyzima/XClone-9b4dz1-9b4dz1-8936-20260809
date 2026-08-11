@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, History, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Post } from '@/types';
+import { Post } from '@/types/app-types';
 
 export default function HistoryPage() {
   const { user } = useAuth();

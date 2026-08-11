@@ -83,11 +83,37 @@ export function StoriesStrip() {
 
   const fetchStories = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+
+    // Fetch IDs of people the current user follows (for followers-only filtering on client)
+    let followedIds: string[] = [];
+    if (user?.id) {
+      const { data: followData } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', user.id);
+      followedIds = (followData ?? []).map((f: any) => f.following_id);
+    }
+
+    // Only fetch own stories + followed users' stories (RLS also enforces this)
+    const allowedIds = user?.id ? [user.id, ...followedIds] : [];
+
+    let query = supabase
       .from('stories')
       .select('*, user_profiles(username, avatar_url)')
       .gt('expires_at', new Date().toISOString())
       .order('created_at', { ascending: false });
+
+    // Client-side filter to followed+self (belt-and-suspenders alongside RLS)
+    if (allowedIds.length > 0) {
+      query = query.in('user_id', allowedIds);
+    } else {
+      // Not logged in — show nothing
+      setGroups([]);
+      setLoading(false);
+      return;
+    }
+
+    const { data } = await query;
 
     const rawStories: Story[] = (data as Story[]) ?? [];
 

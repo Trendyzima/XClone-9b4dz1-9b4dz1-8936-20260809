@@ -75,6 +75,8 @@ const TrendingTopicFeedPage = lazy(() => import('@/pages/TrendingTopicFeedPage')
 const HashtagChallengePage = lazy(() => import('@/pages/HashtagChallengePage'));
 const AdminAdsDashboard = lazy(() => import('@/pages/AdminAdsDashboard'));
 const NotificationPreferencesPage = lazy(() => import('@/pages/NotificationPreferencesPage'));
+const WishlistPage = lazy(() => import('@/pages/WishlistPage').then(m => ({ default: m.WishlistPage })));
+const InterestOnboardingPage = lazy(() => import('@/pages/InterestOnboardingPage').then(m => ({ default: m.InterestOnboardingPage })));
 
 function PageLoader() {
   return (
@@ -182,6 +184,8 @@ function AppInner() {
               <Route path="/challenge/:id" element={<HashtagChallengePage />} />
               <Route path="/admin/ads-review" element={<AdminAdsDashboard />} />
               <Route path="/notification-preferences" element={<NotificationPreferencesPage />} />
+              <Route path="/wishlist" element={<WishlistPage />} />
+              <Route path="/interests" element={<InterestOnboardingPage />} />
             </Routes>
           </Suspense>
         </main>

@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
   Bell, Lock, Shield, HelpCircle, FileText, LogOut,
-  Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check
+  Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check,
+  Sparkles, Heart, ShoppingBag
 } from 'lucide-react';
 import { applyTheme, getStoredThemeChoice } from '@/components/layout/ThemeToggle';
 import { authService } from '@/lib/auth';
@@ -143,6 +144,43 @@ export default function SettingsPage() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Personalisation */}
+        <div className="p-4">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Feed & Personalisation</h2>
+          <div className="space-y-1">
+            <button
+              onClick={() => navigate('/interests')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                </div>
+                <div className="text-left">
+                  <p className="font-semibold text-sm">My Interests</p>
+                  <p className="text-xs text-muted-foreground">Personalise your For You feed</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+            <button
+              onClick={() => navigate('/wishlist')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-rose-500/10 flex items-center justify-center">
+                  <Heart className="w-4 h-4 text-rose-500" />
+                </div>
+                <div className="text-left">
+                  <p className="font-semibold text-sm">Wishlist</p>
+                  <p className="text-xs text-muted-foreground">Products you've saved</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
           </div>
         </div>
 
