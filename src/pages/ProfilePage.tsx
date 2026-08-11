@@ -88,6 +88,60 @@ export default function ProfilePage() {
     }
   };
 
+  // Premium gifting
+  const [showGiftPremiumDialog, setShowGiftPremiumDialog] = useState(false);
+  const [giftingPremium, setGiftingPremium] = useState(false);
+
+  const handleGiftPremium = async () => {
+    if (!currentUser || !profile) return;
+    const GIFT_PRICE = 4.99;
+    setGiftingPremium(true);
+    try {
+      // Deduct from sender's wallet
+      const { error: deductErr } = await supabase.rpc('deduct_from_wallet', {
+        p_user_id: currentUser.id,
+        p_amount: GIFT_PRICE,
+      });
+      if (deductErr) {
+        toast.error(`Insufficient wallet balance. You need $${GIFT_PRICE} to gift premium.`);
+        return;
+      }
+      // Activate/extend premium for recipient
+      const expiresAt = new Date();
+      expiresAt.setMonth(expiresAt.getMonth() + 1);
+      const { error } = await supabase.from('premium_subscriptions').upsert({
+        user_id: profile.id,
+        plan: 'monthly',
+        status: 'active',
+        price: GIFT_PRICE,
+        started_at: new Date().toISOString(),
+        expires_at: expiresAt.toISOString(),
+      }, { onConflict: 'user_id' });
+      if (error) throw error;
+      // Notify recipient
+      await supabase.from('platform_inbox').insert({
+        user_id: profile.id,
+        subject: '🎁 Someone gifted you Premium!',
+        body: `@${currentUser.username} gifted you 1 month of Premium! Enjoy an ad-free experience until ${expiresAt.toLocaleDateString()}.`,
+        type: 'update',
+        icon_emoji: '👑',
+        cta_label: 'View Premium Benefits',
+        cta_url: '/premium',
+      }).catch(() => {});
+      await supabase.from('notifications').insert({
+        user_id: profile.id,
+        type: 'tip',
+        from_user_id: currentUser.id,
+      }).catch(() => {});
+      toast.success(`🎁 Premium gifted to @${profile.username} for 1 month!`);
+      setShowGiftPremiumDialog(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to gift premium');
+    } finally {
+      setGiftingPremium(false);
+    }
+  };
+
   // Tip
   const [showTipDialog, setShowTipDialog] = useState(false);
   const [tipAmount, setTipAmount] = useState<number | null>(null);
@@ -837,7 +891,14 @@ export default function ProfilePage() {
                     <MessageCircle className="w-4 h-4" />
                     Message
                   </button>
-                  {/* P2P Send Money */}
+                  <button
+                    onClick={() => setShowGiftPremiumDialog(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-full font-semibold text-sm transition-colors"
+                    title="Gift 1-month Premium"
+                  >
+                    <Crown className="w-3.5 h-3.5" />
+                    Gift Premium
+                  </button>
                   <button
                     onClick={() => navigate(`/wallet?tab=send&to=${profile.username}`)}
                     className="flex items-center gap-1.5 px-3 py-2 border border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary rounded-full font-semibold text-sm transition-colors"
@@ -1834,6 +1895,43 @@ export default function ProfilePage() {
       )}
 
       {/* ── Tip Dialog ── */}
+      {/* ── Gift Premium Dialog ── */}
+      {showGiftPremiumDialog && !isOwnProfile && (
+        <div className="fixed inset-0 z-[250] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowGiftPremiumDialog(false)}>
+          <div className="bg-background border border-border rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-5">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30 flex items-center justify-center mx-auto mb-3">
+                <Crown className="w-8 h-8 text-amber-500" fill="currentColor" />
+              </div>
+              <h2 className="font-bold text-xl">Gift Premium</h2>
+              <p className="text-sm text-muted-foreground mt-1">Give @{profile.username} 1 month of Premium (ad-free)</p>
+            </div>
+            <div className="bg-amber-500/8 border border-amber-500/20 rounded-xl p-4 mb-5 space-y-2">
+              {['Ad-free browsing for 1 month', 'No pre-roll or mid-roll video ads', 'Crown badge displayed on their profile', 'Notified instantly with a platform message'].map(perk => (
+                <div key={perk} className="flex items-center gap-2 text-sm">
+                  <span className="w-4 h-4 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
+                    <span className="text-amber-600 text-[10px]">✓</span>
+                  </span>
+                  <span className="text-foreground">{perk}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between px-1 mb-4">
+              <span className="text-sm text-muted-foreground">Cost (from your wallet)</span>
+              <span className="text-xl font-black text-amber-600">$4.99</span>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowGiftPremiumDialog(false)} className="flex-1 py-3 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors">Cancel</button>
+              <button onClick={handleGiftPremium} disabled={giftingPremium}
+                className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg shadow-amber-500/20">
+                {giftingPremium ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crown className="w-4 h-4" fill="currentColor" />}
+                {giftingPremium ? 'Gifting…' : 'Gift $4.99'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showTipDialog && !isOwnProfile && (
         <div className="fixed inset-0 z-[200] bg-black/60" onClick={() => setShowTipDialog(false)}>
           <div
