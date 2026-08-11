@@ -42,6 +42,14 @@ export function StoriesStrip() {
   // Story Music Playback in viewer
   const storyAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Live countdown tick — updates every second when viewer is open
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  useEffect(() => {
+    if (viewerGroupIdx === null) return;
+    const iv = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [viewerGroupIdx]);
+
   const stopStoryAudio = () => {
     if (storyAudioRef.current) {
       storyAudioRef.current.pause();
@@ -1155,11 +1163,12 @@ export function StoriesStrip() {
                     </div>
                   ))}
                   {countdownList.map(cs => {
-                    const diff = new Date(cs.targetDate).getTime() - Date.now();
+                    const diff = new Date(cs.targetDate).getTime() - currentTime;
                     const d = Math.floor(diff / 86400000);
                     const h = Math.floor((diff % 86400000) / 3600000);
                     const m = Math.floor((diff % 3600000) / 60000);
-                    const text = diff <= 0 ? 'LIVE!' : d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+                    const s = Math.floor((diff % 60000) / 1000);
+                    const text = diff <= 0 ? 'LIVE!' : d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
                     return (
                       <div key={cs.id} className="absolute pointer-events-none select-none"
                         style={{ left: `${cs.x ?? 50}%`, top: `${cs.y ?? 50}%`, transform: 'translate(-50%,-50%)', zIndex: 24 }}>

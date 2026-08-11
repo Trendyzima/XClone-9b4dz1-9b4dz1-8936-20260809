@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import {
   Loader2, Inbox, CheckCircle2, ExternalLink, RefreshCw,
-  TrendingUp, DollarSign, Newspaper, Sparkles, Bell, Trash2
+  Sparkles, Bell, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
@@ -26,10 +26,18 @@ export default function PlatformInboxPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread' | 'trending' | 'payment' | 'update'>('all');
+  const [creatorProfile, setCreatorProfile] = useState<any | null>(null);
 
   useEffect(() => {
     if (!user) return;
     fetchMessages();
+    // Fetch creator profile to check 500+ followers eligibility
+    supabase
+      .from('user_profiles')
+      .select('followers_count, creator_tier, is_creator, total_earnings, verified')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setCreatorProfile(data));
   }, [user]);
 
   const fetchMessages = async () => {
@@ -124,6 +132,41 @@ export default function PlatformInboxPage() {
             </Button>
           </div>
         </div>
+
+        {/* ── Creator Hub (500+ followers) ──────────────────────────── */}
+        {creatorProfile && (creatorProfile.followers_count ?? 0) >= 500 && (
+          <div className="bg-gradient-to-br from-amber-500/10 via-yellow-400/5 to-transparent border border-amber-500/20 rounded-2xl p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-3xl">🌟</span>
+              <div>
+                <h3 className="font-bold text-base">Creator Hub</h3>
+                <p className="text-xs text-muted-foreground">{creatorProfile.followers_count?.toLocaleString()} followers · {creatorProfile.creator_tier === 'gold' ? '🥇 Gold' : creatorProfile.creator_tier === 'silver' ? '🥈 Silver' : '🥉 Bronze'} Creator</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {[
+                { emoji: '💰', label: 'Monetization', desc: 'Enable earnings', path: '/monetization' },
+                { emoji: '📢', label: 'Run Ads', desc: 'Boost reach', path: '/my-ads' },
+                { emoji: '📚', label: 'Series', desc: 'Build loyal readers', path: '/series' },
+                { emoji: '✅', label: 'Verify', desc: 'Get blue badge', path: '/verify' },
+              ].map(item => (
+                <button key={item.label} onClick={() => navigate(item.path)}
+                  className="flex items-center gap-2.5 p-3 rounded-xl bg-background border border-border hover:border-amber-500/30 hover:bg-amber-500/5 transition-all text-left">
+                  <span className="text-xl shrink-0">{item.emoji}</span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-xs truncate">{item.label}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{item.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button onClick={generateDigest} disabled={generating}
+              className="w-full py-2.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-700 dark:text-amber-400 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2">
+              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {generating ? 'Generating creator tips…' : 'Generate personalized creator tips'}
+            </button>
+          </div>
+        )}
 
         {/* Stats + mark all read */}
         {messages.length > 0 && (
