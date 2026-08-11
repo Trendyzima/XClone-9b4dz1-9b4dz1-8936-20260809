@@ -1,10 +1,32 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 import { Bot, Loader2, CheckCircle, XCircle, Radio } from 'lucide-react';
+
+function AIBotAdBanner() {
+  const ref = useRef(false);
+  useEffect(() => {
+    if (ref.current) return;
+    ref.current = true;
+    try {
+      // @ts-ignore
+      (window.adsbygoogle = window.adsbygoogle || []).push({});
+    } catch (_) {}
+  }, []);
+  return (
+    <ins
+      className="adsbygoogle block"
+      style={{ display: 'block' }}
+      data-ad-client="ca-pub-2458567543017441"
+      data-ad-slot="2031881558"
+      data-ad-format="auto"
+      data-full-width-responsive="true"
+    />
+  );
+}
 
 export default function AIBotSetup() {
   useSEO({ noindex: true, title: 'Admin — AI Bot Setup', url: '/admin/ai-bot' });
@@ -46,6 +68,7 @@ export default function AIBotSetup() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="AI News Bot" showBack />
+      <AIBotAdBanner />
 
       <div className="max-w-2xl mx-auto p-6 space-y-6">
         <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-2xl p-8 border border-purple-500/20">
