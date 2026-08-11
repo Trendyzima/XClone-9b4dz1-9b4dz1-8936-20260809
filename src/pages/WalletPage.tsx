@@ -12,7 +12,8 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import {
   Smartphone, Loader2, CheckCircle2, Clock, AlertCircle,
   Phone, Zap, ArrowDownLeft, X, ArrowUpRight, Wallet, Download,
-  Send, Search, UserCheck, Copy, TrendingUp, BarChart3, PieChart as PieChartIcon
+  Send, Search, UserCheck, Copy, TrendingUp, BarChart3, PieChart as LucidePieChart,
+  Shield, Bell, BellOff, Settings2
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -149,7 +150,7 @@ function SpendingAnalyticsTab({ userId }: { userId: string }) {
           {pieData.length > 0 && (
             <div className="border border-border rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-4">
-                <PieChartIcon className="w-4 h-4 text-primary" />
+                <LucidePieChart className="w-4 h-4 text-primary" />
                 <h3 className="font-bold text-sm">Transaction Breakdown</h3>
               </div>
               <ResponsiveContainer width="100%" height={200}>
@@ -515,6 +516,127 @@ function TransactionHistoryTab({ userId }: { userId: string }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Spend Limit Controls ────────────────────────────────────────────────
+function SpendLimitCard({ userId, wallet, onSaved }: {
+  userId: string;
+  wallet: any;
+  onSaved: () => void;
+}) {
+  const [enabled, setEnabled]   = useState<boolean>(wallet?.spend_limit_enabled ?? false);
+  const [limitUsd, setLimitUsd] = useState<string>(wallet?.daily_spend_limit ? String(wallet.daily_spend_limit) : '');
+  const [saving, setSaving]     = useState(false);
+  const [todaySpent, setTodaySpent] = useState<number>(0);
+
+  useEffect(() => { fetchTodaySpend(); }, [userId]);
+
+  const fetchTodaySpend = async () => {
+    const since = new Date(); since.setHours(0, 0, 0, 0);
+    const { data } = await supabase
+      .from('wallet_transactions')
+      .select('amount')
+      .eq('user_id', userId)
+      .eq('type', 'withdrawal')
+      .gte('created_at', since.toISOString());
+    const total = (data ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0);
+    setTodaySpent(total);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const limit = limitUsd ? parseFloat(limitUsd) : null;
+    const { error } = await supabase
+      .from('user_wallets')
+      .update({ spend_limit_enabled: enabled, daily_spend_limit: limit })
+      .eq('user_id', userId);
+    setSaving(false);
+    if (error) { toast.error('Failed to save spend limit'); return; }
+    toast.success(enabled ? `Daily limit set to $${limit?.toFixed(2)}` : 'Spend limit disabled');
+    onSaved();
+  };
+
+  const limitVal = parseFloat(limitUsd || '0');
+  const progress = enabled && limitVal > 0 ? Math.min((todaySpent / limitVal) * 100, 100) : 0;
+  const nearLimit = progress >= 80;
+  const atLimit   = progress >= 100;
+
+  return (
+    <div className={`rounded-2xl border overflow-hidden ${
+      atLimit   ? 'border-red-500/40 bg-red-500/5' :
+      nearLimit ? 'border-orange-500/40 bg-orange-500/5' :
+                  'border-border'
+    }`}>
+      <div className="px-5 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Shield className={`w-4 h-4 ${enabled ? 'text-primary' : 'text-muted-foreground'}`} />
+            <h3 className="font-bold text-sm">Daily Spend Limit</h3>
+          </div>
+          <button
+            onClick={() => setEnabled(v => !v)}
+            className={`relative w-11 h-6 rounded-full transition-colors ${
+              enabled ? 'bg-primary' : 'bg-muted'
+            }`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+              enabled ? 'translate-x-5' : 'translate-x-0'
+            }`} />
+          </button>
+        </div>
+
+        {enabled ? (
+          <>
+            <div className="mb-3">
+              <label className="text-xs text-muted-foreground mb-1.5 block">Limit per day (USD)</label>
+              <div className="grid grid-cols-4 gap-2 mb-2">
+                {[10, 25, 50, 100].map(v => (
+                  <button key={v} onClick={() => setLimitUsd(String(v))}
+                    className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${
+                      limitUsd === String(v) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
+                    }`}>\${v}</button>
+                ))}
+              </div>
+              <input type="number" min="1" step="1" placeholder="Custom limit…"
+                value={limitUsd && !['10','25','50','100'].includes(limitUsd) ? limitUsd : ''}
+                onChange={e => setLimitUsd(e.target.value)}
+                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+            </div>
+
+            {limitVal > 0 && (
+              <div className="mb-3 space-y-1.5">
+                <div className="flex justify-between text-xs">
+                  <span className={nearLimit ? (atLimit ? 'text-red-500 font-bold' : 'text-orange-500 font-bold') : 'text-muted-foreground'}>
+                    {atLimit ? '🚫 Limit reached' : nearLimit ? '⚠️ Near limit' : `Spent today`}
+                  </span>
+                  <span className="font-semibold">${todaySpent.toFixed(2)} / ${limitVal.toFixed(2)}</span>
+                </div>
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${
+                    atLimit ? 'bg-red-500' : nearLimit ? 'bg-orange-500' : 'bg-primary'
+                  }`} style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground mb-3">
+              Withdrawals exceeding this limit will be blocked until midnight (server time).
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground mb-4">
+            Set a daily spend limit to control how much you can withdraw per day.
+          </p>
+        )}
+
+        <button onClick={handleSave} disabled={saving || (enabled && !limitUsd)}
+          className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings2 className="w-4 h-4" />}
+          {saving ? 'Saving…' : 'Save Limit'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1068,6 +1190,27 @@ export default function WalletPage() {
           </div>
 
           <WalletDashboard />
+
+          {/* ── Spend Limit Controls ── */}
+          {user && wallet && (
+            <SpendLimitCard userId={user.id} wallet={wallet} onSaved={fetchWallet} />
+          )}
+
+          {/* ── Wallet Notifications hint ── */}
+          <div className="flex items-start gap-3 p-4 bg-muted/40 border border-border rounded-2xl">
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+              <Bell className="w-4 h-4 text-primary" />
+            </div>
+            <div className="flex-1">
+              <p className="font-semibold text-sm">Wallet Notifications</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Deposit confirmations and withdrawal updates are sent to your{' '}
+                <button onClick={() => window.location.href='/platform-inbox'}
+                  className="text-primary font-semibold hover:underline">Platform Inbox</button>.
+              </p>
+            </div>
+            <BellOff className="w-4 h-4 text-muted-foreground/50 shrink-0" />
+          </div>
         </div>
       )}
     </div>
