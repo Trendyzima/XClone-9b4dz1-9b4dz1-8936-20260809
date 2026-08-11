@@ -22,7 +22,7 @@ import {
   ChevronDown, ChevronUp, Download
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { SEO_COVERAGE, validateSEOCoverage, scoreSEORoute, type SEORoute } from '@/lib/seoValidation';
+import { SEO_COVERAGE, scoreSEORoute, type SEORoute } from '@/lib/seoValidation';
 
 const BASE = 'https://testagram.site';
 
