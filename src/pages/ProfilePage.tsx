@@ -9,6 +9,7 @@ import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWi
 import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
+import { useSEO, buildProfileLD } from '@/hooks/useSEO';
 import { usePremium } from '@/hooks/usePremium';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
@@ -311,6 +312,19 @@ export default function ProfilePage() {
   };
 
   const { isActive: isPremiumUser } = usePremium();
+
+  // Dynamic SEO per profile
+  useSEO({
+    title: profile ? `@${profile.username} on Testagram` : 'Profile',
+    description: profile
+      ? (profile.bio?.slice(0, 155) || `Follow @${profile.username} on Testagram — ${profile.followers_count?.toLocaleString() ?? 0} followers`)
+      : 'View profile on Testagram',
+    image: profile?.avatar_url || undefined,
+    url: profile ? `/profile/${profile.username}` : undefined,
+    type: 'profile',
+    keywords: profile ? `${profile.username}, testagram, social media, creator` : undefined,
+    structuredData: profile ? buildProfileLD(profile) : undefined,
+  });
 
   // ── Gift History ────────────────────────────────────────────────────────────
   const [giftHistory, setGiftHistory] = useState<any[]>([]);

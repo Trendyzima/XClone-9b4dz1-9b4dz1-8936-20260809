@@ -10,7 +10,7 @@ import { Loader2, TrendingUp, Check, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
-import { AdMob, BannerAdSize, BannerAdPosition } from '@/lib/capacitor-stub';
+import { useSEO, buildHashtagLD } from '@/hooks/useSEO';
 
 export default function HashtagPage() {
   const { tag } = useParams();
@@ -25,6 +25,15 @@ export default function HashtagPage() {
   const [followLoading, setFollowLoading] = useState(false);
   const [followerCount, setFollowerCount] = useState(0);
 
+  useSEO({
+    title: tag ? `#${tag} posts & trends` : 'Hashtag',
+    description: hashtag ? `Browse ${hashtag.usage_count?.toLocaleString() ?? '0'} posts tagged with #${tag} on Testagram. Join the conversation.` : `Posts tagged with #${tag} on Testagram.`,
+    url: `/hashtag/${tag}`,
+    type: 'website',
+    keywords: `${tag}, #${tag}, testagram, trending, social media`,
+    structuredData: hashtag ? buildHashtagLD(tag ?? '', hashtag?.usage_count ?? 0) : undefined,
+  });
+
   useEffect(() => {
     if (tag) {
       fetchHashtagAndPosts();
@@ -33,17 +42,7 @@ export default function HashtagPage() {
       }
     }
 
-    // Show AdMob banner below TopBar
-    AdMob.showBanner({
-      adId: "ca-app-pub-7234579833875016/8657343194", // Real Feed Top Banner ID
-      adSize: BannerAdSize.BANNER,
-      position: BannerAdPosition.TOP_CENTER
-    });
 
-    // Hide banner on leaving the page
-    return () => {
-      AdMob.hideBanner();
-    };
   }, [tag, user]);
 
   const fetchTopPosts = async (hashtagId: string) => {

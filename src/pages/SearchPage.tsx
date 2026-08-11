@@ -1,11 +1,11 @@
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
 import {
   Search, Loader2, BadgeCheck, Globe, ExternalLink, UserPlus, Hash, Users, Clock, X, TrendingUp,
-  Sparkles, Flame, Brain, Filter, Image, Video, CheckCircle2, Calendar
+  Sparkles, Flame, Brain, Filter, Image, Video, CheckCircle2, Calendar, History, BarChart2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PostCard } from '@/components/features/PostCard';
@@ -37,6 +37,20 @@ export default function SearchPage() {
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const [aiSearchResult, setAiSearchResult] = useState<string | null>(null);
   const [aiSearching, setAiSearching] = useState(false);
+
+  // ── Search History Analytics ─────────────────────────────────────────────────
+  const [userInterests, setUserInterests] = useState<any[]>([]);
+
+  const searchTermFrequency = useMemo(() => {
+    const freq: Record<string, number> = {};
+    recentSearches.forEach(s => { freq[s] = (freq[s] ?? 0) + 1; });
+    // Also include all-time from a broader localStorage key
+    try {
+      const all = JSON.parse(localStorage.getItem('tsocial_all_searches') || '[]') as string[];
+      all.forEach(s => { freq[s] = (freq[s] ?? 0) + 1; });
+    } catch {}
+    return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 15);
+  }, [recentSearches]);
 
   // ── Search Filters ──────────────────────────────────────────────────────────
   type DateFilter = 'all' | '24h' | 'week' | 'month';
@@ -203,11 +217,25 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
     setAcHashtags(hr.data || []);
   };
 
+  // Load user interests for the analytics display
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('user_interests').select('interest_score, hashtags(tag)').eq('user_id', user.id).order('interest_score', { ascending: false }).limit(12).then(({ data }) => {
+      setUserInterests((data ?? []).filter((r: any) => r.hashtags).map((r: any) => ({ tag: r.hashtags.tag, score: r.interest_score })));
+    });
+  }, [user?.id]);
+
   const saveRecentSearch = (q: string) => {
     if (!q.trim()) return;
     const updated = [q, ...recentSearches.filter(s => s !== q)].slice(0, 6);
     setRecentSearches(updated);
     try { localStorage.setItem('tsocial_recent_searches', JSON.stringify(updated)); } catch {}
+    // Save to all-time list for analytics
+    try {
+      const all = JSON.parse(localStorage.getItem('tsocial_all_searches') || '[]') as string[];
+      const updatedAll = [q, ...all.filter(s => s !== q)].slice(0, 100);
+      localStorage.setItem('tsocial_all_searches', JSON.stringify(updatedAll));
+    } catch {}
   };
 
   const clearRecentSearch = (q: string) => {
@@ -537,7 +565,7 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
             // The 'Filter' button should probably be outside the `tabs.map` or mapped conditionally as a separate item if it's meant to be a tab.
             // Given the placement, it looks like it's meant to be a standalone filter toggle *next to* the tabs.
             // I'll refactor this to put the filter button as a separate element before the tab map.
-            <React.Fragment key={tab}>
+            <Fragment key={tab}>
               {tab === 'For You' && (
                 <button onClick={() => setShowFilters(p => !p)}
                   className={`shrink-0 px-3 py-3 font-semibold transition-colors border-b-2 flex items-center gap-1.5 text-sm relative ${
@@ -560,7 +588,7 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
                 {tab === 'Communities' && <Users className="w-3.5 h-3.5" />}
                 {tab}
               </button>
-            </React.Fragment>
+            </Fragment>
           ))}
         </div>
       </div>
@@ -676,7 +704,62 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
                     </div>
                   )}
 
-                  {forYouPosts.length === 0 && suggestedUsers.length === 0 && !discoveryLoading && (
+                  {/* Search History Analytics */}
+                  {(searchTermFrequency.length > 0 || userInterests.length > 0) && (
+                    <div className="px-4 pt-5 pb-2">
+                      <div className="flex items-center gap-2 mb-3">
+                        <BarChart2 className="w-4 h-4 text-primary" />
+                        <h3 className="font-bold text-sm">Your Search Trends</h3>
+                        <span className="text-xs text-muted-foreground ml-auto">Based on your activity</span>
+                      </div>
+
+                      {searchTermFrequency.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1"><History className="w-3 h-3" /> Frequent Searches</p>
+                          <div className="flex flex-wrap gap-2">
+                            {searchTermFrequency.map(([term, freq]) => {
+                              const maxFreq = searchTermFrequency[0]?.[1] ?? 1;
+                              const weight = freq / maxFreq;
+                              const size = weight > 0.8 ? 'text-base font-black' : weight > 0.5 ? 'text-sm font-bold' : 'text-xs font-semibold';
+                              const opacity = weight > 0.6 ? 'opacity-100' : weight > 0.3 ? 'opacity-75' : 'opacity-55';
+                              return (
+                                <button key={term}
+                                  onClick={() => { setQuery(term); saveRecentSearch(term); navigate(`/search?q=${encodeURIComponent(term)}`); }}
+                                  className={`${size} ${opacity} px-2.5 py-1 rounded-full bg-primary/8 hover:bg-primary/15 text-primary border border-primary/10 transition-all hover:scale-105`}
+                                  title={`Searched ${freq} time${freq !== 1 ? 's' : ''}`}
+                                >
+                                  {term}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {userInterests.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Your Interests</p>
+                          <div className="flex flex-wrap gap-2">
+                            {userInterests.map(({ tag, score }) => {
+                              const maxScore = userInterests[0]?.score ?? 1;
+                              const weight = score / maxScore;
+                              const size = weight > 0.8 ? 'text-sm font-black' : weight > 0.5 ? 'text-xs font-bold' : 'text-xs font-semibold';
+                              return (
+                                <button key={tag}
+                                  onClick={() => navigate(`/hashtag/${tag}`)}
+                                  className={`${size} flex items-center gap-1 px-2.5 py-1 rounded-full bg-orange-500/8 hover:bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/15 transition-all`}
+                                >
+                                  <span>#</span>{tag}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {forYouPosts.length === 0 && suggestedUsers.length === 0 && !discoveryLoading && searchTermFrequency.length === 0 && (
                     <div className="text-center py-16 text-muted-foreground">
                       <Search className="w-12 h-12 mx-auto mb-3 opacity-30" />
                       <p className="font-semibold">Search for anything</p>
