@@ -194,6 +194,21 @@ export default function HomePage() {
   // Only show ads that users actually created AND admin approved (status=active, payment=paid)
   const fetchSponsoredContent = async () => {
     try {
+      // Personalized ads via RPC when user is logged in
+      if (user?.id) {
+        const { data: personalizedAds } = await supabase.rpc('get_personalized_ads', {
+          p_user_id: user.id,
+          p_limit: 5
+        });
+        if (personalizedAds && personalizedAds.length > 0) {
+          setSponsoredPosts(personalizedAds.map((a: any) => ({
+            ...a,
+            id: a.ad_id, // normalize
+          })));
+          return;
+        }
+      }
+      // Fallback: most recent active ads
       const { data } = await supabase
         .from('user_ads')
         .select('*, user_profiles!user_ads_user_id_fkey(id, username, avatar_url, verified)')

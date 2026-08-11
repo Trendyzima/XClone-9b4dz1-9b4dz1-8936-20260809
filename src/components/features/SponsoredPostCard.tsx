@@ -1,129 +1,116 @@
 import { useEffect } from 'react';
-import { ExternalLink, BadgeCheck, DollarSign } from 'lucide-react';
+import { ExternalLink, BadgeCheck, Sparkles } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { parseContent } from '@/lib/utils';
+import { formatDistanceToNow } from 'date-fns';
 
 interface SponsoredPostCardProps {
-  post: any; // user_ads row with user_profiles joined
+  post: any; // user_ads row with user_profiles joined, or personalized ad RPC result
 }
 
 export function SponsoredPostCard({ post }: SponsoredPostCardProps) {
-  // Track impression on mount
   useEffect(() => {
-    supabase
-      .from('user_ads')
-      .update({ impressions: (post.impressions ?? 0) + 1 })
-      .eq('id', post.id)
-      .catch(() => {});
-  }, [post.id]);
+    // Track impression — use rpc increment to avoid race conditions
+    if (post.ad_id || post.id) {
+      const adId = post.ad_id ?? post.id;
+      supabase.rpc('track_ad_view', { ad_id_param: adId }).catch(() => {
+        // Fallback: direct update
+        supabase.from('user_ads').update({ impressions: (post.impressions ?? 0) + 1 }).eq('id', adId).catch(() => {});
+      });
+    }
+  }, [post.ad_id ?? post.id]);
 
   const handleClick = async () => {
-    await supabase
-      .from('user_ads')
-      .update({ clicks: (post.clicks ?? 0) + 1 })
-      .eq('id', post.id)
-      .catch(() => {});
-    if (post.target_url) window.open(post.target_url, '_blank', 'noopener,noreferrer');
+    const adId = post.ad_id ?? post.id;
+    if (adId) {
+      await supabase.from('user_ads').update({ clicks: (post.clicks ?? 0) + 1 }).eq('id', adId).catch(() => {});
+    }
+    const url = post.target_url;
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const advertiserName =
-    post.user_profiles?.username ?? post.title?.split(' ')[0] ?? 'Advertiser';
-  const displayText = post.description ?? post.title ?? '';
+  // Support both direct user_ads row and get_personalized_ads RPC result
+  const advertiserName = post.advertiser_name ?? post.user_profiles?.username ?? 'Advertiser';
+  const advertiserAvatar = post.advertiser_avatar ?? post.user_profiles?.avatar_url;
+  const advertiserVerified = post.advertiser_verified ?? post.user_profiles?.verified ?? false;
+  const adTitle = post.title ?? '';
+  const adDescription = post.description ?? '';
+  const adImage = post.image_url;
+  const adVideoUrl = post.video_url;
+  const adUrl = post.target_url;
+  const createdAt = post.created_at;
 
   return (
-    <div
-      className="border-b border-border p-4 bg-gradient-to-br from-blue-500/5 to-purple-500/5 hover:from-blue-500/10 hover:to-purple-500/10 transition-all cursor-pointer"
-      onClick={handleClick}
-    >
-      {/* Sponsored Label */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="px-2 py-0.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-xs font-bold rounded">
-          SPONSORED
-        </div>
-        <span className="text-xs text-muted-foreground">Promoted content</span>
-      </div>
-
-      <div className="flex space-x-3">
-        {/* Avatar */}
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex-shrink-0 overflow-hidden flex items-center justify-center text-white font-bold">
-          {post.user_profiles?.avatar_url ? (
-            <img
-              src={post.user_profiles.avatar_url}
-              alt={advertiserName}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            advertiserName[0]?.toUpperCase()
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center space-x-1 min-w-0 mb-1">
-            <span className="font-bold text-foreground truncate">{advertiserName}</span>
-            {post.user_profiles?.verified && (
-              <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" fill="currentColor" />
+    <div className="border-b border-border hover:bg-muted/5 transition-colors">
+      <div className="p-4">
+        {/* Header — looks like a normal post header */}
+        <div className="flex gap-3">
+          <div
+            className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-primary/60 flex-shrink-0 overflow-hidden flex items-center justify-center text-primary-foreground font-bold cursor-pointer"
+            onClick={handleClick}
+          >
+            {advertiserAvatar ? (
+              <img src={advertiserAvatar} alt={advertiserName} className="w-full h-full object-cover" />
+            ) : (
+              advertiserName[0]?.toUpperCase()
             )}
-            <span className="text-muted-foreground text-sm flex-shrink-0">· Sponsored</span>
           </div>
 
-          {post.title && (
-            <h3 className="font-bold text-base mt-1 leading-snug">{post.title}</h3>
-          )}
-
-          {displayText && (
-            <div
-              className="post-content text-foreground mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: parseContent(displayText) }}
-            />
-          )}
-
-          {post.image_url && (
-            <div className="mt-3 rounded-2xl overflow-hidden">
-              <img
-                src={post.image_url}
-                alt={post.title ?? 'Ad'}
-                className="w-full max-h-96 object-cover"
-              />
-            </div>
-          )}
-
-          {post.video_url && (
-            <div className="mt-3 rounded-2xl overflow-hidden bg-black max-h-[400px]">
-              <video
-                controls
-                className="w-full h-full max-h-[400px] object-contain"
-                playsInline
-                preload="metadata"
-              >
-                <source src={post.video_url} type="video/mp4" />
-              </video>
-            </div>
-          )}
-
-          {/* Budget meter */}
-          {post.budget > 0 && (
-            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <DollarSign className="w-3 h-3 text-green-500" />
-              <span className="font-mono">
-                ${Number(post.spent ?? 0).toFixed(2)} / ${Number(post.budget).toFixed(2)} spent
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+              <span className="font-bold text-foreground text-sm cursor-pointer hover:underline" onClick={handleClick}>
+                {advertiserName}
               </span>
-              <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-green-500 rounded-full"
-                  style={{ width: `${Math.min((Number(post.spent ?? 0) / Number(post.budget)) * 100, 100)}%` }}
-                />
-              </div>
+              {advertiserVerified && <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" fill="currentColor" />}
+              {/* Native "Sponsored" label — subtle, inline */}
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                <Sparkles className="w-2.5 h-2.5" /> Sponsored
+              </span>
+              {createdAt && (
+                <span className="text-muted-foreground text-xs">
+                  · {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
+                </span>
+              )}
             </div>
-          )}
 
-          {post.target_url && (
-            <div className="mt-3">
-              <button className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-full transition-all text-sm">
-                Learn More
-                <ExternalLink className="w-4 h-4" />
-              </button>
-            </div>
-          )}
+            {/* Ad body — styled like a post */}
+            {adTitle && (
+              <p className="font-bold text-base leading-snug mb-1">{adTitle}</p>
+            )}
+            {adDescription && (
+              <div
+                className="text-foreground text-sm leading-relaxed whitespace-pre-wrap break-words"
+                dangerouslySetInnerHTML={{ __html: parseContent(adDescription) }}
+              />
+            )}
+
+            {/* Media */}
+            {adImage && (
+              <div className="mt-3 rounded-2xl overflow-hidden border border-border cursor-pointer" onClick={handleClick}>
+                <img src={adImage} alt={adTitle || 'Sponsored'} className="w-full max-h-80 object-cover" loading="lazy" />
+              </div>
+            )}
+
+            {adVideoUrl && !adImage && (
+              <div className="mt-3 rounded-2xl overflow-hidden bg-black border border-border max-h-80">
+                <video controls className="w-full h-full max-h-80 object-contain" playsInline preload="metadata">
+                  <source src={adVideoUrl} type="video/mp4" />
+                </video>
+              </div>
+            )}
+
+            {/* CTA button */}
+            {adUrl && (
+              <div className="mt-3">
+                <button
+                  onClick={handleClick}
+                  className="flex items-center gap-2 px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-full transition-all text-sm"
+                >
+                  Learn More <ExternalLink className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

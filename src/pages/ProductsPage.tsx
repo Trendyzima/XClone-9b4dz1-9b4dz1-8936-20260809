@@ -6,7 +6,7 @@ import {
   ShoppingBag, Plus, Edit, Trash2, ExternalLink, Search,
   Star, TrendingUp, Eye, Package, Tag, Heart, Sparkles, BadgeCheck,
   ChevronRight, ArrowLeft, X, Check, Loader2, Grid3x3, LayoutList,
-  MessageSquare, Send
+  MessageSquare, Send, HelpCircle, DollarSign, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { TopBar } from '@/components/layout/TopBar';
@@ -20,23 +20,234 @@ function StarRating({ rating, size = 'sm', interactive = false, onRate }: {
   return (
     <div className="flex items-center gap-0.5">
       {[1,2,3,4,5].map(i => (
-        <button
-          key={i}
-          disabled={!interactive}
-          onClick={() => onRate?.(i)}
-          onMouseEnter={() => interactive && setHover(i)}
-          onMouseLeave={() => interactive && setHover(0)}
-          className={interactive ? 'cursor-pointer transition-transform hover:scale-110' : 'cursor-default'}
-        >
-          <Star
-            className={`${s} transition-colors ${
-              i <= (hover || rating)
-                ? 'text-amber-400 fill-amber-400'
-                : 'text-muted-foreground/30'
-            }`}
-          />
+        <button key={i} disabled={!interactive} onClick={() => onRate?.(i)}
+          onMouseEnter={() => interactive && setHover(i)} onMouseLeave={() => interactive && setHover(0)}
+          className={interactive ? 'cursor-pointer transition-transform hover:scale-110' : 'cursor-default'}>
+          <Star className={`${s} transition-colors ${i <= (hover || rating) ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground/30'}`} />
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── Tip Modal ────────────────────────────────────────────────────────────────
+function TipProductModal({ seller, onClose }: { seller: any; onClose: () => void }) {
+  const { user } = useAuth();
+  const [tipAmount, setTipAmount] = useState(0);
+  const [custom, setCustom] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const sendTip = async () => {
+    if (!user) { toast.error('Sign in to send a tip'); return; }
+    const amt = tipAmount || Number(custom);
+    if (!amt || amt <= 0) { toast.error('Enter a tip amount'); return; }
+    setSending(true);
+    const { data: wallet } = await supabase.from('user_wallets').select('balance').eq('user_id', user.id).maybeSingle();
+    if (!wallet || Number(wallet.balance) < amt) { toast.error('Insufficient wallet balance'); setSending(false); return; }
+    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: amt });
+    if (deductErr) { toast.error('Failed to deduct from wallet'); setSending(false); return; }
+    await supabase.rpc('add_to_wallet', { p_user_id: seller.id, p_amount: amt });
+    await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: seller.id, amount: amt, message: 'Marketplace tip' });
+    await supabase.from('creator_earnings').insert({ user_id: seller.id, source: 'tips', amount: amt, status: 'paid' });
+    await supabase.from('notifications').insert({ user_id: seller.id, type: 'tip', from_user_id: user.id });
+    toast.success(`$${amt.toFixed(2)} tip sent to @${seller.username}!`);
+    setSent(true);
+    setSending(false);
+    setTimeout(onClose, 1500);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[300] bg-black/60 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="bg-background w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-lg">Send a Tip</h3>
+            <p className="text-sm text-muted-foreground">to @{seller?.username}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+        </div>
+        {sent ? (
+          <div className="text-center py-4">
+            <div className="text-4xl mb-2">💰</div>
+            <p className="font-bold text-green-600">Tip Sent!</p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 5, 10].map(a => (
+                <button key={a} onClick={() => { setTipAmount(a); setCustom(''); }}
+                  className={`py-3 rounded-xl font-bold text-base border-2 transition-all ${
+                    tipAmount === a ? 'border-yellow-500 bg-yellow-500/10 text-yellow-600' : 'border-border hover:border-yellow-500/40'
+                  }`}>${a}</button>
+              ))}
+            </div>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">$</span>
+              <input type="number" min="0.01" step="0.01" placeholder="Custom amount"
+                value={custom} onChange={e => { setCustom(e.target.value); setTipAmount(0); }}
+                className="w-full pl-8 pr-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-yellow-500/30"
+              />
+            </div>
+            <button onClick={sendTip} disabled={sending || (!tipAmount && !Number(custom))}
+              className="w-full py-3.5 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+              {sending ? 'Sending…' : `Send $${(tipAmount || Number(custom) || 0).toFixed(2)} Tip`}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Product Q&A Modal ─────────────────────────────────────────────────────────
+function ProductQAModal({ product, onClose }: { product: any; onClose: () => void }) {
+  const { user } = useAuth();
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newQ, setNewQ] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [answerDraft, setAnswerDraft] = useState<Record<string, string>>({});
+  const [answeringId, setAnsweringId] = useState<string | null>(null);
+  const isSeller = user?.id === product.user_id;
+
+  useEffect(() => { fetchQA(); }, [product.id]);
+
+  const fetchQA = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('product_questions')
+      .select('*, asker:asker_id(username, avatar_url), answerer:answered_by(username, avatar_url)')
+      .eq('product_id', product.id)
+      .order('created_at', { ascending: false });
+    setQuestions(data ?? []);
+    setLoading(false);
+  };
+
+  const submitQuestion = async () => {
+    if (!user) { toast.error('Sign in to ask a question'); return; }
+    if (!newQ.trim()) return;
+    setSubmitting(true);
+    const { error } = await supabase.from('product_questions').insert({ product_id: product.id, asker_id: user.id, question: newQ.trim() });
+    if (error) toast.error(error.message);
+    else { toast.success('Question submitted!'); setNewQ(''); fetchQA(); }
+    setSubmitting(false);
+  };
+
+  const submitAnswer = async (qId: string) => {
+    if (!isSeller) return;
+    const ans = answerDraft[qId]?.trim();
+    if (!ans) return;
+    setAnsweringId(qId);
+    const { error } = await supabase.from('product_questions').update({
+      answer: ans, answered_by: user!.id, answered_at: new Date().toISOString()
+    }).eq('id', qId);
+    if (error) toast.error(error.message);
+    else { toast.success('Answer posted!'); setAnswerDraft(prev => { const n = { ...prev }; delete n[qId]; return n; }); fetchQA(); }
+    setAnsweringId(null);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[310] bg-black/60 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="bg-background w-full max-w-lg max-h-[90vh] rounded-t-3xl sm:rounded-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-4 border-b border-border">
+          <div>
+            <h3 className="font-bold text-lg">Product Q&amp;A</h3>
+            <p className="text-xs text-muted-foreground line-clamp-1">{product.name}</p>
+          </div>
+          <button onClick={onClose} className="w-9 h-9 rounded-full bg-muted flex items-center justify-center"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {user && user.id !== product.user_id && (
+            <div className="px-4 py-3 border-b border-border">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">Ask the seller</p>
+              <div className="flex gap-2">
+                <textarea value={newQ} onChange={e => setNewQ(e.target.value)} placeholder="e.g. Do you ship internationally?"
+                  rows={2} maxLength={300}
+                  className="flex-1 px-3 py-2 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <button onClick={submitQuestion} disabled={submitting || !newQ.trim()}
+                  className="px-3 py-2 bg-primary text-primary-foreground rounded-xl font-bold text-sm disabled:opacity-50 self-end">
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+          )}
+          {isSeller && questions.filter(q => !q.answer).length > 0 && (
+            <div className="px-4 py-2 bg-amber-500/5 border-b border-amber-500/20">
+              <p className="text-xs font-semibold text-amber-600">{questions.filter(q => !q.answer).length} question{questions.filter(q => !q.answer).length !== 1 ? 's' : ''} waiting for your answer</p>
+            </div>
+          )}
+          {loading ? (
+            <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : questions.length === 0 ? (
+            <div className="text-center py-12">
+              <HelpCircle className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="font-semibold text-sm">No questions yet</p>
+              <p className="text-xs text-muted-foreground">Be the first to ask the seller</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {questions.map((q: any) => {
+                const expanded = expandedIds.has(q.id);
+                return (
+                  <div key={q.id} className="px-4 py-3">
+                    <button className="w-full text-left" onClick={() => setExpandedIds(prev => { const s = new Set(prev); s.has(q.id) ? s.delete(q.id) : s.add(q.id); return s; })}>
+                      <div className="flex items-start gap-2">
+                        <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0 mt-0.5">
+                          {q.asker?.avatar_url ? <img src={q.asker.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{q.asker?.username?.[0]?.toUpperCase()}</div>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold">{q.asker?.username}</span>
+                            <span className="text-[10px] text-muted-foreground">{new Date(q.created_at).toLocaleDateString()}</span>
+                            {!q.answer && <span className="ml-auto text-[9px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded-full font-bold">Unanswered</span>}
+                          </div>
+                          <p className="text-sm font-medium mt-0.5 text-left">{q.question}</p>
+                          {q.answer && !expanded && (
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">↳ {q.answer}</p>
+                          )}
+                        </div>
+                        {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+                      </div>
+                    </button>
+                    {expanded && (
+                      <div className="mt-2 ml-9 space-y-2">
+                        {q.answer ? (
+                          <div className="bg-primary/5 border border-primary/20 rounded-xl px-3 py-2">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <BadgeCheck className="w-3.5 h-3.5 text-primary" />
+                              <span className="text-[11px] font-bold text-primary">Seller</span>
+                              <span className="text-[10px] text-muted-foreground ml-auto">{q.answered_at ? new Date(q.answered_at).toLocaleDateString() : ''}</span>
+                            </div>
+                            <p className="text-sm">{q.answer}</p>
+                          </div>
+                        ) : isSeller ? (
+                          <div className="space-y-1.5">
+                            <textarea value={answerDraft[q.id] ?? ''}
+                              onChange={e => setAnswerDraft(prev => ({ ...prev, [q.id]: e.target.value }))}
+                              placeholder="Write your answer…" rows={2} maxLength={500}
+                              className="w-full px-3 py-2 rounded-xl border border-primary/30 bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            />
+                            <button onClick={() => submitAnswer(q.id)} disabled={answeringId === q.id || !answerDraft[q.id]?.trim()}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-full text-xs font-bold disabled:opacity-50">
+                              {answeringId === q.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />} Post Answer
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground italic">Awaiting seller response…</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -120,8 +331,7 @@ function ProductReviewsModal({ product, onClose }: { product: any; onClose: () =
             <div className="px-4 py-4 border-b border-border">
               <h4 className="font-semibold text-sm mb-3">{myReview ? 'Update Your Review' : 'Write a Review'}</h4>
               <StarRating rating={myRating} size="md" interactive onRate={setMyRating} />
-              <textarea
-                value={myComment} onChange={e => setMyComment(e.target.value)}
+              <textarea value={myComment} onChange={e => setMyComment(e.target.value)}
                 placeholder="Share your experience (optional)…" rows={3} maxLength={400}
                 className="w-full mt-3 px-3 py-2.5 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
@@ -145,10 +355,7 @@ function ProductReviewsModal({ product, onClose }: { product: any; onClose: () =
               <div key={r.id} className="px-4 py-3">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
-                    {r.user_profiles?.avatar_url
-                      ? <img src={r.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
-                      : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{r.user_profiles?.username?.[0]?.toUpperCase()}</div>
-                    }
+                    {r.user_profiles?.avatar_url ? <img src={r.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{r.user_profiles?.username?.[0]?.toUpperCase()}</div>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
@@ -169,7 +376,6 @@ function ProductReviewsModal({ product, onClose }: { product: any; onClose: () =
   );
 }
 
-
 type ViewMode = 'marketplace' | 'my-products' | 'add-product' | 'edit-product';
 type GridMode = 'grid' | 'list';
 
@@ -184,9 +390,10 @@ export function ProductsPage() {
   const [featuredProducts, setFeaturedProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
   const [reviewProduct, setReviewProduct] = useState<any | null>(null);
+  const [qaProduct, setQaProduct] = useState<any | null>(null);
+  const [tipSeller, setTipSeller] = useState<any | null>(null);
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -194,7 +401,6 @@ export function ProductsPage() {
   const [formPrice, setFormPrice] = useState('');
   const [formLink, setFormLink] = useState('');
   const [formImage, setFormImage] = useState('');
-  const [formCategory, setFormCategory] = useState('Other');
   const [formStock, setFormStock] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -234,11 +440,7 @@ export function ProductsPage() {
 
   const fetchMyProducts = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('products')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+    const { data } = await supabase.from('products').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
     setMyProducts(data ?? []);
   };
 
@@ -258,11 +460,11 @@ export function ProductsPage() {
     };
     if (editingProduct) {
       const { error } = await supabase.from('products').update(payload).eq('id', editingProduct.id);
-      if (error) { toast.error(error.message); }
+      if (error) toast.error(error.message);
       else { toast.success('Product updated'); resetForm(); setViewMode('my-products'); fetchMyProducts(); }
     } else {
       const { error } = await supabase.from('products').insert(payload);
-      if (error) { toast.error(error.message); }
+      if (error) toast.error(error.message);
       else { toast.success('Product listed!'); resetForm(); setViewMode('my-products'); fetchMyProducts(); fetchMarketplace(); }
     }
     setSaving(false);
@@ -281,13 +483,12 @@ export function ProductsPage() {
   };
 
   const trackView = async (productId: string) => {
-    await supabase.from('products').update({ views_count: supabase.rpc as any }).eq('id', productId).catch(() => {});
     await supabase.rpc('increment', { row_id: productId, table_name: 'products', column_name: 'views_count' }).catch(() => {});
   };
 
   const resetForm = () => {
     setFormName(''); setFormDesc(''); setFormPrice('');
-    setFormLink(''); setFormImage(''); setFormCategory('Other');
+    setFormLink(''); setFormImage('');
     setFormStock(''); setEditingProduct(null);
   };
 
@@ -298,18 +499,16 @@ export function ProductsPage() {
     setFormPrice(String(p.price ?? ''));
     setFormLink(p.external_link ?? '');
     setFormImage(p.image_url ?? '');
-    setFormCategory('Other');
     setFormStock(String(p.stock ?? ''));
     setViewMode('edit-product');
   };
 
-  // Filter marketplace
   const filteredProducts = allProducts.filter(p => {
-    const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase());
-    return matchSearch;
+    if (!search) return true;
+    return p.name?.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase());
   });
 
-  // ── Render: Add/Edit Product Form ────────────────────────────────────────
+  // ── Add/Edit Form ─────────────────────────────────────────────────────────
   if (viewMode === 'add-product' || viewMode === 'edit-product') {
     return (
       <div className="max-w-2xl mx-auto pb-20">
@@ -320,77 +519,51 @@ export function ProductsPage() {
           </div>
         </div>
         <div className="p-4 space-y-4">
-          {/* Image preview */}
           {formImage && (
             <div className="relative w-full h-52 rounded-2xl overflow-hidden border border-border bg-muted">
               <img src={formImage} alt="preview" className="w-full h-full object-cover" />
-              <button onClick={() => setFormImage('')} className="absolute top-2 right-2 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center text-white">
-                <X className="w-3.5 h-3.5" />
-              </button>
+              <button onClick={() => setFormImage('')} className="absolute top-2 right-2 w-7 h-7 bg-black/60 rounded-full flex items-center justify-center text-white"><X className="w-3.5 h-3.5" /></button>
             </div>
           )}
-
           <div className="space-y-3">
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Product Name *</label>
-              <input
-                value={formName} onChange={e => setFormName(e.target.value)}
-                placeholder="e.g. Handmade Bracelet"
-                className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 text-base"
-              />
+              <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Handmade Bracelet"
+                className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 text-base" />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Description</label>
-              <textarea
-                value={formDesc} onChange={e => setFormDesc(e.target.value)}
-                rows={3} placeholder="Describe your product…"
-                className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 text-base resize-none"
-              />
+              <textarea value={formDesc} onChange={e => setFormDesc(e.target.value)} rows={3} placeholder="Describe your product…"
+                className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 text-base resize-none" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Price (USD) *</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">$</span>
-                  <input
-                    type="number" min="0" step="0.01" value={formPrice}
-                    onChange={e => setFormPrice(e.target.value)} placeholder="0.00"
-                    className="w-full pl-8 pr-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
+                  <input type="number" min="0" step="0.01" value={formPrice} onChange={e => setFormPrice(e.target.value)} placeholder="0.00"
+                    className="w-full pl-8 pr-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Stock</label>
-                <input
-                  type="number" min="0" value={formStock}
-                  onChange={e => setFormStock(e.target.value)} placeholder="∞"
-                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
+                <input type="number" min="0" value={formStock} onChange={e => setFormStock(e.target.value)} placeholder="∞"
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Image URL</label>
-              <input
-                value={formImage} onChange={e => setFormImage(e.target.value)}
-                placeholder="https://example.com/image.jpg"
-                className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
+              <input value={formImage} onChange={e => setFormImage(e.target.value)} placeholder="https://example.com/image.jpg"
+                className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Buy Link (optional)</label>
-              <input
-                value={formLink} onChange={e => setFormLink(e.target.value)}
-                placeholder="https://your-store.com/product"
-                className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
+              <input value={formLink} onChange={e => setFormLink(e.target.value)} placeholder="https://your-store.com/product"
+                className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
             </div>
           </div>
-
-          <button
-            onClick={handleSaveProduct}
-            disabled={saving || !formName.trim() || !formPrice}
-            className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-          >
+          <button onClick={handleSaveProduct} disabled={saving || !formName.trim() || !formPrice}
+            className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
             {saving ? 'Saving…' : editingProduct ? 'Save Changes' : 'List Product'}
           </button>
@@ -399,7 +572,7 @@ export function ProductsPage() {
     );
   }
 
-  // ── Render: My Products ──────────────────────────────────────────────────
+  // ── My Products ───────────────────────────────────────────────────────────
   if (viewMode === 'my-products') {
     return (
       <div className="max-w-4xl mx-auto pb-20">
@@ -412,46 +585,32 @@ export function ProductsPage() {
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-muted-foreground">{myProducts.length} product{myProducts.length !== 1 ? 's' : ''} listed</p>
-            <button
-              onClick={() => navigate('/wishlist')}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
-            >
-              <Heart className="w-3.5 h-3.5" /> Wishlist ({(() => { try { return JSON.parse(localStorage.getItem('product_wishlist') || '[]').length; } catch { return 0; } })()})
-            </button>
-            <button
-              onClick={() => { resetForm(); setViewMode('add-product'); }}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90 transition-opacity"
-            >
-              <Plus className="w-4 h-4" /> Add Product
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => navigate('/wishlist')} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors">
+                <Heart className="w-3.5 h-3.5" /> Wishlist
+              </button>
+              <button onClick={() => { resetForm(); setViewMode('add-product'); }}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90 transition-opacity">
+                <Plus className="w-4 h-4" /> Add Product
+              </button>
+            </div>
           </div>
-
           {myProducts.length === 0 ? (
             <div className="text-center py-16">
-              <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                <Package className="w-10 h-10 text-primary" />
-              </div>
+              <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-4"><Package className="w-10 h-10 text-primary" /></div>
               <h2 className="text-xl font-bold mb-2">No products yet</h2>
               <p className="text-muted-foreground mb-5 text-sm">Create products to sell and tag them in your posts</p>
-              <button
-                onClick={() => { resetForm(); setViewMode('add-product'); }}
-                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold hover:opacity-90"
-              >
+              <button onClick={() => { resetForm(); setViewMode('add-product'); }} className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold hover:opacity-90">
                 List Your First Product
               </button>
             </div>
           ) : (
             <div className="space-y-3">
               {myProducts.map(product => (
-                <div key={product.id} className={`rounded-2xl border border-border bg-card overflow-hidden transition-opacity ${!product.is_active ? 'opacity-60' : ''}`}>
+                <div key={product.id} className={`rounded-2xl border border-border bg-card overflow-hidden ${!product.is_active ? 'opacity-60' : ''}`}>
                   <div className="flex gap-3 p-3">
-                    {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} className="w-20 h-20 object-cover rounded-xl flex-shrink-0" />
-                    ) : (
-                      <div className="w-20 h-20 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
-                        <Package className="w-8 h-8 text-muted-foreground" />
-                      </div>
-                    )}
+                    {product.image_url ? <img src={product.image_url} alt={product.name} className="w-20 h-20 object-cover rounded-xl flex-shrink-0" />
+                      : <div className="w-20 h-20 rounded-xl bg-muted flex items-center justify-center flex-shrink-0"><Package className="w-8 h-8 text-muted-foreground" /></div>}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <h3 className="font-bold text-base leading-tight truncate">{product.name}</h3>
@@ -463,7 +622,7 @@ export function ProductsPage() {
                       <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
                         <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{product.views_count ?? 0}</span>
                         <span className="flex items-center gap-1"><Tag className="w-3 h-3" />{product.sales_count ?? 0} sold</span>
-                        {product.stock > 0 && <span className="flex items-center gap-1"><Package className="w-3 h-3" />{product.stock} left</span>}
+                        {product.avg_rating > 0 && <span className="flex items-center gap-1"><Star className="w-3 h-3 text-amber-400" />{Number(product.avg_rating).toFixed(1)}</span>}
                       </div>
                     </div>
                   </div>
@@ -474,11 +633,9 @@ export function ProductsPage() {
                     <button onClick={() => handleToggleActive(product.id, product.is_active)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors">
                       {product.is_active ? 'Hide' : 'Show'}
                     </button>
-                    {product.external_link && (
-                      <a href={product.external_link} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors text-primary">
-                        <ExternalLink className="w-3.5 h-3.5" /> View
-                      </a>
-                    )}
+                    <button onClick={() => setQaProduct(product)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium hover:bg-blue-500/10 text-blue-500 transition-colors">
+                      <HelpCircle className="w-3.5 h-3.5" /> Q&A
+                    </button>
                     <button onClick={() => handleDelete(product.id)} className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/10 text-red-500 transition-colors">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -488,91 +645,54 @@ export function ProductsPage() {
             </div>
           )}
         </div>
+        {qaProduct && <ProductQAModal product={qaProduct} onClose={() => setQaProduct(null)} />}
       </div>
     );
   }
 
-  // ── Render: Marketplace ──────────────────────────────────────────────────
+  // ── Marketplace ───────────────────────────────────────────────────────────
   return (
     <div className="max-w-4xl mx-auto pb-20">
       <TopBar title="Marketplace" />
 
-      {/* Hero search bar */}
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search products…"
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-muted/40 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
-            />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products…"
+              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-muted/40 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm" />
           </div>
-          <button
-            onClick={() => setGridMode(g => g === 'grid' ? 'list' : 'grid')}
-            className="p-2.5 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground"
-          >
+          <button onClick={() => setGridMode(g => g === 'grid' ? 'list' : 'grid')} className="p-2.5 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground">
             {gridMode === 'grid' ? <LayoutList className="w-4 h-4" /> : <Grid3x3 className="w-4 h-4" />}
           </button>
           {user && (
-            <button
-              onClick={() => setViewMode('my-products')}
-              className="p-2.5 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground relative"
-            >
+            <button onClick={() => setViewMode('my-products')} className="p-2.5 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground relative">
               <Package className="w-4 h-4" />
-              {myProducts.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[9px] font-bold rounded-full flex items-center justify-center">
-                  {myProducts.length}
-                </span>
-              )}
+              {myProducts.length > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[9px] font-bold rounded-full flex items-center justify-center">{myProducts.length}</span>}
             </button>
           )}
         </div>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
+        <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
       ) : (
         <>
-          {/* Featured Products Carousel */}
           {!search && featuredProducts.length > 0 && (
             <div className="px-4 pt-4 pb-2">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <h2 className="font-bold text-base">Featured</h2>
-              </div>
+              <div className="flex items-center gap-2 mb-3"><Sparkles className="w-4 h-4 text-primary" /><h2 className="font-bold text-base">Featured</h2></div>
               <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
                 {featuredProducts.map(p => (
-                  <a
-                    key={p.id} href={p.external_link ?? '#'} target={p.external_link ? '_blank' : '_self'}
-                    rel="noopener noreferrer"
-                    onClick={() => trackView(p.id)}
-                    className="shrink-0 w-48 rounded-2xl overflow-hidden border border-border bg-card hover:shadow-lg transition-shadow group"
-                  >
+                  <a key={p.id} href={p.external_link ?? '#'} target={p.external_link ? '_blank' : '_self'} rel="noopener noreferrer" onClick={() => trackView(p.id)}
+                    className="shrink-0 w-48 rounded-2xl overflow-hidden border border-border bg-card hover:shadow-lg transition-shadow group">
                     <div className="w-full h-32 bg-muted relative overflow-hidden">
-                      {p.image_url
-                        ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-10 h-10 text-muted-foreground" /></div>
-                      }
-                      <div className="absolute top-2 left-2">
-                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-400/90 text-yellow-900">
-                          <Star className="w-2.5 h-2.5" /> Featured
-                        </span>
-                      </div>
+                      {p.image_url ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-10 h-10 text-muted-foreground" /></div>}
+                      <div className="absolute top-2 left-2"><span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-400/90 text-yellow-900"><Star className="w-2.5 h-2.5" /> Featured</span></div>
                     </div>
                     <div className="p-3">
                       <p className="font-semibold text-sm truncate">{p.name}</p>
                       <p className="text-base font-black text-primary mt-0.5">${Number(p.price).toFixed(2)}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        {p.user_profiles?.avatar_url
-                          ? <img src={p.user_profiles.avatar_url} alt="" className="w-4 h-4 rounded-full" />
-                          : <div className="w-4 h-4 rounded-full bg-muted" />
-                        }
-                        <span className="text-[10px] text-muted-foreground truncate">{p.user_profiles?.username}</span>
-                        {p.user_profiles?.verified && <BadgeCheck className="w-3 h-3 text-primary flex-shrink-0" />}
-                      </div>
                     </div>
                   </a>
                 ))}
@@ -580,81 +700,60 @@ export function ProductsPage() {
             </div>
           )}
 
-          {/* Stats bar */}
           {!search && (
             <div className="flex gap-4 px-4 py-3 border-y border-border bg-muted/20">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-green-500" />
-                <span className="text-sm font-semibold">{allProducts.length} products</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-blue-500" />
-                <span className="text-sm text-muted-foreground">From creators you follow</span>
-              </div>
+              <div className="flex items-center gap-2"><TrendingUp className="w-4 h-4 text-green-500" /><span className="text-sm font-semibold">{allProducts.length} products</span></div>
             </div>
           )}
 
-          {/* Sell CTA for logged-in users */}
           {user && !search && (
             <div className="mx-4 mt-4 p-4 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
-                <Tag className="w-5 h-5 text-primary" />
-              </div>
+              <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0"><Tag className="w-5 h-5 text-primary" /></div>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-sm">Sell your products</p>
                 <p className="text-xs text-muted-foreground">List items and tag them in posts</p>
               </div>
-              <button
-                onClick={() => { resetForm(); setViewMode('add-product'); }}
-                className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90 transition-opacity"
-              >
+              <button onClick={() => { resetForm(); setViewMode('add-product'); }}
+                className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90 transition-opacity">
                 <Plus className="w-3.5 h-3.5" /> Sell
               </button>
             </div>
           )}
 
-          {/* Products Grid/List */}
           <div className="p-4">
-            {search && (
-              <p className="text-sm text-muted-foreground mb-3">
-                {filteredProducts.length} result{filteredProducts.length !== 1 ? 's' : ''} for "{search}"
-              </p>
-            )}
-
+            {search && <p className="text-sm text-muted-foreground mb-3">{filteredProducts.length} result{filteredProducts.length !== 1 ? 's' : ''} for "{search}"</p>}
             {filteredProducts.length === 0 ? (
               <div className="text-center py-16">
                 <ShoppingBag className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-30" />
                 <h2 className="text-xl font-semibold mb-2">No products found</h2>
-                <p className="text-muted-foreground text-sm">
-                  {search ? `No results for "${search}"` : 'Be the first to list a product!'}
-                </p>
-                {search && (
-                  <button onClick={() => setSearch('')} className="mt-3 text-primary hover:underline text-sm">Clear search</button>
-                )}
+                <p className="text-muted-foreground text-sm">{search ? `No results for "${search}"` : 'Be the first to list a product!'}</p>
+                {search && <button onClick={() => setSearch('')} className="mt-3 text-primary hover:underline text-sm">Clear search</button>}
               </div>
             ) : gridMode === 'grid' ? (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {filteredProducts.map(product => (
-                  <ProductCard
-                    key={product.id} product={product}
+                  <ProductCard key={product.id} product={product}
                     wishlisted={wishlist.has(product.id)}
                     onWishlist={() => toggleWishlist(product.id)}
                     onView={() => trackView(product.id)}
                     onProfile={() => navigate(`/profile/${product.user_profiles?.username}`)}
                     onReviews={() => setReviewProduct(product)}
+                    onQA={() => setQaProduct(product)}
+                    onTip={() => product.user_profiles && setTipSeller(product.user_profiles)}
                   />
                 ))}
               </div>
             ) : (
               <div className="space-y-3">
                 {filteredProducts.map(product => (
-                  <ProductListItem
-                    key={product.id} product={product}
+                  <ProductListItem key={product.id} product={product}
                     wishlisted={wishlist.has(product.id)}
                     onWishlist={() => toggleWishlist(product.id)}
                     onView={() => trackView(product.id)}
                     onProfile={() => navigate(`/profile/${product.user_profiles?.username}`)}
                     onReviews={() => setReviewProduct(product)}
+                    onQA={() => setQaProduct(product)}
+                    onTip={() => product.user_profiles && setTipSeller(product.user_profiles)}
                   />
                 ))}
               </div>
@@ -663,107 +762,85 @@ export function ProductsPage() {
         </>
       )}
 
-      {/* Reviews Modal */}
-      {reviewProduct && (
-        <ProductReviewsModal product={reviewProduct} onClose={() => setReviewProduct(null)} />
-      )}
+      {reviewProduct && <ProductReviewsModal product={reviewProduct} onClose={() => setReviewProduct(null)} />}
+      {qaProduct && <ProductQAModal product={qaProduct} onClose={() => setQaProduct(null)} />}
+      {tipSeller && <TipProductModal seller={tipSeller} onClose={() => setTipSeller(null)} />}
     </div>
   );
 }
 
-// ── Product Card (Grid) ──────────────────────────────────────────────────────
-function ProductCard({ product, wishlisted, onWishlist, onView, onProfile, onReviews }: {
+// ── Product Card (Grid) ───────────────────────────────────────────────────────
+function ProductCard({ product, wishlisted, onWishlist, onView, onProfile, onReviews, onQA, onTip }: {
   product: any; wishlisted: boolean; onWishlist: () => void;
-  onView: () => void; onProfile: () => void; onReviews: () => void;
+  onView: () => void; onProfile: () => void; onReviews: () => void; onQA: () => void; onTip: () => void;
 }) {
   return (
     <div className="rounded-2xl overflow-hidden border border-border bg-card hover:shadow-lg transition-all group">
-      {/* Image */}
       <div className="relative w-full aspect-square bg-muted overflow-hidden">
         {product.image_url
           ? <img src={product.image_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
-          : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-10 h-10 text-muted-foreground" /></div>
-        }
-        <button
-          onClick={e => { e.preventDefault(); onWishlist(); }}
-          className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${
-            wishlisted ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-red-500'
-          }`}
-        >
+          : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-10 h-10 text-muted-foreground" /></div>}
+        <button onClick={e => { e.preventDefault(); onWishlist(); }}
+          className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${wishlisted ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-red-500'}`}>
           <Heart className={`w-3.5 h-3.5 ${wishlisted ? 'fill-white' : ''}`} />
         </button>
         {product.stock === 0 && product.stock !== null && (
           <div className="absolute bottom-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-black/60 text-white">Sold out</div>
         )}
       </div>
-      {/* Info */}
       <div className="p-3">
         <p className="font-semibold text-sm leading-tight line-clamp-2 mb-1">{product.name}</p>
         <p className="text-base font-black text-primary">${Number(product.price).toFixed(2)}</p>
-        {/* Rating */}
         {product.review_count > 0 && (
           <div className="flex items-center gap-1 mt-0.5">
             <StarRating rating={Math.round(product.avg_rating ?? 0)} />
             <span className="text-[10px] text-muted-foreground">({product.review_count})</span>
           </div>
         )}
-        {/* Seller */}
-        <button
-          onClick={onProfile}
-          className="flex items-center gap-1.5 mt-2 hover:opacity-80 transition-opacity"
-        >
-          {product.user_profiles?.avatar_url
-            ? <img src={product.user_profiles.avatar_url} alt="" className="w-5 h-5 rounded-full" />
-            : <div className="w-5 h-5 rounded-full bg-muted" />
-          }
-          <span className="text-[11px] text-muted-foreground truncate max-w-[90px]">{product.user_profiles?.username}</span>
+        <button onClick={onProfile} className="flex items-center gap-1.5 mt-2 hover:opacity-80 transition-opacity">
+          {product.user_profiles?.avatar_url ? <img src={product.user_profiles.avatar_url} alt="" className="w-5 h-5 rounded-full" /> : <div className="w-5 h-5 rounded-full bg-muted" />}
+          <span className="text-[11px] text-muted-foreground truncate max-w-[80px]">{product.user_profiles?.username}</span>
           {product.user_profiles?.verified && <BadgeCheck className="w-3 h-3 text-primary flex-shrink-0" />}
         </button>
-        {/* CTA */}
-        {product.external_link ? (
-          <a
-            href={product.external_link} target="_blank" rel="noopener noreferrer"
-            onClick={onView}
-            className="mt-2.5 flex items-center justify-center gap-1.5 w-full py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-xl transition-colors"
-          >
-            Buy Now <ExternalLink className="w-3 h-3" />
-          </a>
-        ) : (
-          <button
-            onClick={onReviews}
-            className="mt-2.5 flex items-center justify-center gap-1 w-full py-2 hover:bg-muted/50 text-muted-foreground text-xs rounded-xl transition-colors"
-          >
-            <MessageSquare className="w-3 h-3" />
-            {product.review_count > 0 ? `${product.review_count} review${product.review_count !== 1 ? 's' : ''}` : 'Write a review'}
+        <div className="mt-2 flex gap-1">
+          {product.external_link ? (
+            <a href={product.external_link} target="_blank" rel="noopener noreferrer" onClick={onView}
+              className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-lg transition-colors">
+              Buy <ExternalLink className="w-3 h-3" />
+            </a>
+          ) : (
+            <button onClick={onReviews} className="flex-1 flex items-center justify-center gap-1 py-1.5 hover:bg-muted/50 text-muted-foreground text-xs rounded-lg transition-colors">
+              <MessageSquare className="w-3 h-3" />{product.review_count > 0 ? product.review_count : '★'}
+            </button>
+          )}
+          <button onClick={onQA} title="Q&A" className="flex items-center justify-center w-8 py-1.5 hover:bg-blue-500/10 text-blue-500 rounded-lg transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" />
           </button>
-        )}
+          <button onClick={onTip} title="Tip seller" className="flex items-center justify-center w-8 py-1.5 hover:bg-yellow-500/10 text-yellow-600 rounded-lg transition-colors">
+            <DollarSign className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Product List Item ────────────────────────────────────────────────────────
-function ProductListItem({ product, wishlisted, onWishlist, onView, onProfile, onReviews }: {
+// ── Product List Item ─────────────────────────────────────────────────────────
+function ProductListItem({ product, wishlisted, onWishlist, onView, onProfile, onReviews, onQA, onTip }: {
   product: any; wishlisted: boolean; onWishlist: () => void;
-  onView: () => void; onProfile: () => void; onReviews: () => void;
+  onView: () => void; onProfile: () => void; onReviews: () => void; onQA: () => void; onTip: () => void;
 }) {
   return (
     <div className="flex gap-3 p-3 rounded-2xl border border-border bg-card hover:shadow-md transition-shadow">
       <div className="w-20 h-20 rounded-xl bg-muted overflow-hidden flex-shrink-0">
-        {product.image_url
-          ? <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" loading="lazy" />
-          : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-8 h-8 text-muted-foreground" /></div>
-        }
+        {product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" loading="lazy" />
+          : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-8 h-8 text-muted-foreground" /></div>}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <p className="font-bold text-base leading-tight line-clamp-1">{product.name}</p>
-          <button
-            onClick={e => { e.preventDefault(); onWishlist(); }}
-            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all border ${
-              wishlisted ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'border-border text-muted-foreground hover:text-red-500'
-            }`}
-          >
+          <button onClick={e => { e.preventDefault(); onWishlist(); }}
+            className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all border ${wishlisted ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'border-border text-muted-foreground hover:text-red-500'}`}>
             <Heart className={`w-3.5 h-3.5 ${wishlisted ? 'fill-red-500' : ''}`} />
           </button>
         </div>
@@ -777,29 +854,27 @@ function ProductListItem({ product, wishlisted, onWishlist, onView, onProfile, o
         )}
         <div className="flex items-center justify-between mt-1.5">
           <button onClick={onProfile} className="flex items-center gap-1.5 hover:opacity-80">
-            {product.user_profiles?.avatar_url
-              ? <img src={product.user_profiles.avatar_url} alt="" className="w-4 h-4 rounded-full" />
-              : <div className="w-4 h-4 rounded-full bg-muted" />
-            }
+            {product.user_profiles?.avatar_url ? <img src={product.user_profiles.avatar_url} alt="" className="w-4 h-4 rounded-full" /> : <div className="w-4 h-4 rounded-full bg-muted" />}
             <span className="text-[11px] text-muted-foreground">{product.user_profiles?.username}</span>
           </button>
-          {product.external_link ? (
-            <a
-              href={product.external_link} target="_blank" rel="noopener noreferrer"
-              onClick={onView}
-              className="flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-full hover:opacity-90 transition-opacity"
-            >
-              Buy <ChevronRight className="w-3 h-3" />
-            </a>
-          ) : (
-            <button
-              onClick={onReviews}
-              className="flex items-center gap-1 px-3 py-1.5 border border-border text-xs text-muted-foreground rounded-full hover:bg-muted/50 transition-colors"
-            >
-              <MessageSquare className="w-3 h-3" />
-              {product.review_count > 0 ? `${product.review_count}` : 'Review'}
+          <div className="flex items-center gap-1">
+            {product.external_link ? (
+              <a href={product.external_link} target="_blank" rel="noopener noreferrer" onClick={onView}
+                className="flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-full hover:opacity-90 transition-opacity">
+                Buy <ChevronRight className="w-3 h-3" />
+              </a>
+            ) : (
+              <button onClick={onReviews} className="flex items-center gap-1 px-2.5 py-1.5 border border-border text-xs text-muted-foreground rounded-full hover:bg-muted/50 transition-colors">
+                <MessageSquare className="w-3 h-3" />{product.review_count > 0 ? product.review_count : '★'}
+              </button>
+            )}
+            <button onClick={onQA} title="Q&A" className="p-1.5 rounded-full border border-border hover:bg-blue-500/10 hover:border-blue-500/30 text-blue-500 transition-colors">
+              <HelpCircle className="w-3.5 h-3.5" />
             </button>
-          )}
+            <button onClick={onTip} title="Tip" className="p-1.5 rounded-full border border-border hover:bg-yellow-500/10 hover:border-yellow-500/30 text-yellow-600 transition-colors">
+              <DollarSign className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
