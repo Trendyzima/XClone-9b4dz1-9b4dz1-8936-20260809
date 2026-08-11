@@ -12,7 +12,7 @@ import {
   TrendingUp, Eye, MousePointerClick, DollarSign, Users,
   Loader2, AlertCircle, Calendar, Zap, Target, ArrowUpRight,
   BarChart3, RefreshCw, List, Clock, CheckCircle2, XCircle, Tag, Hash,
-  Pause, Play
+  Pause, Play, RefreshCcw, ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/utils';
@@ -36,6 +36,7 @@ export default function BoostAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [togglingPause, setTogglingPause] = useState<string | null>(null);
+  const [togglingRenew, setTogglingRenew] = useState<string | null>(null);
   const [compareA, setCompareA] = useState<string>('');
   const [compareB, setCompareB] = useState<string>('');
 
@@ -113,6 +114,28 @@ export default function BoostAnalyticsPage() {
   const handleRefresh = () => {
     setRefreshing(true);
     fetchBoostData();
+  };
+
+  const handleToggleRenew = async (boostId: string, currentAutoRenew: boolean, renewDays: number) => {
+    setTogglingRenew(boostId);
+    const newAutoRenew = !currentAutoRenew;
+    setAllBoosts(prev => prev.map(b => b.id === boostId ? { ...b, auto_renew: newAutoRenew, auto_renew_days: renewDays } : b));
+    const { error } = await supabase
+      .from('boosted_posts')
+      .update({ auto_renew: newAutoRenew, auto_renew_days: renewDays })
+      .eq('id', boostId);
+    if (error) {
+      setAllBoosts(prev => prev.map(b => b.id === boostId ? { ...b, auto_renew: currentAutoRenew } : b));
+      toast.error(error.message);
+    } else {
+      toast.success(newAutoRenew ? `Auto-renew ON — will restart for ${renewDays} days` : 'Auto-renew disabled');
+    }
+    setTogglingRenew(null);
+  };
+
+  const handleUpdateRenewDays = async (boostId: string, newDays: number) => {
+    setAllBoosts(prev => prev.map(b => b.id === boostId ? { ...b, auto_renew_days: newDays } : b));
+    await supabase.from('boosted_posts').update({ auto_renew_days: newDays }).eq('id', boostId);
   };
 
   const handleTogglePause = async (boostId: string, currentIsActive: boolean) => {
@@ -482,13 +505,44 @@ export default function BoostAnalyticsPage() {
                               : b.is_active
                                 ? <><Pause className="w-3 h-3" /> Pause</>
                                 : <><Play className="w-3 h-3" /> Resume</>}
-                              </button>
+                          </button>
+                          {/* Auto-renew control */}
+                          <div className="flex flex-col items-end gap-1">
+                            <button
+                              onClick={e => { e.stopPropagation(); handleToggleRenew(b.id, !!b.auto_renew, b.auto_renew_days ?? 7); }}
+                              disabled={togglingRenew === b.id}
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-bold transition-all disabled:opacity-50 ${
+                                b.auto_renew
+                                  ? 'border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-400 hover:bg-teal-500/20'
+                                  : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted'
+                              }`}
+                              title={b.auto_renew ? 'Disable auto-renew' : 'Enable auto-renew'}
+                            >
+                              {togglingRenew === b.id
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : <RefreshCcw className={`w-3 h-3 ${b.auto_renew ? 'text-teal-500' : ''}`} />}
+                              {b.auto_renew ? 'Auto ON' : 'Renew'}
+                            </button>
+                            {b.auto_renew && (
+                              <div className="relative">
+                                <select
+                                  value={b.auto_renew_days ?? 7}
+                                  onChange={e => { e.stopPropagation(); handleUpdateRenewDays(b.id, Number(e.target.value)); }}
+                                  onClick={e => e.stopPropagation()}
+                                  className="appearance-none text-[10px] font-bold border border-teal-500/30 rounded-lg pl-2 pr-5 py-0.5 bg-teal-500/10 text-teal-700 dark:text-teal-400 focus:outline-none cursor-pointer"
+                                >
+                                  {[3, 7, 14, 30].map(d => <option key={d} value={d}>{d}d</option>)}
+                                </select>
+                                <ChevronDown className="absolute right-1 top-1/2 -translate-y-1/2 w-2.5 h-2.5 text-teal-500 pointer-events-none" />
+                              </div>
+                            )}
+                          </div>
                           <button
                             onClick={() => navigate(`/boost-analytics/${b.post_id}`)}
-                        className="shrink-0 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
-                        title="View details"
-                      >
-                        <ArrowUpRight className="w-4 h-4" />
+                            className="shrink-0 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
+                            title="View details"
+                          >
+                            <ArrowUpRight className="w-4 h-4" />
                           </button>
                     </div>
                   </div>

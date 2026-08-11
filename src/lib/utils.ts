@@ -75,10 +75,24 @@ export function parseContent(content: string): string {
 
   let parsed = htmlParts.join('');
 
-  // Hashtags, mentions, URLs — applied to text nodes only (avoiding href attributes)
-  parsed = parsed.replace(/(?<!["=/])#(\w+)/g, '<a href="/hashtag/$1" class="text-primary hover:underline">#$1</a>');
-  parsed = parsed.replace(/@(\w+)/g, '<a href="/profile/$1" class="text-primary hover:underline">@$1</a>');
-  parsed = parsed.replace(/(https?:\/\/[^\s<"]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline break-all">$1</a>');
+  // Linkify hashtags — skip occurrences already inside HTML attributes (href/id/class)
+  // Two-step: protect attributes, then replace bare #word tokens in text
+  parsed = parsed.replace(/(<[^>]+>)|#(\w+)/g, (m, tag, hash) => {
+    if (tag) return tag; // keep HTML tags unchanged
+    return `<a href="/hashtag/${hash}" class="text-primary hover:underline">#${hash}</a>`;
+  });
+
+  // Linkify @mentions — same protection pattern
+  parsed = parsed.replace(/(<[^>]+>)|@(\w+)/g, (m, tag, mention) => {
+    if (tag) return tag;
+    return `<a href="/profile/${mention}" class="text-primary hover:underline">@${mention}</a>`;
+  });
+
+  // Linkify bare URLs — skip ones already inside href attributes
+  parsed = parsed.replace(/(<[^>]+>)|(https?:\/\/[^\s<"]+)/g, (m, tag, url) => {
+    if (tag) return tag;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline break-all">${url}</a>`;
+  });
 
   return parsed;
 }

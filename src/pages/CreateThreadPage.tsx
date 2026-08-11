@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import {
   Loader2, Image as ImageIcon, Video as VideoIcon, X, Wand2, Sparkles,
-  Bold, Italic, Heading2, Quote, List, Type, FileText, Clock, Save
+  Bold, Italic, Heading2, Quote, List, Type, FileText, Clock, Save, LayoutList
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
@@ -154,6 +154,47 @@ export default function CreateThreadPage() {
       const secs = parts.length === 2 ? parts[0] * 60 + (parts[1] || 0) : parts[0] || 0;
       return { time: secs, title: ch.title.trim() };
     });
+
+  // ── AI Outline ─────────────────────────────────────────────────────────────
+  const [outlineLoading, setOutlineLoading] = useState(false);
+
+  const handleAutoOutline = async () => {
+    if (!title.trim()) {
+      sonnerToast.error('Add a title first so AI can outline it');
+      return;
+    }
+    setOutlineLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: {
+          messages: [{
+            role: 'user',
+            content: `Generate a structured markdown outline for a long-form thread titled: "${title.trim()}".
+
+Requirements:
+- 4-6 main sections using ## headings
+- Under each heading, 2-3 bullet points (• ) showing what that section will cover
+- End with a brief concluding section
+- Return ONLY the outline text, no preamble, no explanation
+- Use this exact format:
+
+## Section Title\n• sub-point\n• sub-point\n\n## Next Section\n• sub-point`,
+          }],
+          model: 'google/gemini-3-flash-preview',
+        },
+      });
+      if (error) throw error;
+      const raw: string = data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? '';
+      if (!raw.trim()) throw new Error('Empty response');
+      const outline = raw.trim();
+      setContent(prev => prev ? prev + '\n\n' + outline : outline);
+      sonnerToast.success('Outline inserted — fill in each section!');
+    } catch {
+      sonnerToast.error('Could not generate outline. Try again.');
+    } finally {
+      setOutlineLoading(false);
+    }
+  };
 
   // ── AI Writer ────────────────────────────────────────────────────────────
   const [showAiWriter, setShowAiWriter] = useState(false);
@@ -405,13 +446,25 @@ export default function CreateThreadPage() {
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-semibold">Content</label>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {lastSaved && (
                 <span className="flex items-center gap-1 text-[10px] text-green-600">
                   <Save className="w-2.5 h-2.5" />
                   Saved {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
+              {/* Auto-Outline button */}
+              <button
+                onClick={handleAutoOutline}
+                disabled={outlineLoading || !title.trim()}
+                title={title.trim() ? 'Generate section outline from title' : 'Add a title first'}
+                className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-teal-600 disabled:opacity-40 transition-colors"
+              >
+                {outlineLoading
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <LayoutList className="w-3.5 h-3.5" />}
+                {outlineLoading ? 'Outlining…' : 'Auto-Outline'}
+              </button>
               <button
                 onClick={() => { setAiTarget('content'); setShowAiWriter(v => aiTarget === 'content' ? !v : true); setAiDrafts([]); }}
                 className={`flex items-center gap-1 text-xs font-medium transition-colors ${
