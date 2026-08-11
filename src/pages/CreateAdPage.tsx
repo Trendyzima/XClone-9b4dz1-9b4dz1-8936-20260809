@@ -28,6 +28,14 @@ export default function CreateAdPage() {
   const [budgetKes, setBudgetKes] = useState('');
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  // Pre-fill image from ?img= URL param (Boost as Ad flow)
+  useEffect(() => {
+    const imgParam = searchParams.get('img');
+    if (imgParam) {
+      try { setImagePreview(decodeURIComponent(imgParam)); } catch { /* ignore */ }
+    }
+  }, []);
   const [phone, setPhone] = useState('');
   const [adId, setAdId] = useState<string | null>(null);
   const [stkLoading, setStkLoading] = useState(false);
