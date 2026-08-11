@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -6,6 +6,29 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { ShoppingBag, Trash2, ExternalLink, Package, ArrowRight, BadgeCheck, Star } from 'lucide-react';
 import { toast } from 'sonner';
+
+// ── AdSense banner — push-guarded ─────────────────────────────────────────────
+function WishlistAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 interface WishlistProduct {
   id: string;
@@ -94,6 +117,7 @@ export default function WishlistPage() {
   return (
     <div className="min-h-screen bg-background pb-20">
       <TopBar title="Wishlist" showBack />
+      <WishlistAdBanner />
 
       {/* Header stats */}
       {products.length > 0 && (

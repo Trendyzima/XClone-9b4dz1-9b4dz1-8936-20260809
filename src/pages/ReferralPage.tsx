@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -21,6 +21,29 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts';
 import { subDays, format, startOfDay } from 'date-fns';
+
+// ── AdSense banner — push-guarded ─────────────────────────────────────────────
+function ReferralAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
 
 interface ReferralRecord {
   id: string;
@@ -136,6 +159,7 @@ export default function ReferralPage() {
         <h1 className="text-xl font-bold">Refer & Earn</h1>
         <p className="text-xs text-muted-foreground">Invite friends, earn credits together</p>
       </div>
+      <ReferralAdBanner />
 
       <div className="px-4 space-y-4 pt-4">
         {/* 30-day timeline chart */}
