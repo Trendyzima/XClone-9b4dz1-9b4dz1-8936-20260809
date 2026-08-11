@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
@@ -14,7 +14,7 @@ import {
   Crown, Settings, UserPlus, MessageSquare, Image,
   BookOpen, Plus, Trash2, X,
   ShieldCheck, ShieldOff, MoreVertical, Pin, PinOff,
-  Camera, Check
+  Camera, Check, Send, MessageCircle
 } from 'lucide-react';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
@@ -57,8 +57,7 @@ export default function CommunityPage() {
   const [isMember, setIsMember] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
   const [members, setMembers] = useState<CommunityMember[]>([]);
-  const [showMembers, setShowMembers] = useState(false);
-  const [activeTab, setActiveTab] = useState<'posts' | 'members'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'members' | 'chat'>('posts');
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [editingRules, setEditingRules] = useState(false);
@@ -134,8 +133,56 @@ export default function CommunityPage() {
     }
   };
 
+  // Chat room
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const chatPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
   // Pinned posts
   const [pinnedPostIds, setPinnedPostIds] = useState<Set<string>>(new Set());
+
+  const fetchChat = async () => {
+    if (!community) return;
+    const { data } = await supabase
+      .from('community_chat')
+      .select('*, user_profiles(id, username, avatar_url, verified)')
+      .eq('community_id', community.id)
+      .order('created_at', { ascending: true })
+      .limit(80);
+    if (data) setChatMessages(data);
+  };
+
+  // Start/stop polling when chat tab is active
+  useEffect(() => {
+    if (activeTab === 'chat' && community) {
+      fetchChat();
+      chatPollingRef.current = setInterval(fetchChat, 5000);
+    } else {
+      if (chatPollingRef.current) clearInterval(chatPollingRef.current);
+    }
+    return () => { if (chatPollingRef.current) clearInterval(chatPollingRef.current); };
+  }, [activeTab, community?.id]);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (activeTab === 'chat') chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, activeTab]);
+
+  const handleSendChat = async () => {
+    if (!user || !community || !chatInput.trim() || chatSending) return;
+    const text = chatInput.trim();
+    setChatInput('');
+    setChatSending(true);
+    await supabase.from('community_chat').insert({
+      community_id: community.id,
+      user_id: user.id,
+      message: text,
+    });
+    await fetchChat();
+    setChatSending(false);
+  };
 
   useEffect(() => {
     if (name) fetchCommunity();
@@ -632,6 +679,14 @@ export default function CommunityPage() {
           >
             <Users className="w-4 h-4" /> Members
           </button>
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-colors ${
+              activeTab === 'chat' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
+            }`}
+          >
+            <MessageCircle className="w-4 h-4" /> Chat
+          </button>
         </div>
       </div>
 
@@ -755,6 +810,90 @@ export default function CommunityPage() {
             )}
           </div>
         )
+      ) : activeTab === 'chat' ? (
+        /* ── Live Chat Room ── */
+        <div className="flex flex-col" style={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {chatMessages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center py-10 text-muted-foreground">
+                <MessageCircle className="w-12 h-12 mb-3 opacity-30" />
+                <p className="font-semibold">No messages yet</p>
+                {isMember
+                  ? <p className="text-sm mt-1">Start the conversation!</p>
+                  : <p className="text-sm mt-1">Join to participate in live chat</p>}
+              </div>
+            ) : (
+              chatMessages.map((msg: any, i: number) => {
+                const isOwn = msg.user_id === user?.id;
+                const prev = chatMessages[i - 1];
+                const showHeader = !prev || prev.user_id !== msg.user_id;
+                return (
+                  <div key={msg.id} className={`flex items-end gap-2 ${ isOwn ? 'flex-row-reverse' : 'flex-row' }`}>
+                    <div className={`w-7 h-7 rounded-full overflow-hidden bg-muted flex-shrink-0 ${ showHeader ? '' : 'invisible' }`}>
+                      {msg.user_profiles?.avatar_url
+                        ? <img src={msg.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
+                        : <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">{msg.user_profiles?.username?.[0]?.toUpperCase()}</div>}
+                    </div>
+                    <div className={`max-w-[75%] flex flex-col gap-0.5 ${ isOwn ? 'items-end' : 'items-start' }`}>
+                      {showHeader && !isOwn && (
+                        <span className="text-[11px] font-bold text-foreground px-1">{msg.user_profiles?.username}</span>
+                      )}
+                      <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
+                        isOwn
+                          ? 'bg-primary text-primary-foreground rounded-br-sm'
+                          : 'bg-muted text-foreground rounded-bl-sm'
+                      }`}>
+                        {msg.message}
+                      </div>
+                      {showHeader && (
+                        <span className="text-[9px] text-muted-foreground px-1">
+                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input */}
+          {isMember ? (
+            <div className="border-t border-border p-3 flex items-center gap-2 bg-background shrink-0">
+              <div className="flex-1 flex items-center gap-2 bg-muted/60 border border-border rounded-2xl px-3 py-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                  placeholder="Message the community…"
+                  maxLength={280}
+                  className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60"
+                />
+                <span className="text-[10px] text-muted-foreground/50 shrink-0">{chatInput.length}/280</span>
+              </div>
+              <button
+                onClick={handleSendChat}
+                disabled={!chatInput.trim() || chatSending}
+                className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:opacity-90 transition-opacity shrink-0"
+              >
+                {chatSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </button>
+            </div>
+          ) : (
+            <div className="border-t border-border p-4 text-center shrink-0">
+              <p className="text-sm text-muted-foreground">Join this community to participate in live chat</p>
+              {user && (
+                <button onClick={handleJoinToggle}
+                  className="mt-2 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-semibold hover:opacity-90">
+                  Join &amp; Chat
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         /* Members tab */
         <div className="p-4 space-y-3">

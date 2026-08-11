@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Heart, MessageCircle, Repeat2, Share, Volume2, VolumeX, Play, DollarSign } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, Volume2, VolumeX, Play, DollarSign, Crown, BadgeCheck } from 'lucide-react';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -19,6 +19,9 @@ interface VideoPlayerProps {
 // Show pre-roll ad on every 3rd video OR for monetized content
 let videoViewCounter = 0;
 
+// Module-level cache: post author uid → has active premium
+const authorPremiumCache = new Map<string, boolean>();
+
 export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { user } = useAuth();
@@ -37,6 +40,28 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
   const [adDoneForThisPost, setAdDoneForThisPost] = useState(false);
   const [midrollDone, setMidrollDone] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [isAuthorPremium, setIsAuthorPremium] = useState(false);
+
+  // Fetch post-author premium status (cached per-author)
+  useEffect(() => {
+    const uid = post.user_id;
+    if (authorPremiumCache.has(uid)) {
+      setIsAuthorPremium(authorPremiumCache.get(uid)!);
+      return;
+    }
+    supabase
+      .from('premium_subscriptions')
+      .select('id')
+      .eq('user_id', uid)
+      .eq('status', 'active')
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle()
+      .then(({ data }) => {
+        const has = !!data;
+        authorPremiumCache.set(uid, has);
+        setIsAuthorPremium(has);
+      });
+  }, [post.user_id]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -226,7 +251,15 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
               )}
             </div>
             <div>
-              <span className="font-bold">{post.user_profiles?.username}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold">{post.user_profiles?.username}</span>
+                {post.user_profiles?.verified && (
+                  <BadgeCheck className="w-3.5 h-3.5 text-primary" fill="currentColor" />
+                )}
+                {isAuthorPremium && (
+                  <Crown className="w-3.5 h-3.5 text-amber-400" fill="currentColor" title="Premium Member" />
+                )}
+              </div>
               {post.is_monetized && (
                 <div className="flex items-center gap-0.5 text-xs text-green-400">
                   <DollarSign className="w-3 h-3" />
