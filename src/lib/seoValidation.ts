@@ -50,7 +50,7 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/thread/{id}',        label: 'Thread detail',        group: 'Dynamic',     hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/post/{id}',          label: 'Post detail',          group: 'Dynamic',     hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/live/{id}',          label: 'Live Stream',          group: 'Dynamic',     hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/spaces/recording/{id}', label: 'Space Recording',   group: 'Dynamic',     hasUseSEO: true,  hasStructuredData: true,  noindex: false },
+  { path: '/spaces/{id}',        label: 'Space Detail',         group: 'Dynamic',     hasUseSEO: true,  hasStructuredData: true,  noindex: false },
 
   // ── Private / auth pages (should be noindex) ───────────────────────────────
   { path: '/auth',               label: 'Auth',                 group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },

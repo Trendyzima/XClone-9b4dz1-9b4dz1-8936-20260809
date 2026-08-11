@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { Space } from '@/types/app-types';
@@ -158,6 +158,14 @@ export default function SpacesPage() {
     return matchCat && matchSearch;
   });
 
+  // ── AdSense push when tab changes ────────────────────────────────────────
+  const adPushedRef = useRef(false);
+  useEffect(() => {
+    if (adPushedRef.current) return;
+    adPushedRef.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, [activeTab]);
+
   const filteredRecordings = allRecordings.filter(r => {
     const matchCat = activeCategory === 'all' || r.spaces?.category === activeCategory;
     const matchSearch = !searchQuery || r.spaces?.title?.toLowerCase().includes(searchQuery.toLowerCase()) || r.title?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -240,6 +248,19 @@ export default function SpacesPage() {
             <span>{cat.emoji}</span>{cat.name}
           </button>
         ))}
+      </div>
+
+      {/* AdSense banner — spaces page */}
+      <div className="px-4 pt-3">
+        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
+        <ins
+          className="adsbygoogle"
+          style={{ display: 'block', minHeight: 60 }}
+          data-ad-client="ca-pub-7234579833875016"
+          data-ad-slot="2031881558"
+          data-ad-format="auto"
+          data-full-width-responsive="true"
+        />
       </div>
 
       {/* Verified badge info */}

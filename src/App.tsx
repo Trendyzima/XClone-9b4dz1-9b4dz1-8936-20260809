@@ -73,6 +73,7 @@ const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
 const DiscoverPage = lazy(() => import('@/pages/DiscoverPage'));
 const ReferralPage = lazy(() => import('@/pages/ReferralPage'));
 const SpaceRecordingViewerPage = lazy(() => import('@/pages/SpaceRecordingViewerPage'));
+const SpaceDetailPage = lazy(() => import('@/pages/SpaceDetailPage'));
 const TrendingTopicFeedPage = lazy(() => import('@/pages/TrendingTopicFeedPage'));
 const HashtagChallengePage = lazy(() => import('@/pages/HashtagChallengePage'));
 const AdminAdsDashboard = lazy(() => import('@/pages/AdminAdsDashboard'));
@@ -188,6 +189,7 @@ function AppInner() {
               <Route path="/discover" element={<DiscoverPage />} />
               <Route path="/referral" element={<ReferralPage />} />
               <Route path="/space-recording/:id" element={<SpaceRecordingViewerPage />} />
+              <Route path="/spaces/:id" element={<SpaceDetailPage />} />
               <Route path="/trending/:topic" element={<TrendingTopicFeedPage />} />
               <Route path="/challenge/:id" element={<HashtagChallengePage />} />
               <Route path="/admin/ads-review" element={<AdminAdsDashboard />} />

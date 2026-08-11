@@ -21,6 +21,7 @@ import { DynamicAd } from '@/components/features/DynamicAd';
 import { NativeAdCard } from '@/components/features/NativeAdCard';
 import { useSEO } from '@/hooks/useSEO';
 import { SponsoredPostCard } from '@/components/features/SponsoredPostCard';
+import { FeedAdCard } from '@/components/features/FeedAdCard';
 import { StoriesStrip } from '@/components/features/StoriesStrip';
 import * as federation from '@/api/federation';
 
@@ -782,6 +783,11 @@ export default function HomePage() {
                 <ThreadCard thread={item.data} />
               )}
 
+              {/* AdSense every 5th post-type item */}
+              {item.type === 'post' && (() => {
+                const postCount = feedItems.slice(0, index + 1).filter(i => i.type === 'post').length;
+                return postCount % 5 === 0 && postCount > 0;
+              })() && <FeedAdCard />}
               {(index + 1) % 6 === 0 && index !== feedItems.length - 1 && (
                 <NativeAdCard className="mx-0 rounded-none border-x-0 border-b border-border" />
               )}
