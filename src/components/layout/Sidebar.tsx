@@ -1,4 +1,4 @@
-
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,6 @@ import {
   Shield, LineChart, Globe, Flame, Trophy, UserSearch, Gift, BookOpen, Inbox,
 } from 'lucide-react';
 import { authService } from '@/lib/auth';
-import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { formatNumber } from '@/lib/utils';
 import { useFediversePolling } from '@/hooks/useFediversePolling';

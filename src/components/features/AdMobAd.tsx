@@ -1,7 +1,3 @@
-/**
- * AdMobAd — AdMob removed; renders an AdSense banner on web.
- * The component interface is preserved so existing call sites compile without changes.
- */
 import { useEffect, useRef } from 'react';
 import { BannerAdPosition } from '@/lib/capacitor-stub';
 
