@@ -955,7 +955,7 @@ export default function ThreadDetailPage() {
                 {/* URL display */}
                 <div className="flex items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-2.5">
                   <Link className="w-4 h-4 text-muted-foreground shrink-0" />
-                  <span className="text-xs text-muted-foreground font-mono truncate flex-1">{window.location.origin}/thread/{thread.id}</span>
+                  <span className="text-xs text-muted-foreground font-mono truncate flex-1">/thread/{thread.id}</span>
                 </div>
 
                 {/* Action buttons */}
