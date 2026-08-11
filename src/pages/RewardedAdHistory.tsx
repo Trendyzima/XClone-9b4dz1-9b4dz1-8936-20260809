@@ -52,7 +52,7 @@ function showWebRewardedAd(): Promise<boolean> {
           <div style="min-height:90px;margin-bottom:12px;border-radius:10px;overflow:hidden;background:#1a1a2e;">
             <ins class="adsbygoogle"
               style="display:block;"
-              data-ad-client="ca-pub-7234579833875016"
+              data-ad-client="ca-pub-2458567543017441"
               data-ad-slot="2031881558"
               data-ad-format="auto"
               data-full-width-responsive="true">
@@ -450,7 +450,7 @@ export default function RewardedAdHistory() {
           <ins
             className="adsbygoogle"
             style={{ display: 'block', minHeight: 80 }}
-            data-ad-client="ca-pub-7234579833875016"
+            data-ad-client="ca-pub-2458567543017441"
             data-ad-slot="2031881558"
             data-ad-format="auto"
             data-full-width-responsive="true"

@@ -114,7 +114,7 @@ export function VideoMonetizationAd({
             <ins
               className="adsbygoogle"
               style={{ display: 'block', width: '100%', minHeight: '100px' }}
-              data-ad-client="ca-pub-7234579833875016"
+              data-ad-client="ca-pub-2458567543017441"
               data-ad-slot="5642388963"
               data-ad-format="fluid"
               data-full-width-responsive="true"

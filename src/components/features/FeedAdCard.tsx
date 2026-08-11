@@ -24,7 +24,7 @@ export function FeedAdCard() {
       <ins
         className="adsbygoogle"
         style={{ display: 'block', minHeight: 90 }}
-        data-ad-client="ca-pub-7234579833875016"
+        data-ad-client="ca-pub-2458567543017441"
         data-ad-slot="2031881558"
         data-ad-format="fluid"
         data-ad-layout="in-article"

@@ -40,20 +40,6 @@ export default function MyAdsPage() {
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
     fetchAds();
-
-    // AdMob banner on native
-    if (Capacitor.isNativePlatform()) {
-      AdMob.showBanner({
-        adId: ADMOB_CONFIG.BANNER_PROFILE,
-        adSize: BannerAdSize.ADAPTIVE_BANNER,
-        position: BannerAdPosition.BOTTOM_CENTER,
-        margin: 64,
-        isTesting: false,
-      });
-    }
-    return () => {
-      if (Capacitor.isNativePlatform()) AdMob.hideBanner();
-    };
   }, [user]);
 
   const fetchAds = async () => {

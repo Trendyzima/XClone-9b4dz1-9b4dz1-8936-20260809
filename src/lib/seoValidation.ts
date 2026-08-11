@@ -40,8 +40,8 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/hashtag/technology', label: '#technology',          group: 'Hashtags',    hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/hashtag/news',       label: '#news',                group: 'Hashtags',    hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/hashtag/ai',         label: '#ai',                  group: 'Hashtags',    hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/trending/technology',label: 'Trending: technology', group: 'Trending',    hasUseSEO: true,  hasStructuredData: false, noindex: false },
-  { path: '/trending/sports',    label: 'Trending: sports',     group: 'Trending',    hasUseSEO: true,  hasStructuredData: false, noindex: false },
+  { path: '/trending/technology',label: 'Trending: technology', group: 'Trending',    hasUseSEO: true,  hasStructuredData: true,  noindex: false },
+  { path: '/trending/sports',    label: 'Trending: sports',     group: 'Trending',    hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/c/technology',       label: 'c/technology',         group: 'Communities', hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/c/sports',           label: 'c/sports',             group: 'Communities', hasUseSEO: true,  hasStructuredData: true,  noindex: false },
 
@@ -92,7 +92,7 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/admin/fraud',        label: 'Admin — Fraud',        group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin/ai-bot',       label: 'Admin — AI Bot',       group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin/ad-config',    label: 'Admin — Ad Config',    group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/admin/seo',          label: 'SEO Audit',            group: 'Admin',       hasUseSEO: false, hasStructuredData: false, noindex: true  },
+  { path: '/admin/seo',          label: 'SEO Audit',            group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
 ];
 
 export type SEOStatus = 'good' | 'warn' | 'missing' | 'noindex';

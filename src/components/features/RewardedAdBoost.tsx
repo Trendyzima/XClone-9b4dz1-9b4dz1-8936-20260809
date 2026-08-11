@@ -79,7 +79,7 @@ async function showWebRewardedAd(): Promise<boolean> {
           <div style="background:#111; border-radius:8px; padding:12px; margin-bottom:16px;">
             <ins class="adsbygoogle"
               style="display:block;min-height:100px;"
-              data-ad-client="ca-pub-7234579833875016"
+              data-ad-client="ca-pub-2458567543017441"
               data-ad-slot="2031881558"
               data-ad-format="auto"
               data-full-width-responsive="true">

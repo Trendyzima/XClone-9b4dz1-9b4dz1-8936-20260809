@@ -45,7 +45,7 @@ export default function ThreadDetailPage() {
     url: thread ? `/thread/${thread.id}` : undefined,
     type: 'article',
     keywords: thread ? `${thread.title}, testagram, thread, article, creator` : undefined,
-    structuredData: thread ? buildThreadLD(thread) : undefined,
+    structuredData: thread ? buildThreadLD({ ...thread, user_profiles: thread.user_profiles }) : undefined,
   });
   const [relatedPosts, setRelatedPosts] = useState<any[]>([]);
   const [replies, setReplies] = useState<Reply[]>([]);
