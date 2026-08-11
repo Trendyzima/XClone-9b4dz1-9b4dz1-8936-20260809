@@ -13,7 +13,8 @@ import {
   Smartphone, Loader2, CheckCircle2, Clock, AlertCircle,
   Phone, Zap, ArrowDownLeft, X, ArrowUpRight, Wallet, Download,
   Send, Search, UserCheck, Copy, TrendingUp, BarChart3, PieChart as LucidePieChart,
-  Shield, Bell, BellOff, Settings2
+  Shield, Bell, BellOff, Settings2, QrCode, Calendar, RefreshCw, ChevronDown,
+  ExternalLink, Key, Filter
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -26,7 +27,392 @@ const PIE_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4
 
 type TopUpStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
-type ActiveTab = 'wallet' | 'history' | 'send' | 'analytics';
+type ActiveTab = 'wallet' | 'history' | 'send' | 'receive' | 'analytics';
+
+// ── M-Pesa Secrets Setup Guide ────────────────────────────────────────────
+function MpesaSecretsGuide() {
+  const [open, setOpen] = useState(false);
+
+  const secrets = [
+    {
+      key: 'MPESA_CONSUMER_KEY',
+      desc: 'OAuth consumer key from Safaricom Developer portal',
+      where: 'Safaricom Developer Portal → My Apps → App Details → Consumer Key',
+    },
+    {
+      key: 'MPESA_CONSUMER_SECRET',
+      desc: 'OAuth consumer secret paired with the consumer key',
+      where: 'Safaricom Developer Portal → My Apps → App Details → Consumer Secret',
+    },
+    {
+      key: 'MPESA_SHORTCODE',
+      desc: 'Your M-Pesa till/paybill number (sandbox: 174379)',
+      where: 'Safaricom Business → Account → Business Short Code',
+    },
+    {
+      key: 'MPESA_PASSKEY',
+      desc: 'STK Push passkey (sandbox has a default test passkey)',
+      where: 'Safaricom Developer Portal → Test Credentials → LipaNaMpesa Online Passkey',
+    },
+    {
+      key: 'MPESA_B2C_SHORTCODE',
+      desc: 'B2C payout shortcode (can be same as MPESA_SHORTCODE)',
+      where: 'Safaricom Developer Portal → B2C Test Credentials',
+    },
+    {
+      key: 'MPESA_INITIATOR_NAME',
+      desc: 'B2C initiator username (sandbox: testapi)',
+      where: 'Safaricom Developer Portal → B2C Test Credentials → Initiator Name',
+    },
+    {
+      key: 'MPESA_SECURITY_CRED',
+      desc: 'B2C encrypted security credential',
+      where: 'Safaricom Developer Portal → B2C Test Credentials → Security Credential',
+    },
+  ];
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left"
+      >
+        <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
+          <Key className="w-4 h-4 text-amber-600" />
+        </div>
+        <div className="flex-1">
+          <p className="font-bold text-sm">M-Pesa Setup Guide</p>
+          <p className="text-xs text-muted-foreground">Configure secrets in Cloud → Secrets</p>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="border-t border-border px-4 pb-4 pt-3 space-y-3 bg-amber-500/3">
+          <p className="text-xs text-muted-foreground">
+            Add each secret in{' '}
+            <strong className="text-foreground">OnSpace Cloud → Secrets</strong> tab.
+            Use sandbox values for testing, then switch to production after going live.
+          </p>
+          <div className="space-y-2">
+            {secrets.map(s => (
+              <div key={s.key} className="p-3 bg-background border border-border rounded-xl">
+                <div className="flex items-center gap-2 mb-1">
+                  <code className="text-[11px] font-mono font-bold text-primary bg-primary/8 px-1.5 py-0.5 rounded">{s.key}</code>
+                </div>
+                <p className="text-xs text-foreground mb-0.5">{s.desc}</p>
+                <p className="text-[10px] text-muted-foreground flex items-start gap-1">
+                  <ExternalLink className="w-2.5 h-2.5 shrink-0 mt-0.5" />
+                  {s.where}
+                </p>
+              </div>
+            ))}
+          </div>
+          <a
+            href="https://developer.safaricom.co.ke"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-2.5 border border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400 rounded-xl font-semibold text-xs hover:bg-amber-500/10 transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            Open Safaricom Developer Portal
+          </a>
+          <p className="text-[10px] text-muted-foreground text-center">
+            Switch MPESA_BASE URL in edge functions from <code className="font-mono">sandbox.safaricom.co.ke</code> to <code className="font-mono">api.safaricom.co.ke</code> for production.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Receive Money Tab (QR Code) ───────────────────────────────────────────
+function ReceiveMoneyTab({ username, walletBalance }: { username: string; walletBalance: number }) {
+  const [copied, setCopied] = useState(false);
+  const [requestAmount, setRequestAmount] = useState('');
+  const [requestNote, setRequestNote] = useState('');
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const payUrl = useMemo(() => {
+    const params = new URLSearchParams({ tab: 'send', to: username });
+    if (requestAmount && parseFloat(requestAmount) > 0) params.set('amount', requestAmount);
+    if (requestNote.trim()) params.set('note', requestNote.trim());
+    return `${baseUrl}/wallet?${params.toString()}`;
+  }, [username, requestAmount, requestNote, baseUrl]);
+
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payUrl)}&bgcolor=ffffff&color=000000&qzone=2&format=png`;
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(payUrl).then(() => {
+      setCopied(true);
+      toast.success('Payment link copied!');
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  const shareLink = async () => {
+    if (navigator.share) {
+      await navigator.share({ title: `Pay @${username}`, url: payUrl });
+    } else {
+      copyLink();
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Balance header */}
+      <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20">
+        <p className="text-sm font-semibold text-muted-foreground">Your Balance</p>
+        <p className="text-3xl font-black text-primary">${walletBalance.toFixed(2)}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">≈ KES {Math.floor(walletBalance * USD_TO_KES).toLocaleString()}</p>
+      </div>
+
+      {/* Request amount (optional) */}
+      <div className="space-y-3">
+        <div>
+          <label className="text-sm font-semibold mb-1.5 block">Request a specific amount (optional)</label>
+          <div className="grid grid-cols-4 gap-2 mb-2">
+            {[1, 5, 10, 25].map(a => (
+              <button key={a} onClick={() => setRequestAmount(requestAmount === String(a) ? '' : String(a))}
+                className={`py-2 rounded-xl font-bold text-sm border-2 transition-all ${
+                  requestAmount === String(a) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
+                }`}>
+                ${a}
+              </button>
+            ))}
+          </div>
+          <input type="number" min="0.01" step="0.01" placeholder="Custom amount (USD)…"
+            value={requestAmount && !['1','5','10','25'].includes(requestAmount) ? requestAmount : ''}
+            onChange={e => setRequestAmount(e.target.value)}
+            className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+        </div>
+        <div>
+          <label className="text-sm font-semibold mb-1.5 block">Note (optional)</label>
+          <input type="text" maxLength={80} placeholder="What's it for?" value={requestNote} onChange={e => setRequestNote(e.target.value)}
+            className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+        </div>
+      </div>
+
+      {/* QR Code */}
+      <div className="flex flex-col items-center gap-4 p-6 border border-border rounded-2xl bg-card">
+        <div className="flex items-center gap-2 mb-1">
+          <QrCode className="w-4 h-4 text-primary" />
+          <p className="font-bold text-sm">Scan to pay @{username}</p>
+        </div>
+        <div className="p-3 bg-white rounded-2xl shadow-sm border border-border">
+          <img
+            src={qrImageUrl}
+            alt={`QR code to pay @${username}`}
+            width={220}
+            height={220}
+            className="rounded-xl"
+          />
+        </div>
+        {requestAmount && parseFloat(requestAmount) > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 rounded-full">
+            <span className="text-sm font-black text-primary">Requesting ${parseFloat(requestAmount).toFixed(2)}</span>
+            {requestNote && <span className="text-xs text-muted-foreground">· {requestNote}</span>}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground text-center max-w-xs">
+          Show this QR code to anyone — they'll be taken directly to the Send Money page pre-filled with your username.
+        </p>
+      </div>
+
+      {/* Action buttons */}
+      <div className="grid grid-cols-2 gap-3">
+        <button onClick={copyLink}
+          className="flex items-center justify-center gap-2 py-3 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors">
+          {copied ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+          {copied ? 'Copied!' : 'Copy Link'}
+        </button>
+        <button onClick={shareLink}
+          className="flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity">
+          <Send className="w-4 h-4" />
+          Share Link
+        </button>
+      </div>
+
+      <div className="bg-muted/30 rounded-2xl p-3 text-xs text-muted-foreground">
+        <strong>Payment link:</strong>{' '}
+        <span className="break-all font-mono text-[10px]">{payUrl.length > 80 ? payUrl.slice(0, 80) + '…' : payUrl}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Payout Schedule Card ──────────────────────────────────────────────────
+function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultPhone: string | null }) {
+  const [schedule, setSchedule] = useState<any | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [enabled, setEnabled]   = useState(false);
+  const [frequency, setFrequency] = useState<'weekly' | 'monthly'>('monthly');
+  const [minAmount, setMinAmount] = useState('5');
+  const [phone, setPhone]         = useState(defaultPhone ?? '');
+
+  useEffect(() => { fetchSchedule(); }, [userId]);
+  useEffect(() => { if (defaultPhone && !phone) setPhone(defaultPhone); }, [defaultPhone]);
+
+  const fetchSchedule = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('payout_schedules')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (data) {
+      setSchedule(data);
+      setEnabled(data.is_active);
+      setFrequency(data.frequency ?? 'monthly');
+      setMinAmount(String(data.minimum_amount ?? 5));
+      setPhone(data.payout_destination ?? defaultPhone ?? '');
+    }
+    setLoading(false);
+  };
+
+  const handleSave = async () => {
+    const phoneTrimmed = phone.trim();
+    if (enabled && phoneTrimmed.replace(/\D/g, '').length < 9) {
+      toast.error('Enter a valid M-Pesa phone number');
+      return;
+    }
+    setSaving(true);
+
+    const nextPayout = new Date();
+    if (frequency === 'weekly') {
+      nextPayout.setDate(nextPayout.getDate() + 7);
+    } else {
+      nextPayout.setMonth(nextPayout.getMonth() + 1);
+    }
+    nextPayout.setHours(9, 0, 0, 0);
+
+    const payload = {
+      user_id: userId,
+      frequency,
+      payout_method: 'mpesa',
+      payout_destination: phoneTrimmed,
+      minimum_amount: parseFloat(minAmount) || 5,
+      is_active: enabled,
+      next_payout_at: enabled ? nextPayout.toISOString() : null,
+    };
+
+    let err;
+    if (schedule) {
+      const { error } = await supabase
+        .from('payout_schedules')
+        .update(payload)
+        .eq('id', schedule.id);
+      err = error;
+    } else {
+      const { error } = await supabase
+        .from('payout_schedules')
+        .insert(payload);
+      err = error;
+    }
+
+    setSaving(false);
+    if (err) { toast.error('Failed to save schedule'); return; }
+    toast.success(enabled ? `Auto-payout scheduled ${frequency}` : 'Auto-payout disabled');
+    fetchSchedule();
+  };
+
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-border p-5 flex items-center justify-center">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden">
+      <div className="px-5 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-primary" />
+            <h3 className="font-bold text-sm">Auto-Payout Schedule</h3>
+          </div>
+          <button
+            onClick={() => setEnabled(v => !v)}
+            className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+          </button>
+        </div>
+
+        {enabled ? (
+          <div className="space-y-4">
+            {/* Frequency */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block font-semibold uppercase tracking-wide">Frequency</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['weekly', 'monthly'] as const).map(f => (
+                  <button key={f} onClick={() => setFrequency(f)}
+                    className={`py-2.5 rounded-xl font-bold text-sm border-2 capitalize transition-all ${
+                      frequency === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
+                    }`}>{f}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Minimum amount */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block font-semibold uppercase tracking-wide">Minimum payout (USD)</label>
+              <div className="grid grid-cols-4 gap-2 mb-2">
+                {['5', '10', '25', '50'].map(v => (
+                  <button key={v} onClick={() => setMinAmount(v)}
+                    className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${
+                      minAmount === v ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
+                    }`}>${v}</button>
+                ))}
+              </div>
+              <input type="number" min="1" step="0.01" placeholder="Custom minimum…"
+                value={!['5','10','25','50'].includes(minAmount) ? minAmount : ''}
+                onChange={e => setMinAmount(e.target.value)}
+                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Payout only runs when your balance ≥ ${parseFloat(minAmount || '0').toFixed(2)}
+              </p>
+            </div>
+
+            {/* M-Pesa destination */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block font-semibold uppercase tracking-wide flex items-center gap-1.5">
+                <Phone className="w-3 h-3" />M-Pesa destination
+              </label>
+              <input type="tel" placeholder="0712 345 678" value={phone} onChange={e => setPhone(e.target.value)}
+                className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+            </div>
+
+            {/* Next payout info */}
+            {schedule?.next_payout_at && (
+              <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/15 rounded-xl">
+                <RefreshCw className="w-4 h-4 text-primary shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold">Next scheduled payout</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {new Date(schedule.next_payout_at).toLocaleDateString('en', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground mb-4">
+            Automatically withdraw your earnings to M-Pesa on a weekly or monthly schedule when your balance reaches a minimum threshold.
+          </p>
+        )}
+
+        <button onClick={handleSave} disabled={saving}
+          className="w-full mt-4 py-2.5 bg-primary text-primary-foreground rounded-xl font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
+          {saving ? 'Saving…' : enabled ? 'Save Schedule' : 'Save (Disabled)'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ── Spending Analytics Tab ────────────────────────────────────────────────
 function SpendingAnalyticsTab({ userId }: { userId: string }) {
@@ -91,7 +477,6 @@ function SpendingAnalyticsTab({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-5">
-      {/* Period selector */}
       <div className="flex gap-1 bg-muted rounded-xl p-1">
         {(['week', 'month', 'all'] as const).map(p => (
           <button key={p} onClick={() => setPeriod(p)}
@@ -105,7 +490,6 @@ function SpendingAnalyticsTab({ userId }: { userId: string }) {
         <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
       ) : (
         <>
-          {/* KPI row */}
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: 'Total Deposited', value: `$${totalIn.toFixed(2)}`, sub: `KES ${Math.round(totalIn * USD_TO_KES).toLocaleString()}`, color: 'text-green-600', bg: 'bg-green-500/10 border-green-500/20' },
@@ -121,7 +505,6 @@ function SpendingAnalyticsTab({ userId }: { userId: string }) {
             ))}
           </div>
 
-          {/* Daily flow bar chart */}
           {barData.length > 0 && (
             <div className="border border-border rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-4">
@@ -145,7 +528,6 @@ function SpendingAnalyticsTab({ userId }: { userId: string }) {
             </div>
           )}
 
-          {/* Transaction type pie */}
           {pieData.length > 0 && (
             <div className="border border-border rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-4">
@@ -167,7 +549,6 @@ function SpendingAnalyticsTab({ userId }: { userId: string }) {
             </div>
           )}
 
-          {/* Recent top-up history badges */}
           {recentDeposits.length > 0 && (
             <div className="border border-border rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -416,21 +797,34 @@ function TransactionHistoryTab({ userId }: { userId: string }) {
   const [txns, setTxns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
+  const [search, setSearch] = useState('');
 
   useEffect(() => { fetchTxns(); }, [userId, filter]);
 
   const fetchTxns = async () => {
     setLoading(true);
-    let q = supabase.from('wallet_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(100);
+    let q = supabase.from('wallet_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(200);
     if (filter !== 'all') q = q.eq('type', filter);
     const { data } = await q;
     setTxns(data ?? []);
     setLoading(false);
   };
 
+  const filtered = useMemo(() => {
+    if (!search.trim()) return txns;
+    const q = search.trim().toLowerCase();
+    return txns.filter(t =>
+      (t.description ?? '').toLowerCase().includes(q) ||
+      (t.type ?? '').toLowerCase().includes(q) ||
+      (t.payment_method ?? '').toLowerCase().includes(q) ||
+      (t.reference ?? '').toLowerCase().includes(q) ||
+      String(t.amount).includes(q)
+    );
+  }, [txns, search]);
+
   const downloadCSV = () => {
     const headers = ['Date', 'Type', 'Amount', 'Status', 'Method', 'Description'];
-    const rows = txns.map(t => [
+    const rows = filtered.map(t => [
       new Date(t.created_at).toLocaleString(), t.type, t.amount, t.status,
       t.payment_method ?? '', t.description ?? ''
     ]);
@@ -460,31 +854,59 @@ function TransactionHistoryTab({ userId }: { userId: string }) {
         </div>
       </div>
 
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by description, method, amount, ref…"
+          className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
       <div className="flex items-center gap-2">
-        <div className="flex gap-1 bg-muted rounded-xl p-1 flex-1">
+        <div className="flex gap-1 bg-muted rounded-xl p-1 flex-1 overflow-x-auto">
           {(['all', 'deposit', 'withdrawal', 'earnings'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
-              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+              className={`flex-shrink-0 flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
                 filter === f ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}>{f}</button>
           ))}
         </div>
-        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground" title="Download CSV">
+        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0" title="Download CSV">
           <Download className="w-4 h-4" />
         </button>
       </div>
 
+      {search && (
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Filter className="w-3 h-3" />
+          {filtered.length} result{filtered.length !== 1 ? 's' : ''} for "{search}"
+        </p>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-      ) : txns.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="text-center py-12">
           <Wallet className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="font-semibold text-sm">No transactions{filter !== 'all' ? ` in "${filter}"` : ''}</p>
-          <p className="text-xs text-muted-foreground mt-1">Your transaction history will appear here</p>
+          <p className="font-semibold text-sm">
+            {search ? `No results for "${search}"` : `No transactions${filter !== 'all' ? ` in "${filter}"` : ''}`}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {search ? 'Try a different search term' : 'Your transaction history will appear here'}
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
-          {txns.map(tx => {
+          {filtered.map(tx => {
             const isIn = tx.type === 'deposit' || tx.type === 'earnings';
             return (
               <div key={tx.id} className="flex items-center gap-3 p-3.5 bg-card border border-border rounded-2xl hover:bg-muted/30 transition-colors">
@@ -576,9 +998,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: {
           </div>
           <button
             onClick={() => setEnabled(v => !v)}
-            className={`relative w-11 h-6 rounded-full transition-colors ${
-              enabled ? 'bg-primary' : 'bg-muted'
-            }`}
+            className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}
           >
             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
               enabled ? 'translate-x-5' : 'translate-x-0'
@@ -595,7 +1015,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: {
                   <button key={v} onClick={() => setLimitUsd(String(v))}
                     className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${
                       limitUsd === String(v) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
-                    }`}>\${v}</button>
+                    }`}>${v}</button>
                 ))}
               </div>
               <input type="number" min="1" step="1" placeholder="Custom limit…"
@@ -603,12 +1023,11 @@ function SpendLimitCard({ userId, wallet, onSaved }: {
                 onChange={e => setLimitUsd(e.target.value)}
                 className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
             </div>
-
             {limitVal > 0 && (
               <div className="mb-3 space-y-1.5">
                 <div className="flex justify-between text-xs">
                   <span className={nearLimit ? (atLimit ? 'text-red-500 font-bold' : 'text-orange-500 font-bold') : 'text-muted-foreground'}>
-                    {atLimit ? '🚫 Limit reached' : nearLimit ? '⚠️ Near limit' : `Spent today`}
+                    {atLimit ? '🚫 Limit reached' : nearLimit ? '⚠️ Near limit' : 'Spent today'}
                   </span>
                   <span className="font-semibold">${todaySpent.toFixed(2)} / ${limitVal.toFixed(2)}</span>
                 </div>
@@ -619,7 +1038,6 @@ function SpendLimitCard({ userId, wallet, onSaved }: {
                 </div>
               </div>
             )}
-
             <p className="text-xs text-muted-foreground mb-3">
               Withdrawals exceeding this limit will be blocked until midnight (server time).
             </p>
@@ -651,6 +1069,7 @@ export default function WalletPage() {
     if (tab === 'send')      return 'send';
     if (tab === 'history')   return 'history';
     if (tab === 'analytics') return 'analytics';
+    if (tab === 'receive')   return 'receive';
     return 'wallet';
   });
   const prefillTo = searchParams.get('to') ?? '';
@@ -671,7 +1090,6 @@ export default function WalletPage() {
   const [showWithdraw, setShowWithdraw] = useState(false);
   const wPollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Top-up history badge — last deposit amount
   const [lastTopUpAmount, setLastTopUpAmount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -742,7 +1160,6 @@ export default function WalletPage() {
           stopBalancePoll();
           const { error: rpcErr } = await supabase.rpc('add_to_wallet', { p_user_id: user!.id, p_amount: depositAmountUsd });
           if (rpcErr) console.warn('[wallet] add_to_wallet error:', rpcErr.message);
-          // Record transaction
           const { data: w } = await supabase.from('user_wallets').select('id').eq('user_id', user!.id).single();
           await supabase.from('wallet_transactions').insert({
             wallet_id: w?.id ?? null,
@@ -895,6 +1312,7 @@ export default function WalletPage() {
           {([
             { key: 'wallet',    label: '💳 Wallet' },
             { key: 'send',      label: '💸 Send' },
+            { key: 'receive',   label: '📥 Receive' },
             { key: 'history',   label: '📋 History' },
             { key: 'analytics', label: '📊 Analytics' },
           ] as const).map(t => (
@@ -903,7 +1321,6 @@ export default function WalletPage() {
                 activeTab === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'
               }`}>
               {t.label}
-              {/* Top-up badge on Wallet tab */}
               {t.key === 'wallet' && lastTopUpAmount !== null && (
                 <span className="absolute top-1.5 right-1 text-[8px] font-black bg-green-500 text-white px-1 py-0.5 rounded-full leading-none">
                   +${lastTopUpAmount.toFixed(0)}
@@ -914,7 +1331,7 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {/* ── Tab content ── */}
+      {/* ── Non-wallet tabs ── */}
       <div className="max-w-2xl mx-auto p-4 space-y-5">
         {activeTab === 'history' && user && (
           <TransactionHistoryTab userId={user.id} />
@@ -927,15 +1344,22 @@ export default function WalletPage() {
             prefillUsername={prefillTo}
           />
         )}
+        {activeTab === 'receive' && user && (
+          <ReceiveMoneyTab
+            username={user.username ?? user.email?.split('@')[0] ?? 'me'}
+            walletBalance={Number(wallet?.balance ?? 0)}
+          />
+        )}
         {activeTab === 'analytics' && user && (
           <SpendingAnalyticsTab userId={user.id} />
         )}
       </div>
 
+      {/* ── Wallet tab ── */}
       {activeTab === 'wallet' && (
         <div className="max-w-2xl mx-auto p-4 space-y-5">
 
-          {/* ── Balance summary ── */}
+          {/* Balance summary */}
           <div className="bg-gradient-to-br from-primary/10 to-purple-500/5 border border-primary/20 rounded-2xl p-5">
             <div className="flex items-center justify-between mb-1">
               <p className="text-sm font-semibold text-muted-foreground">Wallet Balance</p>
@@ -949,9 +1373,19 @@ export default function WalletPage() {
             <p className="text-sm text-muted-foreground mt-0.5">
               ≈ KES {Math.floor(Number(wallet?.balance ?? 0) * USD_TO_KES).toLocaleString()}
             </p>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setActiveTab('receive')}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary/10 border border-primary/20 rounded-xl text-primary font-semibold text-xs hover:bg-primary/15 transition-colors">
+                <QrCode className="w-3.5 h-3.5" /> Receive
+              </button>
+              <button onClick={() => setActiveTab('send')}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-xs hover:opacity-90 transition-opacity">
+                <Send className="w-3.5 h-3.5" /> Send
+              </button>
+            </div>
           </div>
 
-          {/* ── M-Pesa Top-Up ── */}
+          {/* M-Pesa Top-Up */}
           <div className="bg-gradient-to-br from-green-600/10 via-emerald-500/5 to-transparent border border-green-600/20 rounded-2xl overflow-hidden">
             <button
               onClick={() => { resetTopUp(); setShowTopUp(v => !v); }}
@@ -1073,7 +1507,7 @@ export default function WalletPage() {
             )}
           </div>
 
-          {/* ── M-Pesa Withdrawal ── */}
+          {/* M-Pesa Withdrawal */}
           <div className="bg-gradient-to-br from-orange-600/10 via-red-500/5 to-transparent border border-orange-600/20 rounded-2xl overflow-hidden">
             <button
               onClick={() => { resetWithdraw(); setShowWithdraw(v => !v); }}
@@ -1190,12 +1624,20 @@ export default function WalletPage() {
 
           <WalletDashboard />
 
-          {/* ── Spend Limit Controls ── */}
+          {/* Spend Limit Controls */}
           {user && wallet && (
             <SpendLimitCard userId={user.id} wallet={wallet} onSaved={fetchWallet} />
           )}
 
-          {/* ── Wallet Notifications hint ── */}
+          {/* Auto-Payout Scheduling */}
+          {user && (
+            <PayoutScheduleCard userId={user.id} defaultPhone={wallet?.mpesa_phone ?? null} />
+          )}
+
+          {/* M-Pesa Setup Guide */}
+          <MpesaSecretsGuide />
+
+          {/* Wallet Notifications hint */}
           <div className="flex items-start gap-3 p-4 bg-muted/40 border border-border rounded-2xl">
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
               <Bell className="w-4 h-4 text-primary" />
