@@ -10,11 +10,8 @@ interface VideoMonetizationAdProps {
   skipAfterSeconds?: number;
 }
 
-const AD_REVENUE_PER_VIEW = 0.0003; // $0.0003 per ad view
-const CREATOR_SHARE = 0.30;         // 30% to creator
-const PLATFORM_SHARE = 0.70;        // 70% to platform
-
-let nativeAdShownThisSession = new Set<string>();
+const AD_REVENUE_PER_VIEW = 0.0003;
+const CREATOR_SHARE = 0.30;
 
 export function VideoMonetizationAd({
   postId,

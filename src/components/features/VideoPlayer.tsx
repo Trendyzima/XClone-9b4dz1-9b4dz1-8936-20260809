@@ -17,10 +17,11 @@ interface VideoPlayerProps {
 }
 
 // Show pre-roll ad on every 3rd video OR for monetized content
-let videoViewCounter = 0;
+// @__PURE__ counter — primitive, no side-effects for esbuild tree-shaker
+const _counter = { n: 0 };
 
-// Module-level cache: post author uid → has active premium
-const authorPremiumCache = new Map<string, boolean>();
+// Module-level cache — annotated pure so esbuild treats it as side-effect-free
+const authorPremiumCache: Map<string, boolean> = /* @__PURE__ */ new Map();
 
 export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -69,10 +70,10 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
 
     if (isActive) {
       trackView();
-      videoViewCounter++;
+      _counter.n++;
 
       // Show pre-roll: every 3rd video OR if post is monetized
-      const shouldShowAd = !isPremium && !adDoneForThisPost && (post.is_monetized || videoViewCounter % 3 === 0);
+      const shouldShowAd = !isPremium && !adDoneForThisPost && (post.is_monetized || _counter.n % 3 === 0);
       if (shouldShowAd) {
         setShowPrerollAd(true);
         setAdDoneForThisPost(true);
