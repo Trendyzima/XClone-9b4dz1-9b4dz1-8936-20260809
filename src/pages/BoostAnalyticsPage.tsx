@@ -11,7 +11,7 @@ import {
 import {
   TrendingUp, Eye, MousePointerClick, DollarSign, Users,
   Loader2, AlertCircle, Calendar, Zap, Target, ArrowUpRight,
-  BarChart3, RefreshCw, List, Clock, CheckCircle2, XCircle
+  BarChart3, RefreshCw, List, Clock, CheckCircle2, XCircle, Tag, Hash
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/utils';
@@ -369,6 +369,16 @@ export default function BoostAnalyticsPage() {
               {allBoosts.map((b) => {
                 const bCtr = b.impressions > 0 ? ((b.clicks / b.impressions) * 100).toFixed(1) : '0.0';
                 const bBudgetPct = b.budget > 0 ? Math.min(100, Math.round((b.spent / b.budget) * 100)) : 0;
+                const bAudience = b.target_audience ?? {};
+                const bAgeRange = bAudience.age_min && bAudience.age_max ? `${bAudience.age_min}–${bAudience.age_max}` : null;
+                const bInterests: string[] = bAudience.interests ?? [];
+                const OBJECTIVE_BADGE: Record<string, { label: string; cls: string }> = {
+                  reach:       { label: '📡 Reach',       cls: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30' },
+                  engagement:  { label: '💬 Engagement',  cls: 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30' },
+                  conversions: { label: '🎯 Conversions', cls: 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30' },
+                  video_views: { label: '🎬 Video Views', cls: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30' },
+                };
+                const objBadge = OBJECTIVE_BADGE[b.boost_type] ?? { label: b.boost_type?.replace(/_/g, ' ') ?? 'Promoted', cls: 'bg-muted text-muted-foreground border-border' };
                 return (
                   <div key={b.id} className="px-5 py-4 hover:bg-muted/20 transition-colors">
                     <div className="flex items-start gap-3">
@@ -379,11 +389,26 @@ export default function BoostAnalyticsPage() {
                           : <XCircle className="w-5 h-5" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            b.is_active ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
-                          }`}>{b.is_active ? 'Active' : 'Ended'}</span>
-                          <span className="text-[10px] text-muted-foreground capitalize">{b.boost_type?.replace(/_/g, ' ') || 'Promoted'}</span>
+                        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                          {/* Status badge */}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            b.is_active ? 'bg-green-500/10 text-green-600 border-green-500/30' : 'bg-muted text-muted-foreground border-border'
+                          }`}>{b.is_active ? '● Active' : '○ Ended'}</span>
+                          {/* Objective badge */}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${objBadge.cls}`}>
+                            {objBadge.label}
+                          </span>
+                          {/* Audience chips */}
+                          {bAgeRange && (
+                            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded-full">
+                              <Tag className="w-2.5 h-2.5" />{bAgeRange} yrs
+                            </span>
+                          )}
+                          {bInterests.slice(0, 2).map((interest: string) => (
+                            <span key={interest} className="flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded-full">
+                              <Hash className="w-2.5 h-2.5" />{interest}
+                            </span>
+                          ))}
                         </div>
                         <p className="text-sm font-medium line-clamp-1 mb-2">
                           {b.posts?.content?.slice(0, 80) || 'Post boost'}
