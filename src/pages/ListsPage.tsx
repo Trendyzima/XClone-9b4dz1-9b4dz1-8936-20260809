@@ -6,9 +6,6 @@ import { List, Plus, Lock, Globe, Users, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { TopBar } from '@/components/layout/TopBar';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
 
 export function ListsPage() {
   const { user } = useAuth();
