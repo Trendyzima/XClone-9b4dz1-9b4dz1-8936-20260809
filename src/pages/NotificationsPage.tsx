@@ -1,5 +1,20 @@
 
 import { useState, useEffect, useRef } from 'react';
+import { useSEO } from '@/hooks/useSEO';
+import { TopBar } from '@/components/layout/TopBar';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
+import {
+  Heart, Repeat2, UserPlus, MessageCircle, AtSign,
+  BadgeCheck, Loader2, DollarSign, CheckCircle2, Smartphone,
+  TrendingUp, Bell, CreditCard, ArrowDownLeft, Globe, UserCheck,
+  Star, ExternalLink, RefreshCw, Flame, Trophy, Zap, XCircle, Megaphone,
+  Settings2,
+} from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
+import { useFediversePolling } from '@/hooks/useFediversePolling';
 
 // ── AdSense banner — push-guarded ─────────────────────────────────────────────
 function NotificationsAdBanner() {
@@ -23,21 +38,6 @@ function NotificationsAdBanner() {
     </div>
   );
 }
-import { useSEO } from '@/hooks/useSEO';
-import { TopBar } from '@/components/layout/TopBar';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
-import {
-  Heart, Repeat2, UserPlus, MessageCircle, AtSign,
-  BadgeCheck, Loader2, DollarSign, CheckCircle2, Smartphone,
-  TrendingUp, Bell, CreditCard, ArrowDownLeft, Globe, UserCheck,
-  Star, ExternalLink, RefreshCw, Flame, Trophy, Zap, XCircle, Megaphone,
-  Settings2,
-} from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
-import { useFediversePolling } from '@/hooks/useFediversePolling';
 
 const PAGE_SIZE = 20;
 

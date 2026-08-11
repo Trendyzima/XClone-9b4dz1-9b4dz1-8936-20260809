@@ -14,7 +14,6 @@ import {
 } from 'recharts';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
-import { isAdMobSupported } from '@/lib/admob';
 
 interface StreamMessage {
   id: string;
@@ -91,9 +90,8 @@ export default function LiveStreamPage() {
     structuredData: streamJsonLd,
   });
 
-  // AdSense web banner push (native uses real AdMob)
+  // AdSense web banner on mount
   useEffect(() => {
-    if (isAdMobSupported()) return;
     if (adPushedRef.current) return;
     adPushedRef.current = true;
     try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
@@ -509,8 +507,8 @@ export default function LiveStreamPage() {
         )}
       </div>
 
-      {/* AdSense banner — web only (native uses AdMob) */}
-      {!isAdMobSupported() && <LiveStreamAdBanner />}
+      {/* AdSense banner */}
+      <LiveStreamAdBanner />
 
       {/* CSS for floating reactions */}
       <style>{`
