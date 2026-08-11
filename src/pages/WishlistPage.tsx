@@ -25,7 +25,7 @@ interface WishlistProduct {
 
 const WISHLIST_KEY = 'product_wishlist';
 
-export function WishlistPage() {
+export default function WishlistPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [wishlistIds, setWishlistIds] = useState<string[]>([]);
@@ -265,4 +265,3 @@ export function WishlistPage() {
   );
 }
 
-export default WishlistPage;

@@ -108,7 +108,7 @@ const INTEREST_CATEGORIES: InterestCategory[] = [
 
 const MIN_SELECTIONS = 5;
 
-export function InterestOnboardingPage() {
+export default function InterestOnboardingPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
@@ -359,4 +359,3 @@ export function InterestOnboardingPage() {
   );
 }
 
-export default InterestOnboardingPage;

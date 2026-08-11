@@ -75,8 +75,8 @@ const TrendingTopicFeedPage = lazy(() => import('@/pages/TrendingTopicFeedPage')
 const HashtagChallengePage = lazy(() => import('@/pages/HashtagChallengePage'));
 const AdminAdsDashboard = lazy(() => import('@/pages/AdminAdsDashboard'));
 const NotificationPreferencesPage = lazy(() => import('@/pages/NotificationPreferencesPage'));
-const WishlistPage = lazy(() => import('@/pages/WishlistPage').then(m => ({ default: m.WishlistPage })));
-const InterestOnboardingPage = lazy(() => import('@/pages/InterestOnboardingPage').then(m => ({ default: m.InterestOnboardingPage })));
+const WishlistPage = lazy(() => import('@/pages/WishlistPage'));
+const InterestOnboardingPage = lazy(() => import('@/pages/InterestOnboardingPage'));
 
 function PageLoader() {
   return (
