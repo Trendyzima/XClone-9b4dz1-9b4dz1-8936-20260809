@@ -43,7 +43,8 @@ export function StoriesStrip() {
   const storyAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Live countdown tick — updates every second when viewer is open
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [currentTime, setCurrentTime] = useState(0); // hydrated in effect — avoids esbuild non-determinism
+  useEffect(() => { setCurrentTime(Date.now()); }, []);
   useEffect(() => {
     if (viewerGroupIdx === null) return;
     const iv = setInterval(() => setCurrentTime(Date.now()), 1000);
