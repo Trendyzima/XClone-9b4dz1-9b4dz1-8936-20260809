@@ -110,13 +110,16 @@ export function VideoMonetizationAd({
         </p>
       </div>
 
-      {/* Skip button — sits above bottom nav bar + safe-area inset */}
-      <div className="relative z-20 flex justify-end items-center px-5" style={{ paddingBottom: 'calc(72px + env(safe-area-inset-bottom, 0px))', paddingTop: '12px' }}>
+      {/* Skip button — anchored to right-centre of screen, never behind bottom nav */}
+      <div
+        className="absolute z-50 right-5"
+        style={{ top: '55%', transform: 'translateY(-50%)' }}
+      >
         {canSkip ? (
           <button
             onClick={handleSkip}
             style={{ touchAction: 'manipulation', minWidth: 44, minHeight: 44 }}
-            className="flex items-center gap-2 px-5 py-3 bg-white text-black font-bold text-sm rounded-full active:scale-95 transition-all shadow-xl"
+            className="flex items-center gap-2 px-5 py-3 bg-white text-black font-bold text-sm rounded-full active:scale-95 transition-all shadow-2xl ring-2 ring-black/10"
           >
             <X className="w-4 h-4" />
             Skip Ad
@@ -124,7 +127,7 @@ export function VideoMonetizationAd({
         ) : (
           <div
             style={{ minWidth: 44, minHeight: 44 }}
-            className="flex items-center justify-center gap-2 px-5 py-3 bg-black/70 border border-white/40 text-white text-sm font-semibold rounded-full"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-black/75 border-2 border-white/30 text-white text-sm font-bold rounded-full shadow-2xl backdrop-blur-sm"
           >
             Skip in {countdown}s
           </div>
