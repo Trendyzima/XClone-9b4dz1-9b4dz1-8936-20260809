@@ -157,6 +157,8 @@ export default function CreateThreadPage() {
 
   // ── AI Outline ─────────────────────────────────────────────────────────────
   const [outlineLoading, setOutlineLoading] = useState(false);
+  const [outlinePreview, setOutlinePreview] = useState<string | null>(null);
+  const [showOutlinePreview, setShowOutlinePreview] = useState(false);
 
   const handleAutoOutline = async () => {
     if (!title.trim()) {
@@ -186,14 +188,22 @@ Requirements:
       if (error) throw error;
       const raw: string = data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? '';
       if (!raw.trim()) throw new Error('Empty response');
-      const outline = raw.trim();
-      setContent(prev => prev ? prev + '\n\n' + outline : outline);
-      sonnerToast.success('Outline inserted — fill in each section!');
+      // Show preview modal instead of inserting directly
+      setOutlinePreview(raw.trim());
+      setShowOutlinePreview(true);
     } catch {
       sonnerToast.error('Could not generate outline. Try again.');
     } finally {
       setOutlineLoading(false);
     }
+  };
+
+  const applyOutlinePreview = () => {
+    if (!outlinePreview) return;
+    setContent(prev => prev ? prev + '\n\n' + outlinePreview : outlinePreview);
+    setShowOutlinePreview(false);
+    setOutlinePreview(null);
+    sonnerToast.success('Outline inserted — fill in each section!');
   };
 
   // ── AI Writer ────────────────────────────────────────────────────────────
@@ -321,6 +331,51 @@ Requirements:
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Create Thread" showBack />
       <CreateThreadAdBanner />
+
+      {/* ── AI Outline Preview Modal ── */}
+      {showOutlinePreview && outlinePreview && (
+        <div className="fixed inset-0 z-[500] bg-black/60 flex items-end justify-center p-4" onClick={() => setShowOutlinePreview(false)}>
+          <div className="bg-background border border-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div className="flex items-center gap-2 flex-wrap">
+                <LayoutList className="w-4 h-4 text-teal-500 shrink-0" />
+                <span className="font-bold text-sm">AI Outline Preview</span>
+                <span className="text-[10px] font-medium bg-teal-500/10 text-teal-600 px-2 py-0.5 rounded-full">Review before inserting</span>
+              </div>
+              <button onClick={() => setShowOutlinePreview(false)} className="p-1.5 rounded-full hover:bg-muted text-muted-foreground shrink-0 ml-2">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 max-h-[50vh] overflow-y-auto">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
+                For: <span className="text-teal-600 normal-case font-semibold">{title}</span>
+              </p>
+              <pre className="whitespace-pre-wrap text-sm text-foreground font-mono leading-relaxed bg-muted/30 rounded-xl p-4 border border-border">{outlinePreview}</pre>
+            </div>
+            <div className="flex gap-3 px-5 py-4 border-t border-border bg-muted/20">
+              <button
+                onClick={() => {
+                  setShowOutlinePreview(false);
+                  setOutlinePreview(null);
+                  handleAutoOutline();
+                }}
+                disabled={outlineLoading}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50 bg-background"
+              >
+                {outlineLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LayoutList className="w-4 h-4" />}
+                Regenerate
+              </button>
+              <button
+                onClick={applyOutlinePreview}
+                className="flex-[2] flex items-center justify-center gap-2 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-bold transition-colors shadow-md"
+              >
+                <FileText className="w-4 h-4" />
+                Insert into Editor
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-2xl mx-auto p-4 space-y-6">
         {/* Cover media */}
@@ -463,7 +518,7 @@ Requirements:
                 {outlineLoading
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   : <LayoutList className="w-3.5 h-3.5" />}
-                {outlineLoading ? 'Outlining…' : 'Auto-Outline'}
+                {outlineLoading ? 'Generating…' : 'Auto-Outline'}
               </button>
               <button
                 onClick={() => { setAiTarget('content'); setShowAiWriter(v => aiTarget === 'content' ? !v : true); setAiDrafts([]); }}

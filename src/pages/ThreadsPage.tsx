@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Loader2, BadgeCheck, Heart, MessageCircle, TrendingUp, BookOpen, Video, Image as ImageIcon, Clock } from 'lucide-react';
+import { Plus, Loader2, BadgeCheck, Heart, MessageCircle, TrendingUp, BookOpen, Video, Image as ImageIcon, Clock, Bookmark } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { useSEO } from '@/hooks/useSEO';
@@ -94,7 +94,7 @@ export default function ThreadsPage() {
     structuredData: threadsJsonLd,
   });
 
-  const tabs = ['For You', 'Following', 'Trending'];
+  const tabs = ['For You', 'Following', 'Trending', 'Reading List'];
 
   useEffect(() => {
     fetchThreads();
@@ -103,6 +103,30 @@ export default function ThreadsPage() {
   const fetchThreads = async () => {
     setLoading(true);
     try {
+      // Reading List — fetch from thread_bookmarks
+      if (activeTab === 'Reading List') {
+        if (!user) { setThreads([]); setLoading(false); return; }
+        const { data: bookmarks } = await supabase
+          .from('thread_bookmarks')
+          .select('thread_id')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        const bookmarkIds = (bookmarks ?? []).map((b: any) => b.thread_id).filter(Boolean);
+        if (bookmarkIds.length === 0) { setThreads([]); setLoading(false); return; }
+        const { data: savedData, error: savedErr } = await supabase
+          .from('threads')
+          .select(`id, user_id, title, content, cover_image, media_url, media_type,
+            views_count, likes_count, reposts_count, replies_count, created_at,
+            user_profiles (id, username, avatar_url, verified)`)
+          .in('id', bookmarkIds)
+          .eq('is_published', true);
+        if (savedErr) throw savedErr;
+        setThreads(savedData || []);
+        setLoading(false);
+        return;
+      }
+
       let query = supabase
         .from('threads')
         .select(`
@@ -188,13 +212,22 @@ export default function ThreadsPage() {
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
+      ) : activeTab === 'Reading List' && !user ? (
+        <div className="text-center py-16 px-4">
+          <Bookmark className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-40" />
+          <p className="text-muted-foreground text-sm">Sign in to see your reading list</p>
+        </div>
       ) : threads.length === 0 ? (
         <div className="text-center py-12 px-4">
-          <TrendingUp className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+          {activeTab === 'Reading List'
+            ? <Bookmark className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+            : <TrendingUp className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />}
           <p className="text-muted-foreground">
-            {activeTab === 'Following' 
-              ? 'No threads from people you follow' 
-              : 'No threads yet'}
+            {activeTab === 'Following'
+              ? 'No threads from people you follow'
+              : activeTab === 'Reading List'
+                ? 'No saved threads — bookmark threads to add them here'
+                : 'No threads yet'}
           </p>
         </div>
       ) : (
@@ -232,6 +265,12 @@ export default function ThreadsPage() {
                         </div>
                         <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })}</span>
                       </div>
+                      {/* Reading List saved badge */}
+                      {activeTab === 'Reading List' && (
+                        <span className="flex items-center gap-0.5 text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full shrink-0 mr-1">
+                          <Bookmark className="w-2.5 h-2.5" fill="currentColor" />Saved
+                        </span>
+                      )}
                       {/* Meta badges */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         {hasVideo && (

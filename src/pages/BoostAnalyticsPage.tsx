@@ -12,7 +12,7 @@ import {
   TrendingUp, Eye, MousePointerClick, DollarSign, Users,
   Loader2, AlertCircle, Calendar, Zap, Target, ArrowUpRight,
   BarChart3, RefreshCw, List, Clock, CheckCircle2, XCircle, Tag, Hash,
-  Pause, Play, RefreshCcw, ChevronDown
+  Pause, Play, RefreshCcw, ChevronDown, Plus, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/utils';
@@ -37,6 +37,9 @@ export default function BoostAnalyticsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [togglingPause, setTogglingPause] = useState<string | null>(null);
   const [togglingRenew, setTogglingRenew] = useState<string | null>(null);
+  const [topUpBoostId, setTopUpBoostId] = useState<string | null>(null);
+  const [topUpAmount, setTopUpAmount] = useState<string>('5');
+  const [toppingUp, setToppingUp] = useState(false);
   const [compareA, setCompareA] = useState<string>('');
   const [compareB, setCompareB] = useState<string>('');
 
@@ -136,6 +139,23 @@ export default function BoostAnalyticsPage() {
   const handleUpdateRenewDays = async (boostId: string, newDays: number) => {
     setAllBoosts(prev => prev.map(b => b.id === boostId ? { ...b, auto_renew_days: newDays } : b));
     await supabase.from('boosted_posts').update({ auto_renew_days: newDays }).eq('id', boostId);
+  };
+
+  const handleTopUp = async (boostId: string, currentBudget: number) => {
+    const amount = parseFloat(topUpAmount);
+    if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
+    setToppingUp(true);
+    const { error: walletErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: user!.id, p_amount: amount });
+    if (walletErr) { toast.error('Insufficient wallet balance'); setToppingUp(false); return; }
+    const newBudget = currentBudget + amount;
+    const { error } = await supabase.from('boosted_posts').update({ budget: newBudget }).eq('id', boostId);
+    if (error) { toast.error(error.message); setToppingUp(false); return; }
+    setAllBoosts(prev => prev.map(b => b.id === boostId ? { ...b, budget: newBudget } : b));
+    if (boost?.id === boostId) setBoost((prev: any) => prev ? { ...prev, budget: newBudget } : prev);
+    toast.success(`+$${amount.toFixed(2)} added to campaign budget`);
+    setTopUpBoostId(null);
+    setTopUpAmount('5');
+    setToppingUp(false);
   };
 
   const handleTogglePause = async (boostId: string, currentIsActive: boolean) => {
@@ -489,6 +509,47 @@ export default function BoostAnalyticsPage() {
                           {formatDistanceToNow(new Date(b.created_at), { addSuffix: true })}
                         </div>
                       </div>
+                          {/* Top-up Budget button */}
+                          {topUpBoostId === b.id ? (
+                            <div className="flex flex-col items-end gap-1" onClick={e => e.stopPropagation()}>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] font-bold text-muted-foreground">$</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  value={topUpAmount}
+                                  onChange={e => setTopUpAmount(e.target.value)}
+                                  autoFocus
+                                  className="w-16 text-xs font-bold border border-green-500/40 rounded-lg px-2 py-1 bg-green-500/5 text-green-700 dark:text-green-400 focus:outline-none focus:ring-1 focus:ring-green-500/40"
+                                />
+                              </div>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => handleTopUp(b.id, b.budget || 0)}
+                                  disabled={toppingUp}
+                                  className="flex items-center gap-0.5 px-2 py-0.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-400 text-[10px] font-bold hover:bg-green-500/20 disabled:opacity-50"
+                                >
+                                  {toppingUp ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Plus className="w-2.5 h-2.5" />}
+                                  Add
+                                </button>
+                                <button
+                                  onClick={() => { setTopUpBoostId(null); setTopUpAmount('5'); }}
+                                  className="p-0.5 rounded-lg hover:bg-muted text-muted-foreground"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={e => { e.stopPropagation(); setTopUpBoostId(b.id); setTopUpAmount('5'); }}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400 text-xs font-bold hover:bg-green-500/20 transition-all"
+                              title="Add budget to campaign"
+                            >
+                              <Plus className="w-3 h-3" /> Budget
+                            </button>
+                          )}
                           {/* Pause / Resume button */}
                           <button
                             onClick={e => { e.stopPropagation(); handleTogglePause(b.id, !!b.is_active); }}
