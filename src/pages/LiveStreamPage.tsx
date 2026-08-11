@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -25,11 +24,10 @@ interface StreamMessage {
   user_profiles?: { username: string; avatar_url?: string; verified?: boolean };
 }
 
-// Floating reaction particle
 interface FloatReaction {
   id: string;
   emoji: string;
-  x: number; // 0-100 left%
+  x: number;
 }
 
 const REACTION_EMOJIS = ['❤️', '🔥', '😂', '👏', '😮', '🎉'];
@@ -48,21 +46,18 @@ export default function LiveStreamPage() {
   const chatRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<any>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const adPushedRef = useRef(false);
 
-  // Reaction overlay state
   const [floatReactions, setFloatReactions] = useState<FloatReaction[]>([]);
   const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
   const [showReactionBar, setShowReactionBar] = useState(false);
   const reactionBarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const floatIdRef = useRef(0);
-  // Chat analytics
   const [showChatAnalytics, setShowChatAnalytics] = useState(false);
   const [chatAnalytics, setChatAnalytics] = useState<any>(null);
   const [loadingChatAnalytics, setLoadingChatAnalytics] = useState(false);
-  // Message frequency chart (messages per minute rolling window)
   const [msgFreqChart, setMsgFreqChart] = useState<{min: string; count: number}[]>([]);
 
-  // ── SEO — BroadcastEvent JSON-LD ────────────────────────────
   const streamJsonLd = stream ? {
     '@context': 'https://schema.org',
     '@type': 'BroadcastEvent',
@@ -74,11 +69,7 @@ export default function LiveStreamPage() {
     videoFormat: 'live',
     isAccessibleForFree: true,
     image: stream.thumbnail_url || 'https://testagram.site/tsocial-logo.png',
-    broadcaster: {
-      '@type': 'Organization',
-      name: 'Testagram',
-      url: 'https://testagram.site',
-    },
+    broadcaster: { '@type': 'Organization', name: 'Testagram', url: 'https://testagram.site' },
     ...(stream.user_profiles ? {
       performer: {
         '@type': 'Person',
@@ -87,6 +78,7 @@ export default function LiveStreamPage() {
       },
     } : {}),
   } : undefined;
+
   useSEO({
     title: stream ? `🟢 ${stream.title} — Live on Testagram` : 'Live Stream — Testagram',
     description: stream
@@ -99,10 +91,9 @@ export default function LiveStreamPage() {
     structuredData: streamJsonLd,
   });
 
-  // AdSense web banner (native uses real AdMob via isAdMobSupported)
-  const adPushedRef = useRef(false);
+  // AdSense web banner push (native uses real AdMob)
   useEffect(() => {
-    if (isAdMobSupported()) return; // native: AdMob handles this
+    if (isAdMobSupported()) return;
     if (adPushedRef.current) return;
     adPushedRef.current = true;
     try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
@@ -113,13 +104,11 @@ export default function LiveStreamPage() {
     fetchStream();
     joinStream();
     fetchMessages();
-
     pollRef.current = setInterval(() => {
       fetchMessages();
       fetchViewerCount();
       buildMsgFreqChart();
     }, 3000);
-
     return () => {
       leaveStream();
       if (pollRef.current) clearInterval(pollRef.current);
@@ -207,16 +196,11 @@ export default function LiveStreamPage() {
       .order('created_at', { ascending: true })
       .limit(100);
     if (data) {
-      const regularMessages = data.filter((m: StreamMessage) => !m.message.startsWith('[REACT:'));
-      setMessages(regularMessages);
-
-      // Count reactions from chat messages
+      setMessages(data.filter((m: StreamMessage) => !m.message.startsWith('[REACT:')));
       const counts: Record<string, number> = {};
       data.forEach((m: StreamMessage) => {
         const match = m.message.match(/^\[REACT:(.+)\]$/);
-        if (match) {
-          counts[match[1]] = (counts[match[1]] ?? 0) + 1;
-        }
+        if (match) counts[match[1]] = (counts[match[1]] ?? 0) + 1;
       });
       setReactionCounts(counts);
     }
@@ -235,20 +219,12 @@ export default function LiveStreamPage() {
     }
   };
 
-  // Send a reaction — stored as special chat message `[REACT:❤️]`
   const handleReaction = useCallback(async (emoji: string) => {
-    // Add floating particle locally
     const id = String(floatIdRef.current++);
-    const x = 10 + Math.random() * 80; // random horizontal position
+    const x = 10 + Math.random() * 80;
     setFloatReactions(prev => [...prev, { id, emoji, x }]);
-    setTimeout(() => {
-      setFloatReactions(prev => prev.filter(r => r.id !== id));
-    }, 2200);
-
-    // Optimistically increment count
+    setTimeout(() => setFloatReactions(prev => prev.filter(r => r.id !== id)), 2200);
     setReactionCounts(prev => ({ ...prev, [emoji]: (prev[emoji] ?? 0) + 1 }));
-
-    // Persist to stream_chat
     if (user) {
       await supabase.from('stream_chat').insert({
         stream_id: streamId,
@@ -258,7 +234,6 @@ export default function LiveStreamPage() {
     }
   }, [user, streamId]);
 
-  // Show/hide reaction bar
   const handleVideoTap = () => {
     setShowReactionBar(true);
     if (reactionBarTimer.current) clearTimeout(reactionBarTimer.current);
@@ -287,42 +262,24 @@ export default function LiveStreamPage() {
     <div className="min-h-screen bg-black text-white flex flex-col">
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden h-screen">
         {/* Video Player */}
-        <div className="relative flex-1 bg-black flex items-center justify-center min-h-[40vh] md:min-h-0"
-          onClick={handleVideoTap}
-        >
+        <div className="relative flex-1 bg-black flex items-center justify-center min-h-[40vh] md:min-h-0" onClick={handleVideoTap}>
           {stream.stream_url ? (
-            <video
-              ref={videoRef}
-              src={stream.stream_url}
-              controls
-              autoPlay
-              muted={muted}
-              playsInline
-              className="w-full h-full object-contain max-h-screen"
-            />
+            <video ref={videoRef} src={stream.stream_url} controls autoPlay muted={muted} playsInline className="w-full h-full object-contain max-h-screen" />
           ) : (
             <div className="text-center p-8">
               <div className={`w-28 h-28 mx-auto rounded-full flex items-center justify-center mb-4 ${stream.is_live ? 'bg-red-600 animate-pulse' : 'bg-muted/30'}`}>
                 <Eye className="w-14 h-14" />
               </div>
               <h3 className="text-2xl font-bold mb-2">{stream.title}</h3>
-              <p className="text-gray-400 text-sm">
-                {stream.is_live ? 'Stream is live — video feed starting...' : 'Stream has ended'}
-              </p>
+              <p className="text-gray-400 text-sm">{stream.is_live ? 'Stream is live — video feed starting...' : 'Stream has ended'}</p>
             </div>
           )}
 
           {/* Floating Reaction Particles */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
             {floatReactions.map(r => (
-              <div
-                key={r.id}
-                className="absolute bottom-20 text-2xl animate-float-up select-none"
-                style={{
-                  left: `${r.x}%`,
-                  animation: 'floatUp 2.2s ease-out forwards',
-                }}
-              >
+              <div key={r.id} className="absolute bottom-20 text-2xl select-none"
+                style={{ left: `${r.x}%`, animation: 'floatUp 2.2s ease-out forwards' }}>
                 {r.emoji}
               </div>
             ))}
@@ -335,13 +292,9 @@ export default function LiveStreamPage() {
                 <button onClick={() => navigate(-1)} className="p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors">←</button>
                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate(`/profile/${stream.user?.username}`)}>
                   <div className="w-10 h-10 rounded-full bg-muted overflow-hidden ring-2 ring-red-500">
-                    {stream.user?.avatar_url ? (
-                      <img src={stream.user.avatar_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center font-bold">
-                        {stream.user?.username?.[0]?.toUpperCase()}
-                      </div>
-                    )}
+                    {stream.user?.avatar_url
+                      ? <img src={stream.user.avatar_url} alt="" className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center font-bold">{stream.user?.username?.[0]?.toUpperCase()}</div>}
                   </div>
                   <div>
                     <div className="flex items-center gap-1">
@@ -355,8 +308,7 @@ export default function LiveStreamPage() {
               <div className="flex items-center gap-2">
                 {stream.is_live && (
                   <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-600 rounded-full text-xs font-bold">
-                    <div className="w-1.5 h-1.5 bg-white rounded-full animate-live-pulse" />
-                    LIVE
+                    <div className="w-1.5 h-1.5 bg-white rounded-full animate-live-pulse" />LIVE
                   </div>
                 )}
                 <div className="flex items-center gap-1.5 px-2.5 py-1 bg-black/50 rounded-full text-xs font-semibold">
@@ -368,13 +320,12 @@ export default function LiveStreamPage() {
             </div>
           </div>
 
-          {/* Reaction count summary overlay (top-right area, below header) */}
+          {/* Reaction count summary */}
           {Object.keys(reactionCounts).length > 0 && (
             <div className="absolute top-20 right-4 flex flex-col gap-1.5 pointer-events-none">
               {REACTION_EMOJIS.filter(e => (reactionCounts[e] ?? 0) > 0).map(emoji => (
                 <div key={emoji} className="flex items-center gap-1 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 text-xs font-bold">
-                  <span>{emoji}</span>
-                  <span className="text-white/80">{formatNumber(reactionCounts[emoji])}</span>
+                  <span>{emoji}</span><span className="text-white/80">{formatNumber(reactionCounts[emoji])}</span>
                 </div>
               ))}
             </div>
@@ -386,18 +337,13 @@ export default function LiveStreamPage() {
               <div className="flex-1 mr-4 max-w-xs">
                 <div className="bg-black/60 backdrop-blur-sm rounded-xl px-3 py-2">
                   <p className="text-xs text-gray-200 line-clamp-2">{stream.description}</p>
-                  {stream.category && (
-                    <span className="text-xs text-primary mt-0.5 inline-block">#{stream.category}</span>
-                  )}
+                  {stream.category && <span className="text-xs text-primary mt-0.5 inline-block">#{stream.category}</span>}
                 </div>
               </div>
             )}
             <div className="flex flex-col gap-3 items-center">
-              {/* Heart reaction shortcut */}
-              <button
-                onClick={(e) => { e.stopPropagation(); handleReaction('❤️'); }}
-                className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-red-500/30 transition-colors active:scale-90"
-              >
+              <button onClick={(e) => { e.stopPropagation(); handleReaction('❤️'); }}
+                className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-red-500/30 transition-colors active:scale-90">
                 <Heart className="w-6 h-6 text-red-400" />
               </button>
               <button onClick={() => setMuted(m => !m)} className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-white/10 transition-colors">
@@ -406,30 +352,20 @@ export default function LiveStreamPage() {
               <button onClick={(e) => { e.stopPropagation(); setShowChat(c => !c); }} className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-white/10 transition-colors">
                 <MessageCircle className={`w-6 h-6 ${showChat ? 'text-primary' : 'text-gray-300'}`} />
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); if (navigator.share) navigator.share({ title: stream.title, url: window.location.href }); else { navigator.clipboard.writeText(window.location.href); toast.success('Link copied!'); } }}
-                className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-white/10 transition-colors"
-              >
+              <button onClick={(e) => { e.stopPropagation(); if (navigator.share) navigator.share({ title: stream.title, url: window.location.href }); else { navigator.clipboard.writeText(window.location.href); toast.success('Link copied!'); } }}
+                className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-white/10 transition-colors">
                 <Share2 className="w-6 h-6 text-gray-300" />
               </button>
             </div>
           </div>
 
-          {/* Reaction emoji bar — appears on tap */}
-          <div
-            className={`absolute bottom-20 left-1/2 -translate-x-1/2 transition-all duration-300 ${showReactionBar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none'}`}
-            onClick={e => e.stopPropagation()}
-          >
+          {/* Reaction emoji bar */}
+          <div className={`absolute bottom-20 left-1/2 -translate-x-1/2 transition-all duration-300 ${showReactionBar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none'}`}
+            onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-1 bg-black/80 backdrop-blur-md border border-white/10 rounded-full px-3 py-2 shadow-xl">
               {REACTION_EMOJIS.map(emoji => (
-                <button
-                  key={emoji}
-                  onClick={() => handleReaction(emoji)}
-                  className="text-2xl w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 active:scale-125 transition-all duration-100"
-                  title={emoji}
-                >
-                  {emoji}
-                </button>
+                <button key={emoji} onClick={() => handleReaction(emoji)}
+                  className="text-2xl w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 active:scale-125 transition-all duration-100">{emoji}</button>
               ))}
             </div>
           </div>
@@ -438,19 +374,15 @@ export default function LiveStreamPage() {
         {/* Live Chat Panel */}
         {showChat && (
           <div className="w-full md:w-96 bg-background text-foreground flex flex-col border-l border-border"
-            style={{ height: 'min(480px, 50vh)', maxHeight: '100vh' }}
-          >
+            style={{ height: 'min(480px, 50vh)', maxHeight: '100vh' }}>
             <div className="p-3 border-b border-border flex items-center justify-between flex-shrink-0 bg-background/95">
               <div className="flex items-center gap-2">
                 <MessageCircle className="w-5 h-5 text-primary" />
                 <h3 className="font-bold text-sm">Live Chat</h3>
                 <span className="text-xs text-muted-foreground">({messages.length})</span>
               </div>
-              <button
-                onClick={() => { setShowChatAnalytics(v => !v); if (!chatAnalytics) fetchChatAnalytics(); }}
-                className={`ml-auto mr-2 p-1.5 rounded-lg transition-colors ${showChatAnalytics ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
-                title="Chat Analytics"
-              >
+              <button onClick={() => { setShowChatAnalytics(v => !v); if (!chatAnalytics) fetchChatAnalytics(); }}
+                className={`ml-auto mr-2 p-1.5 rounded-lg transition-colors ${showChatAnalytics ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}>
                 <BarChart3 className="w-4 h-4" />
               </button>
               <div className="flex items-center gap-2">
@@ -462,7 +394,6 @@ export default function LiveStreamPage() {
               </div>
             </div>
 
-            {/* Chat Analytics Panel */}
             {showChatAnalytics && (
               <div className="border-b border-border bg-muted/20 p-3 space-y-3 flex-shrink-0">
                 <div className="flex items-center gap-2 mb-1">
@@ -485,7 +416,6 @@ export default function LiveStreamPage() {
                     ))}
                   </div>
                 )}
-                {/* Message frequency chart */}
                 {msgFreqChart.length > 0 && (
                   <div>
                     <p className="text-[10px] text-muted-foreground mb-1 font-semibold">Messages per minute</p>
@@ -499,7 +429,6 @@ export default function LiveStreamPage() {
                     </ResponsiveContainer>
                   </div>
                 )}
-                {/* Top chatters */}
                 {chatAnalytics?.top_chatters && Array.isArray(chatAnalytics.top_chatters) && chatAnalytics.top_chatters.length > 0 && (
                   <div>
                     <p className="text-[10px] text-muted-foreground mb-1.5 font-semibold">Top chatters</p>
@@ -507,8 +436,7 @@ export default function LiveStreamPage() {
                       {chatAnalytics.top_chatters.slice(0, 3).map((chatter: any, i: number) => (
                         <div key={i} className="flex items-center gap-2">
                           <div className="w-5 h-5 rounded-full bg-muted overflow-hidden shrink-0">
-                            {chatter.avatar_url
-                              ? <img src={chatter.avatar_url} alt="" className="w-full h-full object-cover" />
+                            {chatter.avatar_url ? <img src={chatter.avatar_url} alt="" className="w-full h-full object-cover" />
                               : <div className="w-full h-full flex items-center justify-center text-[8px] font-bold">{chatter.username?.[0]?.toUpperCase()}</div>}
                           </div>
                           <span className="text-xs font-medium flex-1 truncate">{chatter.username}</span>
@@ -534,34 +462,24 @@ export default function LiveStreamPage() {
               ) : messages.map((msg) => (
                 <div key={msg.id} className="flex items-start gap-2">
                   <div className="w-7 h-7 rounded-full bg-muted overflow-hidden flex-shrink-0">
-                    {msg.user_profiles?.avatar_url ? (
-                      <img src={msg.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">
-                        {msg.user_profiles?.username?.[0]?.toUpperCase()}
-                      </div>
-                    )}
+                    {msg.user_profiles?.avatar_url
+                      ? <img src={msg.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">{msg.user_profiles?.username?.[0]?.toUpperCase()}</div>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <span className="text-xs font-semibold text-primary">
                       {msg.user_profiles?.username}{msg.user_profiles?.verified && ' ✓'}
-                    </span>
-                    {' '}
+                    </span>{' '}
                     <span className="text-xs text-foreground break-words">{msg.message}</span>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Quick reaction bar in chat */}
             <div className="px-3 py-1.5 border-t border-border flex gap-1 bg-muted/20 flex-shrink-0">
               {REACTION_EMOJIS.map(emoji => (
-                <button
-                  key={emoji}
-                  onClick={() => handleReaction(emoji)}
-                  className="flex-1 text-base py-1 rounded-lg hover:bg-muted transition-colors active:scale-110 duration-100 relative"
-                  title={emoji}
-                >
+                <button key={emoji} onClick={() => handleReaction(emoji)}
+                  className="flex-1 text-base py-1 rounded-lg hover:bg-muted transition-colors active:scale-110 duration-100 relative">
                   {emoji}
                   {(reactionCounts[emoji] ?? 0) > 0 && (
                     <span className="absolute -top-1 -right-0.5 text-[8px] font-bold bg-primary text-primary-foreground rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">
@@ -575,13 +493,8 @@ export default function LiveStreamPage() {
             <form onSubmit={sendMessage} className="p-3 border-t border-border flex-shrink-0">
               {user ? (
                 <div className="flex gap-2">
-                  <Input
-                    value={newMessage}
-                    onChange={e => setNewMessage(e.target.value)}
-                    placeholder="Say something..."
-                    maxLength={200}
-                    className="flex-1 h-9 text-sm"
-                  />
+                  <Input value={newMessage} onChange={e => setNewMessage(e.target.value)}
+                    placeholder="Say something..." maxLength={200} className="flex-1 h-9 text-sm" />
                   <Button type="submit" size="sm" disabled={!newMessage.trim()} className="px-3">
                     <Send className="w-4 h-4" />
                   </Button>
@@ -596,12 +509,10 @@ export default function LiveStreamPage() {
         )}
       </div>
 
-      {/* AdSense slot — live stream page (web only) */}
-      {!isAdMobSupported() && (
-        <LiveStreamAdBanner />
-      )}
+      {/* AdSense banner — web only (native uses AdMob) */}
+      {!isAdMobSupported() && <LiveStreamAdBanner />}
 
-      {/* ── AdSense banner for web (native uses AdMob) ────────────────────────────────────────────────── */}
+      {/* CSS for floating reactions */}
       <style>{`
         @keyframes floatUp {
           0%   { transform: translateY(0)   scale(1);   opacity: 1; }
@@ -613,6 +524,7 @@ export default function LiveStreamPage() {
   );
 }
 
+// ── AdSense banner sub-component (push-guarded) ───────────────────────────────
 function LiveStreamAdBanner() {
   const pushed = useRef(false);
   useEffect(() => {
