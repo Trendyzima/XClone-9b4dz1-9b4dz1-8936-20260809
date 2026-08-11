@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { FunctionsHttpError } from '@supabase/supabase-js';
+import { useSEO } from '@/hooks/useSEO';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -29,6 +30,24 @@ const QUICK_PROMPTS = [
 type Tab = 'chat' | 'trends' | 'suggest';
 
 export default function AIPage() {
+  useSEO({
+    title: 'Testagram AI — Your Smart Social Assistant',
+    description: 'Chat with Testagram AI for content ideas, post summaries, creator tips, and real-time help. Powered by advanced language models built right into your feed.',
+    url: '/ai',
+    type: 'website',
+    keywords: 'AI assistant, social media AI, content ideas, testagram ai, chat bot, caption generator',
+    structuredData: {
+      '@context': 'https://schema.org',
+      '@type': 'SoftwareApplication',
+      name: 'Testagram AI Assistant',
+      applicationCategory: 'SocialNetworkingApplication',
+      operatingSystem: 'Web',
+      description: 'AI-powered assistant integrated into Testagram for generating captions, summarizing content, and answering creator questions.',
+      url: 'https://testagram.site/ai',
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD', availability: 'https://schema.org/InStock' },
+      publisher: { '@type': 'Organization', name: 'Testagram', url: 'https://testagram.site' },
+    },
+  });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('chat');

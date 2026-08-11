@@ -19,12 +19,34 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
+import { useSEO } from '@/hooks/useSEO';
 
 type Tab = 'feed' | 'inbox' | 'relay' | 'analytics' | 'discover' | 'identity' | 'mastodon';
 
 const CHART_COLORS = ['#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#3b82f6'];
 
 export default function FediversePage() {
+  useSEO({
+    title: 'Fediverse — Connect Across the Open Web | Testagram',
+    description: 'Follow and interact with accounts from Mastodon, Pixelfed, and other ActivityPub platforms directly from Testagram. Join the open federated social web.',
+    url: '/fediverse',
+    type: 'website',
+    keywords: 'fediverse, activitypub, mastodon, federated social media, open web, testagram fediverse',
+    structuredData: {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: 'Testagram Fediverse',
+      description: 'Connect with accounts across Mastodon, Pixelfed, and other ActivityPub-compatible platforms through Testagram.',
+      url: 'https://testagram.site/fediverse',
+      isPartOf: { '@type': 'WebSite', name: 'Testagram', url: 'https://testagram.site' },
+      about: {
+        '@type': 'Thing',
+        name: 'ActivityPub Federation',
+        description: 'ActivityPub is a decentralized social networking protocol enabling interoperability across federated platforms.',
+        sameAs: 'https://www.w3.org/TR/activitypub/',
+      },
+    },
+  });
   const { user } = useAuth();
   const navigate = useNavigate();
 

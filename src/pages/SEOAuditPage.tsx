@@ -41,52 +41,19 @@ interface RouteAudit {
   status: 'good' | 'warn' | 'missing' | 'noindex' | 'loading';
 }
 
-// Static manifest of all key routes and their expected SEO coverage
-const ROUTE_MANIFEST: Omit<RouteAudit, 'title' | 'description' | 'ogImage' | 'canonical' | 'status'>[] = [
-  // ── Public pages ──────────────────────────────────────────────────────────
-  { path: '/',            label: 'Home Feed',             group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/explore',     label: 'Explore',               group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/videos',      label: 'Videos',                group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/threads',     label: 'Threads',               group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/search',      label: 'Search',                group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/communities', label: 'Communities',           group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/leaderboard', label: 'Leaderboard',           group: 'Core',       hasUseSEO: true,  hasStructuredData: false, noindex: false },
-  { path: '/discover',    label: 'Discover',              group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/spaces',      label: 'Spaces',                group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/fediverse',   label: 'Fediverse',             group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/premium',     label: 'Premium',               group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/ai',          label: 'AI',                    group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  { path: '/help',        label: 'Help',                  group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
-  // ── SEO-enhanced pages ────────────────────────────────────────────────────
-  { path: '/hashtag/technology',          label: '#technology',           group: 'Hashtags',   hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/hashtag/news',               label: '#news',                 group: 'Hashtags',   hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/hashtag/ai',                 label: '#ai',                   group: 'Hashtags',   hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/trending/technology',        label: 'Trending: technology',  group: 'Trending',   hasUseSEO: true,  hasStructuredData: false, noindex: false },
-  { path: '/trending/sports',            label: 'Trending: sports',      group: 'Trending',   hasUseSEO: true,  hasStructuredData: false, noindex: false },
-  { path: '/c/technology',              label: 'c/technology',           group: 'Communities',hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/c/sports',                  label: 'c/sports',               group: 'Communities',hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  // ── Profile pages (dynamic) ───────────────────────────────────────────────
-  { path: '/profile/{username}',         label: 'Profile pages',         group: 'Dynamic',    hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/thread/{id}',               label: 'Thread detail',          group: 'Dynamic',    hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  // ── Auth / private pages (should be noindex) ─────────────────────────────
-  { path: '/auth',                       label: 'Auth',                  group: 'Private',    hasUseSEO: false, hasStructuredData: false, noindex: true  },
-  { path: '/settings',                   label: 'Settings',              group: 'Private',    hasUseSEO: false, hasStructuredData: false, noindex: true  },
-  { path: '/wallet',                     label: 'Wallet',                group: 'Private',    hasUseSEO: false, hasStructuredData: false, noindex: true  },
-  { path: '/creator-studio',            label: 'Creator Studio',         group: 'Private',    hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/notifications',             label: 'Notifications',          group: 'Private',    hasUseSEO: false, hasStructuredData: false, noindex: true  },
-  { path: '/messages',                  label: 'Messages',               group: 'Private',    hasUseSEO: false, hasStructuredData: false, noindex: true  },
-  { path: '/admin',                     label: 'Admin Panel',            group: 'Admin',      hasUseSEO: false, hasStructuredData: false, noindex: true  },
-  { path: '/admin/seo',                 label: 'SEO Audit',              group: 'Admin',      hasUseSEO: false, hasStructuredData: false, noindex: true  },
-];
+// Static manifest — sourced from seoValidation.ts (single source of truth)
+const ROUTE_MANIFEST: Omit<RouteAudit, 'title' | 'description' | 'ogImage' | 'canonical' | 'status'>[] =
+  SEO_COVERAGE.map(r => ({
+    path: r.path,
+    label: r.label,
+    group: r.group,
+    hasUseSEO: r.hasUseSEO,
+    hasStructuredData: r.hasStructuredData,
+    noindex: r.noindex,
+  }));
 
 function scoreRoute(route: Omit<RouteAudit, 'status'>): RouteAudit['status'] {
-  if (route.noindex) return 'noindex';
-  if (!route.hasUseSEO) {
-    // Pages without useSEO are missing dynamic tags
-    return route.group === 'Dynamic' ? 'missing' : 'warn';
-  }
-  if (route.hasUseSEO && route.hasStructuredData) return 'good';
-  return 'warn';
+  return scoreSEORoute(route as SEORoute);
 }
 
 const STATUS_CFG: Record<RouteAudit['status'], { color: string; bg: string; label: string }> = {

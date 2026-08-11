@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -27,6 +28,7 @@ interface TopCreator {
 
 export default function AdminRevenueDashboard() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Admin — Revenue Dashboard', url: '/admin/revenue' });
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<RevenueStats | null>(null);

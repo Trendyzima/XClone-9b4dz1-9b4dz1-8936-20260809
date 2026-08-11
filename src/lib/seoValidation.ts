@@ -31,9 +31,9 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/spaces',      label: 'Spaces',        group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/products',    label: 'Products',      group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/discover',    label: 'Discover',      group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/fediverse',   label: 'Fediverse',     group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
+  { path: '/fediverse',   label: 'Fediverse',     group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/premium',     label: 'Premium',       group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/ai',          label: 'AI',            group: 'Core',       hasUseSEO: false, hasStructuredData: false, noindex: false },
+  { path: '/ai',          label: 'AI',            group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
   { path: '/help',        label: 'Help',          group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
 
   // ── SEO-enhanced pages ─────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/payouts',            label: 'Payouts',              group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/history',            label: 'Browsing History',     group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/platform-inbox',     label: 'Platform Inbox',       group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/creator-studio',     label: 'Creator Studio',       group: 'Private',     hasUseSEO: false, hasStructuredData: false, noindex: true  },
+  { path: '/creator-studio',     label: 'Creator Studio',       group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
 
   // ── Admin pages (all noindex) ──────────────────────────────────────────────
   { path: '/admin',              label: 'Admin Panel',          group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },

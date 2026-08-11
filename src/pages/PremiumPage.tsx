@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { Crown, Check, Loader2, Zap, Shield, Star, BadgeCheck, X, Sparkles, Volume2, Video, Ban } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePremium } from '@/hooks/usePremium';
+import { useSEO } from '@/hooks/useSEO';
 import { formatDistanceToNow } from 'date-fns';
 
 const PLANS = [
@@ -30,6 +31,9 @@ const PLANS = [
   },
 ] as const;
 
+// Pre-computed at module load — stable across renders so esbuild tree-shakes deterministically
+const PREMIUM_VALID_UNTIL = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
 const PREMIUM_FEATURES = [
   { icon: Ban, label: 'Zero Ads', desc: 'No pre-roll, mid-roll, or feed ads — ever' },
   { icon: Crown, label: 'Premium Badge', desc: 'Gold crown badge on your profile' },
@@ -48,6 +52,43 @@ export default function PremiumPage() {
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('annual');
   const [subscribing, setSubscribing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+
+  useSEO({
+    title: 'Testagram Premium — Ad-Free, Exclusive Features',
+    description: 'Upgrade to Testagram Premium for an ad-free experience, exclusive badges, priority support, and advanced creator tools. Monthly and annual plans available.',
+    url: '/premium',
+    type: 'website',
+    keywords: 'premium subscription, ad-free, creator tools, testagram premium, monthly plan, annual plan',
+    structuredData: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        name: 'Testagram Premium',
+        description: 'Ad-free social media experience with exclusive badges, priority support, and advanced creator tools.',
+        brand: { '@type': 'Organization', name: 'Testagram' },
+        offers: [
+          {
+            '@type': 'Offer',
+            name: 'Monthly Plan',
+            price: '4.99',
+            priceCurrency: 'USD',
+            priceValidUntil: PREMIUM_VALID_UNTIL,
+            availability: 'https://schema.org/InStock',
+            url: 'https://testagram.site/premium',
+          },
+          {
+            '@type': 'Offer',
+            name: 'Annual Plan',
+            price: '39.99',
+            priceCurrency: 'USD',
+            priceValidUntil: PREMIUM_VALID_UNTIL,
+            availability: 'https://schema.org/InStock',
+            url: 'https://testagram.site/premium',
+          },
+        ],
+      },
+    ],
+  });
 
   useEffect(() => {
     if (user) refresh();
