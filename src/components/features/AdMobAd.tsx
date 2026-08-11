@@ -1,13 +1,8 @@
 /**
- * AdMob Component — Production Mode
- * All ads use real production IDs. No isTesting flags.
- * Uses centralized config from @/lib/admob
+ * AdMobAd — AdMob removed; renders an AdSense banner on web.
+ * The component interface is preserved so existing call sites compile without changes.
  */
-import { useEffect } from 'react';
-import {
-  showBanner, hideBanner, showInterstitial, showRewarded,
-  ADMOB_CONFIG
-} from '@/lib/admob';
+import { useEffect, useRef } from 'react';
 import { BannerAdPosition } from '@/lib/capacitor-stub';
 
 interface AdMobAdProps {
@@ -19,50 +14,43 @@ interface AdMobAdProps {
   onRewarded?: (reward: any) => void;
 }
 
-export function AdMobAd({
-  adId,
-  type,
-  position = BannerAdPosition.BOTTOM_CENTER,
-  onAdLoaded,
-  onAdFailed,
-  onRewarded,
-}: AdMobAdProps) {
+export function AdMobAd({ type, onAdLoaded }: AdMobAdProps) {
+  const pushed = useRef(false);
 
   useEffect(() => {
     if (type !== 'banner') return;
+    if (pushed.current) return;
+    pushed.current = true;
+    try {
+      ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      onAdLoaded?.();
+    } catch (_) {}
+  }, [type]);
 
-    const id = adId || ADMOB_CONFIG.BANNER_FEED;
-    showBanner(id, position).then(() => onAdLoaded?.()).catch(onAdFailed);
+  // Interstitial / rewarded — no-op on web; callers should use RewardedAdBoost instead
+  if (type !== 'banner') return null;
 
-    return () => { hideBanner(); };
-  }, [adId, type, position]);
-
-  const triggerInterstitial = async () => {
-    const ok = await showInterstitial(adId || ADMOB_CONFIG.INTERSTITIAL);
-    if (ok) onAdLoaded?.(); else onAdFailed?.(new Error('Interstitial failed'));
-  };
-
-  const triggerRewarded = async () => {
-    const reward = await showRewarded(adId || ADMOB_CONFIG.REWARDED);
-    if (reward) { onAdLoaded?.(); onRewarded?.(reward); }
-    else onAdFailed?.(new Error('Rewarded ad failed'));
-  };
-
-  if (type === 'interstitial') {
-    return <button onClick={triggerInterstitial} className="hidden" aria-hidden="true" />;
-  }
-  if (type === 'rewarded') {
-    return <button onClick={triggerRewarded} className="hidden" aria-hidden="true" />;
-  }
-
-  return null; // Banner is native — no DOM element needed
+  return (
+    <div className="w-full rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">
+        Sponsored
+      </p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
 }
 
-/** Hook for programmatic ad triggering */
+/** Hook kept for call-site compatibility — all methods are no-ops on web */
 export const useAdMob = () => ({
-  showInterstitial: (id = ADMOB_CONFIG.INTERSTITIAL) => showInterstitial(id),
-  showRewarded:     (id = ADMOB_CONFIG.REWARDED)     => showRewarded(id),
-  showBanner:       (id = ADMOB_CONFIG.BANNER_FEED, pos = BannerAdPosition.TOP_CENTER) =>
-                      showBanner(id, pos),
-  hideBanner,
+  showInterstitial: async (_id?: string) => false,
+  showRewarded:     async (_id?: string) => null,
+  showBanner:       async (_id?: string, _pos?: BannerAdPosition) => {},
+  hideBanner:       async () => {},
 });

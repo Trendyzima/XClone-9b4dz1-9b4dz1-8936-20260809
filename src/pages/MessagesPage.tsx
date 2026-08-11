@@ -1,4 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSEO } from '@/hooks/useSEO';
+import { TopBar } from '@/components/layout/TopBar';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare,
+  X, Image as ImageIcon, Mic, Square, Users, Plus, UserPlus, Trash2,
+  Volume2, VolumeX, Edit3, Shield, UserMinus, Check
+} from 'lucide-react';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
+import { GifPicker } from '@/components/features/GifPicker';
+import { formatDistanceToNow } from 'date-fns';
+import { toast } from 'sonner';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 // ── AdSense banner — push-guarded ─────────────────────────────────────────────
 function MessagesAdBanner() {
@@ -22,22 +38,6 @@ function MessagesAdBanner() {
     </div>
   );
 }
-import { useSEO } from '@/hooks/useSEO';
-import { TopBar } from '@/components/layout/TopBar';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import {
-  Send, Search, BadgeCheck, Loader2, ArrowLeft, MessageSquare,
-  X, Image as ImageIcon, Mic, Square, Users, Plus, UserPlus, Trash2,
-  Volume2, VolumeX, Edit3, Shield, UserMinus, Check
-} from 'lucide-react';
-import { useNotificationSound } from '@/hooks/useNotificationSound';
-import { GifPicker } from '@/components/features/GifPicker';
-import { formatDistanceToNow } from 'date-fns';
-import { toast } from 'sonner';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 
 type ChatMode = 'dms' | 'groups';
 
@@ -265,7 +265,6 @@ export default function MessagesPage() {
     const { data: group } = await supabase.from('group_conversations')
       .insert({ name: groupName.trim(), avatar_url: groupAvatar || null, creator_id: user!.id }).select().single();
     if (!group) { toast.error('Failed to create group'); setCreatingGroup(false); return; }
-    // Insert creator + members
     const memberInserts = [
       { group_id: group.id, user_id: user!.id, role: 'admin' },
       ...selectedMembers.map(m => ({ group_id: group.id, user_id: m.id, role: 'member' })),
@@ -291,7 +290,6 @@ export default function MessagesPage() {
     setMemberResults((data ?? []).filter((u: any) => !selectedMembers.find(m => m.id === u.id)));
   };
 
-  // ── Group admin helpers ──────────────────────────────────────────────────
   const saveGroupEdit = async () => {
     if (!selectedGroup || !editGroupName.trim()) return;
     setSavingGroupEdit(true);
@@ -302,12 +300,14 @@ export default function MessagesPage() {
     setGroups(prev => prev.map(g => g.id === selectedGroup.id ? { ...g, name: editGroupName.trim(), avatar_url: editGroupAvatar || null } : g));
     toast.success('Group updated'); setShowEditGroup(false); setSavingGroupEdit(false);
   };
+
   const removeMember = async (memberId: string) => {
     if (!selectedGroup) return;
     await supabase.from('group_members').delete().eq('group_id', selectedGroup.id).eq('user_id', memberId);
     setGroupMembers(prev => prev.filter((m: any) => m.user_id !== memberId));
     setMemberActionId(null); toast.success('Member removed');
   };
+
   const promoteToAdmin = async (memberId: string) => {
     if (!selectedGroup) return;
     await supabase.from('group_members').update({ role: 'admin' }).eq('group_id', selectedGroup.id).eq('user_id', memberId);
@@ -322,12 +322,10 @@ export default function MessagesPage() {
     toast.success('Left group');
   };
 
-  // ── Filters ────────────────────────────────────────────────────
   const filteredConversations = convFilter.trim()
     ? conversations.filter(c => c.otherUser?.username?.toLowerCase().includes(convFilter.toLowerCase()))
     : conversations;
 
-  // ── Search messages ────────────────────────────────────────────
   const searchMessages = async (query: string) => {
     if (!query.trim() || !selectedConversation) { setMsgSearchResults([]); return; }
     setSearchingMsgs(true);
@@ -342,7 +340,6 @@ export default function MessagesPage() {
     setSearchResults(data || []);
   };
 
-  // ── Voice recording ────────────────────────────────────────────
   const startVoiceRecording = async () => {
     if (!selectedConversation) { toast.error('Select a conversation first'); return; }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(e => { toast.error(e.message); return null; });
@@ -409,8 +406,6 @@ export default function MessagesPage() {
             </div>
             <input value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="Group name *" className="w-full px-4 py-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
             <input value={groupAvatar} onChange={e => setGroupAvatar(e.target.value)} placeholder="Avatar URL (optional)" className="w-full px-4 py-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-
-            {/* Selected members */}
             {selectedMembers.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {selectedMembers.map(m => (
@@ -424,8 +419,6 @@ export default function MessagesPage() {
                 ))}
               </div>
             )}
-
-            {/* Member search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
               <input value={memberSearch} onChange={e => { setMemberSearch(e.target.value); searchMembers(e.target.value); }}
@@ -461,7 +454,6 @@ export default function MessagesPage() {
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* ── Sidebar ── */}
         <div className={`${hasActiveChat ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 border-r border-border`}>
-          {/* Mode tabs */}
           <div className="flex p-3 gap-2 border-b border-border shrink-0">
             <button onClick={() => setChatMode('dms')}
               className={`flex-1 py-2 rounded-full text-sm font-semibold transition-colors ${chatMode === 'dms' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}>
@@ -473,7 +465,6 @@ export default function MessagesPage() {
             </button>
           </div>
 
-          {/* DM Mode */}
           {chatMode === 'dms' && (
             <>
               <div className="p-3 border-b border-border shrink-0 space-y-2">
@@ -533,7 +524,6 @@ export default function MessagesPage() {
             </>
           )}
 
-          {/* Groups Mode */}
           {chatMode === 'groups' && (
             <>
               <div className="p-3 border-b border-border shrink-0">
@@ -570,10 +560,8 @@ export default function MessagesPage() {
 
         {/* ── Chat Area ── */}
         <div className={`${hasActiveChat ? 'flex' : 'hidden md:flex'} flex-col flex-1 min-w-0 min-h-0`}>
-          {/* DM Thread */}
           {selectedConversation && !selectedGroup && (
             <>
-              {/* Header */}
               <div className="p-3 border-b border-border flex items-center gap-3 shrink-0 bg-background">
                 <button onClick={() => setSelectedConversation(null)} className="md:hidden p-2 hover:bg-muted rounded-full"><ArrowLeft className="w-5 h-5" /></button>
                 <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
@@ -666,10 +654,8 @@ export default function MessagesPage() {
             </>
           )}
 
-          {/* Group Thread */}
           {selectedGroup && !selectedConversation && (
             <>
-              {/* Header */}
               <div className="p-3 border-b border-border flex items-center gap-3 shrink-0 bg-background">
                 <button onClick={() => setSelectedGroup(null)} className="md:hidden p-2 hover:bg-muted rounded-full"><ArrowLeft className="w-5 h-5" /></button>
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 overflow-hidden shrink-0 flex items-center justify-center">
@@ -679,45 +665,38 @@ export default function MessagesPage() {
                   <p className="font-bold truncate">{selectedGroup.name}</p>
                   <p className="text-xs text-muted-foreground">{selectedGroup.memberCount} members · tap to view</p>
                 </div>
-                {/* Sound toggle */}
-                <button onClick={toggleSound} className="p-2 rounded-full text-muted-foreground hover:bg-muted transition-colors" title={soundOn ? 'Mute sounds' : 'Enable sounds'}>
+                <button onClick={toggleSound} className="p-2 rounded-full text-muted-foreground hover:bg-muted transition-colors">
                   {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
                 </button>
-                {/* Edit group — admin only */}
                 {user?.id === selectedGroup.creator_id && (
                   <button onClick={() => { setEditGroupName(selectedGroup.name); setEditGroupAvatar(selectedGroup.avatar_url ?? ''); setShowEditGroup(true); }}
-                    className="p-2 rounded-full text-muted-foreground hover:bg-muted transition-colors" title="Edit group">
+                    className="p-2 rounded-full text-muted-foreground hover:bg-muted transition-colors">
                     <Edit3 className="w-4 h-4" />
                   </button>
                 )}
-                <button onClick={() => leaveGroup(selectedGroup.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Leave group">
+                <button onClick={() => leaveGroup(selectedGroup.id)} className="p-2 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Members panel */}
               {showGroupMembers && (
                 <div className="border-b border-border bg-muted/20 p-3 flex gap-3 overflow-x-auto scrollbar-hide shrink-0">
                   {groupMembers.map(m => (
                     <div key={m.id} className="flex flex-col items-center gap-1 shrink-0 relative">
-                      <button
-                        onClick={() => setMemberActionId(memberActionId === m.user_id ? null : m.user_id)}
+                      <button onClick={() => setMemberActionId(memberActionId === m.user_id ? null : m.user_id)}
                         className="w-10 h-10 rounded-full bg-muted overflow-hidden ring-2 ring-offset-1 ring-offset-background ring-border hover:ring-primary/40 transition-all">
                         {m.user?.avatar_url ? <img src={m.user.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-sm font-bold">{m.user?.username?.[0]?.toUpperCase()}</div>}
                       </button>
                       <span className="text-[9px] text-muted-foreground max-w-[40px] truncate">{m.user?.username}</span>
                       {m.role === 'admin' && <span className="text-[8px] bg-primary/10 text-primary px-1 rounded-full font-bold">Admin</span>}
-                      {/* Admin action menu */}
                       {memberActionId === m.user_id && user?.id === selectedGroup.creator_id && m.user_id !== user?.id && (
                         <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 bg-background border border-border rounded-xl shadow-xl py-1 min-w-[130px]">
                           {m.role !== 'admin' && (
-                            <button onClick={() => promoteToAdmin(m.user_id)}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors">
+                            <button onClick={() => promoteToAdmin(m.user_id)} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors">
                               <Shield className="w-3.5 h-3.5 text-primary" />Make Admin
                             </button>
                           )}
-                          <button onClick={() => removeMember(m.user_id)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 transition-colors">
+                          <button onClick={() => removeMember(m.user_id)} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 transition-colors">
                             <UserMinus className="w-3.5 h-3.5" />Remove
                           </button>
                         </div>
@@ -764,7 +743,6 @@ export default function MessagesPage() {
             </>
           )}
 
-          {/* Empty state */}
           {!hasActiveChat && (
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
               <div className="text-center">
