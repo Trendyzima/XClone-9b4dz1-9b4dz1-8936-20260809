@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function AnalyticsAdBanner() { return <PageAdBanner />; }
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
@@ -38,6 +37,7 @@ interface PostWithAnalytics {
   };
 }
 
+function AnalyticsAdBanner() { return <PageAdBanner />; }
 export default function AnalyticsDashboard() {
   const { user } = useAuth();
   useSEO({ noindex: true, title: 'Analytics', url: '/analytics' });

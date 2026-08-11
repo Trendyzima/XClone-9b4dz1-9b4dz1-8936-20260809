@@ -11,7 +11,7 @@ import {
 import {
   TrendingUp, Eye, MousePointerClick, DollarSign, Users,
   Loader2, AlertCircle, Calendar, Zap, Target, ArrowUpRight,
-  BarChart3, RefreshCw
+  BarChart3, RefreshCw, List, Clock, CheckCircle2, XCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/utils';
@@ -28,6 +28,7 @@ export default function BoostAnalyticsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [boost, setBoost] = useState<any>(null);
+  const [allBoosts, setAllBoosts] = useState<any[]>([]);
   const [post, setPost] = useState<any>(null);
   const [dailyData, setDailyData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +52,12 @@ export default function BoostAnalyticsPage() {
         .single();
 
       setBoost(boostData);
+
+      // Fetch ALL boosts for history list
+      const { data: allBoostsData } = await supabase
+        .from('boosted_posts').select('*, posts(content)').eq('user_id', user!.id)
+        .order('created_at', { ascending: false }).limit(20);
+      setAllBoosts(allBoostsData ?? []);
 
       // Fetch the post
       const { data: postData } = await supabase
@@ -116,7 +123,6 @@ export default function BoostAnalyticsPage() {
       <div className="min-h-screen bg-background pb-16">
         <TopBar title="Boost Analytics" showBack />
       <BoostAnalyticsAdBanner />
-        <BoostAnalyticsAdBanner />
         <div className="max-w-2xl mx-auto p-6 text-center py-20">
           <AlertCircle className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
           <h2 className="text-xl font-bold mb-2">No Active Boost</h2>
@@ -344,6 +350,84 @@ export default function BoostAnalyticsPage() {
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </div>
+
+        {/* ── Boost History List ── */}
+        <div className="border border-border rounded-2xl overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-muted/20">
+            <List className="w-5 h-5 text-primary" />
+            <h2 className="font-bold text-lg">My Boost History</h2>
+            <span className="ml-auto text-xs text-muted-foreground">{allBoosts.length} campaigns</span>
+          </div>
+          {allBoosts.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <BarChart3 className="w-10 h-10 mx-auto mb-2 opacity-20" />
+              <p className="text-sm">No boost campaigns yet</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {allBoosts.map((b) => {
+                const bCtr = b.impressions > 0 ? ((b.clicks / b.impressions) * 100).toFixed(1) : '0.0';
+                const bBudgetPct = b.budget > 0 ? Math.min(100, Math.round((b.spent / b.budget) * 100)) : 0;
+                return (
+                  <div key={b.id} className="px-5 py-4 hover:bg-muted/20 transition-colors">
+                    <div className="flex items-start gap-3">
+                      {/* Status icon */}
+                      <div className={`mt-0.5 shrink-0 ${b.is_active ? 'text-green-500' : 'text-muted-foreground'}`}>
+                        {b.is_active
+                          ? <CheckCircle2 className="w-5 h-5" />
+                          : <XCircle className="w-5 h-5" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            b.is_active ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
+                          }`}>{b.is_active ? 'Active' : 'Ended'}</span>
+                          <span className="text-[10px] text-muted-foreground capitalize">{b.boost_type?.replace(/_/g, ' ') || 'Promoted'}</span>
+                        </div>
+                        <p className="text-sm font-medium line-clamp-1 mb-2">
+                          {b.posts?.content?.slice(0, 80) || 'Post boost'}
+                        </p>
+                        {/* Stats row */}
+                        <div className="grid grid-cols-4 gap-2 mb-2">
+                          {[
+                            { label: 'Impressions', value: formatNumber(b.impressions || 0), icon: <Eye className="w-3 h-3" /> },
+                            { label: 'Clicks', value: formatNumber(b.clicks || 0), icon: <MousePointerClick className="w-3 h-3" /> },
+                            { label: 'CTR', value: `${bCtr}%`, icon: <TrendingUp className="w-3 h-3" /> },
+                            { label: 'Spent', value: `$${(b.spent || 0).toFixed(2)}`, icon: <DollarSign className="w-3 h-3" /> },
+                          ].map(({ label, value, icon }) => (
+                            <div key={label} className="bg-muted/30 rounded-lg p-2 text-center">
+                              <div className="flex items-center justify-center gap-0.5 text-muted-foreground mb-0.5">{icon}</div>
+                              <p className="text-xs font-bold">{value}</p>
+                              <p className="text-[9px] text-muted-foreground">{label}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Budget bar */}
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full" style={{ width: `${bBudgetPct}%` }} />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground shrink-0">${(b.budget || 0).toFixed(2)} budget · {bBudgetPct}% used</span>
+                        </div>
+                        <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground">
+                          <Clock className="w-3 h-3" />
+                          {formatDistanceToNow(new Date(b.created_at), { addSuffix: true })}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => navigate(`/boost-analytics/${b.post_id}`)}
+                        className="shrink-0 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
+                        title="View details"
+                      >
+                        <ArrowUpRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* ── Quick Actions ── */}

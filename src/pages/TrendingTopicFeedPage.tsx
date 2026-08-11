@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function TrendingAdBanner() { return <PageAdBanner />; }
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
@@ -31,6 +30,7 @@ const CATEGORY_CONFIG: Record<string, { emoji: string; color: string; bg: string
 
 const DEFAULT_CAT = { emoji: '🔥', color: 'text-primary', bg: 'bg-primary/10', border: 'border-primary/20' };
 
+function TrendingAdBanner() { return <PageAdBanner />; }
 export default function TrendingTopicFeedPage() {
   const { topic } = useParams<{ topic: string }>();
   const { user } = useAuth();

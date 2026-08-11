@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check, RefreshCw } from 'lucide-react';
+import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check, RefreshCw, Trophy, DollarSign } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { UserSuggestionsWidget } from '../features/UserSuggestionsWidget';
 import { ContentSuggestionsWidget } from '../features/ContentSuggestionsWidget';
@@ -42,6 +42,100 @@ interface Space {
     username: string;
     avatar_url?: string;
   };
+}
+
+interface LeaderboardEntry {
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+  verified: boolean;
+  weekly_earnings: number;
+}
+
+function CreatorLeaderboardWidget() {
+  const navigate = useNavigate();
+  const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchLeaders = useCallback(async () => {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const { data } = await supabase
+      .from('creator_earnings')
+      .select('user_id, amount')
+      .gte('created_at', sevenDaysAgo)
+      .eq('status', 'paid');
+
+    if (!data) { setLoading(false); return; }
+
+    // Aggregate by user
+    const totals: Record<string, number> = {};
+    data.forEach(e => {
+      totals[e.user_id] = (totals[e.user_id] ?? 0) + Number(e.amount);
+    });
+    const topIds = Object.entries(totals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id]) => id);
+
+    if (topIds.length === 0) { setLoading(false); return; }
+
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('id, username, avatar_url, verified')
+      .in('id', topIds);
+
+    const merged: LeaderboardEntry[] = topIds.map(uid => {
+      const p = profiles?.find(pr => pr.id === uid);
+      return {
+        user_id: uid,
+        username: p?.username ?? 'Unknown',
+        avatar_url: p?.avatar_url ?? null,
+        verified: p?.verified ?? false,
+        weekly_earnings: totals[uid],
+      };
+    });
+    setLeaders(merged);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchLeaders();
+    const iv = setInterval(fetchLeaders, 60_000);
+    return () => clearInterval(iv);
+  }, [fetchLeaders]);
+
+  if (loading || leaders.length === 0) return null;
+
+  const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+
+  return (
+    <div className="bg-gradient-to-br from-amber-500/8 to-orange-500/5 rounded-xl p-4 border border-amber-500/20">
+      <div className="flex items-center gap-2 mb-3">
+        <Trophy className="w-4 h-4 text-amber-500" />
+        <h3 className="font-bold text-sm">Top Earners This Week</h3>
+      </div>
+      <div className="space-y-2">
+        {leaders.map((entry, idx) => (
+          <button
+            key={entry.user_id}
+            onClick={() => navigate(`/profile/${entry.username}`)}
+            className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-muted/50 transition-colors text-left"
+          >
+            <span className="text-base shrink-0 w-5 text-center">{medals[idx]}</span>
+            <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0">
+              {entry.avatar_url
+                ? <img src={entry.avatar_url} alt={entry.username} className="w-full h-full object-cover" />
+                : <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">{entry.username[0]?.toUpperCase()}</div>}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold truncate">@{entry.username}</p>
+            </div>
+            <span className="text-xs font-bold text-green-600 shrink-0">${entry.weekly_earnings.toFixed(2)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function RightSidebar() {
@@ -426,6 +520,9 @@ export function RightSidebar() {
 
       {/* User Suggestions */}
       <UserSuggestionsWidget />
+
+      {/* Creator Leaderboard */}
+      <CreatorLeaderboardWidget />
 
       {/* Content Suggestions */}
       <ContentSuggestionsWidget />

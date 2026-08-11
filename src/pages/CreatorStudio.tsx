@@ -36,6 +36,9 @@ export default function CreatorStudio() {
   const [videoEarnings, setVideoEarnings] = useState<any[]>([]);
   const [weeklyEarnings, setWeeklyEarnings] = useState<any[]>([]);
   const [revenueBreakdown4W, setRevenueBreakdown4W] = useState<any[]>([]);
+  const [monthlyGoal, setMonthlyGoal] = useState<number>(0);
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
   const [streakDay, setStreakDay] = useState(0);
   const [videoPostsCount, setVideoPostsCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -75,7 +78,31 @@ export default function CreatorStudio() {
     fetchWeeklyEarnings();
     fetchMilestoneData();
     fetchRevenueBreakdown4W();
+    fetchMonthlyGoal();
   }, [user]);
+
+  const fetchMonthlyGoal = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('user_monetization')
+      .select('monthly_tip_goal')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    setMonthlyGoal(Number(data?.monthly_tip_goal ?? 0));
+  };
+
+  const saveMonthlyGoal = async () => {
+    if (!user) return;
+    const val = parseFloat(goalInput);
+    if (isNaN(val) || val < 0) { toast.error('Enter a valid amount'); return; }
+    const { error } = await supabase
+      .from('user_monetization')
+      .upsert({ user_id: user.id, monthly_tip_goal: val }, { onConflict: 'user_id' });
+    if (error) { toast.error(error.message); return; }
+    setMonthlyGoal(val);
+    setEditingGoal(false);
+    toast.success('Goal saved!');
+  };
 
   // Fetch all video posts with analytics when switching to video tab
   useEffect(() => {
@@ -1067,6 +1094,91 @@ export default function CreatorStudio() {
         {/* ── EARNINGS TAB ── */}
         {activeStudioTab === 'earnings' && (
           <div className="space-y-4">
+            {/* Monthly Earnings Goal Tracker */}
+            {(() => {
+              const currentMonth = stats.total_earnings;
+              const goal = monthlyGoal;
+              const pct = goal > 0 ? Math.min(100, (currentMonth / goal) * 100) : 0;
+              const radius = 44;
+              const circ = 2 * Math.PI * radius;
+              const dash = (pct / 100) * circ;
+              return (
+                <div className="bg-card border border-border rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-amber-500" />
+                      <h2 className="font-bold">Monthly Earnings Goal</h2>
+                    </div>
+                    <button
+                      onClick={() => { setEditingGoal(v => !v); setGoalInput(goal > 0 ? String(goal) : ''); }}
+                      className="text-xs text-primary font-semibold hover:underline"
+                    >
+                      {editingGoal ? 'Cancel' : goal > 0 ? 'Edit Goal' : 'Set Goal'}
+                    </button>
+                  </div>
+
+                  {editingGoal ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-muted-foreground">$</span>
+                      <input
+                        type="number" min="1" step="1"
+                        value={goalInput}
+                        onChange={e => setGoalInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveMonthlyGoal(); if (e.key === 'Escape') setEditingGoal(false); }}
+                        placeholder="e.g. 100"
+                        className="flex-1 px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        autoFocus
+                      />
+                      <button
+                        onClick={saveMonthlyGoal}
+                        className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90"
+                      >Save</button>
+                    </div>
+                  ) : goal === 0 ? (
+                    <div className="text-center py-6 text-muted-foreground">
+                      <p className="text-sm">Set a monthly earnings goal to track your progress.</p>
+                      <button onClick={() => { setEditingGoal(true); setGoalInput(''); }} className="mt-3 text-primary font-semibold text-sm hover:underline">+ Set Goal</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-6">
+                      <div className="relative shrink-0">
+                        <svg width="112" height="112" className="-rotate-90">
+                          <circle cx="56" cy="56" r={radius} strokeWidth="10" className="stroke-muted fill-none" />
+                          <circle
+                            cx="56" cy="56" r={radius} strokeWidth="10" fill="none"
+                            stroke={pct >= 100 ? '#10b981' : '#f59e0b'}
+                            strokeLinecap="round"
+                            strokeDasharray={`${dash} ${circ}`}
+                            style={{ transition: 'stroke-dasharray 0.6s ease' }}
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <span className="text-xl font-black">{Math.round(pct)}%</span>
+                          <span className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide">of goal</span>
+                        </div>
+                      </div>
+                      <div className="flex-1 space-y-3">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-0.5">Earned</p>
+                          <p className="text-2xl font-black text-green-600">${currentMonth.toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-0.5">Goal</p>
+                          <p className="text-lg font-bold">${goal.toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-0.5">Remaining</p>
+                          <p className={`text-sm font-bold ${pct >= 100 ? 'text-green-600' : 'text-foreground'}`}>
+                            {pct >= 100 ? '🎉 Goal reached!' : `$${Math.max(0, goal - currentMonth).toFixed(2)} to go`}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* 4-Week Revenue Breakdown Chart */}
             {revenueBreakdown4W.some(d => d.tips + d.subscriptions + d.ads + d.other > 0) && (
               <div className="bg-card border border-border rounded-2xl p-5">

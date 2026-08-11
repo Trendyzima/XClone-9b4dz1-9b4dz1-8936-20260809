@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function SeriesAdBanner() { return <PageAdBanner />; }
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useSEO } from '@/hooks/useSEO';
@@ -18,6 +17,7 @@ import { formatDistanceToNow } from 'date-fns';
 
 // SeriesAdBanner is defined above
 
+function SeriesAdBanner() { return <PageAdBanner />; }
 export default function SeriesPage() {
   const { user } = useAuth();
   const navigate = useNavigate();

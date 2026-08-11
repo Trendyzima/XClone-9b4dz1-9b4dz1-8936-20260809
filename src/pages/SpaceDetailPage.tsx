@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useParams, useNavigate } from 'react-router-dom';
-function SpaceDetailAdBanner() { return <PageAdBanner />; }
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -13,6 +12,7 @@ import { useSEO } from '@/hooks/useSEO';
 import { Button } from '@/components/ui/button';
 import { JoinSpaceDialog } from '@/components/features/JoinSpaceDialog';
 
+function SpaceDetailAdBanner() { return <PageAdBanner />; }
 export default function SpaceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();

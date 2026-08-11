@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function WalletAdBanner() { return <PageAdBanner />; }
 import { useSEO } from '@/hooks/useSEO';
 import { useSearchParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -367,6 +366,7 @@ function TransactionHistoryTab({ userId }: { userId: string }) { // Moved Transa
 // ── AdSense banner — wallet page ──────────────────────────────────────────────
 
 
+function WalletAdBanner() { return <PageAdBanner />; }
 export default function WalletPage() {
   useSEO({ noindex: true, title: 'Wallet', url: '/wallet' });
   const { user } = useAuth();

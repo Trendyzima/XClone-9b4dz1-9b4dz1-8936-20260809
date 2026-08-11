@@ -217,8 +217,8 @@ export default function ThreadsPage() {
                   <h2 className="text-xl font-bold mt-2 mb-2">{thread.title}</h2>
 
                   <div
-                    className="text-muted-foreground line-clamp-3 mb-3"
-                    dangerouslySetInnerHTML={{ __html: parseContent(thread.content.substring(0, 280)) }}
+                    className="text-muted-foreground line-clamp-4 mb-3 text-sm leading-relaxed space-y-1"
+                    dangerouslySetInnerHTML={{ __html: parseContent(thread.content.substring(0, 400)) }}
                   />
 
                   {thread.cover_image && (
