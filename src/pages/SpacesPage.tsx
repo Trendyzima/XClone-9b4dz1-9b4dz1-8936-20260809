@@ -7,7 +7,7 @@ import { Radio, Users, Mic, Loader2, Headphones, Video, Settings, BadgeCheck, Lo
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { formatDistanceToNow, formatDuration, intervalToDuration } from 'date-fns';
+import { formatDistanceToNow, intervalToDuration } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { StartSpaceDialog } from '@/components/features/StartSpaceDialog';
 import { JoinSpaceDialog } from '@/components/features/JoinSpaceDialog';

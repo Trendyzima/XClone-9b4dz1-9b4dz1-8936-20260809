@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
-import { AdMob, BannerAdSize, BannerAdPosition, Capacitor } from '@/lib/capacitor-stub';
 import { toast as sonnerToast } from 'sonner';
 
 interface Community {
