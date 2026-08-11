@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
-import { Sparkles, ExternalLink, X } from 'lucide-react';
+import { useState, useEffect, useRef, ReactNode } from 'react';
 import { AdSenseAd } from '@/components/features/AdSenseAd';
 
 interface NativeAdCardProps {
@@ -67,56 +66,21 @@ export function NativeAdCard({ onClose, className = '' }: NativeAdCardProps) {
     onClose?.();
   };
 
-  // Always render AdSense on web
-  return (
-    <div className={`${className} px-2 py-2`}>
-      <AdSenseAd adSlot="3193754134" adFormat="auto" fullWidthResponsive />
-    </div>
-  );
-
   if (!visible) return null;
 
   return (
-    <div
-      ref={cardRef}
-      className={`relative border border-border bg-card rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 ${className}`}
-    >
-      <div className="flex items-center justify-between px-4 pt-3 pb-2">
-        <div className="flex items-center gap-1.5">
-          <Sparkles className="w-3 h-3 text-amber-500" />
-          <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">
-            Sponsored
-          </span>
-        </div>
-        <button onClick={handleClose} className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground" title="Close ad">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-      <button onClick={handleAdClick} className="w-full text-left px-4 pb-4">
-        <div className="rounded-xl overflow-hidden mb-3 aspect-video bg-muted">
-          <img src={adData.image} alt={adData.headline} className="w-full h-full object-cover" loading="lazy" />
-        </div>
-        <p className="text-xs text-muted-foreground mb-1">{adData.advertiser}</p>
-        <h3 className="font-bold text-foreground text-base leading-tight mb-1">{adData.headline}</h3>
-        <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{adData.body}</p>
-        <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-sm font-semibold px-4 py-2 rounded-full">
-            {adData.cta}
-            <ExternalLink className="w-3.5 h-3.5" />
-          </span>
-          <span className="text-xs text-muted-foreground">Ad</span>
-        </div>
-      </button>
+    <div className={`${className} px-2 py-2`}>
+      <AdSenseAd adSlot="3193754134" adFormat="auto" fullWidthResponsive />
     </div>
   );
 }
 
 export function injectNativeAds<T>(
   items: T[],
-  renderItem: (item: T, index: number) => React.ReactNode,
+  renderItem: (item: T, index: number) => ReactNode,
   interval = 6
-): React.ReactNode[] {
-  const result: React.ReactNode[] = [];
+): ReactNode[] {
+  const result: ReactNode[] = [];
   items.forEach((item, i) => {
     result.push(renderItem(item, i));
     if ((i + 1) % interval === 0 && i < items.length - 1) {
