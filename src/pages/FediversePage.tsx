@@ -21,6 +21,28 @@ import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
 
+function FediverseAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
+
 type Tab = 'feed' | 'inbox' | 'relay' | 'analytics' | 'discover' | 'identity' | 'mastodon';
 
 const CHART_COLORS = ['#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#3b82f6'];
@@ -696,6 +718,7 @@ export default function FediversePage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Fediverse · testagram.site" showBack />
+      <FediverseAdBanner />
 
       {gatewayOk === false && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs">

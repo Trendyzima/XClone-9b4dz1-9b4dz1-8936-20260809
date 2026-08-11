@@ -1,11 +1,3 @@
-/**
- * SEO Validation Utility
- * Provides runtime checks for SEO coverage across key routes.
- *
- * Usage in SEOAuditPage:
- *   import { SEO_COVERAGE, validateSEOCoverage } from '@/lib/seoValidation';
- */
-
 export interface SEORoute {
   path: string;
   label: string;
@@ -15,10 +7,6 @@ export interface SEORoute {
   noindex: boolean;
 }
 
-/**
- * Single source-of-truth manifest. Keep in sync with actual page implementations.
- * Update hasUseSEO/hasStructuredData when adding useSEO() to new pages.
- */
 export const SEO_COVERAGE: SEORoute[] = [
   // ── Core public pages ──────────────────────────────────────────────────────
   { path: '/',            label: 'Home Feed',     group: 'Core',       hasUseSEO: true,  hasStructuredData: true,  noindex: false },
@@ -71,20 +59,18 @@ export const SEO_COVERAGE: SEORoute[] = [
   { path: '/rewards',            label: 'Daily Rewards',        group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/referrals',          label: 'Referrals',            group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/interests',          label: 'Interest Onboarding',  group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/notification-preferences', label: 'Notif. Prefs', group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-
-  { path: '/my-ads',           label: 'My Ads',               group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/create-ad',         label: 'Create Ad',            group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/notification-preferences', label: 'Notif. Prefs',  group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/my-ads',             label: 'My Ads',               group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/create-ad',          label: 'Create Ad',            group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/create-thread',      label: 'Create Thread',        group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/post-analytics',    label: 'Post Analytics',       group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/lists/{id}',     label: 'List Detail',          group: 'Dynamic',     hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/series',         label: 'Content Series',       group: 'Core',        hasUseSEO: true,  hasStructuredData: true,  noindex: false },
-  { path: '/start-stream',   label: 'Start Stream',         group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/ad-analytics',   label: 'Ad Analytics',         group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/ad-performance',  label: 'Ad Performance',       group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/revenue-analytics', label: 'Revenue Analytics',  group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/boost-analytics/{postId}', label: 'Boost Analytics', group: 'Private', hasUseSEO: true,  hasStructuredData: false, noindex: true  },
-  { path: '/rewards',            label: 'Rewarded Ads',     group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/post-analytics',     label: 'Post Analytics',       group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/lists/{id}',         label: 'List Detail',          group: 'Dynamic',     hasUseSEO: true,  hasStructuredData: true,  noindex: false },
+  { path: '/series',             label: 'Content Series',       group: 'Core',        hasUseSEO: true,  hasStructuredData: true,  noindex: false },
+  { path: '/start-stream',       label: 'Start Stream',         group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/ad-analytics',       label: 'Ad Analytics',         group: 'Private',     hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/ad-performance',     label: 'Ad Performance',       group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/revenue-analytics',  label: 'Revenue Analytics',    group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
+  { path: '/boost-analytics/{postId}', label: 'Boost Analytics', group: 'Private',   hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin',              label: 'Admin Panel',          group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin/ads',          label: 'Admin — Ads',          group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
   { path: '/admin/revenue',      label: 'Admin — Revenue',      group: 'Admin',       hasUseSEO: true,  hasStructuredData: false, noindex: true  },
@@ -112,15 +98,11 @@ export interface SEOValidationSummary {
   warn: number;
   missing: number;
   noindex: number;
-  /** Score out of 100 (excludes noindex pages) */
   score: number;
-  /** Routes that are indexable but have no useSEO at all */
   missingRoutes: SEORoute[];
-  /** Routes that have useSEO but no structured data and are public */
   warnRoutes: SEORoute[];
 }
 
-/** Run validation and return a structured summary */
 export function validateSEOCoverage(): SEOValidationSummary {
   const scored = SEO_COVERAGE.map(r => ({ ...r, _status: scoreSEORoute(r) }));
 

@@ -1,11 +1,3 @@
-/**
- * Capacitor stub for web builds.
- * When running on web (Vite/Vercel), Capacitor native modules are not available.
- * This stub provides no-op implementations so imports don't crash.
- *
- * NOTE: AdMob has been removed — all ad monetisation uses AdSense on web.
- */
-
 // ── @capacitor/core ───────────────────────────────────────────────────────────
 export const Capacitor = {
   isNativePlatform: () => false,

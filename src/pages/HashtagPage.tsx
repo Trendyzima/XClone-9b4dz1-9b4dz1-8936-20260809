@@ -11,6 +11,28 @@ import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { useSEO, buildHashtagLD, buildOgImageUrl } from '@/hooks/useSEO';
 
+function HashtagAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
+
 export default function HashtagPage() {
   const { tag } = useParams();
   const { user } = useAuth();
@@ -45,19 +67,15 @@ export default function HashtagPage() {
         checkFollowStatus();
       }
     }
-
-
   }, [tag, user]);
 
   const fetchTopPosts = async (hashtagId: string) => {
-    // Top posts: sorted by engagement
     const { data } = await supabase
       .from('post_hashtags')
       .select('post_id, posts(*, user_profiles(*))')
       .eq('hashtag_id', hashtagId);
     if (!data) return;
     const allPosts = data.map((item: any) => item.posts).filter(Boolean);
-    // Sort by engagement score (likes + reposts + replies)
     const sorted = [...allPosts].sort((a, b) => {
       const scoreA = (a.likes_count || 0) + (a.reposts_count || 0) + (a.replies_count || 0);
       const scoreB = (b.likes_count || 0) + (b.reposts_count || 0) + (b.replies_count || 0);
@@ -77,7 +95,6 @@ export default function HashtagPage() {
       if (hashtagError) throw hashtagError;
       setHashtag(hashtagData);
 
-      // Fetch follower count
       const { count: fCount } = await supabase.from('hashtag_follows').select('*', { count: 'exact', head: true }).eq('hashtag_id', hashtagData.id);
       setFollowerCount(fCount ?? 0);
 
@@ -147,6 +164,7 @@ export default function HashtagPage() {
     return (
       <div className="min-h-screen bg-background">
         <TopBar title={`#${tag}`} showBack />
+        <HashtagAdBanner />
         <div className="text-center py-12 text-muted-foreground">
           <p>Hashtag not found</p>
         </div>
@@ -157,6 +175,7 @@ export default function HashtagPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title={`#${tag}`} showBack />
+      <HashtagAdBanner />
 
       {/* Hashtag Header */}
       <div className="border-b border-border p-6 bg-gradient-to-br from-primary/10 to-primary/5">
@@ -204,9 +223,6 @@ export default function HashtagPage() {
         )}
       </div>
 
-      {/* AdSense banner — hashtag page */}
-      <HashtagAdBanner />
-
       {/* Sort tabs */}
       <div className="border-b border-border flex">
         <button
@@ -235,29 +251,6 @@ export default function HashtagPage() {
           ))
         )}
       </div>
-    </div>
-  );
-}
-
-// ── AdSense banner — mounted once, push-guarded ──────────────────────────────────────────────────
-function HashtagAdBanner() {
-  const pushed = useRef(false);
-  useEffect(() => {
-    if (pushed.current) return;
-    pushed.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, []);
-  return (
-    <div className="px-4 py-3 border-b border-border bg-muted/5">
-      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
-      <ins
-        className="adsbygoogle"
-        style={{ display: 'block', minHeight: 60 }}
-        data-ad-client="ca-pub-2458567543017441"
-        data-ad-slot="2031881558"
-        data-ad-format="auto"
-        data-full-width-responsive="true"
-      />
     </div>
   );
 }
