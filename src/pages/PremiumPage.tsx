@@ -54,8 +54,8 @@ const PLANS = [
   },
 ] as const;
 
-// Pre-computed at module load — stable across renders so esbuild tree-shakes deterministically
-const PREMIUM_VALID_UNTIL = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+// Static date — must never use Date.now() at module scope (causes esbuild hash collisions)
+const PREMIUM_VALID_UNTIL = '2027-12-31';
 
 const PREMIUM_FEATURES = [
   { icon: Ban, label: 'Zero Ads', desc: 'No pre-roll, mid-roll, or feed ads — ever' },
