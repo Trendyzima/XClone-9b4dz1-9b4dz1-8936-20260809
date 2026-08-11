@@ -35,16 +35,8 @@ export function VideoMonetizationAd({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    // On native platform — use AdMob interstitial (once per postId per session)
+    // On native platform — skip overlay and complete immediately
     if (Capacitor.isNativePlatform()) {
-      if (!nativeAdShownThisSession.has(postId)) {
-        nativeAdShownThisSession.add(postId);
-        // Fire-and-forget — the admob lib handles the UI
-        import('@/lib/admob').then(({ showInterstitial }) => {
-          showInterstitial().catch(() => {});
-        });
-      }
-      // Track revenue and immediately call completion (native ad handles its own UI)
       trackAdRevenue();
       onAdComplete();
       return;

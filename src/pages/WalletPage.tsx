@@ -1,10 +1,9 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useSearchParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { WalletDashboard } from '@/components/features/WalletDashboard';
-import { showBanner, hideBanner, ADMOB_CONFIG } from '@/lib/admob';
-import { BannerAdPosition } from '@/lib/capacitor-stub';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useWallet } from '@/hooks/useWallet';
@@ -259,7 +258,7 @@ function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: {
 }
 
 // ── Transaction History Tab ───────────────────────────────────────────────
-function TransactionHistoryTab({ userId }: { userId: string }) {
+function TransactionHistoryTab({ userId }: { userId: string }) { // Moved TransactionHistoryTab into a function component
   const [txns, setTxns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
@@ -364,6 +363,30 @@ function TransactionHistoryTab({ userId }: { userId: string }) {
   );
 }
 
+// ── AdSense banner — wallet page ──────────────────────────────────────────────
+function WalletAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground px-3 pt-2 mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
+
+
 export default function WalletPage() {
   useSEO({ noindex: true, title: 'Wallet', url: '/wallet' });
   const { user } = useAuth();
@@ -401,9 +424,7 @@ export default function WalletPage() {
   }, [wallet]);
 
   useEffect(() => {
-    showBanner(ADMOB_CONFIG.BANNER_FEED, BannerAdPosition.TOP_CENTER);
-    return () => {
-      hideBanner();
+    return () => { // Cleanup function for effect
       if (pollRef.current)  clearInterval(pollRef.current);
       if (wPollRef.current) clearInterval(wPollRef.current);
       stopBalancePoll();
@@ -579,6 +600,9 @@ export default function WalletPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="My Wallet" showBack />
+
+      {/* ── AdSense banner — wallet page ── */}
+      <WalletAdBanner />
 
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
         <div className="flex max-w-2xl mx-auto">
