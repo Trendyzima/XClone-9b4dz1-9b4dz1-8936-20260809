@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Link } from 'react-router-dom';
@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useSEO } from '@/hooks/useSEO';
 
 interface SuggestedUser {
   id: string;
@@ -44,6 +45,43 @@ export default function DiscoverPage() {
   const [loading, setLoading] = useState(true);
   const [followLoading, setFollowLoading] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
+
+  // ── SEO — Person ItemList JSON-LD for top suggested creators ────────────
+  const discoverJsonLd = useMemo(() => {
+    const top5 = users.slice(0, 5);
+    if (top5.length === 0) return undefined;
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: 'Suggested Creators on Testagram',
+      description: 'Discover top creators to follow on Testagram',
+      numberOfItems: top5.length,
+      itemListElement: top5.map((u, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        item: {
+          '@type': 'Person',
+          name: u.username,
+          url: `https://testagram.site/profile/${u.username}`,
+          image: u.avatar_url || undefined,
+          interactionStatistic: {
+            '@type': 'InteractionCounter',
+            interactionType: 'https://schema.org/FollowAction',
+            userInteractionCount: u.followers_count ?? 0,
+          },
+        },
+      })),
+    };
+  }, [users]);
+
+  useSEO({
+    title: 'Discover Creators — Testagram',
+    description: 'Find and follow top creators, trending accounts, and communities on Testagram. Explore verified users, rising stars, and content you love.',
+    url: '/discover',
+    type: 'website',
+    keywords: 'discover creators, follow users, trending accounts, testagram, find people',
+    structuredData: discoverJsonLd,
+  });
 
   const loadFollowing = useCallback(async () => {
     if (!user) return;
