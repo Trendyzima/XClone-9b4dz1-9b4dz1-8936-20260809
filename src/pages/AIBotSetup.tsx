@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
@@ -6,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Bot, Loader2, CheckCircle, XCircle, Radio } from 'lucide-react';
 
 export default function AIBotSetup() {
+  useSEO({ noindex: true, title: 'Admin — AI Bot Setup', url: '/admin/ai-bot' });
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,7 @@ interface AdPlacement {
 
 export default function AdConfigPage() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Admin — Ad Configuration', url: '/admin/ad-config' });
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [placements, setPlacements] = useState<AdPlacement[]>([]);

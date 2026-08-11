@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -87,6 +88,7 @@ interface FraudAlert {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function AdminPanel() {
+  useSEO({ noindex: true, title: 'Admin Panel', url: '/admin' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);

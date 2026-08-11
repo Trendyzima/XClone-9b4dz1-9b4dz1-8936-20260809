@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -60,6 +61,43 @@ export default function LiveStreamPage() {
   const [loadingChatAnalytics, setLoadingChatAnalytics] = useState(false);
   // Message frequency chart (messages per minute rolling window)
   const [msgFreqChart, setMsgFreqChart] = useState<{min: string; count: number}[]>([]);
+
+  // ── SEO — BroadcastEvent JSON-LD ────────────────────────────
+  const streamJsonLd = stream ? {
+    '@context': 'https://schema.org',
+    '@type': 'BroadcastEvent',
+    name: stream.title ?? 'Live Stream on Testagram',
+    description: stream.description ?? 'Watch live stream on Testagram',
+    url: `https://testagram.site/live/${stream.id}`,
+    startDate: stream.started_at ?? new Date().toISOString(),
+    ...(stream.ended_at ? { endDate: stream.ended_at } : {}),
+    videoFormat: 'live',
+    isAccessibleForFree: true,
+    image: stream.thumbnail_url || 'https://testagram.site/tsocial-logo.png',
+    broadcaster: {
+      '@type': 'Organization',
+      name: 'Testagram',
+      url: 'https://testagram.site',
+    },
+    ...(stream.user_profiles ? {
+      performer: {
+        '@type': 'Person',
+        name: stream.user_profiles.username,
+        url: `https://testagram.site/profile/${stream.user_profiles.username}`,
+      },
+    } : {}),
+  } : undefined;
+  useSEO({
+    title: stream ? `🟢 ${stream.title} — Live on Testagram` : 'Live Stream — Testagram',
+    description: stream
+      ? `Watch ${stream.title} live on Testagram. ${stream.viewer_count ?? 0} viewers watching now.`
+      : 'Watch live streams from creators on Testagram.',
+    url: `/live/${stream?.id ?? ''}`,
+    image: stream?.thumbnail_url || undefined,
+    type: 'website',
+    keywords: 'live stream, testagram, creator live, watch now, streaming',
+    structuredData: streamJsonLd,
+  });
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;

@@ -7,6 +7,7 @@
  *   - Notification badge for pending ads
  */
 import { useState, useEffect, useCallback } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
@@ -32,6 +33,7 @@ const STATUS_CONFIG: Record<AdStatus, { label: string; color: string; icon: Reac
 
 export default function AdminAdsDashboard() {
   const { user } = useAuth();
+  useSEO({ noindex: true, title: 'Admin — Ads Dashboard', url: '/admin/ads' });
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [ads, setAds] = useState<any[]>([]);

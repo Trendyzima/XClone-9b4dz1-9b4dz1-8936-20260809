@@ -127,8 +127,45 @@ export default function HomePage() {
         },
         sameAs: [
           'https://testagram.site/fediverse',
+          'https://testagram.site/spaces',
+          'https://testagram.site/threads',
         ],
         description: 'Testagram is a social media platform for short videos, creator monetization, communities, and federated social networking.',
+        contactPoint: {
+          '@type': 'ContactPoint',
+          contactType: 'customer support',
+          url: 'https://testagram.site/help',
+        },
+      },
+      {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: [
+          {
+            '@type': 'Question',
+            name: 'What is Testagram?',
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: 'Testagram is a social media platform where creators can share short videos, long-form articles, host live audio spaces, and earn from their content through tips, subscriptions, and ads.',
+            },
+          },
+          {
+            '@type': 'Question',
+            name: 'How do creators earn money on Testagram?',
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: 'Creators on Testagram can earn through multiple channels: tips from followers, paid subscriptions, ad revenue sharing, product sales in the marketplace, and wallet top-ups via M-Pesa.',
+            },
+          },
+          {
+            '@type': 'Question',
+            name: 'Is Testagram available as a mobile app?',
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: 'Testagram is a Progressive Web App (PWA) accessible on any device via browser. It also supports cross-platform deployment via Capacitor for native iOS and Android experiences.',
+            },
+          },
+        ],
       },
     ],
   });
