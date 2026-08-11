@@ -566,6 +566,9 @@ export function StoriesStrip() {
       setCaptionGenLoading(false);
     }
   };
+
+  // Skeleton while loading
+  if (loading && groups.length === 0) {
     return (
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border overflow-hidden h-[88px]">
         {[0, 1, 2, 3].map(i => (
@@ -846,7 +849,6 @@ export function StoriesStrip() {
                 }`}
               >
                 ⏱️ Timer {countdownStickers.length > 0 ? `(${countdownStickers.length})` : ''}
-              </button>
               </button>
               {(stickers.length > 0 || textOverlays.length > 0) && (
                 <button onClick={() => { setStickers([]); setTextOverlays([]); }} className="text-white/50 text-xs hover:text-white/80 transition-colors">
