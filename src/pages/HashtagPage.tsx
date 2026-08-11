@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
@@ -206,6 +206,9 @@ export default function HashtagPage() {
         )}
       </div>
 
+      {/* AdSense banner — hashtag page */}
+      <HashtagAdBanner />
+
       {/* Sort tabs */}
       <div className="border-b border-border flex">
         <button
@@ -234,6 +237,29 @@ export default function HashtagPage() {
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+// ── AdSense banner — mounted once, push-guarded ──────────────────────────────────────────────────
+function HashtagAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="px-4 py-3 border-b border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
     </div>
   );
 }

@@ -76,14 +76,9 @@ async function showWebRewardedAd(): Promise<boolean> {
             <div style="font-size:18px; font-weight:bold;">Advertisement</div>
             <div style="font-size:13px; opacity:0.8; margin-top:4px;">Watch to earn your free boost</div>
           </div>
-          <div style="background:#111; border-radius:8px; padding:12px; margin-bottom:16px;">
-            <ins class="adsbygoogle"
-              style="display:block;min-height:100px;"
-              data-ad-client="ca-pub-2458567543017441"
-              data-ad-slot="2031881558"
-              data-ad-format="auto"
-              data-full-width-responsive="true">
-            </ins>
+          <div style="background:#111; border-radius:8px; padding:12px; margin-bottom:16px; text-align:center;">
+            <div style="font-size:24px; margin-bottom:4px;">📱</div>
+            <div style="font-size:12px; color:#6b7280;">Sponsored content loading…</div>
           </div>
           <div style="font-size:13px; color:#aaa; margin-bottom:8px;">Boost Credits: <strong style="color:#22c55e;">+25 credits</strong></div>
           <div id="ad-timer" style="font-size:13px; color:#f59e0b;">Please wait <strong id="timer-count">${timeLeft}s</strong></div>
@@ -100,12 +95,7 @@ async function showWebRewardedAd(): Promise<boolean> {
     overlay.innerHTML = adHtml;
     document.body.appendChild(overlay);
 
-    // Try to push an AdSense ad
-    try {
-      if (window.adsbygoogle) {
-        (window.adsbygoogle = window.adsbygoogle || []).push({});
-      }
-    } catch (_) {}
+    // Note: AdSense is not placed in modal overlays per policy
 
     const timerEl = overlay.querySelector('#timer-count') as HTMLElement;
     const timerLabel = overlay.querySelector('#ad-timer') as HTMLElement;

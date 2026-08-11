@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Link } from 'react-router-dom';
@@ -226,6 +226,9 @@ export default function DiscoverPage() {
         ))}
       </div>
 
+      {/* AdSense banner — discover page */}
+      <DiscoverAdBanner />
+
       {/* List */}
       <div className="divide-y divide-border">
         {loading ? (
@@ -329,6 +332,29 @@ export default function DiscoverPage() {
           })
         )}
       </div>
+    </div>
+  );
+}
+
+// ── AdSense banner — mounted once, push-guarded ──────────────────────────────────────────────────
+function DiscoverAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="px-4 py-3 border-b border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
     </div>
   );
 }
