@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { X, Heart, UserPlus, DollarSign, MessageCircle, Bell, Repeat2 } from 'lucide-react';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
 
 interface BannerItem {
   id: string;
@@ -27,6 +28,7 @@ const TYPE_CFG: Record<string, { icon: React.ElementType; color: string; bg: str
 export function LiveNotificationBanner() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { play: playSound } = useNotificationSound();
   const [banner, setBanner] = useState<BannerItem | null>(null);
   const [visible, setVisible] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,6 +64,15 @@ export function LiveNotificationBanner() {
     if (!resolved) return;
 
     clearTimers();
+
+    // Play distinct sound per notification type
+    const SOUND_MAP: Record<string, 'like'|'follow'|'tip'|'comment'|'repost'|'dm'> = {
+      like: 'like', follow: 'follow', tip: 'tip', payment_sent: 'tip',
+      reply: 'comment', mention: 'comment', repost: 'repost',
+    };
+    const soundType = SOUND_MAP[notif.type] ?? 'dm';
+    playSound(soundType);
+
     setBanner({
       id: notif.id,
       type: notif.type,
