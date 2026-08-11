@@ -2,6 +2,8 @@
  * Capacitor stub for web builds.
  * When running on web (Vite/Vercel), Capacitor native modules are not available.
  * This stub provides no-op implementations so imports don't crash.
+ *
+ * NOTE: AdMob has been removed — all ad monetisation uses AdSense on web.
  */
 
 // ── @capacitor/core ───────────────────────────────────────────────────────────
@@ -26,45 +28,14 @@ export const Style = {
   Default: 'DEFAULT',
 };
 
-// ── @capacitor-community/admob ────────────────────────────────────────────────
-export const AdMob = {
-  initialize: async () => {},
-  showBanner: async () => {},
-  hideBanner: async () => {},
-  removeBanner: async () => {},
-  prepareInterstitial: async () => {},
-  showInterstitial: async () => {},
-  prepareRewardVideoAd: async () => {},
-  showRewardVideoAd: async () => ({ reward: null }),
-  addListener: (_event: string, _handler: any) => ({ remove: () => {} }),
-};
-
-export const BannerAdSize = {
-  ADAPTIVE_BANNER: 'ADAPTIVE_BANNER',
-  SMART_BANNER: 'SMART_BANNER',
-  BANNER: 'BANNER',
-  FULL_BANNER: 'FULL_BANNER',
-  LEADERBOARD: 'LEADERBOARD',
-  MEDIUM_RECTANGLE: 'MEDIUM_RECTANGLE',
-};
-
+// ── BannerAdPosition — kept for AdMobAd / HybridAdComponent type compat ──────
 export const BannerAdPosition = {
   TOP_CENTER: 'TOP_CENTER',
   BOTTOM_CENTER: 'BOTTOM_CENTER',
   CENTER: 'CENTER',
 };
 
-export type AdMobRewardItem = {
-  type: string;
-  amount: number;
-};
-
-export type AdOptions = {
-  adId: string;
-  isTesting?: boolean;
-};
-
-// ── @capacitor/push-notifications ──────────────────────────────────────────
+// ── @capacitor/push-notifications ─────────────────────────────────────────────
 export const PushNotifications = {
   requestPermissions: async () => ({ receive: 'denied' }),
   register: async () => {},
@@ -93,13 +64,13 @@ export const Device = {
   getLanguageCode: async () => ({ value: 'en' }),
 };
 
-// ── @capacitor/share ─────────────────────────────────────────────────────────
+// ── @capacitor/share ──────────────────────────────────────────────────────────
 export const Share = {
   share: async () => ({ activityType: '' }),
   canShare: async () => ({ value: false }),
 };
 
-// ── @capacitor/network ───────────────────────────────────────────────────────
+// ── @capacitor/network ────────────────────────────────────────────────────────
 export const Network = {
   getStatus: async () => ({ connected: true, connectionType: 'wifi' }),
   addListener: (_event: string, _handler: any) => Promise.resolve({ remove: () => {} }),
@@ -120,7 +91,7 @@ export const Filesystem = {
 export const Directory = { Documents: 'DOCUMENTS', Data: 'DATA', Cache: 'CACHE', External: 'EXTERNAL', ExternalStorage: 'EXTERNAL_STORAGE' };
 export const Encoding = { UTF8: 'utf8', ASCII: 'ascii', UTF16: 'utf16' };
 
-// ── @capgo/capacitor-updater ─────────────────────────────────────────────────
+// ── @capgo/capacitor-updater ──────────────────────────────────────────────────
 export const CapacitorUpdater = {
   notifyAppReady: async () => {},
   download: async () => ({ version: '' }),
@@ -128,16 +99,6 @@ export const CapacitorUpdater = {
   addListener: (_event: string, _handler: any) => ({ remove: () => {} }),
 };
 
-// ── @vercel/analytics/react ─────────────────────────────────────────────────
+// ── @vercel/analytics/react ───────────────────────────────────────────────────
 export const Analytics = () => null;
 export const track = () => {};
-
-// Default export (some imports use default)
-export default {
-  Capacitor,
-  StatusBar,
-  Style,
-  AdMob,
-  BannerAdSize,
-  BannerAdPosition,
-};

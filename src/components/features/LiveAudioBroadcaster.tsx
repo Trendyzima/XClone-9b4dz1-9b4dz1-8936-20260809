@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Mic, Square, Loader2, Radio } from 'lucide-react';
-import { AdMob, BannerAdSize, BannerAdPosition } from '@/lib/capacitor-stub';
+
 
 interface LiveAudioBroadcasterProps {
   spaceId: string;
@@ -22,41 +22,12 @@ export function LiveAudioBroadcaster({
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [adLoaded, setAdLoaded] = useState(false);
+
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  // Initialize AdMob Banner
-  useEffect(() => {
-    loadAdMobBanner();
-    return () => removeAdMobBanner();
-  }, []);
-
-  const loadAdMobBanner = async () => {
-    try {
-      await AdMob.showBanner({
-        adId: 'ca-app-pub-7234579833875016/8657343194', // Real Banner ID
-        position: BannerAdPosition.TOP_CENTER,
-        size: BannerAdSize.ADAPTIVE_BANNER,
-        isTesting: false,
-      });
-      setAdLoaded(true);
-    } catch (err) {
-      console.error('AdMob Banner Error:', err);
-    }
-  };
-
-  const removeAdMobBanner = async () => {
-    try {
-      await AdMob.hideBanner();
-      setAdLoaded(false);
-    } catch (err) {
-      console.error('Error hiding banner:', err);
-    }
-  };
 
   useEffect(() => {
     return () => stopBroadcast();
@@ -184,8 +155,6 @@ export function LiveAudioBroadcaster({
 
   return (
     <div className="border border-border rounded-lg p-4 bg-background space-y-4">
-      {adLoaded && <div className="mb-2 text-center text-sm text-muted-foreground">AdMob Banner Loaded</div>}
-
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold flex items-center">
           <Radio className="w-4 h-4 mr-2" />
