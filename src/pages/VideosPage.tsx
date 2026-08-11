@@ -5,16 +5,21 @@ import { Post } from '@/types/app-types';
 import { Loader2, Gift, X, Zap, Play } from 'lucide-react';
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 
-const AD_EVERY_N_VIDEOS = 4;
 const PRELOAD_AHEAD = 2;
 const PAGE_SIZE = 20;
 
+type FeedTab = 'foryou' | 'following';
+
 export default function VideosPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkProcessed = useRef(false);
   const [videos, setVideos] = useState<Post[]>([]);
+  const [activeTab, setActiveTab] = useState<FeedTab>('foryou');
+  const [followingIds, setFollowingIds] = useState<string[]>([]);
 
   // Top 5 videos for SEO ItemList JSON-LD
   const topVideos = videos.slice(0, 5);
@@ -47,6 +52,7 @@ export default function VideosPage() {
       },
     })),
   } : undefined;
+
   useSEO({
     title: 'Trending Videos',
     description: 'Watch short videos from creators around the world on Testagram. Discover trending clips, go viral, and earn from your content.',
@@ -55,6 +61,7 @@ export default function VideosPage() {
     keywords: 'short videos, trending clips, viral videos, creators, testagram, tiktok-style, video feed',
     structuredData: videosJsonLd,
   });
+
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
   const [page, setPage] = useState(0);
@@ -71,10 +78,30 @@ export default function VideosPage() {
   // Preload map: index → shouldPreload
   const [preloadMap, setPreloadMap] = useState<Record<number, boolean>>({});
 
+  // Fetch following IDs when user logs in
   useEffect(() => {
-    fetchVideos(0);
+    if (!user) { setFollowingIds([]); return; }
+    supabase
+      .from('follows')
+      .select('following_id')
+      .eq('follower_id', user.id)
+      .then(({ data }) => setFollowingIds((data ?? []).map((f: any) => f.following_id)));
+  }, [user?.id]);
 
-  }, []);
+  // Re-fetch when tab changes
+  useEffect(() => {
+    setVideos([]);
+    setPage(0);
+    setHasMore(true);
+    setActiveIndex(0);
+    activeIndexRef.current = 0;
+    deepLinkProcessed.current = false;
+    setPreloadMap({});
+    // Scroll to top
+    if (containerRef.current) containerRef.current.scrollTo({ top: 0 });
+    setLoading(true);
+    fetchVideos(0);
+  }, [activeTab]);
 
   // Deep link: scroll to specific video on load (?id=postId)
   useEffect(() => {
@@ -110,14 +137,29 @@ export default function VideosPage() {
 
   const fetchVideos = async (pageNum: number) => {
     try {
-      // Mix new + old: order by views & created_at for variety
-      const { data, error } = await supabase
+      let query = supabase
         .from('posts')
         .select('*, user_profiles (*)')
         .eq('is_video', true)
         .order('created_at', { ascending: false })
         .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1);
 
+      // Following tab: filter to videos from followed users
+      if (activeTab === 'following') {
+        if (followingIds.length === 0) {
+          setLoading(false);
+          return;
+        }
+        query = supabase
+          .from('posts')
+          .select('*, user_profiles (*)')
+          .eq('is_video', true)
+          .in('user_id', followingIds)
+          .order('created_at', { ascending: false })
+          .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
 
       const newVideos = data || [];
@@ -125,15 +167,11 @@ export default function VideosPage() {
 
       if (pageNum === 0) {
         setVideos(newVideos);
-        // Preload first 3
         const init: Record<number, boolean> = {};
         for (let i = 0; i < Math.min(3, newVideos.length); i++) init[i] = true;
         setPreloadMap(init);
       } else {
-        setVideos(prev => {
-          const combined = [...prev, ...newVideos];
-          return combined;
-        });
+        setVideos(prev => [...prev, ...newVideos]);
       }
       setPage(pageNum);
     } catch (err) {
@@ -169,12 +207,7 @@ export default function VideosPage() {
           return map;
         });
 
-        // Interstitial ad
-        if (idx > 0 && idx % AD_EVERY_N_VIDEOS === 0) {
-          /* interstitial removed */
-        }
-
-        // Rewarded ad prompt
+        // Rewarded ad prompt every 8 videos, throttled 30s
         if (idx > 0 && idx % 8 === 0 && Date.now() - lastRewardedAt.current > 30_000) {
           setShowRewardPrompt(true);
         }
@@ -198,14 +231,9 @@ export default function VideosPage() {
   const handleWatchRewardedAd = async () => {
     setRewardPending(true);
     try {
-      const reward = true; // rewarded ad web overlay handled separately
-      if (reward) {
-        lastRewardedAt.current = Date.now();
-        setRewardMessage('🎉 You unlocked 2× reach boost on your next post!');
-        setTimeout(() => { setShowRewardPrompt(false); setRewardMessage(''); }, 3500);
-      } else {
-        setShowRewardPrompt(false);
-      }
+      lastRewardedAt.current = Date.now();
+      setRewardMessage('🎉 You unlocked 2× reach boost on your next post!');
+      setTimeout(() => { setShowRewardPrompt(false); setRewardMessage(''); }, 3500);
     } finally {
       setRewardPending(false);
     }
@@ -222,11 +250,33 @@ export default function VideosPage() {
   if (videos.length === 0) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-black text-white gap-4">
+        {/* Tab switcher even on empty state */}
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-1.5 py-1 border border-white/10">
+          {(['foryou', 'following'] as FeedTab[]).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all ${
+                activeTab === tab ? 'bg-white text-black' : 'text-white/70 hover:text-white'
+              }`}
+            >
+              {tab === 'foryou' ? 'For You' : 'Following'}
+            </button>
+          ))}
+        </div>
         <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center">
           <Play className="w-10 h-10" />
         </div>
-        <p className="text-xl font-bold">No videos yet</p>
-        <p className="text-white/60 text-center px-8">Be the first to share a video!</p>
+        <p className="text-xl font-bold">
+          {activeTab === 'following' && user
+            ? "No videos from people you follow yet"
+            : "No videos yet"}
+        </p>
+        <p className="text-white/60 text-center px-8">
+          {activeTab === 'following' && user
+            ? "Follow some creators to see their videos here"
+            : "Be the first to share a video!"}
+        </p>
         <button
           onClick={() => navigate('/')}
           className="mt-2 px-6 py-2 bg-white/10 rounded-full text-sm font-medium hover:bg-white/20 transition-colors"
@@ -239,6 +289,25 @@ export default function VideosPage() {
 
   return (
     <div className="relative bg-black" style={{ height: '100svh' }}>
+      {/* For You / Following tab bar — overlaid at top of screen */}
+      <div className="absolute top-0 left-0 right-0 z-30 flex justify-center pt-3 pointer-events-none">
+        <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-1.5 py-1 border border-white/10 pointer-events-auto">
+          {(['foryou', 'following'] as FeedTab[]).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all active:scale-95 ${
+                activeTab === tab
+                  ? 'bg-white text-black shadow-sm'
+                  : 'text-white/70 hover:text-white'
+              }`}
+            >
+              {tab === 'foryou' ? 'For You' : 'Following'}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* TikTok-style vertical scroll feed */}
       <div
         ref={containerRef}
@@ -278,8 +347,8 @@ export default function VideosPage() {
         )}
       </div>
 
-      {/* Video index indicator */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+      {/* Video index indicator — shifted below tab bar */}
+      <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
         <div className="bg-black/40 backdrop-blur-sm rounded-full px-3 py-1">
           <p className="text-white/70 text-xs font-medium">
             {activeIndex + 1} / {videos.length}{hasMore ? '+' : ''}

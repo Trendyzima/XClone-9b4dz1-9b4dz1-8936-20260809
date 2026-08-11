@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Heart, MessageCircle, Repeat2, Share, Volume2, VolumeX,
   Play, DollarSign, Crown, BadgeCheck, X, Send, Loader2,
-  UserPlus, UserCheck, Quote, Copy, Check,
+  UserPlus, UserCheck, Quote, Copy, Check, Bookmark, BookmarkCheck,
 } from 'lucide-react';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
@@ -27,14 +27,12 @@ interface Reply {
   user_profiles: { username: string; avatar_url: string | null } | null;
 }
 
-// Primitive object — no constructor side-effects
-const _counter = { n: 0 };
-
-// @__PURE__ annotation prevents esbuild non-determinism
+// @__PURE__ annotation prevents esbuild non-determinism on module-level Map construction
 const authorPremiumCache: Map<string, boolean> = /* @__PURE__ */ new Map();
 
 export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPlayerProps) {
   const videoRef       = useRef<HTMLVideoElement>(null);
+  const viewCounterRef = useRef(0); // per-page view counter — replaces module-level _counter
   const progressRef    = useRef<HTMLDivElement>(null);
   const lastTapRef     = useRef<{ time: number; x: number; y: number } | null>(null);
   const heartTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,6 +84,9 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
   const [showShareSheet, setShowShareSheet]     = useState(false);
   const [linkCopied, setLinkCopied]             = useState(false);
 
+  // Bookmark
+  const [isBookmarked, setIsBookmarked]         = useState(false);
+
   /* ── Load initial like / repost / follow state ──────────────────────── */
   useEffect(() => {
     if (!user) return;
@@ -96,6 +97,9 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     // Check repost
     supabase.from('reposts').select('id').eq('user_id', uid).eq('post_id', post.id).maybeSingle()
       .then(({ data }) => { if (data) setIsReposted(true); });
+    // Check bookmark
+    supabase.from('bookmarks').select('id').eq('user_id', uid).eq('post_id', post.id).maybeSingle()
+      .then(({ data }) => { if (data) setIsBookmarked(true); });
     // Check follow (skip own posts)
     if (post.user_id !== uid) {
       supabase.from('follows').select('id').eq('follower_id', uid).eq('following_id', post.user_id).maybeSingle()
@@ -131,9 +135,9 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
 
     if (isActive) {
       trackView();
-      _counter.n++;
+      viewCounterRef.current++;
       const shouldShowAd = !isPremium && !adDoneForThisPost &&
-        (post.is_monetized || _counter.n % 3 === 0);
+        (post.is_monetized || viewCounterRef.current % 3 === 0);
       if (shouldShowAd) {
         setShowPrerollAd(true);
         setAdDoneForThisPost(true);
@@ -379,6 +383,57 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
     setPosting(false);
   };
 
+  /* ── Bookmark ────────────────────────────────────────────────────────── */
+  const handleBookmark = useCallback(async () => {
+    if (!user) { navigate('/auth'); return; }
+    const nowBookmarked = !isBookmarked;
+    setIsBookmarked(nowBookmarked);
+    try {
+      if (nowBookmarked) {
+        await supabase.from('bookmarks').insert({ user_id: user.id, post_id: post.id });
+        toast({ title: 'Saved to bookmarks' });
+      } else {
+        await supabase.from('bookmarks').delete().match({ user_id: user.id, post_id: post.id });
+        toast({ title: 'Removed from bookmarks' });
+      }
+    } catch (_) {
+      setIsBookmarked(!nowBookmarked);
+    }
+  }, [user, isBookmarked, post.id]);
+
+  /* ── Caption renderer — parses #hashtags and @mentions ──────────────── */
+  const renderCaption = (content: string) => {
+    if (!content) return null;
+    const parts = content.split(/(#[\w\u00C0-\u024F]+|@[\w]+)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('#')) {
+        const tag = part.slice(1);
+        return (
+          <span
+            key={i}
+            className="text-sky-400 cursor-pointer hover:underline"
+            onClick={e => { e.stopPropagation(); navigate(`/hashtag/${tag}`); }}
+          >
+            {part}
+          </span>
+        );
+      }
+      if (part.startsWith('@')) {
+        const username = part.slice(1);
+        return (
+          <span
+            key={i}
+            className="text-sky-400 cursor-pointer hover:underline"
+            onClick={e => { e.stopPropagation(); navigate(`/profile/${username}`); }}
+          >
+            {part}
+          </span>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
   /* ── Share ───────────────────────────────────────────────────────────── */
   const postUrl = `${window.location.origin}/post/${post.id}`;
 
@@ -573,7 +628,9 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         {/* Bottom: caption + action buttons */}
         <div className="flex justify-between items-end text-white pointer-events-auto pb-14">
           <div className="flex-1 pr-4">
-            <p className="font-semibold text-sm leading-snug line-clamp-3">{post.content}</p>
+            <p className="font-semibold text-sm leading-snug line-clamp-3 pointer-events-auto">
+              {renderCaption(post.content ?? '')}
+            </p>
           </div>
 
           <div className="flex flex-col space-y-4">
@@ -621,6 +678,21 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
             >
               <div className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center">
                 <Share className="w-6 h-6" />
+              </div>
+            </button>
+
+            {/* Bookmark */}
+            <button
+              onClick={handleBookmark}
+              style={{ touchAction: 'manipulation' }}
+              className="flex flex-col items-center space-y-1 text-white hover:scale-110 active:scale-95 transition-transform"
+            >
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                isBookmarked ? 'bg-yellow-500' : 'bg-black/50'
+              }`}>
+                {isBookmarked
+                  ? <BookmarkCheck className="w-6 h-6 fill-current" />
+                  : <Bookmark className="w-6 h-6" />}
               </div>
             </button>
           </div>
