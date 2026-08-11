@@ -16,7 +16,7 @@ import {
   PieChart as LucidePieChart, Shield, Bell, BellOff, Settings2,
   QrCode, Calendar, RefreshCw, ChevronDown, ExternalLink, Key,
   Filter, Lock, Users, Gift, Printer, Globe,
-  Fingerprint, Star, UserPlus
+  Fingerprint, Star, UserPlus, Activity, AlertTriangle
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -48,13 +48,13 @@ const LOYALTY_TIERS = [
 ];
 
 const MPESA_SECRETS = [
-  { key: 'MPESA_CONSUMER_KEY',    desc: 'OAuth consumer key',                        where: 'Safaricom Developer Portal → My Apps → Consumer Key'          },
-  { key: 'MPESA_CONSUMER_SECRET', desc: 'OAuth consumer secret',                     where: 'Safaricom Developer Portal → My Apps → Consumer Secret'       },
-  { key: 'MPESA_SHORTCODE',       desc: 'Till/paybill number (sandbox: 174379)',      where: 'Safaricom Business → Account → Business Short Code'           },
-  { key: 'MPESA_PASSKEY',         desc: 'STK Push passkey',                           where: 'Safaricom Developer Portal → Test Credentials → Passkey'      },
-  { key: 'MPESA_B2C_SHORTCODE',   desc: 'B2C payout shortcode',                      where: 'Safaricom Developer Portal → B2C Test Credentials'            },
-  { key: 'MPESA_INITIATOR_NAME',  desc: 'B2C initiator username (sandbox: testapi)',  where: 'Safaricom Developer Portal → B2C → Initiator Name'            },
-  { key: 'MPESA_SECURITY_CRED',   desc: 'B2C encrypted security credential',          where: 'Safaricom Developer Portal → B2C → Security Credential'      },
+  { key: 'MPESA_CONSUMER_KEY',    desc: 'OAuth consumer key',                        where: 'Safaricom Developer Portal → My Apps → Consumer Key'     },
+  { key: 'MPESA_CONSUMER_SECRET', desc: 'OAuth consumer secret',                     where: 'Safaricom Developer Portal → My Apps → Consumer Secret'  },
+  { key: 'MPESA_SHORTCODE',       desc: 'Till/paybill number (sandbox: 174379)',      where: 'Safaricom Business → Account → Business Short Code'      },
+  { key: 'MPESA_PASSKEY',         desc: 'STK Push passkey',                           where: 'Safaricom Developer Portal → Test Credentials → Passkey' },
+  { key: 'MPESA_B2C_SHORTCODE',   desc: 'B2C payout shortcode',                      where: 'Safaricom Developer Portal → B2C Test Credentials'       },
+  { key: 'MPESA_INITIATOR_NAME',  desc: 'B2C initiator username (sandbox: testapi)',  where: 'Safaricom Developer Portal → B2C → Initiator Name'       },
+  { key: 'MPESA_SECURITY_CRED',   desc: 'B2C encrypted security credential',          where: 'Safaricom Developer Portal → B2C → Security Credential'  },
 ];
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
@@ -124,12 +124,9 @@ function LoyaltyBadge({ totalDeposited }: { totalDeposited: number }) {
 
 // ── PIN Entry Modal ───────────────────────────────────────────────────────
 function PinEntryModal({ title, onConfirm, onCancel }: {
-  title: string;
-  onConfirm: (pin: string) => void;
-  onCancel: () => void;
+  title: string; onConfirm: (pin: string) => void; onCancel: () => void;
 }) {
   const [pin, setPin] = useState('');
-
   const handleKey = (key: string) => {
     if (key === 'del') { setPin(p => p.slice(0, -1)); return; }
     if (pin.length >= 4) return;
@@ -137,7 +134,6 @@ function PinEntryModal({ title, onConfirm, onCancel }: {
     setPin(next);
     if (next.length === 4) setTimeout(() => onConfirm(next), 120);
   };
-
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
       <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -168,9 +164,7 @@ function PinEntryModal({ title, onConfirm, onCancel }: {
             return (
               <button key={i} onClick={() => handleKey(key)}
                 className={`h-14 rounded-2xl font-bold text-xl transition-all active:scale-95 ${
-                  key === 'del'
-                    ? 'bg-muted text-muted-foreground hover:bg-muted/70'
-                    : 'bg-muted hover:bg-primary/10 hover:text-primary'
+                  key === 'del' ? 'bg-muted text-muted-foreground hover:bg-muted/70' : 'bg-muted hover:bg-primary/10 hover:text-primary'
                 }`}>
                 {key === 'del' ? '⌫' : key}
               </button>
@@ -190,7 +184,6 @@ function PinSetupCard({ userId, pinHash, onSaved }: { userId: string; pinHash: s
   const [newPin,     setNewPin]  = useState('');
   const [confirmPin, setConfirm] = useState('');
   const [saving,     setSaving]  = useState(false);
-
   const resetForm = () => { setMode('idle'); setOldPin(''); setNewPin(''); setConfirm(''); };
 
   const handleSave = async () => {
@@ -292,9 +285,7 @@ function PinSetupCard({ userId, pinHash, onSaved }: { userId: string; pinHash: s
 }
 
 // ── Biometric Auth Card ───────────────────────────────────────────────────
-function BiometricCard({ userId, credentialId, onSaved }: {
-  userId: string; credentialId: string | null; onSaved: () => void;
-}) {
+function BiometricCard({ userId, credentialId, onSaved }: { userId: string; credentialId: string | null; onSaved: () => void }) {
   const [supported, setSupported] = useState(false);
   const [enabling,  setEnabling]  = useState(false);
   const [removing,  setRemoving]  = useState(false);
@@ -315,43 +306,25 @@ function BiometricCard({ userId, credentialId, onSaved }: {
         publicKey: {
           challenge,
           rp: { name: 'Testagram Wallet', id: window.location.hostname },
-          user: {
-            id: new TextEncoder().encode(userId),
-            name: userId,
-            displayName: 'Wallet User',
-          },
-          pubKeyCredParams: [
-            { type: 'public-key', alg: -7   },
-            { type: 'public-key', alg: -257 },
-          ],
-          authenticatorSelection: {
-            authenticatorAttachment: 'platform',
-            userVerification: 'required',
-          },
+          user: { id: new TextEncoder().encode(userId), name: userId, displayName: 'Wallet User' },
+          pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+          authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
           timeout: 60000,
         },
       }) as PublicKeyCredential;
       const credId = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
-      const { error } = await supabase.from('user_wallets')
-        .update({ biometric_credential_id: credId })
-        .eq('user_id', userId);
+      const { error } = await supabase.from('user_wallets').update({ biometric_credential_id: credId }).eq('user_id', userId);
       if (error) throw error;
       toast.success('Biometric authentication enabled!');
       onSaved();
     } catch (err: any) {
-      if (err.name !== 'NotAllowedError') {
-        toast.error(err.message || 'Failed to set up biometrics');
-      }
-    } finally {
-      setEnabling(false);
-    }
+      if (err.name !== 'NotAllowedError') toast.error(err.message || 'Failed to set up biometrics');
+    } finally { setEnabling(false); }
   };
 
   const removeBiometric = async () => {
     setRemoving(true);
-    const { error } = await supabase.from('user_wallets')
-      .update({ biometric_credential_id: null })
-      .eq('user_id', userId);
+    const { error } = await supabase.from('user_wallets').update({ biometric_credential_id: null }).eq('user_id', userId);
     setRemoving(false);
     if (error) { toast.error('Failed to remove biometrics'); return; }
     toast.success('Biometric authentication removed');
@@ -367,32 +340,22 @@ function BiometricCard({ userId, credentialId, onSaved }: {
           <div className="flex items-center gap-2">
             <Fingerprint className={`w-4 h-4 ${credentialId ? 'text-green-500' : 'text-muted-foreground'}`} />
             <h3 className="font-bold text-sm">Biometric Auth</h3>
-            {credentialId && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Active</span>
-            )}
+            {credentialId && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Active</span>}
           </div>
           {credentialId ? (
-            <button onClick={removeBiometric} disabled={removing}
-              className="text-xs text-red-500 font-semibold hover:underline disabled:opacity-50">
+            <button onClick={removeBiometric} disabled={removing} className="text-xs text-red-500 font-semibold hover:underline disabled:opacity-50">
               {removing ? 'Removing…' : 'Remove'}
             </button>
           ) : (
-            <button onClick={registerBiometric} disabled={enabling}
-              className="text-xs text-primary font-semibold hover:underline disabled:opacity-50">
+            <button onClick={registerBiometric} disabled={enabling} className="text-xs text-primary font-semibold hover:underline disabled:opacity-50">
               {enabling ? 'Setting up…' : 'Enable'}
             </button>
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          {credentialId
-            ? 'Face ID or fingerprint replaces your wallet PIN for withdrawals and transfers.'
-            : 'Use Face ID, fingerprint, or device PIN as an alternative to your wallet PIN.'}
+          {credentialId ? 'Face ID or fingerprint replaces your wallet PIN for withdrawals and transfers.' : 'Use Face ID, fingerprint, or device PIN as an alternative to your wallet PIN.'}
         </p>
-        {!credentialId && (
-          <p className="text-[10px] text-muted-foreground/60 mt-1">
-            Requires a device with a platform authenticator (Touch ID, Face ID, Windows Hello).
-          </p>
-        )}
+        {!credentialId && <p className="text-[10px] text-muted-foreground/60 mt-1">Requires a device with a platform authenticator (Touch ID, Face ID, Windows Hello).</p>}
       </div>
     </div>
   );
@@ -435,21 +398,15 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
 
   const addRecipient = (u: any) => {
     if (recipients.length >= 5) { toast.error('Max 5 recipients'); return; }
-    setRecipients(prev => [...prev, u]);
-    setResults([]); setQuery('');
+    setRecipients(prev => [...prev, u]); setResults([]); setQuery('');
   };
-
-  const removeRecipient = (id: string) => setRecipients(prev => prev.filter(r => r.id !== id));
 
   const executeSplit = async () => {
     setStep('sending');
     let successCount = 0;
     for (const recipient of recipients) {
       const { error } = await supabase.rpc('p2p_wallet_transfer', {
-        p_from_user_id: userId,
-        p_to_user_id: recipient.id,
-        p_amount: perPerson,
-        p_note: note.trim() || null,
+        p_from_user_id: userId, p_to_user_id: recipient.id, p_amount: perPerson, p_note: note.trim() || null,
       });
       if (!error) {
         successCount++;
@@ -466,9 +423,7 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
     toast.success(`Split complete! Sent ${fmtAmt(perPerson, currency)} to ${successCount} people.`);
   };
 
-  const handleConfirm = () => {
-    if (pinHash) { setShowPin(true); } else { executeSplit(); }
-  };
+  const handleConfirm = () => { if (pinHash) { setShowPin(true); } else { executeSplit(); } };
 
   const handlePinConfirm = async (pin: string) => {
     const entered = await hashPin(pin);
@@ -479,22 +434,15 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-5 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-5 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {showPin && <PinEntryModal title="Confirm Split" onConfirm={handlePinConfirm} onCancel={() => setShowPin(false)} />}
-
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="font-black text-lg">Split Bill</h3>
             <p className="text-xs text-muted-foreground">Divide an amount equally among friends</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-muted transition-colors">
-            <X className="w-4 h-4" />
-          </button>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-muted transition-colors"><X className="w-4 h-4" /></button>
         </div>
-
         {step === 'done' ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
@@ -503,32 +451,24 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
             <div>
               <p className="font-black text-lg text-green-600">Split Complete!</p>
               <p className="text-sm text-muted-foreground mt-1">{fmtAmt(perPerson, currency)} sent to {sent} people</p>
-              <p className="text-xs text-muted-foreground">Total: {fmtAmt(parseFloat(total || '0'), currency)}</p>
             </div>
-            <button onClick={onClose}
-              className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90 transition-opacity">
-              Done
-            </button>
+            <button onClick={onClose} className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90 transition-opacity">Done</button>
           </div>
         ) : step === 'sending' ? (
           <div className="flex flex-col items-center gap-3 py-8">
             <Loader2 className="w-10 h-10 animate-spin text-primary" />
             <p className="font-semibold text-sm">Sending {sent}/{recipients.length}…</p>
-            <p className="text-xs text-muted-foreground">{fmtAmt(perPerson, currency)} per person</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Recipients */}
             <div>
-              <label className="text-sm font-semibold mb-2 block">
-                Recipients <span className="text-muted-foreground font-normal">({recipients.length}/5)</span>
-              </label>
+              <label className="text-sm font-semibold mb-2 block">Recipients <span className="text-muted-foreground font-normal">({recipients.length}/5)</span></label>
               {recipients.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {recipients.map(r => (
                     <div key={r.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 border border-primary/20 rounded-full text-xs font-semibold">
                       @{r.username}
-                      <button onClick={() => removeRecipient(r.id)} className="text-muted-foreground hover:text-destructive">
+                      <button onClick={() => setRecipients(prev => prev.filter(x => x.id !== r.id))} className="text-muted-foreground hover:text-destructive">
                         <X className="w-3 h-3" />
                       </button>
                     </div>
@@ -549,9 +489,7 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
                     <button key={u.id} onClick={() => addRecipient(u)}
                       className="w-full flex items-center gap-2 p-2.5 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all text-left text-sm">
                       <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs">
-                        {u.avatar_url
-                          ? <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
-                          : u.username[0]?.toUpperCase()}
+                        {u.avatar_url ? <img src={u.avatar_url} alt="" className="w-full h-full object-cover" /> : u.username[0]?.toUpperCase()}
                       </div>
                       <span className="font-semibold flex-1">@{u.username}</span>
                       {u.verified && <UserCheck className="w-3.5 h-3.5 text-primary" />}
@@ -561,46 +499,33 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
                 </div>
               )}
             </div>
-
-            {/* Amount */}
             <div>
               <label className="text-sm font-semibold mb-2 block">Total Amount (USD)</label>
-              <input type="number" min="0.01" step="0.01" placeholder="Total to split…"
-                value={total} onChange={e => setTotal(e.target.value)}
+              <input type="number" min="0.01" step="0.01" placeholder="Total to split…" value={total} onChange={e => setTotal(e.target.value)}
                 className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               {recipients.length > 0 && parseFloat(total) > 0 && (
                 <p className="text-xs text-primary font-semibold mt-1">
-                  {fmtAmt(perPerson, currency)} per person × {recipients.length} = {fmtAmt(perPerson * recipients.length, currency)}
+                  {fmtAmt(perPerson, currency)} × {recipients.length} = {fmtAmt(perPerson * recipients.length, currency)}
                 </p>
               )}
             </div>
-
-            {/* Note */}
             <div>
               <label className="text-sm font-semibold mb-2 block">Note (optional)</label>
               <input type="text" maxLength={80} placeholder="What's the split for?" value={note} onChange={e => setNote(e.target.value)}
                 className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
             </div>
-
-            {/* Summary */}
             {recipients.length > 0 && perPerson > 0 && (
               <div className="p-3 bg-primary/5 border border-primary/15 rounded-xl space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Each person pays</span>
                   <span className="font-black text-primary">{fmtAmt(perPerson, currency)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Total deducted</span>
-                  <span className="font-semibold">{fmtAmt(perPerson * recipients.length, currency)}</span>
-                </div>
                 {perPerson * recipients.length > walletBalance && (
                   <p className="text-xs text-red-500 pt-1">⚠️ Exceeds your balance of {fmtAmt(walletBalance, currency)}</p>
                 )}
               </div>
             )}
-
-            <button
-              onClick={handleConfirm}
+            <button onClick={handleConfirm}
               disabled={recipients.length === 0 || !total || parseFloat(total) <= 0 || perPerson * recipients.length > walletBalance}
               className="w-full py-3.5 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
               {pinHash ? <Lock className="w-5 h-5" /> : <Send className="w-5 h-5" />}
@@ -623,38 +548,28 @@ function ReferralEarningsTab({ userId }: { userId: string }) {
 
   useEffect(() => {
     setRefLink(`${window.location.origin}/auth?ref=${userId}`);
+    const loadData = async () => {
+      setLoading(true);
+      const [{ data: refs }, { data: creds }] = await Promise.all([
+        supabase.from('referrals')
+          .select('*, invited_user:user_profiles!referrals_invited_user_fkey(id,username,avatar_url)')
+          .eq('invited_by', userId).order('created_at', { ascending: false }),
+        supabase.from('credit_transactions').select('*').eq('user_id', userId)
+          .ilike('reason', '%referral%').order('created_at', { ascending: false }).limit(50),
+      ]);
+      setReferrals(refs ?? []); setCredits(creds ?? []); setLoading(false);
+    };
     loadData();
   }, [userId]);
-
-  const loadData = async () => {
-    setLoading(true);
-    const [{ data: refs }, { data: creds }] = await Promise.all([
-      supabase.from('referrals')
-        .select('*, invited_user:user_profiles!referrals_invited_user_fkey(id,username,avatar_url)')
-        .eq('invited_by', userId)
-        .order('created_at', { ascending: false }),
-      supabase.from('credit_transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .ilike('reason', '%referral%')
-        .order('created_at', { ascending: false })
-        .limit(50),
-    ]);
-    setReferrals(refs ?? []);
-    setCredits(creds ?? []);
-    setLoading(false);
-  };
 
   const totalCredits = useMemo(() => credits.reduce((s, c) => s + Number(c.amount), 0), [credits]);
 
   const copyLink = () => {
     navigator.clipboard.writeText(refLink).then(() => {
-      setCopied(true);
-      toast.success('Referral link copied!');
+      setCopied(true); toast.success('Referral link copied!');
       setTimeout(() => setCopied(false), 2500);
     });
   };
-
   const shareLink = async () => {
     if (navigator.share) await navigator.share({ title: 'Join me on Testagram', url: refLink });
     else copyLink();
@@ -667,42 +582,30 @@ function ReferralEarningsTab({ userId }: { userId: string }) {
           <Users className="w-4 h-4 text-purple-600" />
           <h3 className="font-bold text-sm text-purple-700 dark:text-purple-400">Your Referral Link</h3>
         </div>
-        <p className="text-xs text-muted-foreground mb-3">Earn <strong>100 credits</strong> for every friend who signs up with your link.</p>
+        <p className="text-xs text-muted-foreground mb-3">Earn <strong>100 credits</strong> for every friend who signs up.</p>
         <div className="flex gap-2 mb-3">
-          <div className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-xs font-mono truncate text-muted-foreground">
-            {refLink || '…'}
-          </div>
-          <button onClick={copyLink}
-            className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-xl font-semibold text-xs hover:bg-purple-700 transition-colors">
+          <div className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-xs font-mono truncate text-muted-foreground">{refLink || '…'}</div>
+          <button onClick={copyLink} className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-xl font-semibold text-xs hover:bg-purple-700 transition-colors">
             {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             {copied ? 'Copied!' : 'Copy'}
           </button>
         </div>
-        <button onClick={shareLink}
-          className="w-full flex items-center justify-center gap-2 py-2.5 border border-purple-500/30 rounded-xl text-purple-700 dark:text-purple-400 font-semibold text-sm hover:bg-purple-500/10 transition-colors">
+        <button onClick={shareLink} className="w-full flex items-center justify-center gap-2 py-2.5 border border-purple-500/30 rounded-xl text-purple-700 dark:text-purple-400 font-semibold text-sm hover:bg-purple-500/10 transition-colors">
           <Send className="w-3.5 h-3.5" /> Share Link
         </button>
       </div>
-
       <div className="grid grid-cols-2 gap-3">
         <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Users className="w-3.5 h-3.5 text-primary" />
-            <p className="text-xs text-muted-foreground">Total Referrals</p>
-          </div>
+          <div className="flex items-center gap-1.5 mb-1"><Users className="w-3.5 h-3.5 text-primary" /><p className="text-xs text-muted-foreground">Total Referrals</p></div>
           <p className="text-3xl font-black text-primary">{referrals.length}</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">users signed up</p>
         </div>
         <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Gift className="w-3.5 h-3.5 text-amber-600" />
-            <p className="text-xs text-muted-foreground">Credits Earned</p>
-          </div>
+          <div className="flex items-center gap-1.5 mb-1"><Gift className="w-3.5 h-3.5 text-amber-600" /><p className="text-xs text-muted-foreground">Credits Earned</p></div>
           <p className="text-3xl font-black text-amber-600">{totalCredits}</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">from referrals</p>
         </div>
       </div>
-
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
       ) : referrals.length === 0 ? (
@@ -717,9 +620,7 @@ function ReferralEarningsTab({ userId }: { userId: string }) {
           {referrals.map(r => (
             <div key={r.id} className="flex items-center gap-3 p-3.5 border border-border rounded-2xl bg-card hover:bg-muted/30 transition-colors">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 font-bold text-sm text-primary overflow-hidden">
-                {r.invited_user?.avatar_url
-                  ? <img src={r.invited_user.avatar_url} alt="" className="w-full h-full object-cover" />
-                  : (r.invited_user?.username?.[0]?.toUpperCase() ?? '?')}
+                {r.invited_user?.avatar_url ? <img src={r.invited_user.avatar_url} alt="" className="w-full h-full object-cover" /> : (r.invited_user?.username?.[0]?.toUpperCase() ?? '?')}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm">@{r.invited_user?.username ?? 'Unknown'}</p>
@@ -742,8 +643,7 @@ function MpesaSecretsGuide() {
   const [open, setOpen] = useState(false);
   return (
     <div className="rounded-2xl border border-border overflow-hidden">
-      <button onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left">
+      <button onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left">
         <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
           <Key className="w-4 h-4 text-amber-600" />
         </div>
@@ -755,10 +655,7 @@ function MpesaSecretsGuide() {
       </button>
       {open && (
         <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Add each secret in <strong className="text-foreground">OnSpace Cloud → Secrets</strong>.
-            Use sandbox values for testing, then switch to production.
-          </p>
+          <p className="text-xs text-muted-foreground">Add each secret in <strong className="text-foreground">OnSpace Cloud → Secrets</strong>. Use sandbox values for testing.</p>
           <div className="space-y-2">
             {MPESA_SECRETS.map(s => (
               <div key={s.key} className="p-3 bg-background border border-border rounded-xl">
@@ -781,9 +678,7 @@ function MpesaSecretsGuide() {
 }
 
 // ── Receive Money Tab (QR Code) ───────────────────────────────────────────
-function ReceiveMoneyTab({ username, walletBalance, currency }: {
-  username: string; walletBalance: number; currency: CurrencyCode;
-}) {
+function ReceiveMoneyTab({ username, walletBalance, currency }: { username: string; walletBalance: number; currency: CurrencyCode }) {
   const [copied,        setCopied]        = useState(false);
   const [requestAmount, setRequestAmount] = useState('');
   const [requestNote,   setRequestNote]   = useState('');
@@ -800,9 +695,7 @@ function ReceiveMoneyTab({ username, walletBalance, currency }: {
 
   const copyLink = () => {
     navigator.clipboard.writeText(payUrl).then(() => {
-      setCopied(true);
-      toast.success('Payment link copied!');
-      setTimeout(() => setCopied(false), 2500);
+      setCopied(true); toast.success('Payment link copied!'); setTimeout(() => setCopied(false), 2500);
     });
   };
   const shareLink = async () => {
@@ -823,9 +716,7 @@ function ReceiveMoneyTab({ username, walletBalance, currency }: {
           <div className="grid grid-cols-4 gap-2 mb-2">
             {[1,5,10,25].map(a => (
               <button key={a} onClick={() => setRequestAmount(requestAmount === String(a) ? '' : String(a))}
-                className={`py-2 rounded-xl font-bold text-sm border-2 transition-all ${
-                  requestAmount === String(a) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
-                }`}>${a}</button>
+                className={`py-2 rounded-xl font-bold text-sm border-2 transition-all ${requestAmount === String(a) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>${a}</button>
             ))}
           </div>
           <input type="number" min="0.01" step="0.01" placeholder="Custom amount (USD)…"
@@ -840,10 +731,7 @@ function ReceiveMoneyTab({ username, walletBalance, currency }: {
         </div>
       </div>
       <div className="flex flex-col items-center gap-4 p-6 border border-border rounded-2xl bg-card">
-        <div className="flex items-center gap-2 mb-1">
-          <QrCode className="w-4 h-4 text-primary" />
-          <p className="font-bold text-sm">Scan to pay @{username}</p>
-        </div>
+        <div className="flex items-center gap-2 mb-1"><QrCode className="w-4 h-4 text-primary" /><p className="font-bold text-sm">Scan to pay @{username}</p></div>
         <div className="p-3 bg-white rounded-2xl shadow-sm border border-border">
           <img src={qrImageUrl} alt={`Pay @${username}`} width={220} height={220} className="rounded-xl" />
         </div>
@@ -853,24 +741,16 @@ function ReceiveMoneyTab({ username, walletBalance, currency }: {
             {requestNote && <span className="text-xs text-muted-foreground">· {requestNote}</span>}
           </div>
         )}
-        <p className="text-xs text-muted-foreground text-center max-w-xs">
-          Show this QR code — they'll be taken to Send Money pre-filled with your username.
-        </p>
+        <p className="text-xs text-muted-foreground text-center max-w-xs">Show this QR code — they'll be taken to Send Money pre-filled with your username.</p>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <button onClick={copyLink}
-          className="flex items-center justify-center gap-2 py-3 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors">
+        <button onClick={copyLink} className="flex items-center justify-center gap-2 py-3 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors">
           {copied ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
           {copied ? 'Copied!' : 'Copy Link'}
         </button>
-        <button onClick={shareLink}
-          className="flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity">
+        <button onClick={shareLink} className="flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity">
           <Send className="w-4 h-4" /> Share Link
         </button>
-      </div>
-      <div className="bg-muted/30 rounded-2xl p-3 text-xs text-muted-foreground">
-        <strong>Link:</strong>{' '}
-        <span className="break-all font-mono text-[10px]">{payUrl.length > 80 ? payUrl.slice(0,80) + '…' : payUrl}</span>
       </div>
     </div>
   );
@@ -893,20 +773,15 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
     setLoading(true);
     const { data } = await supabase.from('payout_schedules').select('*').eq('user_id', userId).maybeSingle();
     if (data) {
-      setSchedule(data);
-      setEnabled(data.is_active);
-      setFrequency(data.frequency ?? 'monthly');
-      setMinAmount(String(data.minimum_amount ?? 5));
-      setPhone(data.payout_destination ?? defaultPhone ?? '');
+      setSchedule(data); setEnabled(data.is_active); setFrequency(data.frequency ?? 'monthly');
+      setMinAmount(String(data.minimum_amount ?? 5)); setPhone(data.payout_destination ?? defaultPhone ?? '');
     }
     setLoading(false);
   };
 
   const nextPayoutLabel = useMemo(() => {
     if (!schedule?.next_payout_at) return null;
-    return new Date(schedule.next_payout_at).toLocaleDateString('en', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-    });
+    return new Date(schedule.next_payout_at).toLocaleDateString('en', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   }, [schedule]);
 
   const handleSave = async () => {
@@ -923,13 +798,8 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
       next_payout_at: enabled ? nextPayout.toISOString() : null,
     };
     let err;
-    if (schedule) {
-      const { error } = await supabase.from('payout_schedules').update(payload).eq('id', schedule.id);
-      err = error;
-    } else {
-      const { error } = await supabase.from('payout_schedules').insert(payload);
-      err = error;
-    }
+    if (schedule) { const { error } = await supabase.from('payout_schedules').update(payload).eq('id', schedule.id); err = error; }
+    else { const { error } = await supabase.from('payout_schedules').insert(payload); err = error; }
     setSaving(false);
     if (err) { toast.error('Failed to save schedule'); return; }
     toast.success(enabled ? `Auto-payout scheduled ${frequency}` : 'Auto-payout disabled');
@@ -937,23 +807,15 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
   };
 
   if (loading) {
-    return (
-      <div className="rounded-2xl border border-border p-5 flex items-center justify-center">
-        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <div className="rounded-2xl border border-border p-5 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>;
   }
 
   return (
     <div className="rounded-2xl border border-border overflow-hidden">
       <div className="px-5 py-4">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-primary" />
-            <h3 className="font-bold text-sm">Auto-Payout Schedule</h3>
-          </div>
-          <button onClick={() => setEnabled(v => !v)}
-            className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}>
+          <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-primary" /><h3 className="font-bold text-sm">Auto-Payout Schedule</h3></div>
+          <button onClick={() => setEnabled(v => !v)} className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}>
             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
           </button>
         </div>
@@ -964,9 +826,7 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
               <div className="grid grid-cols-2 gap-2">
                 {(['weekly','monthly'] as const).map(f => (
                   <button key={f} onClick={() => setFrequency(f)}
-                    className={`py-2.5 rounded-xl font-bold text-sm border-2 capitalize transition-all ${
-                      frequency === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
-                    }`}>{f}</button>
+                    className={`py-2.5 rounded-xl font-bold text-sm border-2 capitalize transition-all ${frequency === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>{f}</button>
                 ))}
               </div>
             </div>
@@ -975,9 +835,7 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
               <div className="grid grid-cols-4 gap-2 mb-2">
                 {['5','10','25','50'].map(v => (
                   <button key={v} onClick={() => setMinAmount(v)}
-                    className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${
-                      minAmount === v ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
-                    }`}>${v}</button>
+                    className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${minAmount === v ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>${v}</button>
                 ))}
               </div>
               <input type="number" min="1" step="0.01" placeholder="Custom minimum…"
@@ -1003,9 +861,7 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
             )}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground mb-4">
-            Automatically withdraw earnings to M-Pesa weekly or monthly when your balance reaches a minimum.
-          </p>
+          <p className="text-xs text-muted-foreground mb-4">Automatically withdraw earnings to M-Pesa weekly or monthly when your balance reaches a minimum.</p>
         )}
         <button onClick={handleSave} disabled={saving}
           className="w-full mt-4 py-2.5 bg-primary text-primary-foreground rounded-xl font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
@@ -1027,13 +883,11 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
 
   const fetchTxns = async () => {
     setLoading(true);
-    let q = supabase.from('wallet_transactions').select('*').eq('user_id', userId)
-      .order('created_at', { ascending: false }).limit(200);
+    let q = supabase.from('wallet_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(200);
     if (period === 'week')  q = q.gte('created_at', new Date(Date.now() - 7  * 86400000).toISOString());
     if (period === 'month') q = q.gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString());
     const { data } = await q;
-    setTxns(data ?? []);
-    setLoading(false);
+    setTxns(data ?? []); setLoading(false);
   };
 
   const { barData, pieData, totalIn, totalOut, totalBoosts, avgTxn, recentDeposits } = useMemo(() => {
@@ -1041,8 +895,7 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
     const now  = Date.now();
     const dailyMap: Record<string, { in: number; out: number }> = {};
     for (let i = days - 1; i >= 0; i--) {
-      const d   = new Date(now - i * 86400000);
-      const key = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+      const key = new Date(now - i * 86400000).toLocaleDateString('en', { month: 'short', day: 'numeric' });
       dailyMap[key] = { in: 0, out: 0 };
     }
     txns.forEach(t => {
@@ -1051,14 +904,9 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
       if (t.type === 'deposit' || t.type === 'earnings') dailyMap[key].in  += Number(t.amount);
       else                                                 dailyMap[key].out += Number(t.amount);
     });
-    const barData = Object.entries(dailyMap).map(([date, v]) => ({
-      date, In: parseFloat(v.in.toFixed(2)), Out: parseFloat(v.out.toFixed(2)),
-    }));
+    const barData        = Object.entries(dailyMap).map(([date, v]) => ({ date, In: parseFloat(v.in.toFixed(2)), Out: parseFloat(v.out.toFixed(2)) }));
     const typeMap: Record<string, number> = {};
-    txns.forEach(t => {
-      const label = t.type.replace(/_/g,' ');
-      typeMap[label] = (typeMap[label] || 0) + Number(t.amount);
-    });
+    txns.forEach(t => { const l = t.type.replace(/_/g,' '); typeMap[l] = (typeMap[l] || 0) + Number(t.amount); });
     const pieData        = Object.entries(typeMap).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }));
     const totalIn        = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s,t) => s + Number(t.amount), 0);
     const totalOut       = txns.filter(t => t.type === 'withdrawal').reduce((s,t) => s + Number(t.amount), 0);
@@ -1073,9 +921,9 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
       <div className="flex gap-1 bg-muted rounded-xl p-1">
         {(['week','month','all'] as const).map(p => (
           <button key={p} onClick={() => setPeriod(p)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
-              period === p ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}>{p === 'all' ? 'All time' : `Last ${p}`}</button>
+            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${period === p ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+            {p === 'all' ? 'All time' : `Last ${p}`}
+          </button>
         ))}
       </div>
       {loading ? (
@@ -1084,10 +932,10 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
         <>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: 'Total Deposited', val: fmtAmt(totalIn,     currency), sub: `${txns.filter(t=>t.type==='deposit').length} deposits`,     color: 'text-green-600',  bg: 'bg-green-500/10 border-green-500/20'     },
-              { label: 'Total Withdrawn', val: fmtAmt(totalOut,    currency), sub: `${txns.filter(t=>t.type==='withdrawal').length} withdrawals`, color: 'text-red-500',    bg: 'bg-red-500/10 border-red-500/20'         },
-              { label: 'Avg Transaction', val: fmtAmt(avgTxn,      currency), sub: `over ${txns.length} transactions`,                           color: 'text-blue-600',   bg: 'bg-blue-500/10 border-blue-500/20'       },
-              { label: 'Boost Spending',  val: fmtAmt(totalBoosts, currency), sub: 'on ad campaigns',                                            color: 'text-purple-600', bg: 'bg-purple-500/10 border-purple-500/20'   },
+              { label: 'Total Deposited', val: fmtAmt(totalIn,     currency), sub: `${txns.filter(t=>t.type==='deposit').length} deposits`,     color: 'text-green-600',  bg: 'bg-green-500/10 border-green-500/20'   },
+              { label: 'Total Withdrawn', val: fmtAmt(totalOut,    currency), sub: `${txns.filter(t=>t.type==='withdrawal').length} withdrawals`, color: 'text-red-500',    bg: 'bg-red-500/10 border-red-500/20'       },
+              { label: 'Avg Transaction', val: fmtAmt(avgTxn,      currency), sub: `over ${txns.length} transactions`,                           color: 'text-blue-600',   bg: 'bg-blue-500/10 border-blue-500/20'     },
+              { label: 'Boost Spending',  val: fmtAmt(totalBoosts, currency), sub: 'on ad campaigns',                                            color: 'text-purple-600', bg: 'bg-purple-500/10 border-purple-500/20' },
             ].map(s => (
               <div key={s.label} className={`p-4 rounded-2xl border ${s.bg}`}>
                 <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
@@ -1098,10 +946,7 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
           </div>
           {barData.length > 0 && (
             <div className="border border-border rounded-2xl p-4">
-              <div className="flex items-center gap-2 mb-4">
-                <BarChart3 className="w-4 h-4 text-primary" />
-                <h3 className="font-bold text-sm">Daily Cash Flow</h3>
-              </div>
+              <div className="flex items-center gap-2 mb-4"><BarChart3 className="w-4 h-4 text-primary" /><h3 className="font-bold text-sm">Daily Cash Flow</h3></div>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={barData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -1117,10 +962,7 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
           )}
           {pieData.length > 0 && (
             <div className="border border-border rounded-2xl p-4">
-              <div className="flex items-center gap-2 mb-4">
-                <LucidePieChart className="w-4 h-4 text-primary" />
-                <h3 className="font-bold text-sm">Transaction Breakdown</h3>
-              </div>
+              <div className="flex items-center gap-2 mb-4"><LucidePieChart className="w-4 h-4 text-primary" /><h3 className="font-bold text-sm">Transaction Breakdown</h3></div>
               <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
                   <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
@@ -1134,25 +976,16 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
           )}
           {recentDeposits.length > 0 && (
             <div className="border border-border rounded-2xl p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="w-4 h-4 text-green-500" />
-                <h3 className="font-bold text-sm">Recent Top-ups</h3>
-              </div>
+              <div className="flex items-center gap-2 mb-3"><TrendingUp className="w-4 h-4 text-green-500" /><h3 className="font-bold text-sm">Recent Top-ups</h3></div>
               <div className="space-y-2">
                 {recentDeposits.map(d => (
                   <div key={d.id} className="flex items-center gap-3 p-3 bg-green-500/5 border border-green-500/15 rounded-xl">
-                    <div className="w-9 h-9 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
-                      <ArrowDownLeft className="w-4 h-4 text-green-600" />
-                    </div>
+                    <div className="w-9 h-9 rounded-full bg-green-500/10 flex items-center justify-center shrink-0"><ArrowDownLeft className="w-4 h-4 text-green-600" /></div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-green-700 dark:text-green-400">+{fmtAmt(Number(d.amount), currency)}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {d.payment_method ? d.payment_method.toUpperCase() : 'M-Pesa'} · {new Date(d.created_at).toLocaleDateString()}
-                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{d.payment_method ? d.payment_method.toUpperCase() : 'M-Pesa'} · {new Date(d.created_at).toLocaleDateString()}</p>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                      d.status === 'completed' ? 'bg-green-500/10 text-green-600' : 'bg-orange-500/10 text-orange-600'
-                    }`}>{d.status}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${d.status === 'completed' ? 'bg-green-500/10 text-green-600' : 'bg-orange-500/10 text-orange-600'}`}>{d.status}</span>
                   </div>
                 ))}
               </div>
@@ -1175,8 +1008,7 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
 function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometricCredentialId, onComplete, prefillUsername, currency }: {
   userId: string; senderUsername: string; walletBalance: number;
   pinHash: string | null; biometricCredentialId: string | null;
-  onComplete: () => void;
-  prefillUsername?: string; currency: CurrencyCode;
+  onComplete: () => void; prefillUsername?: string; currency: CurrencyCode;
 }) {
   const [query,        setQuery]        = useState(prefillUsername ?? '');
   const [users,        setUsers]        = useState<any[]>([]);
@@ -1198,8 +1030,7 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
     setSearching(true);
     const { data } = await supabase.from('user_profiles').select('id,username,avatar_url,verified')
       .ilike('username', `%${q.trim()}%`).neq('id', userId).limit(8);
-    setUsers(data ?? []);
-    setSearching(false);
+    setUsers(data ?? []); setSearching(false);
   };
 
   const executeSend = async () => {
@@ -1208,8 +1039,7 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
     if (amt > walletBalance) { toast.error('Insufficient balance'); return; }
     setSending(true);
     const { error } = await supabase.rpc('p2p_wallet_transfer', {
-      p_from_user_id: userId, p_to_user_id: selectedUser.id, p_amount: amt,
-      p_note: note.trim() || null,
+      p_from_user_id: userId, p_to_user_id: selectedUser.id, p_amount: amt, p_note: note.trim() || null,
     });
     if (error) { setSending(false); toast.error(error.message || 'Transfer failed'); return; }
     const txRef = `TXN${Date.now().toString(36).toUpperCase().slice(-8)}`;
@@ -1217,13 +1047,12 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
       supabase.from('platform_inbox').insert({
         user_id: selectedUser.id,
         subject: `You received $${amt.toFixed(2)} from @${senderUsername}`,
-        body:    `@${senderUsername} sent you $${amt.toFixed(2)}${note.trim() ? ` — "${note.trim()}"` : ''}. Your wallet has been credited instantly.`,
+        body: `@${senderUsername} sent you $${amt.toFixed(2)}${note.trim() ? ` — "${note.trim()}"` : ''}. Your wallet has been credited instantly.`,
         type: 'payment', icon_emoji: '💸', cta_label: 'View Wallet', cta_url: '/wallet',
       }),
       supabase.from('platform_inbox').insert({
-        user_id: userId,
-        subject: `Transfer of $${amt.toFixed(2)} to @${selectedUser.username} complete`,
-        body:    `Your transfer was successful. Ref: ${txRef}`,
+        user_id: userId, subject: `Transfer of $${amt.toFixed(2)} to @${selectedUser.username} complete`,
+        body: `Your transfer was successful. Ref: ${txRef}`,
         type: 'payment', icon_emoji: '✅', cta_label: 'View History', cta_url: '/wallet?tab=history',
       }),
     ]);
@@ -1237,20 +1066,13 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
   const handleSend = () => {
     if (biometricCredentialId) {
       verifyBiometric(biometricCredentialId).then(ok => {
-        if (ok) { executeSend(); }
-        else if (pinHash) { setShowPin(true); }
-        else { executeSend(); }
+        if (ok) { executeSend(); } else if (pinHash) { setShowPin(true); } else { executeSend(); }
       });
-    } else if (pinHash) {
-      setShowPin(true);
-    } else {
-      executeSend();
-    }
+    } else if (pinHash) { setShowPin(true); } else { executeSend(); }
   };
 
   const handlePinConfirm = async (pin: string) => {
-    const entered = await hashPin(pin);
-    setShowPin(false);
+    const entered = await hashPin(pin); setShowPin(false);
     if (entered !== pinHash) { toast.error('Incorrect PIN'); return; }
     executeSend();
   };
@@ -1259,9 +1081,7 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
     return (
       <div className="space-y-5">
         <div className="flex flex-col items-center gap-4 p-6 bg-gradient-to-br from-green-500/10 to-emerald-400/5 border border-green-500/20 rounded-2xl text-center">
-          <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
-            <CheckCircle2 className="w-9 h-9 text-green-500" />
-          </div>
+          <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center"><CheckCircle2 className="w-9 h-9 text-green-500" /></div>
           <div>
             <p className="text-lg font-black text-green-600">Transfer Complete!</p>
             <p className="text-3xl font-black mt-1">{fmtAmt(receipt.amount, currency)}</p>
@@ -1272,10 +1092,6 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
               <span className="text-muted-foreground">Reference</span>
               <span className="font-mono font-bold text-xs">{receipt.ref}</span>
             </div>
-            <div className="flex justify-between border-b border-border pb-2">
-              <span className="text-muted-foreground">Timestamp</span>
-              <span className="font-semibold text-xs">{new Date(receipt.timestamp).toLocaleString()}</span>
-            </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Status</span>
               <span className="font-bold text-green-600 text-xs">✅ Completed</span>
@@ -1283,15 +1099,12 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
           </div>
           <div className="flex gap-3 w-full">
             <button onClick={() => {
-              const text = `Transfer Receipt\nRef: ${receipt.ref}\nAmount: $${receipt.amount.toFixed(2)}\nTo: @${receipt.recipient.username}\nTime: ${new Date(receipt.timestamp).toLocaleString()}`;
+              const text = `Transfer Receipt\nRef: ${receipt.ref}\nAmount: $${receipt.amount.toFixed(2)}\nTo: @${receipt.recipient.username}`;
               navigator.clipboard.writeText(text).then(() => toast.success('Receipt copied!'));
             }} className="flex-1 flex items-center justify-center gap-2 py-3 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors">
               <Copy className="w-4 h-4" /> Copy Receipt
             </button>
-            <button onClick={() => setReceipt(null)}
-              className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity">
-              Done
-            </button>
+            <button onClick={() => setReceipt(null)} className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity">Done</button>
           </div>
         </div>
       </div>
@@ -1305,7 +1118,6 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
         <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20">
           <p className="text-sm font-semibold text-muted-foreground">Available to send</p>
           <p className="text-3xl font-black text-primary">{fmtAmt(walletBalance, currency)}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">≈ {fmtAmt(walletBalance, currency === 'KES' ? 'USD' : 'KES')}</p>
         </div>
         {!selectedUser ? (
           <div className="space-y-3">
@@ -1345,22 +1157,15 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
                 {selectedUser.avatar_url ? <img src={selectedUser.avatar_url} alt="" className="w-full h-full object-cover" />
                   : <div className="w-full h-full flex items-center justify-center font-bold">{selectedUser.username[0]?.toUpperCase()}</div>}
               </div>
-              <div className="flex-1">
-                <p className="font-bold">@{selectedUser.username}</p>
-                <p className="text-xs text-muted-foreground">Recipient</p>
-              </div>
-              <button onClick={() => setSelectedUser(null)} className="p-2 rounded-full hover:bg-muted text-muted-foreground">
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex-1"><p className="font-bold">@{selectedUser.username}</p><p className="text-xs text-muted-foreground">Recipient</p></div>
+              <button onClick={() => setSelectedUser(null)} className="p-2 rounded-full hover:bg-muted text-muted-foreground"><X className="w-4 h-4" /></button>
             </div>
             <div>
               <label className="text-sm font-semibold mb-2 block">Amount (USD)</label>
               <div className="grid grid-cols-4 gap-2 mb-2">
                 {[1,5,10,25].map(a => (
                   <button key={a} onClick={() => setAmount(String(a))}
-                    className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${amount === String(a) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
-                    ${a}
-                  </button>
+                    className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${amount === String(a) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>${a}</button>
                 ))}
               </div>
               <input type="number" min="0.01" step="0.01" placeholder="Custom amount…"
@@ -1392,21 +1197,24 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
 }
 
 // ── Scheduled Transfers Tab ───────────────────────────────────────────────
-function ScheduledTransfersTab({ userId, currency }: { userId: string; currency: CurrencyCode }) {
-  const [transfers,  setTransfers]  = useState<any[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [showForm,   setShowForm]   = useState(false);
-  const [query,      setQuery]      = useState('');
-  const [results,    setResults]    = useState<any[]>([]);
-  const [searching,  setSearching]  = useState(false);
-  const [recipient,  setRecipient]  = useState<any | null>(null);
-  const [amount,     setAmount]     = useState('');
-  const [note,       setNote]       = useState('');
-  const [scheduleAt, setScheduleAt] = useState('');
-  const [saving,     setSaving]     = useState(false);
-  const [cancelling, setCancelling] = useState<string | null>(null);
+function ScheduledTransfersTab({ userId, currency, pinHash }: { userId: string; currency: CurrencyCode; pinHash?: string | null }) {
+  const [transfers,    setTransfers]    = useState<any[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [showForm,     setShowForm]     = useState(false);
+  const [query,        setQuery]        = useState('');
+  const [results,      setResults]      = useState<any[]>([]);
+  const [searching,    setSearching]    = useState(false);
+  const [recipient,    setRecipient]    = useState<any | null>(null);
+  const [amount,       setAmount]       = useState('');
+  const [note,         setNote]         = useState('');
+  const [scheduleAt,   setScheduleAt]   = useState('');
+  const [saving,       setSaving]       = useState(false);
+  const [cancelling,   setCancelling]   = useState<string | null>(null);
+  const [selected,     setSelected]     = useState<Set<string>>(new Set());
+  const [batching,     setBatching]     = useState(false);
+  const [batchDone,    setBatchDone]    = useState(0);
+  const [showBatchPin, setShowBatchPin] = useState(false);
 
-  // ✅ minDateTime inside useMemo — no render-scope Date.now()
   const minDateTime = useMemo(() => {
     const d = new Date(Date.now() + 5 * 60000);
     return d.toISOString().slice(0, 16);
@@ -1417,12 +1225,8 @@ function ScheduledTransfersTab({ userId, currency }: { userId: string; currency:
   const loadTransfers = async () => {
     setLoading(true);
     const { data } = await supabase.from('scheduled_transfers')
-      .select('*')
-      .eq('from_user_id', userId)
-      .eq('status', 'pending')
-      .order('scheduled_for', { ascending: true });
-    setTransfers(data ?? []);
-    setLoading(false);
+      .select('*').eq('from_user_id', userId).eq('status', 'pending').order('scheduled_for', { ascending: true });
+    setTransfers(data ?? []); setLoading(false);
   };
 
   const searchUsers = async (q: string) => {
@@ -1431,8 +1235,7 @@ function ScheduledTransfersTab({ userId, currency }: { userId: string; currency:
     setSearching(true);
     const { data } = await supabase.from('user_profiles').select('id,username,avatar_url,verified')
       .ilike('username', `%${q.trim()}%`).neq('id', userId).limit(6);
-    setResults(data ?? []);
-    setSearching(false);
+    setResults(data ?? []); setSearching(false);
   };
 
   const handleSchedule = async () => {
@@ -1442,18 +1245,13 @@ function ScheduledTransfersTab({ userId, currency }: { userId: string; currency:
     if (scheduledDate.getTime() <= Date.now()) { toast.error('Must be a future date/time'); return; }
     setSaving(true);
     const { error } = await supabase.from('scheduled_transfers').insert({
-      from_user_id: userId,
-      to_user_id: recipient.id,
-      to_username: recipient.username,
-      amount: parseFloat(amount),
-      note: note.trim() || null,
-      scheduled_for: scheduledDate.toISOString(),
+      from_user_id: userId, to_user_id: recipient.id, to_username: recipient.username,
+      amount: parseFloat(amount), note: note.trim() || null, scheduled_for: scheduledDate.toISOString(),
     });
     setSaving(false);
     if (error) { toast.error('Failed to schedule transfer'); return; }
     toast.success(`Transfer to @${recipient.username} scheduled!`);
-    setShowForm(false);
-    setRecipient(null); setAmount(''); setNote(''); setScheduleAt(''); setQuery('');
+    setShowForm(false); setRecipient(null); setAmount(''); setNote(''); setScheduleAt(''); setQuery('');
     loadTransfers();
   };
 
@@ -1466,6 +1264,35 @@ function ScheduledTransfersTab({ userId, currency }: { userId: string; currency:
     loadTransfers();
   };
 
+  const executeBatch = async () => {
+    if (selected.size === 0) return;
+    setBatching(true); setBatchDone(0);
+    const toProcess = transfers.filter(t => selected.has(t.id));
+    let done = 0;
+    for (const t of toProcess) {
+      const { error } = await supabase.rpc('p2p_wallet_transfer', {
+        p_from_user_id: userId, p_to_user_id: t.to_user_id, p_amount: Number(t.amount), p_note: t.note ?? null,
+      });
+      if (!error) {
+        await supabase.from('scheduled_transfers').delete().eq('id', t.id).eq('from_user_id', userId);
+        done++; setBatchDone(done);
+      }
+    }
+    setBatching(false); setSelected(new Set());
+    toast.success(`${done}/${toProcess.length} transfers executed!`);
+    loadTransfers();
+  };
+
+  const handleBatch = () => { if (pinHash) { setShowBatchPin(true); } else { executeBatch(); } };
+
+  const handleBatchPinConfirm = (pin: string) => {
+    hashPin(pin).then(entered => {
+      setShowBatchPin(false);
+      if (entered !== pinHash) { toast.error('Incorrect PIN'); return; }
+      executeBatch();
+    });
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -1474,19 +1301,14 @@ function ScheduledTransfersTab({ userId, currency }: { userId: string; currency:
           <p className="text-xs text-muted-foreground">Send money at a future date and time</p>
         </div>
         <button onClick={() => setShowForm(v => !v)}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-semibold text-xs transition-colors ${
-            showForm ? 'bg-muted border border-border text-muted-foreground' : 'bg-primary text-primary-foreground hover:opacity-90'
-          }`}>
-          <Calendar className="w-3.5 h-3.5" />
-          {showForm ? 'Cancel' : 'Schedule New'}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-semibold text-xs transition-colors ${showForm ? 'bg-muted border border-border text-muted-foreground' : 'bg-primary text-primary-foreground hover:opacity-90'}`}>
+          <Calendar className="w-3.5 h-3.5" />{showForm ? 'Cancel' : 'Schedule New'}
         </button>
       </div>
 
       {showForm && (
         <div className="p-4 border border-border rounded-2xl bg-card space-y-4">
           <h4 className="font-bold text-sm">New Scheduled Transfer</h4>
-
-          {/* Recipient */}
           {!recipient ? (
             <div className="space-y-2">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Recipient</label>
@@ -1523,38 +1345,27 @@ function ScheduledTransfersTab({ userId, currency }: { userId: string; currency:
               </div>
             </div>
           )}
-
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Amount (USD)</label>
             <input type="number" min="0.01" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)}
               className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
-
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Schedule For</label>
             <input type="datetime-local" min={minDateTime} value={scheduleAt} onChange={e => setScheduleAt(e.target.value)}
               className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
-
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Note (optional)</label>
             <input type="text" maxLength={100} placeholder="What's this for?" value={note} onChange={e => setNote(e.target.value)}
               className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
-
           {amount && recipient && parseFloat(amount) > 0 && (
             <div className="p-3 bg-primary/5 border border-primary/15 rounded-xl text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Amount</span>
-                <span className="font-black text-primary">{fmtAmt(parseFloat(amount), currency)}</span>
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-muted-foreground">To</span>
-                <span className="font-semibold">@{recipient.username}</span>
-              </div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="font-black text-primary">{fmtAmt(parseFloat(amount), currency)}</span></div>
+              <div className="flex justify-between mt-1"><span className="text-muted-foreground">To</span><span className="font-semibold">@{recipient.username}</span></div>
             </div>
           )}
-
           <button onClick={handleSchedule} disabled={saving || !recipient || !amount || !scheduleAt || parseFloat(amount) <= 0}
             className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
@@ -1573,21 +1384,49 @@ function ScheduledTransfersTab({ userId, currency }: { userId: string; currency:
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{transfers.length} pending</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{transfers.length} pending</p>
+            <button onClick={() => setSelected(prev => prev.size === transfers.length ? new Set() : new Set(transfers.map(t => t.id)))}
+              className="text-xs text-primary font-semibold hover:underline">
+              {selected.size === transfers.length ? 'Deselect All' : 'Select All'}
+            </button>
+          </div>
+          {showBatchPin && <PinEntryModal title="Execute Batch" onConfirm={handleBatchPinConfirm} onCancel={() => setShowBatchPin(false)} />}
+          {selected.size > 0 && !batching && (
+            <div className="flex items-center gap-3 p-3 bg-primary/10 border border-primary/20 rounded-2xl">
+              <p className="text-sm font-semibold flex-1">{selected.size} selected</p>
+              <button onClick={() => setSelected(new Set())} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
+              <button onClick={handleBatch}
+                className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90 transition-opacity">
+                <Zap className="w-3.5 h-3.5" /> Execute Now
+              </button>
+            </div>
+          )}
+          {batching && (
+            <div className="flex flex-col items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-2xl">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm font-semibold">Processing {batchDone}/{selected.size}…</p>
+            </div>
+          )}
           {transfers.map(t => {
             const sd = new Date(t.scheduled_for);
+            const isSelected = selected.has(t.id);
             return (
-              <div key={t.id} className="p-4 border border-border rounded-2xl bg-card">
+              <div key={t.id} className={`p-4 border rounded-2xl bg-card transition-colors ${isSelected ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">Pending Transfer</span>
+                  <button
+                    onClick={() => setSelected(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; })}
+                    className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40 hover:border-primary/60'}`}>
+                    {isSelected && <span className="text-[9px] text-primary-foreground font-black">✓</span>}
+                  </button>
+                </div>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <Calendar className="w-5 h-5 text-primary" />
-                    </div>
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0"><Calendar className="w-5 h-5 text-primary" /></div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-sm">@{t.to_username}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {sd.toLocaleDateString()} at {sd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{sd.toLocaleDateString()} at {sd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                       {t.note && <p className="text-xs text-muted-foreground truncate mt-0.5">"{t.note}"</p>}
                     </div>
                   </div>
@@ -1606,9 +1445,8 @@ function ScheduledTransfersTab({ userId, currency }: { userId: string; currency:
           })}
         </div>
       )}
-
       <div className="p-4 bg-muted/30 rounded-2xl text-xs text-muted-foreground">
-        <p><strong>Note:</strong> Scheduled transfers execute automatically when the scheduled time arrives. Ensure you have sufficient balance at that time.</p>
+        <p><strong>Note:</strong> Scheduled transfers execute automatically when the scheduled time arrives. Ensure sufficient balance.</p>
       </div>
     </div>
   );
@@ -1628,8 +1466,7 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
     let q = supabase.from('wallet_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(200);
     if (filter !== 'all') q = q.eq('type', filter);
     const { data } = await q;
-    setTxns(data ?? []);
-    setLoading(false);
+    setTxns(data ?? []); setLoading(false);
   };
 
   const { filtered, totalIn, totalOut } = useMemo(() => {
@@ -1639,24 +1476,17 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
     const q = search.trim().toLowerCase();
     return {
       filtered: txns.filter(t =>
-        (t.description ?? '').toLowerCase().includes(q) ||
-        (t.type ?? '').toLowerCase().includes(q) ||
-        (t.payment_method ?? '').toLowerCase().includes(q) ||
-        (t.reference ?? '').toLowerCase().includes(q) ||
+        (t.description ?? '').toLowerCase().includes(q) || (t.type ?? '').toLowerCase().includes(q) ||
+        (t.payment_method ?? '').toLowerCase().includes(q) || (t.reference ?? '').toLowerCase().includes(q) ||
         String(t.amount).includes(q)
-      ),
-      totalIn,
-      totalOut,
+      ), totalIn, totalOut,
     };
   }, [txns, search]);
 
   const downloadCSV = () => {
     const headers = ['Date','Type','Amount','Status','Method','Description'];
-    const rows = filtered.map(t => [
-      new Date(t.created_at).toLocaleString(), t.type, t.amount, t.status,
-      t.payment_method ?? '', t.description ?? '',
-    ]);
-    const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+    const rows = filtered.map(t => [new Date(t.created_at).toLocaleString(), t.type, t.amount, t.status, t.payment_method ?? '', t.description ?? '']);
+    const csv  = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -1669,33 +1499,9 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
     if (!w) { toast.error('Allow popups to print'); return; }
     const rows = filtered.map(t => {
       const isIn = t.type === 'deposit' || t.type === 'earnings';
-      return `<tr>
-        <td>${new Date(t.created_at).toLocaleString()}</td>
-        <td style="text-transform:capitalize">${t.type.replace(/_/g,' ')}</td>
-        <td style="color:${isIn ? '#10b981' : '#ef4444'};font-weight:700">${isIn ? '+' : '-'}$${Number(t.amount).toFixed(2)}</td>
-        <td>${t.payment_method ? t.payment_method.toUpperCase() : '—'}</td>
-        <td><span style="padding:2px 8px;border-radius:12px;font-size:11px;background:${t.status === 'completed' ? '#d1fae5' : '#fef3c7'};color:${t.status === 'completed' ? '#065f46' : '#92400e'}">${t.status}</span></td>
-        <td>${t.description || '—'}</td>
-      </tr>`;
+      return `<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${t.type.replace(/_/g,' ')}</td><td style="color:${isIn ? '#10b981' : '#ef4444'};font-weight:700">${isIn ? '+' : '-'}$${Number(t.amount).toFixed(2)}</td><td>${t.payment_method ? t.payment_method.toUpperCase() : '—'}</td><td>${t.status}</td><td>${t.description || '—'}</td></tr>`;
     }).join('');
-    w.document.write(`<!DOCTYPE html><html><head><title>Transaction History</title>
-<style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:22px;margin-bottom:4px}
-.meta{color:#666;font-size:13px;margin-bottom:16px}.summary{display:flex;gap:24px;margin-bottom:20px;font-size:14px}
-table{width:100%;border-collapse:collapse}th{background:#f5f5f5;padding:10px;text-align:left;font-size:12px;border-bottom:2px solid #ddd}
-td{padding:9px 10px;border-bottom:1px solid #eee;font-size:12px}tr:hover td{background:#fafafa}
-.btn{display:inline-block;margin-bottom:16px;padding:8px 20px;background:#3b82f6;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px}
-@media print{.btn{display:none}}</style></head><body>
-<h1>Transaction History</h1>
-<div class="meta">Exported: ${new Date().toLocaleString()} · ${filtered.length} record${filtered.length !== 1 ? 's' : ''}</div>
-<div class="summary">
-  <span><strong style="color:#10b981">Received:</strong> $${totalIn.toFixed(2)}</span>
-  <span><strong style="color:#ef4444">Withdrawn:</strong> $${totalOut.toFixed(2)}</span>
-  <span><strong>Net:</strong> $${(totalIn - totalOut).toFixed(2)}</span>
-</div>
-<button class="btn" onclick="window.print()">Print / Save PDF</button>
-<table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Method</th><th>Status</th><th>Description</th></tr></thead>
-<tbody>${rows}</tbody></table>
-</body></html>`);
+    w.document.write(`<!DOCTYPE html><html><head><title>Transaction History</title><style>body{font-family:Arial,sans-serif;padding:24px}table{width:100%;border-collapse:collapse}th{background:#f5f5f5;padding:10px;text-align:left;font-size:12px;border-bottom:2px solid #ddd}td{padding:9px 10px;border-bottom:1px solid #eee;font-size:12px}.btn{margin-bottom:16px;padding:8px 20px;background:#3b82f6;color:white;border:none;border-radius:8px;cursor:pointer}@media print{.btn{display:none}}</style></head><body><h1>Transaction History</h1><div>Exported: ${new Date().toLocaleString()} · ${filtered.length} records</div><div>Received: $${totalIn.toFixed(2)} | Withdrawn: $${totalOut.toFixed(2)}</div><br/><button class="btn" onclick="window.print()">Print / Save PDF</button><table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Method</th><th>Status</th><th>Description</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
     w.document.close();
   };
 
@@ -1711,56 +1517,31 @@ td{padding:9px 10px;border-bottom:1px solid #eee;font-size:12px}tr:hover td{back
           <p className="text-xl font-black text-red-500">{fmtAmt(totalOut, currency)}</p>
         </div>
       </div>
-
-      {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search description, method, amount, ref…"
           className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-        {search && (
-          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
+        {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>}
       </div>
-
-      {/* Filter + actions */}
       <div className="flex items-center gap-2">
         <div className="flex gap-1 bg-muted rounded-xl p-1 flex-1 overflow-x-auto">
           {(['all','deposit','withdrawal','earnings'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
-              className={`flex-shrink-0 flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
-                filter === f ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-              }`}>{f}</button>
+              className={`flex-shrink-0 flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${filter === f ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>{f}</button>
           ))}
         </div>
-        <button onClick={printPDF} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0" title="Print PDF">
-          <Printer className="w-4 h-4" />
-        </button>
-        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0" title="Download CSV">
-          <Download className="w-4 h-4" />
-        </button>
+        <button onClick={printPDF} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0" title="Print PDF"><Printer className="w-4 h-4" /></button>
+        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0" title="Download CSV"><Download className="w-4 h-4" /></button>
       </div>
-
-      {search && (
-        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-          <Filter className="w-3 h-3" />
-          {filtered.length} result{filtered.length !== 1 ? 's' : ''} for "{search}"
-        </p>
-      )}
-
+      {search && <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Filter className="w-3 h-3" />{filtered.length} result{filtered.length !== 1 ? 's' : ''} for "{search}"</p>}
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-12">
           <Wallet className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="font-semibold text-sm">
-            {search ? `No results for "${search}"` : `No ${filter !== 'all' ? filter : ''} transactions`}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {search ? 'Try a different search term' : 'Your history will appear here'}
-          </p>
+          <p className="font-semibold text-sm">{search ? `No results for "${search}"` : `No ${filter !== 'all' ? filter : ''} transactions`}</p>
+          <p className="text-xs text-muted-foreground mt-1">{search ? 'Try a different search term' : 'Your history will appear here'}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -1774,19 +1555,16 @@ td{padding:9px 10px;border-bottom:1px solid #eee;font-size:12px}tr:hover td{back
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm capitalize">{tx.type.replace(/_/g,' ')}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {tx.payment_method ? `${tx.payment_method.toUpperCase()} · ` : ''}
-                    {tx.description || new Date(tx.created_at).toLocaleDateString()}
+                    {tx.payment_method ? `${tx.payment_method.toUpperCase()} · ` : ''}{tx.description || new Date(tx.created_at).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className={`font-black text-base ${isIn ? 'text-green-600' : 'text-red-500'}`}>
                     {isIn ? '+' : '-'}{fmtAmt(Number(tx.amount), currency)}
                   </p>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
-                    tx.status === 'completed' ? 'bg-green-500/10 text-green-600' :
-                    tx.status === 'pending'   ? 'bg-orange-500/10 text-orange-600' :
-                    'bg-red-500/10 text-red-500'
-                  }`}>{tx.status}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${tx.status === 'completed' ? 'bg-green-500/10 text-green-600' : tx.status === 'pending' ? 'bg-orange-500/10 text-orange-600' : 'bg-red-500/10 text-red-500'}`}>
+                    {tx.status}
+                  </span>
                 </div>
               </div>
             );
@@ -1808,9 +1586,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
 
   const fetchTodaySpend = async () => {
     const since = new Date(); since.setHours(0, 0, 0, 0);
-    const { data } = await supabase.from('wallet_transactions')
-      .select('amount').eq('user_id', userId).eq('type', 'withdrawal')
-      .gte('created_at', since.toISOString());
+    const { data } = await supabase.from('wallet_transactions').select('amount').eq('user_id', userId).eq('type', 'withdrawal').gte('created_at', since.toISOString());
     setTodaySpent((data ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0));
   };
 
@@ -1822,9 +1598,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
 
   const handleSave = async () => {
     setSaving(true);
-    const { error } = await supabase.from('user_wallets')
-      .update({ spend_limit_enabled: enabled, daily_spend_limit: limitUsd ? parseFloat(limitUsd) : null })
-      .eq('user_id', userId);
+    const { error } = await supabase.from('user_wallets').update({ spend_limit_enabled: enabled, daily_spend_limit: limitUsd ? parseFloat(limitUsd) : null }).eq('user_id', userId);
     setSaving(false);
     if (error) { toast.error('Failed to save spend limit'); return; }
     toast.success(enabled ? `Daily limit set to $${parseFloat(limitUsd||'0').toFixed(2)}` : 'Spend limit disabled');
@@ -1832,19 +1606,11 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
   };
 
   return (
-    <div className={`rounded-2xl border overflow-hidden ${
-      atLimit   ? 'border-red-500/40 bg-red-500/5'      :
-      nearLimit ? 'border-orange-500/40 bg-orange-500/5' :
-                  'border-border'
-    }`}>
+    <div className={`rounded-2xl border overflow-hidden ${atLimit ? 'border-red-500/40 bg-red-500/5' : nearLimit ? 'border-orange-500/40 bg-orange-500/5' : 'border-border'}`}>
       <div className="px-5 py-4">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Shield className={`w-4 h-4 ${enabled ? 'text-primary' : 'text-muted-foreground'}`} />
-            <h3 className="font-bold text-sm">Daily Spend Limit</h3>
-          </div>
-          <button onClick={() => setEnabled(v => !v)}
-            className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}>
+          <div className="flex items-center gap-2"><Shield className={`w-4 h-4 ${enabled ? 'text-primary' : 'text-muted-foreground'}`} /><h3 className="font-bold text-sm">Daily Spend Limit</h3></div>
+          <button onClick={() => setEnabled(v => !v)} className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}>
             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
           </button>
         </div>
@@ -1855,14 +1621,10 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
               <div className="grid grid-cols-4 gap-2 mb-2">
                 {[10,25,50,100].map(v => (
                   <button key={v} onClick={() => setLimitUsd(String(v))}
-                    className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${limitUsd === String(v) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
-                    ${v}
-                  </button>
+                    className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${limitUsd === String(v) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>${v}</button>
                 ))}
               </div>
-              <input type="number" min="1" step="1" placeholder="Custom limit…"
-                value={limitUsd && !['10','25','50','100'].includes(limitUsd) ? limitUsd : ''}
-                onChange={e => setLimitUsd(e.target.value)}
+              <input type="number" min="1" step="1" placeholder="Custom limit…" value={limitUsd && !['10','25','50','100'].includes(limitUsd) ? limitUsd : ''} onChange={e => setLimitUsd(e.target.value)}
                 className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
             </div>
             {limitVal > 0 && (
@@ -1874,8 +1636,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
                   <span className="font-semibold">${todaySpent.toFixed(2)} / ${limitVal.toFixed(2)}</span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full transition-all ${atLimit ? 'bg-red-500' : nearLimit ? 'bg-orange-500' : 'bg-primary'}`}
-                    style={{ width: `${progress}%` }} />
+                  <div className={`h-full rounded-full transition-all ${atLimit ? 'bg-red-500' : nearLimit ? 'bg-orange-500' : 'bg-primary'}`} style={{ width: `${progress}%` }} />
                 </div>
               </div>
             )}
@@ -1889,6 +1650,247 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings2 className="w-4 h-4" />}
           {saving ? 'Saving…' : 'Save Limit'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Crypto Price Widget ───────────────────────────────────────────────────
+function CryptoWidget() {
+  const [prices, setPrices] = useState<{ btc: number; eth: number; btcChange: number; ethChange: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchPrices = () => {
+      fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true')
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(d => { setPrices({ btc: d.bitcoin.usd, eth: d.ethereum.usd, btcChange: d.bitcoin.usd_24h_change, ethChange: d.ethereum.usd_24h_change }); setLoading(false); })
+        .catch(() => setLoading(false));
+    };
+    fetchPrices();
+    const t = setInterval(fetchPrices, 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!loading && !prices) return null;
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden">
+      <div className="px-4 py-3 flex items-center gap-2 border-b border-border">
+        <TrendingUp className="w-4 h-4 text-primary" />
+        <h3 className="font-bold text-sm">Crypto Prices</h3>
+        <span className="text-[10px] text-muted-foreground ml-auto">Live · CoinGecko</span>
+      </div>
+      {loading ? (
+        <div className="flex justify-center p-4"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+      ) : prices ? (
+        <div className="grid grid-cols-2 divide-x divide-border">
+          {[
+            { symbol: 'BTC', emoji: '₿', price: prices.btc, change: prices.btcChange },
+            { symbol: 'ETH', emoji: 'Ξ', price: prices.eth, change: prices.ethChange },
+          ].map(c => (
+            <div key={c.symbol} className="p-4">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-lg font-black">{c.emoji}</span>
+                <span className="text-xs font-bold text-muted-foreground">{c.symbol}</span>
+              </div>
+              <p className="text-base font-black">${c.price.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+              <p className={`text-xs font-semibold mt-0.5 ${c.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                {c.change >= 0 ? '▲' : '▼'} {Math.abs(c.change).toFixed(2)}%
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Activity Heatmap ──────────────────────────────────────────────────────
+function ActivityHeatmap({ userId }: { userId: string }) {
+  const [txns,    setTxns]    = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    const since = new Date(Date.now() - 35 * 86400000).toISOString();
+    supabase.from('wallet_transactions').select('created_at, amount, type').eq('user_id', userId)
+      .gte('created_at', since).order('created_at', { ascending: true })
+      .then(({ data }) => { setTxns(data ?? []); setLoading(false); });
+  }, [userId]);
+
+  const { cells, maxAmount } = useMemo(() => {
+    const map: Record<string, { count: number; amount: number; hasIn: boolean }> = {};
+    const now = Date.now();
+    for (let i = 34; i >= 0; i--) {
+      const key = new Date(now - i * 86400000).toISOString().split('T')[0];
+      map[key] = { count: 0, amount: 0, hasIn: false };
+    }
+    txns.forEach(t => {
+      const key = (t.created_at as string).split('T')[0];
+      if (!map[key]) return;
+      map[key].count++;
+      map[key].amount += Number(t.amount);
+      if (t.type === 'deposit' || t.type === 'earnings') map[key].hasIn = true;
+    });
+    const arr = Object.entries(map).map(([date, v]) => ({ date, ...v }));
+    return { cells: arr, maxAmount: Math.max(...arr.map(c => c.amount), 1) };
+  }, [txns]);
+
+  const getCellBg = (amount: number, hasIn: boolean) => {
+    if (amount === 0) return 'bg-muted';
+    const i = Math.min(Math.ceil((amount / maxAmount) * 4), 4);
+    const g = hasIn
+      ? ['bg-green-200 dark:bg-green-950','bg-green-300 dark:bg-green-800','bg-green-500 dark:bg-green-700','bg-green-600 dark:bg-green-500']
+      : ['bg-red-200 dark:bg-red-950',  'bg-red-300 dark:bg-red-800',  'bg-red-500 dark:bg-red-700',  'bg-red-600 dark:bg-red-500'  ];
+    return g[i - 1] ?? g[3];
+  };
+
+  return (
+    <div className="border border-border rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-4">
+        <Activity className="w-4 h-4 text-primary" />
+        <h3 className="font-bold text-sm">Activity Heatmap</h3>
+        <span className="text-[10px] text-muted-foreground ml-auto">Last 35 days</span>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+      ) : (
+        <>
+          <div className="grid grid-cols-7 gap-1.5">
+            {cells.map(c => (
+              <div key={c.date}
+                title={`${c.date}: ${c.count} txn${c.count !== 1 ? 's' : ''} · $${c.amount.toFixed(2)}`}
+                className={`h-8 rounded-md cursor-default transition-opacity hover:opacity-75 ${getCellBg(c.amount, c.hasIn)}`}
+              />
+            ))}
+          </div>
+          <div className="flex items-center justify-between mt-3">
+            <span className="text-[10px] text-muted-foreground">Less</span>
+            <div className="flex gap-1 items-center">
+              <div className="w-3.5 h-3.5 rounded-sm bg-muted border border-border/50" />
+              <div className="w-3.5 h-3.5 rounded-sm bg-green-200 dark:bg-green-950" />
+              <div className="w-3.5 h-3.5 rounded-sm bg-green-400 dark:bg-green-800" />
+              <div className="w-3.5 h-3.5 rounded-sm bg-green-500 dark:bg-green-700" />
+              <div className="w-3.5 h-3.5 rounded-sm bg-green-600 dark:bg-green-500" />
+            </div>
+            <span className="text-[10px] text-muted-foreground">More</span>
+          </div>
+          {txns.length === 0 && <p className="text-center text-xs text-muted-foreground mt-3">No transactions in this period</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Spending Alerts Card ──────────────────────────────────────────────────
+function SpendingAlertsCard({ userId }: { userId: string }) {
+  const [prefs, setPrefs] = useState<{ enabled: boolean; threshold: string; budget: string }>(() => {
+    try {
+      const raw = localStorage.getItem(`ts-alerts-${userId}`);
+      return raw ? JSON.parse(raw) : { enabled: false, threshold: '10', budget: '50' };
+    } catch { return { enabled: false, threshold: '10', budget: '50' }; }
+  });
+  const [checking, setChecking] = useState(false);
+
+  const save = (next: { enabled: boolean; threshold: string; budget: string }) => {
+    setPrefs(next);
+    localStorage.setItem(`ts-alerts-${userId}`, JSON.stringify(next));
+  };
+
+  const runCheck = async () => {
+    if (!prefs.enabled) return;
+    setChecking(true);
+    const since = new Date(); since.setHours(0, 0, 0, 0);
+    const { data } = await supabase.from('wallet_transactions')
+      .select('amount,type,created_at,id').eq('user_id', userId).gte('created_at', since.toISOString());
+    const withdrawals = (data ?? []).filter((t: any) => t.type === 'withdrawal');
+    const todayTotal  = withdrawals.reduce((s: number, t: any) => s + Number(t.amount), 0);
+    const budget      = parseFloat(prefs.budget    || '0');
+    const threshold   = parseFloat(prefs.threshold || '0');
+    const todayKey    = since.toISOString().split('T')[0];
+    const alertKey    = `ts-alerted-${userId}`;
+    const alerted: Record<string,boolean> = (() => { try { return JSON.parse(localStorage.getItem(alertKey) ?? '{}'); } catch { return {}; } })();
+
+    if (budget > 0 && todayTotal >= budget * 0.8 && !alerted[`budget-${todayKey}`]) {
+      await supabase.from('platform_inbox').insert({
+        user_id: userId, subject: '⚠️ Spending Alert: 80% of daily budget used',
+        body: `You have spent $${todayTotal.toFixed(2)} today — 80% of your $${budget.toFixed(2)} daily budget.`,
+        type: 'warning', icon_emoji: '⚠️', cta_label: 'Review Limit', cta_url: '/wallet',
+      });
+      alerted[`budget-${todayKey}`] = true;
+      localStorage.setItem(alertKey, JSON.stringify(alerted));
+      toast.warning('Alert sent: 80% of daily budget reached!');
+    }
+    if (threshold > 0) {
+      for (const t of withdrawals.filter((t: any) => Number(t.amount) >= threshold)) {
+        const k = `txn-${t.id}`;
+        if (!alerted[k]) {
+          await supabase.from('platform_inbox').insert({
+            user_id: userId, subject: `💸 Large withdrawal alert: $${Number(t.amount).toFixed(2)}`,
+            body: `A withdrawal of $${Number(t.amount).toFixed(2)} was recorded — above your $${threshold.toFixed(2)} threshold.`,
+            type: 'warning', icon_emoji: '💸', cta_label: 'View History', cta_url: '/wallet?tab=history',
+          });
+          alerted[k] = true;
+        }
+      }
+      localStorage.setItem(alertKey, JSON.stringify(alerted));
+    }
+    setChecking(false);
+    toast.success('Alert check complete');
+  };
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden">
+      <div className="px-5 py-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className={`w-4 h-4 ${prefs.enabled ? 'text-amber-500' : 'text-muted-foreground'}`} />
+            <h3 className="font-bold text-sm">Spending Alerts</h3>
+            {prefs.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-bold border border-amber-500/20">On</span>}
+          </div>
+          <button onClick={() => save({ ...prefs, enabled: !prefs.enabled })}
+            className={`relative w-11 h-6 rounded-full transition-colors ${prefs.enabled ? 'bg-primary' : 'bg-muted'}`}>
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${prefs.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+          </button>
+        </div>
+        {prefs.enabled ? (
+          <div className="space-y-4 mt-3">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Large withdrawal alert (USD)</label>
+              <div className="grid grid-cols-4 gap-2 mb-2">
+                {['5','10','25','50'].map(v => (
+                  <button key={v} onClick={() => save({ ...prefs, threshold: v })}
+                    className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${prefs.threshold === v ? 'border-amber-500 bg-amber-500/10 text-amber-600' : 'border-border hover:border-amber-500/30'}`}>${v}</button>
+                ))}
+              </div>
+              <input type="number" min="1" step="0.01" placeholder="Custom threshold…"
+                value={!['5','10','25','50'].includes(prefs.threshold) ? prefs.threshold : ''}
+                onChange={e => save({ ...prefs, threshold: e.target.value })}
+                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Daily budget alert at 80% (USD)</label>
+              <div className="grid grid-cols-4 gap-2 mb-2">
+                {['25','50','100','250'].map(v => (
+                  <button key={v} onClick={() => save({ ...prefs, budget: v })}
+                    className={`py-2 rounded-xl font-bold text-xs border-2 transition-all ${prefs.budget === v ? 'border-amber-500 bg-amber-500/10 text-amber-600' : 'border-border hover:border-amber-500/30'}`}>${v}</button>
+                ))}
+              </div>
+              <input type="number" min="1" step="0.01" placeholder="Custom budget…"
+                value={!['25','50','100','250'].includes(prefs.budget) ? prefs.budget : ''}
+                onChange={e => save({ ...prefs, budget: e.target.value })}
+                className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30" />
+            </div>
+            <button onClick={runCheck} disabled={checking}
+              className="w-full py-2.5 border border-amber-500/30 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-500/5 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">
+              {checking ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+              {checking ? 'Checking…' : 'Check Alerts Now'}
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground mt-1">Get inbox notifications when a withdrawal exceeds a set amount, or your daily spending hits 80% of your budget.</p>
+        )}
       </div>
     </div>
   );
@@ -1909,9 +1911,9 @@ function WalletAdBanner() { return <PageAdBanner />; }
 
 export default function WalletPage() {
   useSEO({ noindex: true, title: 'Wallet', url: '/wallet' });
-  const { user }                   = useAuth();
-  const { wallet, fetchWallet }    = useWallet();
-  const [searchParams]             = useSearchParams();
+  const { user }                = useAuth();
+  const { wallet, fetchWallet } = useWallet();
+  const [searchParams]          = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const t = searchParams.get('tab');
@@ -1925,26 +1927,23 @@ export default function WalletPage() {
   });
   const prefillTo = searchParams.get('to') ?? '';
 
-  // Split payment overlay
   const [showSplit, setShowSplit] = useState(false);
+  const [currency,  setCurrency]  = useState<CurrencyCode>('USD');
 
-  // Currency preference
-  const [currency, setCurrency] = useState<CurrencyCode>('USD');
   useEffect(() => {
     const pref = (wallet as any)?.preferred_currency;
     if (pref && ['USD','KES','EUR'].includes(pref)) setCurrency(pref as CurrencyCode);
   }, [wallet]);
+
   const handleCurrencyChange = async (c: CurrencyCode) => {
     setCurrency(c);
     if (user) await supabase.from('user_wallets').update({ preferred_currency: c }).eq('user_id', user.id);
   };
 
-  // Security fields from wallet
-  const pinHash: string | null              = (wallet as any)?.wallet_pin_hash         ?? null;
-  const biometricCredentialId: string | null = (wallet as any)?.biometric_credential_id ?? null;
-  const [showPinModal, setShowPinModal]    = useState(false);
+  const pinHash: string | null               = (wallet as any)?.wallet_pin_hash         ?? null;
+  const biometricCredentialId: string | null  = (wallet as any)?.biometric_credential_id ?? null;
+  const [showPinModal, setShowPinModal]       = useState(false);
 
-  // Deposit flow
   const [phone,    setPhone]    = useState('');
   const [amount,   setAmount]   = useState('');
   const [step,     setStep]     = useState<TopUpStep>('idle');
@@ -1953,7 +1952,6 @@ export default function WalletPage() {
   const [showTopUp, setShowTopUp] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Withdraw flow
   const [wPhone,    setWPhone]    = useState('');
   const [wKes,      setWKes]      = useState('');
   const [wStep,     setWStep]     = useState<WithdrawStep>('idle');
@@ -1999,26 +1997,18 @@ export default function WalletPage() {
 
   const startPoll = (checkoutId: string, depositUsd: number) => {
     let elapsed = 0;
-    setPollSecs(0);
-    setPollMsg('Check your phone and enter your M-Pesa PIN…');
-    setStep('polling');
-    startBalancePoll();
+    setPollSecs(0); setPollMsg('Check your phone and enter your M-Pesa PIN…');
+    setStep('polling'); startBalancePoll();
     pollRef.current = setInterval(async () => {
-      elapsed += 3;
-      setPollSecs(elapsed);
+      elapsed += 3; setPollSecs(elapsed);
       if (elapsed >= 120) {
-        clearInterval(pollRef.current!);
-        stopBalancePoll();
-        await fetchWallet();
-        setStep('failed');
-        setPollMsg('Timed out. If you paid, funds will appear shortly.');
-        return;
+        clearInterval(pollRef.current!); stopBalancePoll(); await fetchWallet();
+        setStep('failed'); setPollMsg('Timed out. If you paid, funds will appear shortly.'); return;
       }
       try {
         const { data } = await supabase.functions.invoke('mpesa-stk-status', { body: { checkout_request_id: checkoutId } });
         if (data?.status === 'completed') {
-          clearInterval(pollRef.current!);
-          stopBalancePoll();
+          clearInterval(pollRef.current!); stopBalancePoll();
           await supabase.rpc('add_to_wallet', { p_user_id: user!.id, p_amount: depositUsd });
           const { data: w } = await supabase.from('user_wallets').select('id').eq('user_id', user!.id).single();
           await supabase.from('wallet_transactions').insert({
@@ -2026,18 +2016,12 @@ export default function WalletPage() {
             payment_method: 'mpesa', status: 'completed',
             description: `M-Pesa top-up — KES ${Math.ceil(depositUsd * USD_TO_KES).toLocaleString()}`,
           });
-          await fetchWallet();
-          setLastTopUpAmount(depositUsd);
-          setStep('success');
+          await fetchWallet(); setLastTopUpAmount(depositUsd); setStep('success');
           setPollMsg(`KES ${Math.ceil(depositUsd * USD_TO_KES).toLocaleString()} received! Wallet topped up.`);
-          toast.success(`+${fmtAmt(depositUsd, currency)} added to wallet`);
-          setAmount('');
+          toast.success(`+${fmtAmt(depositUsd, currency)} added to wallet`); setAmount('');
         } else if (data?.status === 'failed' || data?.status === 'cancelled') {
-          clearInterval(pollRef.current!);
-          stopBalancePoll();
-          await fetchWallet();
-          setStep('failed');
-          setPollMsg('Payment cancelled or failed. Please try again.');
+          clearInterval(pollRef.current!); stopBalancePoll(); await fetchWallet();
+          setStep('failed'); setPollMsg('Payment cancelled or failed. Please try again.');
         } else { await fetchWallet(); }
       } catch { /* keep polling */ }
     }, 3000);
@@ -2056,35 +2040,29 @@ export default function WalletPage() {
       });
       if (error) {
         let msg = error.message;
-        if (error instanceof FunctionsHttpError) {
-          try { msg = (await error.context?.text()) || msg; } catch { /* */ }
-        }
+        if (error instanceof FunctionsHttpError) { try { msg = (await error.context?.text()) || msg; } catch { /* */ } }
         throw new Error(msg);
       }
       toast.success(data.customer_message || 'STK Push sent — check your phone!');
       startPoll(data.checkout_request_id, parseFloat(amount));
     } catch (err: any) {
-      setStep('failed');
-      setPollMsg(err.message || 'Failed to initiate top-up.');
-      toast.error(err.message || 'Failed to initiate top-up');
+      setStep('failed'); setPollMsg(err.message || 'Failed to initiate top-up.'); toast.error(err.message || 'Failed to initiate top-up');
     }
   };
 
   const resetTopUp = () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    stopBalancePoll();
+    if (pollRef.current) clearInterval(pollRef.current); stopBalancePoll();
     setStep('idle'); setPollMsg(''); setPollSecs(0);
   };
 
   const resetWithdraw = () => {
-    if (wPollRef.current) clearInterval(wPollRef.current);
-    stopBalancePoll();
+    if (wPollRef.current) clearInterval(wPollRef.current); stopBalancePoll();
     setWStep('idle'); setWPollMsg(''); setWPollSecs(0);
   };
 
   const executeWithdraw = async () => {
     if (!user) return;
-    const kesAmt  = parseFloat(wKes);
+    const kesAmt = parseFloat(wKes);
     if (!kesAmt || kesAmt < 10) { toast.error('Minimum withdrawal is KES 10'); return; }
     const usdAmt  = kesAmt / USD_TO_KES;
     const balance = Number(wallet?.balance ?? 0);
@@ -2106,66 +2084,41 @@ export default function WalletPage() {
       toast.success('Payout initiated — check your phone!');
       const convId = payload.conversation_id;
       await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: usdAmt });
-      await fetchWallet();
-      startBalancePoll();
-      let elapsed = 0;
-      setWPollSecs(0);
-      setWPollMsg('Your M-Pesa payment is on its way…');
-      setWStep('polling');
+      await fetchWallet(); startBalancePoll();
+      let elapsed = 0; setWPollSecs(0); setWPollMsg('Your M-Pesa payment is on its way…'); setWStep('polling');
       wPollRef.current = setInterval(async () => {
-        elapsed += 3;
-        setWPollSecs(elapsed);
-        await fetchWallet();
+        elapsed += 3; setWPollSecs(elapsed); await fetchWallet();
         if (elapsed >= 120) {
-          clearInterval(wPollRef.current!);
-          stopBalancePoll();
-          setWStep('success');
-          setWPollMsg(`KES ${Math.floor(kesAmt).toLocaleString()} is being sent to your M-Pesa.`);
-          return;
+          clearInterval(wPollRef.current!); stopBalancePoll(); setWStep('success');
+          setWPollMsg(`KES ${Math.floor(kesAmt).toLocaleString()} is being sent to your M-Pesa.`); return;
         }
         const { data: txn } = await supabase.from('mpesa_transactions').select('status')
           .eq('checkout_request_id', convId).order('created_at', { ascending: false }).limit(1).maybeSingle();
         if (txn?.status === 'completed' || txn?.status === 'success') {
-          clearInterval(wPollRef.current!);
-          stopBalancePoll();
-          await fetchWallet();
-          setWStep('success');
-          setWPollMsg(`KES ${Math.floor(kesAmt).toLocaleString()} sent to your M-Pesa!`);
+          clearInterval(wPollRef.current!); stopBalancePoll(); await fetchWallet();
+          setWStep('success'); setWPollMsg(`KES ${Math.floor(kesAmt).toLocaleString()} sent to your M-Pesa!`);
           toast.success('Withdrawal complete!');
         } else if (txn?.status === 'failed') {
-          clearInterval(wPollRef.current!);
-          stopBalancePoll();
-          await supabase.rpc('add_to_wallet', { p_user_id: user.id, p_amount: usdAmt });
-          await fetchWallet();
-          setWStep('failed');
-          setWPollMsg('Payout failed — balance restored.');
-          toast.error('Payout failed. Balance restored.');
+          clearInterval(wPollRef.current!); stopBalancePoll();
+          await supabase.rpc('add_to_wallet', { p_user_id: user.id, p_amount: usdAmt }); await fetchWallet();
+          setWStep('failed'); setWPollMsg('Payout failed — balance restored.'); toast.error('Payout failed. Balance restored.');
         }
       }, 3000);
     } catch (err: any) {
-      setWStep('failed');
-      setWPollMsg(err.message || 'Withdrawal failed. Try again.');
-      toast.error(err.message || 'Withdrawal failed');
+      setWStep('failed'); setWPollMsg(err.message || 'Withdrawal failed. Try again.'); toast.error(err.message || 'Withdrawal failed');
     }
   };
 
   const handleWithdrawClick = () => {
     if (biometricCredentialId) {
       verifyBiometric(biometricCredentialId).then(ok => {
-        if (ok) { executeWithdraw(); }
-        else if (pinHash) { setShowPinModal(true); }
-        else { executeWithdraw(); }
+        if (ok) { executeWithdraw(); } else if (pinHash) { setShowPinModal(true); } else { executeWithdraw(); }
       });
-    } else if (pinHash) {
-      setShowPinModal(true);
-    } else {
-      executeWithdraw();
-    }
+    } else if (pinHash) { setShowPinModal(true); } else { executeWithdraw(); }
   };
 
   const handleWithdrawPinConfirm = async (pin: string) => {
-    const entered = await hashPin(pin);
-    setShowPinModal(false);
+    const entered = await hashPin(pin); setShowPinModal(false);
     if (entered !== pinHash) { toast.error('Incorrect PIN'); return; }
     executeWithdraw();
   };
@@ -2178,24 +2131,14 @@ export default function WalletPage() {
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
-      {showPinModal && (
-        <PinEntryModal title="Confirm Withdrawal" onConfirm={handleWithdrawPinConfirm} onCancel={() => setShowPinModal(false)} />
-      )}
+      {showPinModal && <PinEntryModal title="Confirm Withdrawal" onConfirm={handleWithdrawPinConfirm} onCancel={() => setShowPinModal(false)} />}
       {showSplit && user && (
-        <SplitPaymentPanel
-          userId={user.id}
-          senderUsername={username}
-          walletBalance={walletBalance}
-          pinHash={pinHash}
-          currency={currency}
-          onClose={() => setShowSplit(false)}
-        />
+        <SplitPaymentPanel userId={user.id} senderUsername={username} walletBalance={walletBalance} pinHash={pinHash} currency={currency} onClose={() => setShowSplit(false)} />
       )}
 
       <TopBar title="My Wallet" showBack />
       <WalletAdBanner />
 
-      {/* Tab bar */}
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
         <div className="flex max-w-2xl mx-auto overflow-x-auto scrollbar-hide">
           {WALLET_TABS.map(t => (
@@ -2214,42 +2157,26 @@ export default function WalletPage() {
         </div>
       </div>
 
-      {/* Non-wallet tabs */}
       <div className="max-w-2xl mx-auto p-4 space-y-5">
-        {activeTab === 'history' && user && (
-          <TransactionHistoryTab userId={user.id} currency={currency} />
-        )}
+        {activeTab === 'history' && user && <TransactionHistoryTab userId={user.id} currency={currency} />}
         {activeTab === 'send' && user && (
-          <SendMoneyTab
-            userId={user.id}
-            senderUsername={username}
-            walletBalance={walletBalance}
-            pinHash={pinHash}
-            biometricCredentialId={biometricCredentialId}
-            onComplete={fetchWallet}
-            prefillUsername={prefillTo}
-            currency={currency}
-          />
+          <SendMoneyTab userId={user.id} senderUsername={username} walletBalance={walletBalance}
+            pinHash={pinHash} biometricCredentialId={biometricCredentialId} onComplete={fetchWallet}
+            prefillUsername={prefillTo} currency={currency} />
         )}
-        {activeTab === 'receive' && user && (
-          <ReceiveMoneyTab username={username} walletBalance={walletBalance} currency={currency} />
-        )}
+        {activeTab === 'receive' && user && <ReceiveMoneyTab username={username} walletBalance={walletBalance} currency={currency} />}
         {activeTab === 'analytics' && user && (
-          <SpendingAnalyticsTab userId={user.id} currency={currency} />
+          <>
+            <ActivityHeatmap userId={user.id} />
+            <SpendingAnalyticsTab userId={user.id} currency={currency} />
+          </>
         )}
-        {activeTab === 'referrals' && user && (
-          <ReferralEarningsTab userId={user.id} />
-        )}
-        {activeTab === 'scheduled' && user && (
-          <ScheduledTransfersTab userId={user.id} currency={currency} />
-        )}
+        {activeTab === 'referrals' && user && <ReferralEarningsTab userId={user.id} />}
+        {activeTab === 'scheduled' && user && <ScheduledTransfersTab userId={user.id} currency={currency} pinHash={pinHash} />}
       </div>
 
-      {/* Wallet tab */}
       {activeTab === 'wallet' && (
         <div className="max-w-2xl mx-auto p-4 space-y-5">
-
-          {/* Balance card */}
           <div className="bg-gradient-to-br from-primary/10 to-purple-500/5 border border-primary/20 rounded-2xl p-5">
             <div className="flex items-start justify-between mb-1">
               <div className="flex items-center gap-2">
@@ -2259,42 +2186,32 @@ export default function WalletPage() {
               <CurrencyBadge currency={currency} onChange={handleCurrencyChange} />
             </div>
             <p className="text-4xl font-black mt-1">{fmtAmt(walletBalance, currency)}</p>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              ≈ {fmtAmt(walletBalance, currency === 'KES' ? 'USD' : 'KES')}
-            </p>
+            <p className="text-sm text-muted-foreground mt-0.5">≈ {fmtAmt(walletBalance, currency === 'KES' ? 'USD' : 'KES')}</p>
             {lastTopUpAmount !== null && (
               <p className="text-xs text-green-600 font-semibold mt-1 flex items-center gap-1">
                 <TrendingUp className="w-3 h-3" /> Last top-up +{fmtAmt(lastTopUpAmount, currency)}
               </p>
             )}
-            {/* Quick actions */}
             <div className="flex gap-2 mt-4">
-              <button onClick={() => setActiveTab('receive')}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary/10 border border-primary/20 rounded-xl text-primary font-semibold text-xs hover:bg-primary/15 transition-colors">
+              <button onClick={() => setActiveTab('receive')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary/10 border border-primary/20 rounded-xl text-primary font-semibold text-xs hover:bg-primary/15 transition-colors">
                 <QrCode className="w-3.5 h-3.5" /> Receive
               </button>
-              <button onClick={() => setActiveTab('send')}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-xs hover:opacity-90 transition-opacity">
+              <button onClick={() => setActiveTab('send')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-xs hover:opacity-90 transition-opacity">
                 <Send className="w-3.5 h-3.5" /> Send
               </button>
-              <button onClick={() => setShowSplit(true)}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-600 font-semibold text-xs hover:bg-blue-500/15 transition-colors">
+              <button onClick={() => setShowSplit(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-600 font-semibold text-xs hover:bg-blue-500/15 transition-colors">
                 <Star className="w-3.5 h-3.5" /> Split
               </button>
-              <button onClick={() => setActiveTab('referrals')}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-600 font-semibold text-xs hover:bg-purple-500/15 transition-colors">
+              <button onClick={() => setActiveTab('referrals')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-600 font-semibold text-xs hover:bg-purple-500/15 transition-colors">
                 <Users className="w-3.5 h-3.5" /> Refer
               </button>
             </div>
           </div>
 
-          {/* M-Pesa Deposit */}
+          {/* Deposit */}
           <div className="bg-gradient-to-br from-green-600/10 via-emerald-500/5 to-transparent border border-green-600/20 rounded-2xl overflow-hidden">
-            <button onClick={() => { resetTopUp(); setShowTopUp(v => !v); }}
-              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-green-500/5 transition-colors">
-              <div className="w-10 h-10 rounded-full bg-green-600/15 flex items-center justify-center shrink-0">
-                <Zap className="w-5 h-5 text-green-600" />
-              </div>
+            <button onClick={() => { resetTopUp(); setShowTopUp(v => !v); }} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-green-500/5 transition-colors">
+              <div className="w-10 h-10 rounded-full bg-green-600/15 flex items-center justify-center shrink-0"><Zap className="w-5 h-5 text-green-600" /></div>
               <div className="flex-1 text-left">
                 <p className="font-bold text-base">Deposit via M-Pesa</p>
                 <p className="text-xs text-muted-foreground">STK Push — funds credited after payment</p>
@@ -2303,7 +2220,6 @@ export default function WalletPage() {
                 <span className="text-lg leading-none text-muted-foreground">+</span>
               </div>
             </button>
-
             {showTopUp && (
               <div className="px-5 pb-5 space-y-4 border-t border-green-600/15 pt-4">
                 {(step === 'idle' || step === 'failed') && (
@@ -2321,9 +2237,7 @@ export default function WalletPage() {
                           const val = usd.toFixed(2);
                           return (
                             <button key={kes} onClick={() => setAmount(val)}
-                              className={`py-2.5 rounded-xl font-bold text-xs border-2 transition-all flex flex-col items-center ${
-                                amount === val ? 'border-green-600 bg-green-600/10 text-green-700 dark:text-green-400' : 'border-border hover:border-green-600/40'
-                              }`}>
+                              className={`py-2.5 rounded-xl font-bold text-xs border-2 transition-all flex flex-col items-center ${amount === val ? 'border-green-600 bg-green-600/10 text-green-700 dark:text-green-400' : 'border-border hover:border-green-600/40'}`}>
                               <span className="text-[11px] font-black">KES {kes.toLocaleString()}</span>
                               <span className="text-[9px] opacity-60">${usd.toFixed(2)}</span>
                             </button>
@@ -2331,14 +2245,10 @@ export default function WalletPage() {
                         })}
                       </div>
                       <Input type="number" min="1" step="0.01" placeholder="Custom USD amount…" value={amount} onChange={e => setAmount(e.target.value)} className="h-11" />
-                      {amount && parseFloat(amount) > 0 && (
-                        <p className="text-xs text-green-600 font-semibold mt-1">≈ KES {Math.ceil(parseFloat(amount) * USD_TO_KES).toLocaleString()}</p>
-                      )}
+                      {amount && parseFloat(amount) > 0 && <p className="text-xs text-green-600 font-semibold mt-1">≈ KES {Math.ceil(parseFloat(amount) * USD_TO_KES).toLocaleString()}</p>}
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                        <Phone className="w-3 h-3" />M-Pesa Number
-                      </p>
+                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide flex items-center gap-1.5"><Phone className="w-3 h-3" />M-Pesa Number</p>
                       <Input type="tel" placeholder="0712 345 678" value={phone} onChange={e => setPhone(e.target.value)} className="h-11" />
                     </div>
                     <button onClick={handleTopUp} disabled={!amount || !phone || parseFloat(amount) <= 0}
@@ -2348,60 +2258,40 @@ export default function WalletPage() {
                     </button>
                   </>
                 )}
-                {step === 'sending' && (
-                  <div className="flex flex-col items-center gap-3 py-6">
-                    <Loader2 className="w-10 h-10 animate-spin text-green-600" />
-                    <p className="font-semibold text-sm">Sending M-Pesa request…</p>
-                  </div>
-                )}
+                {step === 'sending' && <div className="flex flex-col items-center gap-3 py-6"><Loader2 className="w-10 h-10 animate-spin text-green-600" /><p className="font-semibold text-sm">Sending M-Pesa request…</p></div>}
                 {step === 'polling' && (
                   <div className="flex flex-col items-center gap-4 py-4">
-                    <div className="w-16 h-16 rounded-full bg-green-600/10 flex items-center justify-center">
-                      <Clock className="w-8 h-8 text-green-600 animate-pulse" />
-                    </div>
+                    <div className="w-16 h-16 rounded-full bg-green-600/10 flex items-center justify-center"><Clock className="w-8 h-8 text-green-600 animate-pulse" /></div>
                     <div className="text-center">
                       <p className="font-bold text-green-700 dark:text-green-400">Awaiting M-Pesa PIN…</p>
                       <p className="text-sm text-muted-foreground mt-1">{pollMsg}</p>
                       <p className="text-xs text-muted-foreground">{pollSecs}s · checking every 3s</p>
                     </div>
                     <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-1000"
-                        style={{ width: `${Math.min((pollSecs / 90) * 100, 100)}%` }} />
+                      <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-1000" style={{ width: `${Math.min((pollSecs / 90) * 100, 100)}%` }} />
                     </div>
-                    <button onClick={resetTopUp} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive">
-                      <X className="w-3.5 h-3.5" /> Cancel
-                    </button>
+                    <button onClick={resetTopUp} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"><X className="w-3.5 h-3.5" /> Cancel</button>
                   </div>
                 )}
                 {step === 'success' && (
                   <div className="flex flex-col items-center gap-3 py-4">
-                    <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
-                      <CheckCircle2 className="w-9 h-9 text-green-500" />
-                    </div>
+                    <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center"><CheckCircle2 className="w-9 h-9 text-green-500" /></div>
                     <p className="font-bold text-lg text-green-600">Payment Confirmed!</p>
                     <p className="text-sm text-muted-foreground text-center">{pollMsg}</p>
-                    <button onClick={() => { resetTopUp(); setShowTopUp(false); }}
-                      className="px-6 py-2.5 bg-green-600 text-white rounded-full font-semibold text-sm hover:bg-green-700 transition-colors">
-                      Done
-                    </button>
+                    <button onClick={() => { resetTopUp(); setShowTopUp(false); }} className="px-6 py-2.5 bg-green-600 text-white rounded-full font-semibold text-sm hover:bg-green-700 transition-colors">Done</button>
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* M-Pesa Withdraw */}
+          {/* Withdraw */}
           <div className="bg-gradient-to-br from-orange-600/10 via-red-500/5 to-transparent border border-orange-600/20 rounded-2xl overflow-hidden">
-            <button onClick={() => { resetWithdraw(); setShowWithdraw(v => !v); }}
-              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-orange-500/5 transition-colors">
-              <div className="w-10 h-10 rounded-full bg-orange-600/15 flex items-center justify-center shrink-0">
-                <ArrowUpRight className="w-5 h-5 text-orange-600" />
-              </div>
+            <button onClick={() => { resetWithdraw(); setShowWithdraw(v => !v); }} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-orange-500/5 transition-colors">
+              <div className="w-10 h-10 rounded-full bg-orange-600/15 flex items-center justify-center shrink-0"><ArrowUpRight className="w-5 h-5 text-orange-600" /></div>
               <div className="flex-1 text-left">
                 <p className="font-bold text-base">Withdraw to M-Pesa</p>
-                <p className="text-xs text-muted-foreground">
-                  Available: <span className="font-semibold text-foreground">{fmtAmt(walletBalance, currency)}</span>
-                </p>
+                <p className="text-xs text-muted-foreground">Available: <span className="font-semibold text-foreground">{fmtAmt(walletBalance, currency)}</span></p>
               </div>
               {(pinHash || biometricCredentialId) && (
                 <div className="flex items-center gap-1 mr-1">
@@ -2413,7 +2303,6 @@ export default function WalletPage() {
                 <span className="text-lg leading-none text-muted-foreground">+</span>
               </div>
             </button>
-
             {showWithdraw && (
               <div className="px-5 pb-5 space-y-4 border-t border-orange-600/15 pt-4">
                 {(wStep === 'idle' || wStep === 'failed') && (
@@ -2445,9 +2334,7 @@ export default function WalletPage() {
                         className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30" />
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide flex items-center gap-1.5">
-                        <Phone className="w-3 h-3" />Recipient M-Pesa Number
-                      </p>
+                      <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide flex items-center gap-1.5"><Phone className="w-3 h-3" />Recipient M-Pesa Number</p>
                       <input type="tel" placeholder="0712 345 678" value={wPhone} onChange={e => setWPhone(e.target.value)}
                         className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30" />
                     </div>
@@ -2458,40 +2345,27 @@ export default function WalletPage() {
                     </button>
                   </>
                 )}
-                {wStep === 'sending' && (
-                  <div className="flex flex-col items-center gap-3 py-6">
-                    <Loader2 className="w-10 h-10 animate-spin text-orange-600" />
-                    <p className="font-semibold text-sm">Initiating payout…</p>
-                  </div>
-                )}
+                {wStep === 'sending' && <div className="flex flex-col items-center gap-3 py-6"><Loader2 className="w-10 h-10 animate-spin text-orange-600" /><p className="font-semibold text-sm">Initiating payout…</p></div>}
                 {wStep === 'polling' && (
                   <div className="flex flex-col items-center gap-4 py-4">
-                    <div className="w-16 h-16 rounded-full bg-orange-600/10 flex items-center justify-center">
-                      <Clock className="w-8 h-8 text-orange-600 animate-pulse" />
-                    </div>
+                    <div className="w-16 h-16 rounded-full bg-orange-600/10 flex items-center justify-center"><Clock className="w-8 h-8 text-orange-600 animate-pulse" /></div>
                     <div className="text-center">
                       <p className="font-bold text-orange-700 dark:text-orange-400">Processing payout…</p>
                       <p className="text-sm text-muted-foreground mt-1">{wPollMsg}</p>
                       <p className="text-xs text-muted-foreground">{wPollSecs}s elapsed</p>
                     </div>
                     <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-orange-500 to-red-400 rounded-full transition-all duration-1000"
-                        style={{ width: `${Math.min((wPollSecs / 90) * 100, 100)}%` }} />
+                      <div className="h-full bg-gradient-to-r from-orange-500 to-red-400 rounded-full transition-all duration-1000" style={{ width: `${Math.min((wPollSecs / 90) * 100, 100)}%` }} />
                     </div>
-                    <button onClick={resetWithdraw} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive">
-                      <X className="w-3.5 h-3.5" /> Cancel
-                    </button>
+                    <button onClick={resetWithdraw} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"><X className="w-3.5 h-3.5" /> Cancel</button>
                   </div>
                 )}
                 {wStep === 'success' && (
                   <div className="flex flex-col items-center gap-3 py-4">
-                    <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
-                      <CheckCircle2 className="w-9 h-9 text-green-500" />
-                    </div>
+                    <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center"><CheckCircle2 className="w-9 h-9 text-green-500" /></div>
                     <p className="font-bold text-lg text-green-600">Payout Initiated!</p>
                     <p className="text-sm text-muted-foreground text-center">{wPollMsg}</p>
-                    <button onClick={() => { resetWithdraw(); setShowWithdraw(false); setWKes(''); }}
-                      className="px-6 py-2.5 bg-green-600 text-white rounded-full font-semibold text-sm hover:bg-green-700 transition-colors">Done</button>
+                    <button onClick={() => { resetWithdraw(); setShowWithdraw(false); setWKes(''); }} className="px-6 py-2.5 bg-green-600 text-white rounded-full font-semibold text-sm hover:bg-green-700 transition-colors">Done</button>
                   </div>
                 )}
               </div>
@@ -2499,46 +2373,31 @@ export default function WalletPage() {
           </div>
 
           <WalletDashboard />
-
           {user && wallet && <SpendLimitCard userId={user.id} wallet={wallet} onSaved={fetchWallet} />}
           {user && wallet && <PinSetupCard userId={user.id} pinHash={(wallet as any)?.wallet_pin_hash ?? null} onSaved={fetchWallet} />}
-          {user && wallet && (
-            <BiometricCard
-              userId={user.id}
-              credentialId={(wallet as any)?.biometric_credential_id ?? null}
-              onSaved={fetchWallet}
-            />
-          )}
+          {user && wallet && <BiometricCard userId={user.id} credentialId={(wallet as any)?.biometric_credential_id ?? null} onSaved={fetchWallet} />}
           {user && <PayoutScheduleCard userId={user.id} defaultPhone={wallet?.mpesa_phone ?? null} />}
-
+          <CryptoWidget />
           <MpesaSecretsGuide />
-
           <div className="flex items-start gap-3 p-4 bg-muted/40 border border-border rounded-2xl">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-              <Bell className="w-4 h-4 text-primary" />
-            </div>
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5"><Bell className="w-4 h-4 text-primary" /></div>
             <div className="flex-1">
               <p className="font-semibold text-sm">Wallet Notifications</p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Deposit and withdrawal updates are sent to your{' '}
-                <button onClick={() => { window.location.href = '/platform-inbox'; }}
-                  className="text-primary font-semibold hover:underline">Platform Inbox</button>.
+                <button onClick={() => { window.location.href = '/platform-inbox'; }} className="text-primary font-semibold hover:underline">Platform Inbox</button>.
               </p>
             </div>
             <BellOff className="w-4 h-4 text-muted-foreground/50 shrink-0" />
           </div>
-
           <div className="flex items-start gap-3 p-4 bg-muted/20 border border-border rounded-2xl">
-            <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
-              <Globe className="w-4 h-4 text-blue-500" />
-            </div>
+            <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5"><Globe className="w-4 h-4 text-blue-500" /></div>
             <div>
               <p className="font-semibold text-sm">Multi-Currency Display</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Toggle between USD, KES, and EUR using the currency selector. Your preference is saved automatically.
-              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Toggle between USD, KES, and EUR. Your preference is saved automatically.</p>
             </div>
           </div>
+          {user && <SpendingAlertsCard userId={user.id} />}
         </div>
       )}
     </div>
