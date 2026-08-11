@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check } from 'lucide-react';
+import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check, RefreshCw } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { UserSuggestionsWidget } from '../features/UserSuggestionsWidget';
 import { ContentSuggestionsWidget } from '../features/ContentSuggestionsWidget';
@@ -52,6 +52,13 @@ export function RightSidebar() {
   const [communities, setCommunities] = useState<Community[]>([]);
   const [liveSpaces, setLiveSpaces] = useState<Space[]>([]);
   const [followedTags, setFollowedTags] = useState<Set<string>>(new Set());
+  const [suggestedCommunity, setSuggestedCommunity] = useState<Community | null>(null);
+  const [suggestedSpace, setSuggestedSpace] = useState<Space | null>(null);
+
+  const pickRandomSuggestions = useCallback((comms: Community[], spaces: Space[]) => {
+    if (comms.length > 0) setSuggestedCommunity(comms[Math.floor(Math.random() * comms.length)]);
+    if (spaces.length > 0) setSuggestedSpace(spaces[Math.floor(Math.random() * spaces.length)]);
+  }, []);
 
   useEffect(() => {
     fetchTrending();
@@ -62,7 +69,11 @@ export function RightSidebar() {
 
     // Auto-refresh trending hashtags every 60s
     const iv = setInterval(fetchTrendingHashtags, 60_000);
-    return () => clearInterval(iv);
+    // Rotate suggestions every 30s
+    const sv = setInterval(() => {
+      pickRandomSuggestions(communities, liveSpaces);
+    }, 30_000);
+    return () => { clearInterval(iv); clearInterval(sv); };
   }, [user?.id]);
 
   const fetchFollowedTags = async () => {
@@ -127,23 +138,24 @@ export function RightSidebar() {
       .from('communities')
       .select('*')
       .order('member_count', { ascending: false })
-      .limit(5);
-
-    if (data) setCommunities(data);
+      .limit(10);
+    if (data) {
+      setCommunities(data);
+      if (data.length > 0) setSuggestedCommunity(data[Math.floor(Math.random() * data.length)]);
+    }
   };
 
   const fetchLiveSpaces = async () => {
     const { data } = await supabase
       .from('spaces')
-      .select(`
-        *,
-        user_profiles (username, avatar_url)
-      `)
+      .select(`*, user_profiles (username, avatar_url)`)
       .eq('is_live', true)
       .order('listener_count', { ascending: false })
-      .limit(3);
-
-    if (data) setLiveSpaces(data);
+      .limit(5);
+    if (data) {
+      setLiveSpaces(data);
+      if (data.length > 0) setSuggestedSpace(data[Math.floor(Math.random() * data.length)]);
+    }
   };
 
   return (
@@ -166,6 +178,75 @@ export function RightSidebar() {
           Browse Communities
         </Button>
       </div>
+
+      {/* ── Spotlight: Random Community Suggestion ── */}
+      {suggestedCommunity && (
+        <div className="bg-gradient-to-br from-blue-500/8 to-primary/5 rounded-xl p-4 border border-primary/15">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-bold text-sm flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-primary" /> Community Spotlight
+            </h3>
+            <button onClick={() => setSuggestedCommunity(communities[Math.floor(Math.random() * communities.length)])}
+              className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground">
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          </div>
+          <button onClick={() => navigate(`/c/${suggestedCommunity.name}`)}
+            className="w-full text-left flex items-center gap-3 p-2 rounded-xl hover:bg-muted/50 transition-colors">
+            <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center overflow-hidden shrink-0">
+              {suggestedCommunity.icon_url
+                ? <img src={suggestedCommunity.icon_url} alt={suggestedCommunity.display_name} className="w-full h-full object-cover" />
+                : <span className="text-lg font-bold">{suggestedCommunity.display_name[0]}</span>}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm truncate">{suggestedCommunity.display_name}</p>
+              <p className="text-xs text-muted-foreground">{suggestedCommunity.member_count?.toLocaleString()} members</p>
+              {suggestedCommunity.description && (
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{suggestedCommunity.description}</p>
+              )}
+            </div>
+          </button>
+          <button onClick={() => navigate(`/c/${suggestedCommunity.name}`)}
+            className="mt-2 w-full py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold rounded-xl transition-colors">
+            Join Community →
+          </button>
+        </div>
+      )}
+
+      {/* ── Spotlight: Random Space Suggestion ── */}
+      {suggestedSpace && (
+        <div className="bg-gradient-to-br from-red-500/8 to-orange-500/5 rounded-xl p-4 border border-red-500/15">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-bold text-sm flex items-center gap-1.5">
+              <Radio className="w-4 h-4 text-red-500 animate-pulse" /> Space Spotlight
+            </h3>
+            <button onClick={() => liveSpaces.length > 0 && setSuggestedSpace(liveSpaces[Math.floor(Math.random() * liveSpaces.length)])}
+              className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground">
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          </div>
+          <button onClick={() => navigate('/spaces')}
+            className="w-full text-left flex items-center gap-3 p-2 rounded-xl hover:bg-muted/50 transition-colors">
+            <div className="w-12 h-12 rounded-xl bg-red-500/20 flex items-center justify-center shrink-0">
+              {suggestedSpace.user_profiles?.avatar_url
+                ? <img src={suggestedSpace.user_profiles.avatar_url} alt="" className="w-full h-full rounded-xl object-cover" />
+                : <Radio className="w-6 h-6 text-red-500" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm truncate">{suggestedSpace.title}</p>
+              <p className="text-xs text-muted-foreground">by @{suggestedSpace.user_profiles?.username}</p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-[10px] text-red-500 font-bold">{suggestedSpace.listener_count} listening live</span>
+              </div>
+            </div>
+          </button>
+          <button onClick={() => navigate('/spaces')}
+            className="mt-2 w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-600 text-xs font-bold rounded-xl transition-colors">
+            Join Space →
+          </button>
+        </div>
+      )}
 
       {/* Live Audio Spaces */}
       {liveSpaces.length > 0 && (

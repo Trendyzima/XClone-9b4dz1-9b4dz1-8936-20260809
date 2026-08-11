@@ -77,6 +77,8 @@ const AdminAdsDashboard = lazy(() => import('@/pages/AdminAdsDashboard'));
 const NotificationPreferencesPage = lazy(() => import('@/pages/NotificationPreferencesPage'));
 const WishlistPage = lazy(() => import('@/pages/WishlistPage'));
 const InterestOnboardingPage = lazy(() => import('@/pages/InterestOnboardingPage'));
+const SeriesPage = lazy(() => import('@/pages/SeriesPage'));
+const PlatformInboxPage = lazy(() => import('@/pages/PlatformInboxPage'));
 const AdAnalyticsPage = lazy(() => import('@/pages/AdAnalyticsPage'));
 
 function PageLoader() {
@@ -188,6 +190,8 @@ function AppInner() {
               <Route path="/wishlist" element={<WishlistPage />} />
               <Route path="/interests" element={<InterestOnboardingPage />} />
               <Route path="/ad-analytics" element={<AdAnalyticsPage />} />
+              <Route path="/series" element={<SeriesPage />} />
+              <Route path="/platform-inbox" element={<PlatformInboxPage />} />
             </Routes>
           </Suspense>
         </main>

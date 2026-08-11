@@ -10,7 +10,7 @@ import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
 import { formatDistanceToNow, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, subMonths } from 'date-fns';
 
-type Tab = 'followers' | 'earners' | 'streaks' | 'tippers';
+type Tab = 'followers' | 'earners' | 'streaks' | 'tippers' | 'video';
 type SeasonType = 'current' | 'weekly' | 'monthly';
 
 interface LeaderboardEntry {
@@ -104,6 +104,7 @@ export default function LeaderboardPage() {
     { id: 'earners',   label: 'Earners',     icon: <span className="font-bold text-xs leading-none">$</span> },
     { id: 'streaks',   label: 'Streaks',     icon: <Flame className="w-3.5 h-3.5 text-orange-400" /> },
     { id: 'tippers',   label: 'Top Tippers', icon: <DollarSign className="w-3.5 h-3.5 text-yellow-500" /> },
+    { id: 'video',     label: 'Video',       icon: <span className="text-xs">🎬</span> },
   ];
 
   useEffect(() => {
@@ -184,6 +185,29 @@ export default function LeaderboardPage() {
   const fetchLeaderboard = async (activeTab: Tab) => {
     setLoading(true);
 
+    if (activeTab === 'video') {
+      // Rank by total video views across all video posts
+      const { data: videoPosts } = await supabase
+        .from('posts')
+        .select('user_id, views_count')
+        .eq('is_video', true);
+      if (videoPosts && videoPosts.length > 0) {
+        const totals: Record<string, number> = {};
+        videoPosts.forEach((p: any) => {
+          totals[p.user_id] = (totals[p.user_id] ?? 0) + (p.views_count ?? 0);
+        });
+        const sorted = Object.entries(totals).sort(([, a], [, b]) => b - a).slice(0, 50);
+        const uids = sorted.map(([id]) => id);
+        const { data: profiles } = await supabase
+          .from('user_profiles').select('id, username, avatar_url, verified').in('id', uids);
+        const profileMap: Record<string, any> = {};
+        (profiles ?? []).forEach((p: any) => { profileMap[p.id] = p; });
+        setData(sorted.filter(([id]) => profileMap[id]).map(([id, total]) => ({ ...profileMap[id], value: total })));
+      } else { setData([]); }
+      setLoading(false);
+      return;
+    }
+
     if (activeTab === 'tippers') {
       const { data: tips } = await supabase.from('tips').select('from_user_id, amount');
       if (tips && tips.length > 0) {
@@ -250,6 +274,7 @@ export default function LeaderboardPage() {
     if (tab === 'earners') return `$${val.toFixed(2)}`;
     if (tab === 'streaks') return `Day ${val}`;
     if (tab === 'tippers') return `$${val.toFixed(2)}`;
+    if (tab === 'video') return formatNumber(val) + ' views';
     return formatNumber(val);
   };
 
@@ -257,6 +282,7 @@ export default function LeaderboardPage() {
     if (tab === 'streaks') return '🔥 streak';
     if (tab === 'earners') return 'earned';
     if (tab === 'tippers') return '💰 tipped';
+    if (tab === 'video') return '🎬 views';
     return 'followers';
   };
 

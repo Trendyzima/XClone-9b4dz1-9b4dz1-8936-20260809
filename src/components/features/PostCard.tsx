@@ -150,49 +150,64 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     onUpdate?.();
   };
 
-  // Post Translation
+  // Multi-language Post Translation
+  const LANGUAGES = [
+    { code: 'en', label: 'English', flag: '🇬🇧' },
+    { code: 'es', label: 'Español', flag: '🇪🇸' },
+    { code: 'fr', label: 'Français', flag: '🇫🇷' },
+    { code: 'sw', label: 'Kiswahili', flag: '🇰🇪' },
+    { code: 'ar', label: 'العربية', flag: '🇸🇦' },
+  ];
   const [translatedContent, setTranslatedContent] = useState<string | null>(null);
   const [showTranslation, setShowTranslation] = useState(false);
   const [translating, setTranslating] = useState(false);
+  const [targetLang, setTargetLang] = useState<string>('en');
+  const [showLangPicker, setShowLangPicker] = useState(false);
+  const translationCacheRef = useRef<Record<string, string>>({});
 
-  const handleTranslate = async (e: React.MouseEvent) => {
+  const handleTranslate = async (e: React.MouseEvent, lang?: string) => {
     e.stopPropagation();
-    if (showTranslation) { setShowTranslation(false); return; }
-    if (translatedContent) { setShowTranslation(true); return; }
+    const selectedLang = lang ?? targetLang;
+    if (showTranslation && selectedLang === targetLang && !lang) { setShowTranslation(false); return; }
+    if (translationCacheRef.current[selectedLang]) {
+      setTranslatedContent(translationCacheRef.current[selectedLang]);
+      setTargetLang(selectedLang);
+      setShowTranslation(true);
+      return;
+    }
     setTranslating(true);
+    setShowLangPicker(false);
     try {
-      // Check cache first
+      const langName = LANGUAGES.find(l => l.code === selectedLang)?.label ?? selectedLang;
       const { data: cached } = await supabase
         .from('post_translations')
         .select('translated_content')
         .eq('post_id', post.id)
-        .eq('language_code', 'en')
+        .eq('language_code', selectedLang)
         .maybeSingle();
       if (cached?.translated_content) {
+        translationCacheRef.current[selectedLang] = cached.translated_content;
         setTranslatedContent(cached.translated_content);
+        setTargetLang(selectedLang);
         setShowTranslation(true);
         setTranslating(false);
         return;
       }
-      // Call AI
       const { data, error } = await supabase.functions.invoke('ai-chat', {
         body: {
-          messages: [{
-            role: 'user',
-            content: `Translate the following social media post to English. Return ONLY the translated text, no explanations or quotes:\n\n${post.content}`,
-          }],
+          messages: [{ role: 'user', content: `Translate the following social media post to ${langName}. Return ONLY the translated text, no explanations:\n\n${post.content}` }],
           model: 'gemini-2.0-flash',
         },
       });
       if (error) throw error;
-      const translated = data?.choices?.[0]?.message?.content ??
-        data?.content ?? data?.text ?? data?.response ?? '';
+      const translated = data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? data?.response ?? '';
       if (translated.trim()) {
+        translationCacheRef.current[selectedLang] = translated.trim();
         setTranslatedContent(translated.trim());
+        setTargetLang(selectedLang);
         setShowTranslation(true);
-        // Cache it
         await supabase.from('post_translations').upsert(
-          { post_id: post.id, language_code: 'en', translated_content: translated.trim() },
+          { post_id: post.id, language_code: selectedLang, translated_content: translated.trim() },
           { onConflict: 'post_id,language_code' }
         ).catch(() => {});
       }
@@ -751,20 +766,51 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             }}
           />
 
-          {/* Translate button */}
+          {/* Translate button with multi-language picker */}
           {post.content && post.content.length > 20 && (
-            <button
-              onClick={handleTranslate}
-              className={`mt-1 flex items-center gap-1 text-xs font-medium transition-colors ${
-                showTranslation ? 'text-primary' : 'text-muted-foreground hover:text-primary'
-              }`}
-            >
-              {translating
-                ? <TransLoader className="w-3 h-3 animate-spin" />
-                : <Languages className="w-3 h-3" />
-              }
-              {translating ? 'Translating…' : showTranslation ? 'Show original' : 'Translate'}
-            </button>
+            <div className="relative mt-1">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleTranslate}
+                  className={`flex items-center gap-1 text-xs font-medium transition-colors ${showTranslation ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+                >
+                  {translating
+                    ? <TransLoader className="w-3 h-3 animate-spin" />
+                    : <Languages className="w-3 h-3" />
+                  }
+                  {translating ? 'Translating…' : showTranslation ? 'Show original' : 'Translate'}
+                </button>
+                {/* Language picker toggle */}
+                {!showTranslation && !translating && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setShowLangPicker(p => !p); }}
+                    className="text-xs text-muted-foreground hover:text-primary flex items-center gap-0.5 transition-colors"
+                    title="Pick language"
+                  >
+                    <span>{LANGUAGES.find(l => l.code === targetLang)?.flag ?? '🌐'}</span>
+                    <span className="text-[10px]">{LANGUAGES.find(l => l.code === targetLang)?.label ?? 'EN'}</span>
+                  </button>
+                )}
+              </div>
+              {showLangPicker && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={e => { e.stopPropagation(); setShowLangPicker(false); }} />
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-background border border-border rounded-xl shadow-xl overflow-hidden min-w-[140px]" onClick={e => e.stopPropagation()}>
+                    {LANGUAGES.map(lang => (
+                      <button
+                        key={lang.code}
+                        onClick={e => { setTargetLang(lang.code); handleTranslate(e, lang.code); }}
+                        className={`flex items-center gap-2 w-full px-3 py-2.5 text-xs font-medium hover:bg-muted transition-colors text-left ${
+                          targetLang === lang.code ? 'bg-primary/5 text-primary' : ''
+                        }`}
+                      >
+                        <span>{lang.flag}</span>{lang.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {/* Video Player with monetization pre-roll */}

@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Bell, User, Flame, Mail, UserSearch } from 'lucide-react';
+import { Home, Bell, User, Flame, Mail, UserSearch, Inbox } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +17,7 @@ export function BottomNav() {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [streakDay, setStreakDay] = useState(0);
   const [hasNewSuggestions, setHasNewSuggestions] = useState(false);
+  const [unreadInbox, setUnreadInbox] = useState(0);
   const prevNotifs = useRef(-1);
   const prevMessages = useRef(-1);
   const audioCtxRef = useRef<any>(null);
@@ -108,6 +109,7 @@ export function BottomNav() {
   useEffect(() => {
     if (location.pathname === '/notifications') setUnreadNotifs(0);
     if (location.pathname === '/messages') setUnreadMessages(0);
+    if (location.pathname === '/platform-inbox') setUnreadInbox(0);
   }, [location.pathname]);
 
   // Fetch current streak on mount and after auth changes
@@ -127,6 +129,13 @@ export function BottomNav() {
       .eq('user_id', user.id)
       .gt('score', 0)
       .then(({ count }) => setHasNewSuggestions((count ?? 0) > 0));
+    // Check platform inbox unread count
+    supabase
+      .from('platform_inbox')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('read', false)
+      .then(({ count }) => setUnreadInbox(count ?? 0));
   }, [user?.id]);
 
   useEffect(() => {
@@ -163,7 +172,7 @@ export function BottomNav() {
     { icon: Home,      label: 'Home',      path: '/',         badge: 0 },
     { icon: UserSearch, label: 'Discover',  path: '/discover', badge: 0, dot: hasNewSuggestions },
     { icon: Flame,  label: 'Streak',    path: '/daily-rewards',                                badge: streakDay, badgeStyle: 'bg-orange-500', requireAuth: true },
-    { icon: Mail,   label: 'Messages',  path: '/messages',   requireAuth: true,                  badge: unreadMessages },
+    { icon: Inbox,  label: 'Inbox',     path: '/platform-inbox', requireAuth: true,            badge: unreadInbox },
     { icon: Bell,   label: 'Alerts',    path: '/notifications',  requireAuth: true,              badge: unreadNotifs },
     { icon: User,   label: 'Profile',   path: user ? `/profile/${user.username}` : '/auth',     badge: 0, requireAuth: true },
   ];

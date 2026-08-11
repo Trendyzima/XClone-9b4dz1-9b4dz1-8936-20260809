@@ -1,3 +1,4 @@
+
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -6,7 +7,7 @@ import {
   TrendingUp, Sparkles, Bookmark, List, DollarSign, BarChart3,
   ShoppingBag, Calendar, Crown, Briefcase, Settings, HelpCircle,
   History, ChevronDown, ChevronUp, FileText, Wallet, Megaphone,
-  Shield, LineChart, Globe, Flame, Trophy, UserSearch, Gift,
+  Shield, LineChart, Globe, Flame, Trophy, UserSearch, Gift, BookOpen, Inbox,
 } from 'lucide-react';
 import { authService } from '@/lib/auth';
 import { useState, useEffect } from 'react';
@@ -138,44 +139,48 @@ export function Sidebar() {
 
   // Nav items with badge counts
   const navItems = [
-    { icon: Home,     label: 'Home',          path: '/',              requireAuth: false, badge: 0 },
-    { icon: Hash,     label: 'Explore',        path: '/explore',       requireAuth: false, badge: 0 },
-    { icon: FileText, label: 'Threads',         path: '/threads',       requireAuth: false, badge: 0 },
-    { icon: Bell,     label: 'Notifications',   path: '/notifications', requireAuth: true,  badge: unreadNotifs },
-    { icon: Mail,     label: 'Messages',        path: '/messages',      requireAuth: true,  badge: unreadMessages },
-    { icon: Radio,    label: 'Spaces',          path: '/spaces',        requireAuth: false, badge: 0 },
-    { icon: Sparkles, label: 'AI',              path: '/ai',            requireAuth: false, badge: 0 },
-    { icon: Globe,    label: 'Fediverse',       path: '/fediverse',     requireAuth: false, badge: unreadFed },
-    { icon: Trophy,   label: 'Leaderboard',     path: '/leaderboard',   requireAuth: false, badge: 0 },
+    { icon: Home, label: 'Home', path: '/', requireAuth: false, badge: 0 },
+    { icon: Hash, label: 'Explore', path: '/explore', requireAuth: false, badge: 0 },
+    { icon: FileText, label: 'Threads', path: '/threads', requireAuth: false, badge: 0 },
+    { icon: Bell, label: 'Notifications', path: '/notifications', requireAuth: true, badge: unreadNotifs },
+    { icon: Mail, label: 'Messages', path: '/messages', requireAuth: true, badge: unreadMessages },
+    { icon: Radio, label: 'Spaces', path: '/spaces', requireAuth: false, badge: 0 },
+    { icon: Sparkles, label: 'AI', path: '/ai', requireAuth: false, badge: 0 },
+    { icon: Globe, label: 'Fediverse', path: '/fediverse', requireAuth: false, badge: unreadFed },
+    { icon: Trophy, label: 'Leaderboard', path: '/leaderboard', requireAuth: false, badge: 0 },
   ];
 
   const creatorTools = [
     { icon: Briefcase, label: 'Creator Studio', path: '/creator-studio', requireAuth: true },
-    { icon: BarChart3, label: 'Analytics',       path: '/analytics',      requireAuth: true },
-    { icon: DollarSign,label: 'Monetization',    path: '/monetization',   requireAuth: true },
-    { icon: ShoppingBag,label: 'Products',       path: '/products',       requireAuth: true },
-    { icon: Calendar,  label: 'Scheduled',       path: '/scheduled',      requireAuth: true },
+    { icon: BarChart3, label: 'Analytics', path: '/analytics', requireAuth: true },
+    { icon: DollarSign, label: 'Monetization', path: '/monetization', requireAuth: true },
+    { icon: ShoppingBag, label: 'Products', path: '/products', requireAuth: true },
+    { icon: Calendar, label: 'Scheduled', path: '/scheduled', requireAuth: true },
   ];
 
   const adminTools = [
-    { icon: LineChart,  label: 'Revenue Analytics', path: '/revenue-analytics',  requireAuth: true, badge: 0 },
-    { icon: TrendingUp, label: 'Admin Revenue',      path: '/admin/revenue',      requireAuth: true, badge: 0 },
-    { icon: Megaphone,  label: 'Ad Review',          path: '/admin/ads-review',   requireAuth: true, badge: pendingAdsBadge },
-    { icon: Shield,     label: 'Fraud Detection',    path: '/fraud-detection',    requireAuth: true, badge: 0 },
+    { icon: LineChart, label: 'Revenue Analytics', path: '/revenue-analytics', requireAuth: true, badge: 0 },
+    { icon: TrendingUp, label: 'Admin Revenue', path: '/admin/revenue', requireAuth: true, badge: 0 },
+    { icon: Megaphone, label: 'Ad Review', path: '/admin/ads-review', requireAuth: true, badge: pendingAdsBadge },
+    { icon: Shield, label: 'Fraud Detection', path: '/fraud-detection', requireAuth: true, badge: 0 },
   ];
 
   const userTools = [
-    { icon: Bookmark,   label: 'Bookmarks', path: '/bookmarks', requireAuth: true },
-    { icon: List,       label: 'Lists',     path: '/lists',     requireAuth: true },
-    { icon: History,    label: 'History',   path: '/history',   requireAuth: true },
-    { icon: Flame,      label: 'Daily Rewards', path: '/daily-rewards', requireAuth: true },
-    { icon: UserSearch, label: 'Discover',   path: '/discover',  requireAuth: false },
-    { icon: Gift,       label: 'Refer & Earn', path: '/referral', requireAuth: true },
-    { icon: Wallet,     label: 'Wallet',    path: '/wallet',    requireAuth: true },
-    { icon: DollarSign, label: 'Payouts',   path: '/payouts',   requireAuth: true },
-    { icon: Megaphone,  label: 'My Ads',    path: '/my-ads',       requireAuth: true },
-    { icon: LineChart,   label: 'Ad Analytics', path: '/ad-analytics', requireAuth: true },
+    { icon: Bookmark, label: 'Bookmarks', path: '/bookmarks', requireAuth: true },
+    { icon: List, label: 'Lists', path: '/lists', requireAuth: true },
+    { icon: History, label: 'History', path: '/history', requireAuth: true },
+    { icon: Flame, label: 'Daily Rewards', path: '/daily-rewards', requireAuth: true },
+    { icon: UserSearch, label: 'Discover', path: '/discover', requireAuth: false },
+    { icon: Gift, label: 'Refer & Earn', path: '/referral', requireAuth: true },
+    { icon: Wallet, label: 'Wallet', path: '/wallet', requireAuth: true },
+    { icon: DollarSign, label: 'Payouts', path: '/payouts', requireAuth: true },
+    { icon: Megaphone, label: 'My Ads', path: '/my-ads', requireAuth: true },
+    { icon: LineChart, label: 'Ad Analytics', path: '/ad-analytics', requireAuth: true },
+    { icon: BookOpen, label: 'Series', path: '/series', requireAuth: false },
+    { icon: Inbox, label: 'Wise Brain', path: '/platform-inbox', requireAuth: true },
   ];
+  // The error was here: an extra closing bracket `]` which caused "Parsing error: Declaration or statement expected."
+  // Removing it fixes the syntax.
 
   const handleNavClick = (path: string, requireAuth?: boolean) => {
     if (requireAuth && !user) navigate('/auth');

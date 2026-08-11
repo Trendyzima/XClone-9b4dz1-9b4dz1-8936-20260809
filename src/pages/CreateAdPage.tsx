@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Megaphone, Image as ImageIcon, Loader2, CheckCircle2,
-  Smartphone, Eye, TrendingUp, Clock, X, Info
+  Eye, TrendingUp, Clock, X, Info, CalendarClock
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -30,6 +30,15 @@ export default function CreateAdPage() {
   const [stkLoading, setStkLoading] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'pending' | 'checking' | 'paid'>('pending');
   const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
+  // Ad scheduling
+  const [enableSchedule, setEnableSchedule] = useState(false);
+  const [scheduleStart, setScheduleStart] = useState('');
+  const [scheduleEnd, setScheduleEnd] = useState('');
+  // Campaign duration preset
+  const [durationDays, setDurationDays] = useState(30);
+  // Target audience interests
+  const [targetInterests, setTargetInterests] = useState<string[]>([]);
+  const INTEREST_OPTIONS = ['Tech', 'Fashion', 'Food', 'Travel', 'Sports', 'Music', 'Business', 'Art', 'Gaming', 'Health', 'Education', 'Finance'];
 
   useEffect(() => {
     if (!user) navigate('/auth');
@@ -62,6 +71,12 @@ export default function CreateAdPage() {
         }
       }
 
+      // Build start/end dates
+      const adStartDate = enableSchedule && scheduleStart ? new Date(scheduleStart).toISOString() : null;
+      const adEndDate = enableSchedule && scheduleEnd
+        ? new Date(scheduleEnd).toISOString()
+        : new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+
       // Create ad with status=pending, payment_status=pending
       const { data: adData, error: adError } = await supabase
         .from('user_ads')
@@ -75,6 +90,9 @@ export default function CreateAdPage() {
           payment_method: 'mpesa',
           payment_status: 'pending',
           status: 'pending',
+          start_date: adStartDate,
+          end_date: adEndDate,
+          target_audience: targetInterests.length > 0 ? { interests: targetInterests } : {},
         })
         .select()
         .single();
@@ -388,6 +406,62 @@ export default function CreateAdPage() {
                 <span className="text-xs text-muted-foreground mt-0.5">PNG, JPG up to 10MB</span>
                 <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
               </label>
+            )}
+          </div>
+
+          {/* Campaign Duration */}
+          <div className="space-y-3">
+            <label className="block text-sm font-semibold">Campaign Duration</label>
+            <div className="grid grid-cols-4 gap-2">
+              {[7, 14, 30, 60].map(d => (
+                <button key={d} onClick={() => { setDurationDays(d); setEnableSchedule(false); }}
+                  className={`py-2 rounded-xl border-2 text-sm font-semibold transition-all ${!enableSchedule && durationDays === d ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
+                  {d}d
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setEnableSchedule(v => !v)}
+              className={`flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-xl border-2 w-full transition-all ${enableSchedule ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
+              <CalendarClock className="w-4 h-4" />
+              Custom schedule {enableSchedule ? '(on)' : '(pick dates)'}
+            </button>
+            {enableSchedule && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">Start date</label>
+                  <input type="datetime-local" value={scheduleStart} onChange={e => setScheduleStart(e.target.value)}
+                    min={new Date().toISOString().slice(0, 16)}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">End date</label>
+                  <input type="datetime-local" value={scheduleEnd} onChange={e => setScheduleEnd(e.target.value)}
+                    min={scheduleStart || new Date().toISOString().slice(0, 16)}
+                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Target Audience Interests */}
+          <div>
+            <label className="block text-sm font-semibold mb-2">Target Audience (optional)</label>
+            <p className="text-xs text-muted-foreground mb-2">Select interests to show your ad to relevant users</p>
+            <div className="flex flex-wrap gap-2">
+              {INTEREST_OPTIONS.map(interest => {
+                const selected = targetInterests.includes(interest);
+                return (
+                  <button key={interest} onClick={() => setTargetInterests(prev =>
+                    selected ? prev.filter(i => i !== interest) : [...prev, interest]
+                  )}
+                    className={`px-3 py-1.5 rounded-full text-sm border-2 font-medium transition-all ${selected ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
+                    {interest}
+                  </button>
+                );
+              })}
+            </div>
+            {targetInterests.length > 0 && (
+              <p className="text-xs text-primary mt-1.5 font-medium">{targetInterests.length} interest{targetInterests.length !== 1 ? 's' : ''} selected — your ad will be prioritized for matching users</p>
             )}
           </div>
 
