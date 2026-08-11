@@ -29,7 +29,11 @@ export function applyTheme(choice: ThemeChoice) {
 }
 
 export function ThemeToggle() {
-  const [choice, setChoice] = useState<ThemeChoice>(getStoredThemeChoice);
+  const [choice, setChoice] = useState<ThemeChoice>('system');
+  // Hydrate from localStorage in effect to avoid esbuild lazy-initializer non-determinism
+  useEffect(() => {
+    setChoice(getStoredThemeChoice());
+  }, []);
 
   // Apply on mount and listen for system changes when in 'system' mode
   useEffect(() => {
