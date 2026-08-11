@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useSEO } from '@/hooks/useSEO';
 import { useSearchParams } from 'react-router-dom';
@@ -22,6 +22,7 @@ import {
 } from 'recharts';
 
 const USD_TO_KES = 130;
+const PIE_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 type TopUpStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
@@ -56,39 +57,37 @@ function SpendingAnalyticsTab({ userId }: { userId: string }) {
     setLoading(false);
   };
 
-  // Build daily bar chart — last 14 days
-  const dailyMap: Record<string, { in: number; out: number }> = {};
-  const days = period === 'week' ? 7 : 14;
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400000);
-    const key = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-    dailyMap[key] = { in: 0, out: 0 };
-  }
-  txns.forEach(t => {
-    const key = new Date(t.created_at).toLocaleDateString('en', { month: 'short', day: 'numeric' });
-    if (!dailyMap[key]) return;
-    if (t.type === 'deposit' || t.type === 'earnings') dailyMap[key].in += Number(t.amount);
-    else dailyMap[key].out += Number(t.amount);
-  });
-  const barData = Object.entries(dailyMap).map(([date, v]) => ({ date, In: parseFloat(v.in.toFixed(2)), Out: parseFloat(v.out.toFixed(2)) }));
-
-  // Pie chart — breakdown by type
-  const typeMap: Record<string, number> = {};
-  txns.forEach(t => {
-    const label = t.type.replace(/_/g, ' ');
-    typeMap[label] = (typeMap[label] || 0) + Number(t.amount);
-  });
-  const pieData = Object.entries(typeMap).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }));
-  const PIE_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-
-  // Summary stats
-  const totalIn = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s, t) => s + Number(t.amount), 0);
-  const totalOut = txns.filter(t => t.type === 'withdrawal').reduce((s, t) => s + Number(t.amount), 0);
-  const totalBoosts = txns.filter(t => (t.description ?? '').toLowerCase().includes('boost')).reduce((s, t) => s + Number(t.amount), 0);
-  const avgTxn = txns.length > 0 ? (txns.reduce((s, t) => s + Number(t.amount), 0) / txns.length) : 0;
-
-  // Top-up history badge — last 3 deposits
-  const recentDeposits = txns.filter(t => t.type === 'deposit').slice(0, 3);
+  const { barData, pieData, totalIn, totalOut, totalBoosts, avgTxn, recentDeposits } = useMemo(() => {
+    const days = period === 'week' ? 7 : 14;
+    const now = Date.now();
+    const dailyMap: Record<string, { in: number; out: number }> = {};
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now - i * 86400000);
+      const key = d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+      dailyMap[key] = { in: 0, out: 0 };
+    }
+    txns.forEach(t => {
+      const key = new Date(t.created_at).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+      if (!dailyMap[key]) return;
+      if (t.type === 'deposit' || t.type === 'earnings') dailyMap[key].in += Number(t.amount);
+      else dailyMap[key].out += Number(t.amount);
+    });
+    const barData = Object.entries(dailyMap).map(([date, v]) => ({
+      date, In: parseFloat(v.in.toFixed(2)), Out: parseFloat(v.out.toFixed(2)),
+    }));
+    const typeMap: Record<string, number> = {};
+    txns.forEach(t => {
+      const label = t.type.replace(/_/g, ' ');
+      typeMap[label] = (typeMap[label] || 0) + Number(t.amount);
+    });
+    const pieData = Object.entries(typeMap).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }));
+    const totalIn = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s, t) => s + Number(t.amount), 0);
+    const totalOut = txns.filter(t => t.type === 'withdrawal').reduce((s, t) => s + Number(t.amount), 0);
+    const totalBoosts = txns.filter(t => (t.description ?? '').toLowerCase().includes('boost')).reduce((s, t) => s + Number(t.amount), 0);
+    const avgTxn = txns.length > 0 ? (txns.reduce((s, t) => s + Number(t.amount), 0) / txns.length) : 0;
+    const recentDeposits = txns.filter(t => t.type === 'deposit').slice(0, 3);
+    return { barData, pieData, totalIn, totalOut, totalBoosts, avgTxn, recentDeposits };
+  }, [txns, period]);
 
   return (
     <div className="space-y-5">
