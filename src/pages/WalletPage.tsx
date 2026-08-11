@@ -15,7 +15,8 @@ import {
   Send, Search, UserCheck, Copy, TrendingUp, BarChart3,
   PieChart as LucidePieChart, Shield, Bell, BellOff, Settings2,
   QrCode, Calendar, RefreshCw, ChevronDown, ExternalLink, Key,
-  Filter, Lock, Users, Gift, Printer, Globe
+  Filter, Lock, Users, Gift, Printer, Globe,
+  Fingerprint, Star, UserPlus
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -31,7 +32,7 @@ const PIN_PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','del'];
 type TopUpStep    = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type CurrencyCode = 'USD' | 'KES' | 'EUR';
-type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals';
+type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled';
 
 const CURRENCIES: { code: CurrencyCode; symbol: string; rate: number }[] = [
   { code: 'USD', symbol: '$',    rate: 1    },
@@ -39,6 +40,24 @@ const CURRENCIES: { code: CurrencyCode; symbol: string; rate: number }[] = [
   { code: 'EUR', symbol: '€',    rate: 0.92 },
 ];
 
+const LOYALTY_TIERS = [
+  { name: 'Platinum', min: 500, emoji: '💎', color: 'text-slate-400',  bg: 'bg-slate-400/10',  border: 'border-slate-400/30'  },
+  { name: 'Gold',     min: 200, emoji: '🏆', color: 'text-amber-500',  bg: 'bg-amber-500/10',  border: 'border-amber-500/30'  },
+  { name: 'Silver',   min: 50,  emoji: '🥈', color: 'text-gray-400',   bg: 'bg-gray-400/10',   border: 'border-gray-400/30'   },
+  { name: 'Bronze',   min: 0,   emoji: '🥉', color: 'text-amber-700',  bg: 'bg-amber-700/10',  border: 'border-amber-700/30'  },
+];
+
+const MPESA_SECRETS = [
+  { key: 'MPESA_CONSUMER_KEY',    desc: 'OAuth consumer key',                        where: 'Safaricom Developer Portal → My Apps → Consumer Key'          },
+  { key: 'MPESA_CONSUMER_SECRET', desc: 'OAuth consumer secret',                     where: 'Safaricom Developer Portal → My Apps → Consumer Secret'       },
+  { key: 'MPESA_SHORTCODE',       desc: 'Till/paybill number (sandbox: 174379)',      where: 'Safaricom Business → Account → Business Short Code'           },
+  { key: 'MPESA_PASSKEY',         desc: 'STK Push passkey',                           where: 'Safaricom Developer Portal → Test Credentials → Passkey'      },
+  { key: 'MPESA_B2C_SHORTCODE',   desc: 'B2C payout shortcode',                      where: 'Safaricom Developer Portal → B2C Test Credentials'            },
+  { key: 'MPESA_INITIATOR_NAME',  desc: 'B2C initiator username (sandbox: testapi)',  where: 'Safaricom Developer Portal → B2C → Initiator Name'            },
+  { key: 'MPESA_SECURITY_CRED',   desc: 'B2C encrypted security credential',          where: 'Safaricom Developer Portal → B2C → Security Credential'      },
+];
+
+// ── Pure helpers ──────────────────────────────────────────────────────────
 function fmtAmt(usd: number, cur: CurrencyCode): string {
   const c = CURRENCIES.find(x => x.code === cur) ?? CURRENCIES[0];
   const v = usd * c.rate;
@@ -52,15 +71,21 @@ function hashPin(pin: string): Promise<string> {
     .then(buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join(''));
 }
 
-const MPESA_SECRETS = [
-  { key: 'MPESA_CONSUMER_KEY',    desc: 'OAuth consumer key',                      where: 'Safaricom Developer Portal → My Apps → Consumer Key'          },
-  { key: 'MPESA_CONSUMER_SECRET', desc: 'OAuth consumer secret',                   where: 'Safaricom Developer Portal → My Apps → Consumer Secret'       },
-  { key: 'MPESA_SHORTCODE',       desc: 'Till/paybill number (sandbox: 174379)',    where: 'Safaricom Business → Account → Business Short Code'           },
-  { key: 'MPESA_PASSKEY',         desc: 'STK Push passkey',                         where: 'Safaricom Developer Portal → Test Credentials → Passkey'      },
-  { key: 'MPESA_B2C_SHORTCODE',   desc: 'B2C payout shortcode',                    where: 'Safaricom Developer Portal → B2C Test Credentials'            },
-  { key: 'MPESA_INITIATOR_NAME',  desc: 'B2C initiator username (sandbox: testapi)', where: 'Safaricom Developer Portal → B2C → Initiator Name'           },
-  { key: 'MPESA_SECURITY_CRED',   desc: 'B2C encrypted security credential',        where: 'Safaricom Developer Portal → B2C → Security Credential'      },
-];
+function getLoyaltyTier(totalDeposited: number) {
+  return LOYALTY_TIERS.find(t => totalDeposited >= t.min) ?? LOYALTY_TIERS[LOYALTY_TIERS.length - 1];
+}
+
+function verifyBiometric(credentialId: string): Promise<boolean> {
+  const allowed = [{ type: 'public-key' as const, id: Uint8Array.from(atob(credentialId), (c: string) => c.charCodeAt(0)) }];
+  return navigator.credentials.get({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: allowed,
+      userVerification: 'required',
+      timeout: 60000,
+    },
+  }).then(c => !!c).catch(() => false);
+}
 
 // ── Currency Badge ────────────────────────────────────────────────────────
 function CurrencyBadge({ currency, onChange }: { currency: CurrencyCode; onChange: (c: CurrencyCode) => void }) {
@@ -76,6 +101,24 @@ function CurrencyBadge({ currency, onChange }: { currency: CurrencyCode; onChang
   );
 }
 
+// ── Loyalty Badge ─────────────────────────────────────────────────────────
+function LoyaltyBadge({ totalDeposited }: { totalDeposited: number }) {
+  const tier = getLoyaltyTier(totalDeposited);
+  const nextTier = LOYALTY_TIERS.find(t => t.min > totalDeposited);
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black border ${tier.bg} ${tier.border} ${tier.color}`}>
+        {tier.emoji} {tier.name}
+      </span>
+      {nextTier && (
+        <span className="text-[9px] text-muted-foreground">
+          ${(nextTier.min - totalDeposited).toFixed(0)} to {nextTier.name}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── PIN Entry Modal ───────────────────────────────────────────────────────
 function PinEntryModal({ title, onConfirm, onCancel }: {
   title: string;
@@ -85,16 +128,11 @@ function PinEntryModal({ title, onConfirm, onCancel }: {
   const [pin, setPin] = useState('');
 
   const handleKey = (key: string) => {
-    if (key === 'del') {
-      setPin(p => p.slice(0, -1));
-      return;
-    }
+    if (key === 'del') { setPin(p => p.slice(0, -1)); return; }
     if (pin.length >= 4) return;
     const next = pin + key;
     setPin(next);
-    if (next.length === 4) {
-      setTimeout(() => onConfirm(next), 120);
-    }
+    if (next.length === 4) setTimeout(() => onConfirm(next), 120);
   };
 
   return (
@@ -144,11 +182,11 @@ function PinEntryModal({ title, onConfirm, onCancel }: {
 // ── PIN Setup Card ────────────────────────────────────────────────────────
 function PinSetupCard({ userId, pinHash, onSaved }: { userId: string; pinHash: string | null; onSaved: () => void }) {
   const hasPin = useMemo(() => !!pinHash, [pinHash]);
-  const [mode, setMode]         = useState<'idle' | 'setup' | 'change' | 'remove'>('idle');
-  const [oldPin, setOldPin]     = useState('');
-  const [newPin, setNewPin]     = useState('');
+  const [mode,       setMode]    = useState<'idle' | 'setup' | 'change' | 'remove'>('idle');
+  const [oldPin,     setOldPin]  = useState('');
+  const [newPin,     setNewPin]  = useState('');
   const [confirmPin, setConfirm] = useState('');
-  const [saving, setSaving]     = useState(false);
+  const [saving,     setSaving]  = useState(false);
 
   const resetForm = () => { setMode('idle'); setOldPin(''); setNewPin(''); setConfirm(''); };
 
@@ -250,6 +288,328 @@ function PinSetupCard({ userId, pinHash, onSaved }: { userId: string; pinHash: s
   );
 }
 
+// ── Biometric Auth Card ───────────────────────────────────────────────────
+function BiometricCard({ userId, credentialId, onSaved }: {
+  userId: string; credentialId: string | null; onSaved: () => void;
+}) {
+  const [supported, setSupported] = useState(false);
+  const [enabling,  setEnabling]  = useState(false);
+  const [removing,  setRemoving]  = useState(false);
+
+  useEffect(() => {
+    setSupported(
+      typeof window !== 'undefined' &&
+      typeof (window as any).PublicKeyCredential !== 'undefined' &&
+      typeof navigator.credentials?.create === 'function'
+    );
+  }, []);
+
+  const registerBiometric = async () => {
+    setEnabling(true);
+    try {
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: { name: 'Testagram Wallet', id: window.location.hostname },
+          user: {
+            id: new TextEncoder().encode(userId),
+            name: userId,
+            displayName: 'Wallet User',
+          },
+          pubKeyCredParams: [
+            { type: 'public-key', alg: -7   },
+            { type: 'public-key', alg: -257 },
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            userVerification: 'required',
+          },
+          timeout: 60000,
+        },
+      }) as PublicKeyCredential;
+      const credId = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+      const { error } = await supabase.from('user_wallets')
+        .update({ biometric_credential_id: credId })
+        .eq('user_id', userId);
+      if (error) throw error;
+      toast.success('Biometric authentication enabled!');
+      onSaved();
+    } catch (err: any) {
+      if (err.name !== 'NotAllowedError') {
+        toast.error(err.message || 'Failed to set up biometrics');
+      }
+    } finally {
+      setEnabling(false);
+    }
+  };
+
+  const removeBiometric = async () => {
+    setRemoving(true);
+    const { error } = await supabase.from('user_wallets')
+      .update({ biometric_credential_id: null })
+      .eq('user_id', userId);
+    setRemoving(false);
+    if (error) { toast.error('Failed to remove biometrics'); return; }
+    toast.success('Biometric authentication removed');
+    onSaved();
+  };
+
+  if (!supported) return null;
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden">
+      <div className="px-5 py-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Fingerprint className={`w-4 h-4 ${credentialId ? 'text-green-500' : 'text-muted-foreground'}`} />
+            <h3 className="font-bold text-sm">Biometric Auth</h3>
+            {credentialId && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Active</span>
+            )}
+          </div>
+          {credentialId ? (
+            <button onClick={removeBiometric} disabled={removing}
+              className="text-xs text-red-500 font-semibold hover:underline disabled:opacity-50">
+              {removing ? 'Removing…' : 'Remove'}
+            </button>
+          ) : (
+            <button onClick={registerBiometric} disabled={enabling}
+              className="text-xs text-primary font-semibold hover:underline disabled:opacity-50">
+              {enabling ? 'Setting up…' : 'Enable'}
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {credentialId
+            ? 'Face ID or fingerprint replaces your wallet PIN for withdrawals and transfers.'
+            : 'Use Face ID, fingerprint, or device PIN as an alternative to your wallet PIN.'}
+        </p>
+        {!credentialId && (
+          <p className="text-[10px] text-muted-foreground/60 mt-1">
+            Requires a device with a platform authenticator (Touch ID, Face ID, Windows Hello).
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Split Payment Panel ───────────────────────────────────────────────────
+function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, currency, onClose }: {
+  userId: string; senderUsername: string; walletBalance: number;
+  pinHash: string | null; currency: CurrencyCode; onClose: () => void;
+}) {
+  const [query,      setQuery]      = useState('');
+  const [searching,  setSearching]  = useState(false);
+  const [results,    setResults]    = useState<any[]>([]);
+  const [recipients, setRecipients] = useState<any[]>([]);
+  const [total,      setTotal]      = useState('');
+  const [note,       setNote]       = useState('');
+  const [showPin,    setShowPin]    = useState(false);
+  const [step,       setStep]       = useState<'form' | 'sending' | 'done'>('form');
+  const [sent,       setSent]       = useState(0);
+
+  const perPerson = useMemo(() => {
+    const t = parseFloat(total);
+    if (!t || t <= 0 || recipients.length === 0) return 0;
+    return parseFloat((t / recipients.length).toFixed(2));
+  }, [total, recipients.length]);
+
+  const searchUsers = async (q: string) => {
+    setQuery(q);
+    if (q.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    const excludeIds = [userId, ...recipients.map(r => r.id)];
+    const { data } = await supabase.from('user_profiles')
+      .select('id,username,avatar_url,verified')
+      .ilike('username', `%${q.trim()}%`)
+      .not('id', 'in', `(${excludeIds.map(id => `"${id}"`).join(',')})`)
+      .limit(6);
+    setResults(data ?? []);
+    setSearching(false);
+  };
+
+  const addRecipient = (u: any) => {
+    if (recipients.length >= 5) { toast.error('Max 5 recipients'); return; }
+    setRecipients(prev => [...prev, u]);
+    setResults([]); setQuery('');
+  };
+
+  const removeRecipient = (id: string) => setRecipients(prev => prev.filter(r => r.id !== id));
+
+  const executeSplit = async () => {
+    setStep('sending');
+    let successCount = 0;
+    for (const recipient of recipients) {
+      const { error } = await supabase.rpc('p2p_wallet_transfer', {
+        p_from_user_id: userId,
+        p_to_user_id: recipient.id,
+        p_amount: perPerson,
+        p_note: note.trim() || null,
+      });
+      if (!error) {
+        successCount++;
+        setSent(successCount);
+        supabase.from('platform_inbox').insert({
+          user_id: recipient.id,
+          subject: `You received ${fmtAmt(perPerson, currency)} from @${senderUsername} (split bill)`,
+          body: `@${senderUsername} split a bill and sent you ${fmtAmt(perPerson, currency)}${note.trim() ? ` — "${note.trim()}"` : ''}.`,
+          type: 'payment', icon_emoji: '💸', cta_label: 'View Wallet', cta_url: '/wallet',
+        }).then(() => {});
+      }
+    }
+    setStep('done');
+    toast.success(`Split complete! Sent ${fmtAmt(perPerson, currency)} to ${successCount} people.`);
+  };
+
+  const handleConfirm = () => {
+    if (pinHash) { setShowPin(true); } else { executeSplit(); }
+  };
+
+  const handlePinConfirm = async (pin: string) => {
+    const entered = await hashPin(pin);
+    setShowPin(false);
+    if (entered !== pinHash) { toast.error('Incorrect PIN'); return; }
+    executeSplit();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-5 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        {showPin && <PinEntryModal title="Confirm Split" onConfirm={handlePinConfirm} onCancel={() => setShowPin(false)} />}
+
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-black text-lg">Split Bill</h3>
+            <p className="text-xs text-muted-foreground">Divide an amount equally among friends</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-muted transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {step === 'done' ? (
+          <div className="flex flex-col items-center gap-4 py-6 text-center">
+            <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
+              <CheckCircle2 className="w-9 h-9 text-green-500" />
+            </div>
+            <div>
+              <p className="font-black text-lg text-green-600">Split Complete!</p>
+              <p className="text-sm text-muted-foreground mt-1">{fmtAmt(perPerson, currency)} sent to {sent} people</p>
+              <p className="text-xs text-muted-foreground">Total: {fmtAmt(parseFloat(total || '0'), currency)}</p>
+            </div>
+            <button onClick={onClose}
+              className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90 transition-opacity">
+              Done
+            </button>
+          </div>
+        ) : step === 'sending' ? (
+          <div className="flex flex-col items-center gap-3 py-8">
+            <Loader2 className="w-10 h-10 animate-spin text-primary" />
+            <p className="font-semibold text-sm">Sending {sent}/{recipients.length}…</p>
+            <p className="text-xs text-muted-foreground">{fmtAmt(perPerson, currency)} per person</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Recipients */}
+            <div>
+              <label className="text-sm font-semibold mb-2 block">
+                Recipients <span className="text-muted-foreground font-normal">({recipients.length}/5)</span>
+              </label>
+              {recipients.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {recipients.map(r => (
+                    <div key={r.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 border border-primary/20 rounded-full text-xs font-semibold">
+                      @{r.username}
+                      <button onClick={() => removeRecipient(r.id)} className="text-muted-foreground hover:text-destructive">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {recipients.length < 5 && (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input value={query} onChange={e => searchUsers(e.target.value)} placeholder="Add by username…"
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin" />}
+                </div>
+              )}
+              {results.length > 0 && (
+                <div className="mt-1 space-y-1">
+                  {results.map(u => (
+                    <button key={u.id} onClick={() => addRecipient(u)}
+                      className="w-full flex items-center gap-2 p-2.5 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all text-left text-sm">
+                      <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs">
+                        {u.avatar_url
+                          ? <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
+                          : u.username[0]?.toUpperCase()}
+                      </div>
+                      <span className="font-semibold flex-1">@{u.username}</span>
+                      {u.verified && <UserCheck className="w-3.5 h-3.5 text-primary" />}
+                      <UserPlus className="w-3.5 h-3.5 text-muted-foreground" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Amount */}
+            <div>
+              <label className="text-sm font-semibold mb-2 block">Total Amount (USD)</label>
+              <input type="number" min="0.01" step="0.01" placeholder="Total to split…"
+                value={total} onChange={e => setTotal(e.target.value)}
+                className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              {recipients.length > 0 && parseFloat(total) > 0 && (
+                <p className="text-xs text-primary font-semibold mt-1">
+                  {fmtAmt(perPerson, currency)} per person × {recipients.length} = {fmtAmt(perPerson * recipients.length, currency)}
+                </p>
+              )}
+            </div>
+
+            {/* Note */}
+            <div>
+              <label className="text-sm font-semibold mb-2 block">Note (optional)</label>
+              <input type="text" maxLength={80} placeholder="What's the split for?" value={note} onChange={e => setNote(e.target.value)}
+                className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+            </div>
+
+            {/* Summary */}
+            {recipients.length > 0 && perPerson > 0 && (
+              <div className="p-3 bg-primary/5 border border-primary/15 rounded-xl space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Each person pays</span>
+                  <span className="font-black text-primary">{fmtAmt(perPerson, currency)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Total deducted</span>
+                  <span className="font-semibold">{fmtAmt(perPerson * recipients.length, currency)}</span>
+                </div>
+                {perPerson * recipients.length > walletBalance && (
+                  <p className="text-xs text-red-500 pt-1">⚠️ Exceeds your balance of {fmtAmt(walletBalance, currency)}</p>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={handleConfirm}
+              disabled={recipients.length === 0 || !total || parseFloat(total) <= 0 || perPerson * recipients.length > walletBalance}
+              className="w-full py-3.5 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+              {pinHash ? <Lock className="w-5 h-5" /> : <Send className="w-5 h-5" />}
+              Split {fmtAmt(parseFloat(total || '0'), currency)} among {recipients.length || '?'} people
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Referral Earnings Tab ─────────────────────────────────────────────────
 function ReferralEarningsTab({ userId }: { userId: string }) {
   const [referrals, setReferrals] = useState<any[]>([]);
@@ -293,16 +653,12 @@ function ReferralEarningsTab({ userId }: { userId: string }) {
   };
 
   const shareLink = async () => {
-    if (navigator.share) {
-      await navigator.share({ title: 'Join me on Testagram', url: refLink });
-    } else {
-      copyLink();
-    }
+    if (navigator.share) await navigator.share({ title: 'Join me on Testagram', url: refLink });
+    else copyLink();
   };
 
   return (
     <div className="space-y-5">
-      {/* Link card */}
       <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20">
         <div className="flex items-center gap-2 mb-1">
           <Users className="w-4 h-4 text-purple-600" />
@@ -325,7 +681,6 @@ function ReferralEarningsTab({ userId }: { userId: string }) {
         </button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 gap-3">
         <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20">
           <div className="flex items-center gap-1.5 mb-1">
@@ -361,8 +716,7 @@ function ReferralEarningsTab({ userId }: { userId: string }) {
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 font-bold text-sm text-primary overflow-hidden">
                 {r.invited_user?.avatar_url
                   ? <img src={r.invited_user.avatar_url} alt="" className="w-full h-full object-cover" />
-                  : (r.invited_user?.username?.[0]?.toUpperCase() ?? '?')
-                }
+                  : (r.invited_user?.username?.[0]?.toUpperCase() ?? '?')}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm">@{r.invited_user?.username ?? 'Unknown'}</p>
@@ -397,7 +751,7 @@ function MpesaSecretsGuide() {
         <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="border-t border-border px-4 pb-4 pt-3 space-y-3 bg-amber-500/3">
+        <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
           <p className="text-xs text-muted-foreground">
             Add each secret in <strong className="text-foreground">OnSpace Cloud → Secrets</strong>.
             Use sandbox values for testing, then switch to production.
@@ -405,7 +759,7 @@ function MpesaSecretsGuide() {
           <div className="space-y-2">
             {MPESA_SECRETS.map(s => (
               <div key={s.key} className="p-3 bg-background border border-border rounded-xl">
-                <code className="text-[11px] font-mono font-bold text-primary bg-primary/8 px-1.5 py-0.5 rounded block mb-1">{s.key}</code>
+                <code className="text-[11px] font-mono font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded block mb-1">{s.key}</code>
                 <p className="text-xs text-foreground mb-0.5">{s.desc}</p>
                 <p className="text-[10px] text-muted-foreground flex items-start gap-1">
                   <ExternalLink className="w-2.5 h-2.5 shrink-0 mt-0.5" />{s.where}
@@ -433,7 +787,7 @@ function ReceiveMoneyTab({ username, walletBalance, currency }: {
 
   const { payUrl, qrImageUrl } = useMemo(() => {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-    const params = new URLSearchParams({ tab: 'send', to: username });
+    const params  = new URLSearchParams({ tab: 'send', to: username });
     if (requestAmount && parseFloat(requestAmount) > 0) params.set('amount', requestAmount);
     if (requestNote.trim()) params.set('note', requestNote.trim());
     const url = `${baseUrl}/wallet?${params.toString()}`;
@@ -497,7 +851,7 @@ function ReceiveMoneyTab({ username, walletBalance, currency }: {
           </div>
         )}
         <p className="text-xs text-muted-foreground text-center max-w-xs">
-          Show this QR code to anyone — they'll be taken directly to Send Money pre-filled with your username.
+          Show this QR code — they'll be taken to Send Money pre-filled with your username.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -545,7 +899,6 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
     setLoading(false);
   };
 
-  // ✅ Fixed: render-scope new Date → useMemo
   const nextPayoutLabel = useMemo(() => {
     if (!schedule?.next_payout_at) return null;
     return new Date(schedule.next_payout_at).toLocaleDateString('en', {
@@ -563,8 +916,7 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
     nextPayout.setHours(9, 0, 0, 0);
     const payload = {
       user_id: userId, frequency, payout_method: 'mpesa', payout_destination: phoneTrimmed,
-      minimum_amount: parseFloat(minAmount) || 5,
-      is_active: enabled,
+      minimum_amount: parseFloat(minAmount) || 5, is_active: enabled,
       next_payout_at: enabled ? nextPayout.toISOString() : null,
     };
     let err;
@@ -683,7 +1035,7 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
 
   const { barData, pieData, totalIn, totalOut, totalBoosts, avgTxn, recentDeposits } = useMemo(() => {
     const days = period === 'week' ? 7 : 14;
-    const now   = Date.now();
+    const now  = Date.now();
     const dailyMap: Record<string, { in: number; out: number }> = {};
     for (let i = days - 1; i >= 0; i--) {
       const d   = new Date(now - i * 86400000);
@@ -704,11 +1056,11 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
       const label = t.type.replace(/_/g,' ');
       typeMap[label] = (typeMap[label] || 0) + Number(t.amount);
     });
-    const pieData       = Object.entries(typeMap).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }));
-    const totalIn       = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s,t) => s + Number(t.amount), 0);
-    const totalOut      = txns.filter(t => t.type === 'withdrawal').reduce((s,t) => s + Number(t.amount), 0);
-    const totalBoosts   = txns.filter(t => (t.description ?? '').toLowerCase().includes('boost')).reduce((s,t) => s + Number(t.amount), 0);
-    const avgTxn        = txns.length > 0 ? txns.reduce((s,t) => s + Number(t.amount), 0) / txns.length : 0;
+    const pieData        = Object.entries(typeMap).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }));
+    const totalIn        = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s,t) => s + Number(t.amount), 0);
+    const totalOut       = txns.filter(t => t.type === 'withdrawal').reduce((s,t) => s + Number(t.amount), 0);
+    const totalBoosts    = txns.filter(t => (t.description ?? '').toLowerCase().includes('boost')).reduce((s,t) => s + Number(t.amount), 0);
+    const avgTxn         = txns.length > 0 ? txns.reduce((s,t) => s + Number(t.amount), 0) / txns.length : 0;
     const recentDeposits = txns.filter(t => t.type === 'deposit').slice(0,3);
     return { barData, pieData, totalIn, totalOut, totalBoosts, avgTxn, recentDeposits };
   }, [txns, period]);
@@ -729,10 +1081,10 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
         <>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: 'Total Deposited', val: fmtAmt(totalIn,     currency), sub: `${txns.filter(t=>t.type==='deposit').length} deposits`,     color: 'text-green-600',  bg: 'bg-green-500/10 border-green-500/20' },
-              { label: 'Total Withdrawn', val: fmtAmt(totalOut,    currency), sub: `${txns.filter(t=>t.type==='withdrawal').length} withdrawals`, color: 'text-red-500',    bg: 'bg-red-500/10 border-red-500/20'     },
-              { label: 'Avg Transaction', val: fmtAmt(avgTxn,      currency), sub: `over ${txns.length} transactions`,                           color: 'text-blue-600',   bg: 'bg-blue-500/10 border-blue-500/20'   },
-              { label: 'Boost Spending',  val: fmtAmt(totalBoosts, currency), sub: 'on ad campaigns',                                            color: 'text-purple-600', bg: 'bg-purple-500/10 border-purple-500/20' },
+              { label: 'Total Deposited', val: fmtAmt(totalIn,     currency), sub: `${txns.filter(t=>t.type==='deposit').length} deposits`,     color: 'text-green-600',  bg: 'bg-green-500/10 border-green-500/20'     },
+              { label: 'Total Withdrawn', val: fmtAmt(totalOut,    currency), sub: `${txns.filter(t=>t.type==='withdrawal').length} withdrawals`, color: 'text-red-500',    bg: 'bg-red-500/10 border-red-500/20'         },
+              { label: 'Avg Transaction', val: fmtAmt(avgTxn,      currency), sub: `over ${txns.length} transactions`,                           color: 'text-blue-600',   bg: 'bg-blue-500/10 border-blue-500/20'       },
+              { label: 'Boost Spending',  val: fmtAmt(totalBoosts, currency), sub: 'on ad campaigns',                                            color: 'text-purple-600', bg: 'bg-purple-500/10 border-purple-500/20'   },
             ].map(s => (
               <div key={s.label} className={`p-4 rounded-2xl border ${s.bg}`}>
                 <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
@@ -754,8 +1106,8 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
                   <YAxis tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} />
                   <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [`$${v}`,'']} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="In"  name="Deposits"     fill="#10b981" radius={[3,3,0,0]} />
-                  <Bar dataKey="Out" name="Withdrawals"  fill="#ef4444" radius={[3,3,0,0]} />
+                  <Bar dataKey="In"  name="Deposits"    fill="#10b981" radius={[3,3,0,0]} />
+                  <Bar dataKey="Out" name="Withdrawals" fill="#ef4444" radius={[3,3,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -817,9 +1169,10 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
 }
 
 // ── P2P Send Money Tab ────────────────────────────────────────────────────
-function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, onComplete, prefillUsername, currency }: {
+function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometricCredentialId, onComplete, prefillUsername, currency }: {
   userId: string; senderUsername: string; walletBalance: number;
-  pinHash: string | null; onComplete: () => void;
+  pinHash: string | null; biometricCredentialId: string | null;
+  onComplete: () => void;
   prefillUsername?: string; currency: CurrencyCode;
 }) {
   const [query,        setQuery]        = useState(prefillUsername ?? '');
@@ -856,7 +1209,6 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, onComple
       p_note: note.trim() || null,
     });
     if (error) { setSending(false); toast.error(error.message || 'Transfer failed'); return; }
-    // ── Send notifications ────────────────────────────────────────────────
     const txRef = `TXN${Date.now().toString(36).toUpperCase().slice(-8)}`;
     await Promise.allSettled([
       supabase.from('platform_inbox').insert({
@@ -880,7 +1232,17 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, onComple
   };
 
   const handleSend = () => {
-    if (pinHash) { setShowPin(true); } else { executeSend(); }
+    if (biometricCredentialId) {
+      verifyBiometric(biometricCredentialId).then(ok => {
+        if (ok) { executeSend(); }
+        else if (pinHash) { setShowPin(true); }
+        else { executeSend(); }
+      });
+    } else if (pinHash) {
+      setShowPin(true);
+    } else {
+      executeSend();
+    }
   };
 
   const handlePinConfirm = async (pin: string) => {
@@ -1010,7 +1372,7 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, onComple
             </div>
             <button onClick={handleSend} disabled={sending || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > walletBalance}
               className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
-              {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : (pinHash ? <Lock className="w-5 h-5" /> : <Send className="w-5 h-5" />)}
+              {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : (pinHash || biometricCredentialId ? <Lock className="w-5 h-5" /> : <Send className="w-5 h-5" />)}
               {sending ? 'Sending…' : `Send ${fmtAmt(parseFloat(amount || '0'), currency)} to @${selectedUser.username}`}
             </button>
             {amount && parseFloat(amount) > walletBalance && (
@@ -1023,6 +1385,229 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, onComple
         </div>
       </div>
     </>
+  );
+}
+
+// ── Scheduled Transfers Tab ───────────────────────────────────────────────
+function ScheduledTransfersTab({ userId, currency }: { userId: string; currency: CurrencyCode }) {
+  const [transfers,  setTransfers]  = useState<any[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [showForm,   setShowForm]   = useState(false);
+  const [query,      setQuery]      = useState('');
+  const [results,    setResults]    = useState<any[]>([]);
+  const [searching,  setSearching]  = useState(false);
+  const [recipient,  setRecipient]  = useState<any | null>(null);
+  const [amount,     setAmount]     = useState('');
+  const [note,       setNote]       = useState('');
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [saving,     setSaving]     = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+
+  // ✅ minDateTime inside useMemo — no render-scope Date.now()
+  const minDateTime = useMemo(() => {
+    const d = new Date(Date.now() + 5 * 60000);
+    return d.toISOString().slice(0, 16);
+  }, []);
+
+  useEffect(() => { loadTransfers(); }, [userId]);
+
+  const loadTransfers = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('scheduled_transfers')
+      .select('*')
+      .eq('from_user_id', userId)
+      .eq('status', 'pending')
+      .order('scheduled_for', { ascending: true });
+    setTransfers(data ?? []);
+    setLoading(false);
+  };
+
+  const searchUsers = async (q: string) => {
+    setQuery(q);
+    if (q.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    const { data } = await supabase.from('user_profiles').select('id,username,avatar_url,verified')
+      .ilike('username', `%${q.trim()}%`).neq('id', userId).limit(6);
+    setResults(data ?? []);
+    setSearching(false);
+  };
+
+  const handleSchedule = async () => {
+    if (!recipient || !amount || parseFloat(amount) <= 0) { toast.error('Fill in all fields'); return; }
+    if (!scheduleAt) { toast.error('Select a date and time'); return; }
+    const scheduledDate = new Date(scheduleAt);
+    if (scheduledDate.getTime() <= Date.now()) { toast.error('Must be a future date/time'); return; }
+    setSaving(true);
+    const { error } = await supabase.from('scheduled_transfers').insert({
+      from_user_id: userId,
+      to_user_id: recipient.id,
+      to_username: recipient.username,
+      amount: parseFloat(amount),
+      note: note.trim() || null,
+      scheduled_for: scheduledDate.toISOString(),
+    });
+    setSaving(false);
+    if (error) { toast.error('Failed to schedule transfer'); return; }
+    toast.success(`Transfer to @${recipient.username} scheduled!`);
+    setShowForm(false);
+    setRecipient(null); setAmount(''); setNote(''); setScheduleAt(''); setQuery('');
+    loadTransfers();
+  };
+
+  const cancelTransfer = async (id: string) => {
+    setCancelling(id);
+    const { error } = await supabase.from('scheduled_transfers').delete().eq('id', id).eq('from_user_id', userId);
+    setCancelling(null);
+    if (error) { toast.error('Failed to cancel'); return; }
+    toast.success('Scheduled transfer cancelled');
+    loadTransfers();
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-sm">Scheduled Transfers</h3>
+          <p className="text-xs text-muted-foreground">Send money at a future date and time</p>
+        </div>
+        <button onClick={() => setShowForm(v => !v)}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-semibold text-xs transition-colors ${
+            showForm ? 'bg-muted border border-border text-muted-foreground' : 'bg-primary text-primary-foreground hover:opacity-90'
+          }`}>
+          <Calendar className="w-3.5 h-3.5" />
+          {showForm ? 'Cancel' : 'Schedule New'}
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="p-4 border border-border rounded-2xl bg-card space-y-4">
+          <h4 className="font-bold text-sm">New Scheduled Transfer</h4>
+
+          {/* Recipient */}
+          {!recipient ? (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Recipient</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input value={query} onChange={e => searchUsers(e.target.value)} placeholder="Search by username…"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin" />}
+              </div>
+              {results.length > 0 && (
+                <div className="space-y-1">
+                  {results.map(u => (
+                    <button key={u.id} onClick={() => { setRecipient(u); setResults([]); setQuery(''); }}
+                      className="w-full flex items-center gap-2 p-2.5 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all text-left text-sm">
+                      <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs">
+                        {u.avatar_url ? <img src={u.avatar_url} alt="" className="w-full h-full object-cover" /> : u.username[0]?.toUpperCase()}
+                      </div>
+                      <span className="font-semibold flex-1">@{u.username}</span>
+                      {u.verified && <UserCheck className="w-3.5 h-3.5 text-primary" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Recipient</label>
+              <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-xl">
+                <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs">
+                  {recipient.avatar_url ? <img src={recipient.avatar_url} alt="" className="w-full h-full object-cover" /> : recipient.username[0]?.toUpperCase()}
+                </div>
+                <span className="font-semibold text-sm flex-1">@{recipient.username}</span>
+                <button onClick={() => setRecipient(null)} className="text-muted-foreground hover:text-destructive"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Amount (USD)</label>
+            <input type="number" min="0.01" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Schedule For</label>
+            <input type="datetime-local" min={minDateTime} value={scheduleAt} onChange={e => setScheduleAt(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Note (optional)</label>
+            <input type="text" maxLength={100} placeholder="What's this for?" value={note} onChange={e => setNote(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+
+          {amount && recipient && parseFloat(amount) > 0 && (
+            <div className="p-3 bg-primary/5 border border-primary/15 rounded-xl text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Amount</span>
+                <span className="font-black text-primary">{fmtAmt(parseFloat(amount), currency)}</span>
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-muted-foreground">To</span>
+                <span className="font-semibold">@{recipient.username}</span>
+              </div>
+            </div>
+          )}
+
+          <button onClick={handleSchedule} disabled={saving || !recipient || !amount || !scheduleAt || parseFloat(amount) <= 0}
+            className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
+            {saving ? 'Scheduling…' : 'Schedule Transfer'}
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : transfers.length === 0 ? (
+        <div className="text-center py-12">
+          <Calendar className="w-12 h-12 text-muted-foreground/20 mx-auto mb-3" />
+          <p className="font-semibold text-sm">No scheduled transfers</p>
+          <p className="text-xs text-muted-foreground mt-1">Schedule a future payment above</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{transfers.length} pending</p>
+          {transfers.map(t => {
+            const sd = new Date(t.scheduled_for);
+            return (
+              <div key={t.id} className="p-4 border border-border rounded-2xl bg-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <Calendar className="w-5 h-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm">@{t.to_username}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {sd.toLocaleDateString()} at {sd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      {t.note && <p className="text-xs text-muted-foreground truncate mt-0.5">"{t.note}"</p>}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-black text-base text-primary">{fmtAmt(Number(t.amount), currency)}</p>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600 font-semibold">pending</span>
+                  </div>
+                </div>
+                <button onClick={() => cancelTransfer(t.id)} disabled={cancelling === t.id}
+                  className="mt-3 w-full py-2 border border-red-500/30 text-red-500 rounded-xl font-semibold text-xs hover:bg-red-500/5 disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors">
+                  {cancelling === t.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                  {cancelling === t.id ? 'Cancelling…' : 'Cancel Transfer'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="p-4 bg-muted/30 rounded-2xl text-xs text-muted-foreground">
+        <p><strong>Note:</strong> Scheduled transfers execute automatically when the scheduled time arrives. Ensure you have sufficient balance at that time.</p>
+      </div>
+    </div>
   );
 }
 
@@ -1044,20 +1629,22 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
     setLoading(false);
   };
 
-  // ✅ Fixed: totalIn/totalOut/filtered all in single useMemo
   const { filtered, totalIn, totalOut } = useMemo(() => {
     const totalIn  = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s,t) => s + Number(t.amount), 0);
     const totalOut = txns.filter(t => t.type === 'withdrawal').reduce((s,t) => s + Number(t.amount), 0);
     if (!search.trim()) return { filtered: txns, totalIn, totalOut };
     const q = search.trim().toLowerCase();
-    const filtered = txns.filter(t =>
-      (t.description ?? '').toLowerCase().includes(q) ||
-      (t.type ?? '').toLowerCase().includes(q) ||
-      (t.payment_method ?? '').toLowerCase().includes(q) ||
-      (t.reference ?? '').toLowerCase().includes(q) ||
-      String(t.amount).includes(q)
-    );
-    return { filtered, totalIn, totalOut };
+    return {
+      filtered: txns.filter(t =>
+        (t.description ?? '').toLowerCase().includes(q) ||
+        (t.type ?? '').toLowerCase().includes(q) ||
+        (t.payment_method ?? '').toLowerCase().includes(q) ||
+        (t.reference ?? '').toLowerCase().includes(q) ||
+        String(t.amount).includes(q)
+      ),
+      totalIn,
+      totalOut,
+    };
   }, [txns, search]);
 
   const downloadCSV = () => {
@@ -1102,7 +1689,7 @@ td{padding:9px 10px;border-bottom:1px solid #eee;font-size:12px}tr:hover td{back
   <span><strong style="color:#ef4444">Withdrawn:</strong> $${totalOut.toFixed(2)}</span>
   <span><strong>Net:</strong> $${(totalIn - totalOut).toFixed(2)}</span>
 </div>
-<button class="btn" onclick="window.print()">🖨️ Print / Save PDF</button>
+<button class="btn" onclick="window.print()">Print / Save PDF</button>
 <table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Method</th><th>Status</th><th>Description</th></tr></thead>
 <tbody>${rows}</tbody></table>
 </body></html>`);
@@ -1209,9 +1796,9 @@ td{padding:9px 10px;border-bottom:1px solid #eee;font-size:12px}tr:hover td{back
 
 // ── Spend Limit Card ──────────────────────────────────────────────────────
 function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: any; onSaved: () => void }) {
-  const [enabled,   setEnabled]   = useState<boolean>(wallet?.spend_limit_enabled ?? false);
-  const [limitUsd,  setLimitUsd]  = useState<string>(wallet?.daily_spend_limit ? String(wallet.daily_spend_limit) : '');
-  const [saving,    setSaving]    = useState(false);
+  const [enabled,    setEnabled]    = useState<boolean>(wallet?.spend_limit_enabled ?? false);
+  const [limitUsd,   setLimitUsd]   = useState<string>(wallet?.daily_spend_limit ? String(wallet.daily_spend_limit) : '');
+  const [saving,     setSaving]     = useState(false);
   const [todaySpent, setTodaySpent] = useState<number>(0);
 
   useEffect(() => { fetchTodaySpend(); }, [userId]);
@@ -1224,7 +1811,6 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
     setTodaySpent((data ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0));
   };
 
-  // ✅ Fixed: moved from render scope to useMemo
   const { limitVal, progress, nearLimit, atLimit } = useMemo(() => {
     const limitVal = parseFloat(limitUsd || '0');
     const progress = enabled && limitVal > 0 ? Math.min((todaySpent / limitVal) * 100, 100) : 0;
@@ -1244,7 +1830,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
 
   return (
     <div className={`rounded-2xl border overflow-hidden ${
-      atLimit   ? 'border-red-500/40 bg-red-500/5'    :
+      atLimit   ? 'border-red-500/40 bg-red-500/5'      :
       nearLimit ? 'border-orange-500/40 bg-orange-500/5' :
                   'border-border'
     }`}>
@@ -1305,6 +1891,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
   );
 }
 
+// ── Module-level tab config ───────────────────────────────────────────────
 const WALLET_TABS: { key: ActiveTab; label: string }[] = [
   { key: 'wallet',    label: '💳 Wallet'    },
   { key: 'send',      label: '💸 Send'      },
@@ -1312,16 +1899,16 @@ const WALLET_TABS: { key: ActiveTab; label: string }[] = [
   { key: 'history',   label: '📋 History'   },
   { key: 'analytics', label: '📊 Analytics' },
   { key: 'referrals', label: '👥 Referrals' },
+  { key: 'scheduled', label: '⏰ Scheduled' },
 ];
 
-// ── Ad Banner + Page ──────────────────────────────────────────────────────
 function WalletAdBanner() { return <PageAdBanner />; }
 
 export default function WalletPage() {
   useSEO({ noindex: true, title: 'Wallet', url: '/wallet' });
-  const { user }             = useAuth();
-  const { wallet, fetchWallet } = useWallet();
-  const [searchParams]       = useSearchParams();
+  const { user }                   = useAuth();
+  const { wallet, fetchWallet }    = useWallet();
+  const [searchParams]             = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const t = searchParams.get('tab');
@@ -1330,9 +1917,13 @@ export default function WalletPage() {
     if (t === 'analytics') return 'analytics';
     if (t === 'receive')   return 'receive';
     if (t === 'referrals') return 'referrals';
+    if (t === 'scheduled') return 'scheduled';
     return 'wallet';
   });
   const prefillTo = searchParams.get('to') ?? '';
+
+  // Split payment overlay
+  const [showSplit, setShowSplit] = useState(false);
 
   // Currency preference
   const [currency, setCurrency] = useState<CurrencyCode>('USD');
@@ -1345,14 +1936,15 @@ export default function WalletPage() {
     if (user) await supabase.from('user_wallets').update({ preferred_currency: c }).eq('user_id', user.id);
   };
 
-  // PIN state
-  const pinHash: string | null = (wallet as any)?.wallet_pin_hash ?? null;
-  const [showPinModal, setShowPinModal] = useState(false);
+  // Security fields from wallet
+  const pinHash: string | null              = (wallet as any)?.wallet_pin_hash         ?? null;
+  const biometricCredentialId: string | null = (wallet as any)?.biometric_credential_id ?? null;
+  const [showPinModal, setShowPinModal]    = useState(false);
 
   // Deposit flow
-  const [phone,    setPhone]   = useState('');
-  const [amount,   setAmount]  = useState('');
-  const [step,     setStep]    = useState<TopUpStep>('idle');
+  const [phone,    setPhone]    = useState('');
+  const [amount,   setAmount]   = useState('');
+  const [step,     setStep]     = useState<TopUpStep>('idle');
   const [pollSecs, setPollSecs] = useState(0);
   const [pollMsg,  setPollMsg]  = useState('');
   const [showTopUp, setShowTopUp] = useState(false);
@@ -1381,8 +1973,8 @@ export default function WalletPage() {
 
   useEffect(() => {
     return () => {
-      if (pollRef.current)       clearInterval(pollRef.current);
-      if (wPollRef.current)      clearInterval(wPollRef.current);
+      if (pollRef.current)        clearInterval(pollRef.current);
+      if (wPollRef.current)       clearInterval(wPollRef.current);
       if (balancePollRef.current) clearInterval(balancePollRef.current);
     };
   }, []);
@@ -1489,7 +2081,7 @@ export default function WalletPage() {
 
   const executeWithdraw = async () => {
     if (!user) return;
-    const kesAmt = parseFloat(wKes);
+    const kesAmt  = parseFloat(wKes);
     if (!kesAmt || kesAmt < 10) { toast.error('Minimum withdrawal is KES 10'); return; }
     const usdAmt  = kesAmt / USD_TO_KES;
     const balance = Number(wallet?.balance ?? 0);
@@ -1555,8 +2147,19 @@ export default function WalletPage() {
   };
 
   const handleWithdrawClick = () => {
-    if (pinHash) { setShowPinModal(true); } else { executeWithdraw(); }
+    if (biometricCredentialId) {
+      verifyBiometric(biometricCredentialId).then(ok => {
+        if (ok) { executeWithdraw(); }
+        else if (pinHash) { setShowPinModal(true); }
+        else { executeWithdraw(); }
+      });
+    } else if (pinHash) {
+      setShowPinModal(true);
+    } else {
+      executeWithdraw();
+    }
   };
+
   const handleWithdrawPinConfirm = async (pin: string) => {
     const entered = await hashPin(pin);
     setShowPinModal(false);
@@ -1564,16 +2167,27 @@ export default function WalletPage() {
     executeWithdraw();
   };
 
-  const { walletBalance, username } = useMemo(() => ({
-    walletBalance: Number(wallet?.balance ?? 0),
-    username:      user?.username ?? user?.email?.split('@')[0] ?? 'me',
+  const { walletBalance, username, totalDeposited } = useMemo(() => ({
+    walletBalance:  Number(wallet?.balance ?? 0),
+    username:       user?.username ?? user?.email?.split('@')[0] ?? 'me',
+    totalDeposited: Number((wallet as any)?.total_deposited ?? 0),
   }), [wallet, user]);
-
-
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
-      {showPinModal && <PinEntryModal title="Confirm Withdrawal" onConfirm={handleWithdrawPinConfirm} onCancel={() => setShowPinModal(false)} />}
+      {showPinModal && (
+        <PinEntryModal title="Confirm Withdrawal" onConfirm={handleWithdrawPinConfirm} onCancel={() => setShowPinModal(false)} />
+      )}
+      {showSplit && user && (
+        <SplitPaymentPanel
+          userId={user.id}
+          senderUsername={username}
+          walletBalance={walletBalance}
+          pinHash={pinHash}
+          currency={currency}
+          onClose={() => setShowSplit(false)}
+        />
+      )}
 
       <TopBar title="My Wallet" showBack />
       <WalletAdBanner />
@@ -1608,6 +2222,7 @@ export default function WalletPage() {
             senderUsername={username}
             walletBalance={walletBalance}
             pinHash={pinHash}
+            biometricCredentialId={biometricCredentialId}
             onComplete={fetchWallet}
             prefillUsername={prefillTo}
             currency={currency}
@@ -1622,6 +2237,9 @@ export default function WalletPage() {
         {activeTab === 'referrals' && user && (
           <ReferralEarningsTab userId={user.id} />
         )}
+        {activeTab === 'scheduled' && user && (
+          <ScheduledTransfersTab userId={user.id} currency={currency} />
+        )}
       </div>
 
       {/* Wallet tab */}
@@ -1631,7 +2249,10 @@ export default function WalletPage() {
           {/* Balance card */}
           <div className="bg-gradient-to-br from-primary/10 to-purple-500/5 border border-primary/20 rounded-2xl p-5">
             <div className="flex items-start justify-between mb-1">
-              <p className="text-sm font-semibold text-muted-foreground">Wallet Balance</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-muted-foreground">Wallet Balance</p>
+                <LoyaltyBadge totalDeposited={totalDeposited} />
+              </div>
               <CurrencyBadge currency={currency} onChange={handleCurrencyChange} />
             </div>
             <p className="text-4xl font-black mt-1">{fmtAmt(walletBalance, currency)}</p>
@@ -1643,6 +2264,7 @@ export default function WalletPage() {
                 <TrendingUp className="w-3 h-3" /> Last top-up +{fmtAmt(lastTopUpAmount, currency)}
               </p>
             )}
+            {/* Quick actions */}
             <div className="flex gap-2 mt-4">
               <button onClick={() => setActiveTab('receive')}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary/10 border border-primary/20 rounded-xl text-primary font-semibold text-xs hover:bg-primary/15 transition-colors">
@@ -1651,6 +2273,10 @@ export default function WalletPage() {
               <button onClick={() => setActiveTab('send')}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-xs hover:opacity-90 transition-opacity">
                 <Send className="w-3.5 h-3.5" /> Send
+              </button>
+              <button onClick={() => setShowSplit(true)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-600 font-semibold text-xs hover:bg-blue-500/15 transition-colors">
+                <Star className="w-3.5 h-3.5" /> Split
               </button>
               <button onClick={() => setActiveTab('referrals')}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-600 font-semibold text-xs hover:bg-purple-500/15 transition-colors">
@@ -1774,7 +2400,12 @@ export default function WalletPage() {
                   Available: <span className="font-semibold text-foreground">{fmtAmt(walletBalance, currency)}</span>
                 </p>
               </div>
-              {pinHash && <Lock className="w-3.5 h-3.5 text-primary" />}
+              {(pinHash || biometricCredentialId) && (
+                <div className="flex items-center gap-1 mr-1">
+                  {biometricCredentialId && <Fingerprint className="w-3.5 h-3.5 text-green-500" />}
+                  {pinHash && <Lock className="w-3.5 h-3.5 text-primary" />}
+                </div>
+              )}
               <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-transform ${showWithdraw ? 'border-orange-600 rotate-45' : 'border-muted-foreground/40'}`}>
                 <span className="text-lg leading-none text-muted-foreground">+</span>
               </div>
@@ -1793,7 +2424,7 @@ export default function WalletPage() {
                       <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Amount (KES)</p>
                       <div className="grid grid-cols-4 gap-2 mb-2">
                         {[500,1000,2500,5000].map(kes => {
-                          const maxKes = Math.floor(walletBalance * USD_TO_KES);
+                          const maxKes  = Math.floor(walletBalance * USD_TO_KES);
                           const disabled = kes > maxKes;
                           return (
                             <button key={kes} onClick={() => !disabled && setWKes(String(kes))} disabled={disabled}
@@ -1819,7 +2450,7 @@ export default function WalletPage() {
                     </div>
                     <button onClick={handleWithdrawClick} disabled={!wKes || !wPhone || parseFloat(wKes) < 10}
                       className="w-full py-3.5 bg-gradient-to-r from-orange-600 to-red-500 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
-                      {pinHash ? <Lock className="w-5 h-5" /> : <Wallet className="w-5 h-5" />}
+                      {biometricCredentialId ? <Fingerprint className="w-5 h-5" /> : pinHash ? <Lock className="w-5 h-5" /> : <Wallet className="w-5 h-5" />}
                       Withdraw KES {parseInt(wKes || '0').toLocaleString() || '—'}
                     </button>
                   </>
@@ -1868,6 +2499,13 @@ export default function WalletPage() {
 
           {user && wallet && <SpendLimitCard userId={user.id} wallet={wallet} onSaved={fetchWallet} />}
           {user && wallet && <PinSetupCard userId={user.id} pinHash={(wallet as any)?.wallet_pin_hash ?? null} onSaved={fetchWallet} />}
+          {user && wallet && (
+            <BiometricCard
+              userId={user.id}
+              credentialId={(wallet as any)?.biometric_credential_id ?? null}
+              onSaved={fetchWallet}
+            />
+          )}
           {user && <PayoutScheduleCard userId={user.id} defaultPhone={wallet?.mpesa_phone ?? null} />}
 
           <MpesaSecretsGuide />
@@ -1887,7 +2525,6 @@ export default function WalletPage() {
             <BellOff className="w-4 h-4 text-muted-foreground/50 shrink-0" />
           </div>
 
-          {/* Currency info */}
           <div className="flex items-start gap-3 p-4 bg-muted/20 border border-border rounded-2xl">
             <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
               <Globe className="w-4 h-4 text-blue-500" />
@@ -1895,7 +2532,7 @@ export default function WalletPage() {
             <div>
               <p className="font-semibold text-sm">Multi-Currency Display</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Toggle between USD, KES, and EUR using the currency selector on your balance card. Your preference is saved automatically.
+                Toggle between USD, KES, and EUR using the currency selector. Your preference is saved automatically.
               </p>
             </div>
           </div>
