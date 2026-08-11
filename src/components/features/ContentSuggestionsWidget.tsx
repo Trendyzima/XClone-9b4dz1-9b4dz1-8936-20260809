@@ -1,11 +1,3 @@
-/**
- * ContentSuggestionsWidget — Personalized content recommendations
- * Reaches ALL users (new + veteran) by mixing:
- * 1. Trending / viral posts (engagement-weighted)
- * 2. Recently active creators
- * 3. Posts from categories user has interacted with
- * 4. Evergreen high-like posts for new users with no history
- */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';

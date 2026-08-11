@@ -1,9 +1,8 @@
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Settings } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { MobileSidebarDrawer } from './MobileSidebarDrawer';
-import { useLocation } from 'react-router-dom';
 
 interface TopBarProps {
   title: string;

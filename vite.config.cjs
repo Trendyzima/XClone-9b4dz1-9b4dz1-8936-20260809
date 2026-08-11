@@ -2,142 +2,19 @@ const fs   = require('fs');
 const path = require('path');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Nuclear targeted fixes
+// Surgical fix — ONLY removes the specific broken `code??""` / `code??''`
+// patterns from Vite's replaceDefine calls. Nothing else is touched.
 // ═══════════════════════════════════════════════════════════════════════════════
-function ultraDirectFix(src) {
-  let s = src;
-  s = s.split('code??"", ').join('code, ');
-  s = s.split("code??'', ").join('code, ');
-  s = s.split('code??"",').join('code,');
-  s = s.split("code??'',").join('code,');
-  s = s.split('code??""').join('code');
-  s = s.split("code??''").join('code');
-  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"([^"\\]*)"/g, '$1');
-  s = s.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'([^'\\]*)'/g, '$1');
-  s = s.replace(/\?\?"[^"]*"/g, '');
-  s = s.replace(/\?\?'[^']*'/g, '');
-  s = s.replace(/([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g, '$1');
-  return s;
-}
-
-function nuclearFix(src) {
-  let s = src;
-  s = s.replace(/\basync function replaceDefine\(code\?\?"[^"]*",\s*/g, 'async function replaceDefine(code, ');
-  s = s.replace(/\basync function replaceDefine\(code\?\?'[^']*',\s*/g, "async function replaceDefine(code, ");
-  s = s.replace(/\breplaceDefine\(code\?\?"[^"]*",\s*/g, 'replaceDefine(code, ');
-  s = s.replace(/\breplaceDefine\(code\?\?'[^']*',\s*/g, "replaceDefine(code, ");
-  s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?"[^"]*"/g, '$1');
-  s = s.replace(/([(,]\s*[a-zA-Z_$][a-zA-Z0-9_$]*)\?\?'[^']*'/g, '$1');
-  {
-    let out = '';
-    let i = 0;
-    while (i < s.length) {
-      if (s[i] === '?' && s[i + 1] === '?') {
-        let j = i + 2;
-        while (j < s.length && (s[j] === ' ' || s[j] === '\t' || s[j] === '\n' || s[j] === '\r')) j++;
-        const rem = s.slice(j, j + 120);
-        const mdef = rem.match(/^[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]{0,80}\)\s*\{/);
-        if (mdef) {
-          const prev = out.length > 0 ? out[out.length - 1] : '';
-          if (!(prev === '}' || prev === '' || /[\n\r,{([]/.test(prev))) {
-            out += ',';
-          }
-          out += s.slice(i + 2, j);
-          i = j;
-          continue;
-        }
-      }
-      out += s[i];
-      i++;
-    }
-    s = out;
-  }
-  return s;
-}
-
-function fixTightDoubleQuestion(src) {
-  const n = src.length;
-  let out = '';
-  let i = 0;
-  while (i < n) {
-    if (
-      src[i] === '?' &&
-      i + 1 < n && src[i + 1] === '?' &&
-      i > 0 && !/[\s]/.test(src[i - 1])
-    ) {
-      let j = i + 2;
-      while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
-      let endPos = -1;
-      if (j >= n) {
-        endPos = i + 2;
-      } else {
-        const c = src[j];
-        if (c === '\r' || c === '\n') {
-          endPos = i + 2;
-        } else if (c === '{') {
-          let k = j + 1;
-          while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
-          endPos = (k < n && src[k] === '}') ? k + 1 : i + 2;
-        } else if (c === '"' || c === "'") {
-          const q = c;
-          let k = j + 1;
-          while (k < n && src[k] !== q) { if (src[k] === '\\') k++; k++; }
-          if (k < n) endPos = k + 1;
-        } else if (c === '[') {
-          let k = j + 1;
-          while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
-          if (k < n && src[k] === ']') endPos = k + 1;
-        } else if (c === '(') {
-          endPos = i + 2;
-        } else {
-          const rest = src.slice(j);
-          const m = rest.match(/^(null|undefined|false|0)(?!\w)/);
-          if (m) {
-            endPos = j + m[1].length;
-          } else if (/^[a-zA-Z_$]/.test(c)) {
-            endPos = i + 2;
-          }
-        }
-      }
-      if (endPos >= 0) { i = endPos; }
-      else { out += src[i]; i++; }
-      continue;
-    }
-    out += src[i];
-    i++;
-  }
-  return out;
-}
-
 function fixSource(src) {
-  let fixed = ultraDirectFix(src);
-  fixed = nuclearFix(fixed);
-  fixed = fixed.replace(/(\r?\n)([ \t]*)\?\?(?=[^\s?])/g, '$1$2');
-  fixed = fixed.replace(
-    /\?\?(\r?\n[ \t]*)(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
-    '$1'
-  );
-  fixed = fixed.replace(
-    /\?\?(?=[a-zA-Z_$][a-zA-Z0-9_$]*\s*\([^)]*\)\s*\{)/g,
-    ' '
-  );
-  fixed = fixed.replace(
-    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g,
-    '$1'
-  );
-  fixed = fixed.replace(/^[ \t]*\?\?(?=[^\s?])/gm, '');
-  fixed = fixed.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\?\?(\r?\n)/g, '$1$2');
-  fixed = fixTightDoubleQuestion(fixed);
-  fixed = fixed.split('replaceDefine(code??"", ').join('replaceDefine(code, ');
-  fixed = fixed.split('replaceDefine(code??"",').join('replaceDefine(code,');
-  fixed = fixed.split("replaceDefine(code??'', ").join('replaceDefine(code, ');
-  fixed = fixed.split("replaceDefine(code??'',").join('replaceDefine(code,');
-  fixed = fixed.replace(/replaceDefine\(code\s*\?\?["'][^"']*["'],\s*/g, 'replaceDefine(code, ');
-  fixed = fixed.replace(
-    /(?<=[^\s])\?\?\s*(?:"[^"]*"|'[^']*'|\[\s*\]|null\b|undefined\b|false\b|0\b)/g,
-    ''
-  );
-  return fixed;
+  if (!src.includes('code??')) return src;
+  let out = src;
+  out = out.split('code??"", ').join('code, ');
+  out = out.split("code??'', ").join('code, ');
+  out = out.split('code??"",').join('code,');
+  out = out.split("code??'',").join('code,');
+  out = out.split('code??""').join('code');
+  out = out.split("code??''").join('code');
+  return out;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -147,7 +24,7 @@ function applyFixToDisk(fpath, label) {
   try { fs.chmodSync(fpath, 0o644); } catch (_) {}
   let src;
   try { src = fs.readFileSync(fpath, 'utf8'); } catch (_) { return; }
-  if (!src.includes('??')) return;
+  if (!src.includes('code??')) return;
   const fixed = fixSource(src);
   if (fixed === src) return;
   try {
@@ -239,7 +116,7 @@ module.exports = defineConfig({
             patchViteChunks('buildStart');
           },
           transform(code, id) {
-            if (id.includes('/vite/dist/node/') && code.includes('??')) {
+            if (id.includes('/vite/dist/node/') && code.includes('code??')) {
               const fixed = fixSource(code);
               if (fixed !== code) return { code: fixed, map: null };
             }
