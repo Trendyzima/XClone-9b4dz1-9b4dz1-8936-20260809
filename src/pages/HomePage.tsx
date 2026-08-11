@@ -37,7 +37,8 @@ type FeedItem =
   | { type: 'sponsored'; data: any }
   | { type: 'user-suggestions'; data: null }
   | { type: 'recommended'; data: any }
-  | { type: 'product-spotlight'; data: any[] };
+  | { type: 'product-spotlight'; data: any[] }
+  | { type: 'series-widget'; data: any[] };
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'foryou',    label: 'For you',   icon: Sparkles   },
@@ -62,13 +63,16 @@ export default function HomePage() {
   const [trendingHashtags, setTrendingHashtags] = useState<any[]>([]);
   const [recommendedPosts, setRecommendedPosts] = useState<any[]>([]);
   const [spotlightProducts, setSpotlightProducts] = useState<any[]>([]);
+  const [publicSeries, setPublicSeries] = useState<any[]>([]);
 
   const abortRef = useRef<AbortController | null>(null);
   // Keep ref for latest reco/product state so fetchFeed closure can read them
   const recoRef = useRef<any[]>([]);
   const productRef = useRef<any[]>([]);
+  const seriesRef = useRef<any[]>([]);
   useEffect(() => { recoRef.current = recommendedPosts; }, [recommendedPosts]);
   useEffect(() => { productRef.current = spotlightProducts; }, [spotlightProducts]);
+  useEffect(() => { seriesRef.current = publicSeries; }, [publicSeries]);
 
   // Fetch blocked user IDs to filter from feed
   useEffect(() => {
@@ -190,6 +194,18 @@ export default function HomePage() {
       setSpotlightProducts(products ?? []);
     } catch { setSpotlightProducts([]); }
   }, [user?.id]);
+
+  // ── Fetch public series for widget ─────────────────────────────────────────
+  const fetchPublicSeries = useCallback(async () => {
+    const { data } = await supabase
+      .from('post_series')
+      .select('*, user_profiles!post_series_user_id_fkey(username, avatar_url, verified)')
+      .eq('is_public', true)
+      .gt('item_count', 0)
+      .order('item_count', { ascending: false })
+      .limit(8);
+    setPublicSeries(data ?? []);
+  }, []);
 
   // Only show ads that users actually created AND admin approved (status=active, payment=paid)
   const fetchSponsoredContent = async () => {
@@ -394,12 +410,14 @@ export default function HomePage() {
       // Read recs/products from refs (stable across render cycles)
       const currentRecos = recoRef.current;
       const currentProducts = productRef.current;
+      const currentSeries = seriesRef.current;
 
       const withExtras: FeedItem[] = [];
       let sponsoredIdx = 0;
       let suggestionInserted = false;
       let recoIdx = 0;
       let productSpotlightInserted = false;
+      let seriesWidgetInserted = false;
 
       for (let i = 0; i < combined.length; i++) {
         withExtras.push({ type: combined[i].type, data: combined[i].data } as FeedItem);
@@ -419,6 +437,12 @@ export default function HomePage() {
         if (pageNum === 0 && i === 12 && !productSpotlightInserted && currentProducts.length > 0) {
           withExtras.push({ type: 'product-spotlight', data: currentProducts });
           productSpotlightInserted = true;
+        }
+
+        // Series Discovery Widget — once around position 15
+        if (pageNum === 0 && i === 15 && !seriesWidgetInserted && currentSeries.length > 0) {
+          withExtras.push({ type: 'series-widget', data: currentSeries });
+          seriesWidgetInserted = true;
         }
 
         if ((i + 1) % (6 + Math.floor(Math.random() * 3)) === 0 && sponsoredIdx < sponsoredPosts.length) {
@@ -475,6 +499,7 @@ export default function HomePage() {
     fetchSponsoredContent();
     fetchRecommendations();
     fetchProductSpotlight();
+    fetchPublicSeries();
   }, [activeTab, user?.id]);
 
   // Trending hashtags — refresh every 2 minutes
@@ -650,7 +675,7 @@ export default function HomePage() {
 
           {feedItems.map((item, index) => (
             <div
-              key={`${item.type}-${item.type === 'user-suggestions' ? 'sug' : item.type === 'product-spotlight' ? 'products' : (item.data as any)?.id ?? index}-${index}`}
+              key={`${item.type}-${item.type === 'user-suggestions' ? 'sug' : item.type === 'product-spotlight' ? 'products' : item.type === 'series-widget' ? 'series' : (item.data as any)?.id ?? index}-${index}`}
               ref={index === feedItems.length - 1 ? lastElementRef : null}
               className="animate-slide-in"
             >
@@ -666,6 +691,8 @@ export default function HomePage() {
                 <RecommendedPostCard post={item.data} onNavigate={(p: string) => navigate(p)} />
               ) : item.type === 'product-spotlight' ? (
                 <ProductSpotlightRail products={item.data} onNavigate={(p: string) => navigate(p)} />
+              ) : item.type === 'series-widget' ? (
+                <SeriesDiscoveryWidget series={item.data} onNavigate={(p: string) => navigate(p)} />
               ) : (
                 <ThreadCard thread={item.data} />
               )}
@@ -1027,6 +1054,46 @@ function InlineSuggestions() {
               {followingIds.has(sug.id) ? 'Following' : 'Follow'}
             </button>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Series Discovery Widget ──────────────────────────────────────────────────
+function SeriesDiscoveryWidget({ series, onNavigate }: { series: any[]; onNavigate: (p: string) => void }) {
+  if (!series || series.length === 0) return null;
+  return (
+    <div className="border-b border-border py-3 bg-gradient-to-br from-primary/[0.03] to-transparent">
+      <div className="px-4 flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-1.5">
+          <BookOpen className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs font-bold text-foreground">Trending Series</span>
+        </div>
+        <button onClick={() => onNavigate('/series')} className="text-xs text-primary font-semibold hover:underline">Browse all</button>
+      </div>
+      <div className="flex gap-3 overflow-x-auto scrollbar-hide px-4 pb-1">
+        {series.slice(0, 6).map((s: any) => (
+          <button key={s.id} onClick={() => onNavigate('/series')}
+            className="shrink-0 w-40 text-left rounded-xl border border-border bg-card hover:border-primary/30 hover:shadow-sm transition-all overflow-hidden">
+            <div className="w-full h-20 bg-gradient-to-br from-primary/20 to-purple-500/10 flex items-center justify-center">
+              {s.cover_image
+                ? <img src={s.cover_image} alt={s.name} className="w-full h-full object-cover" />
+                : <BookOpen className="w-8 h-8 text-primary/40" />}
+            </div>
+            <div className="p-2.5">
+              <p className="text-xs font-bold line-clamp-1">{s.name}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{s.item_count ?? 0} parts</p>
+              {s.user_profiles && (
+                <div className="flex items-center gap-1 mt-1.5">
+                  {s.user_profiles.avatar_url
+                    ? <img src={s.user_profiles.avatar_url} alt="" className="w-4 h-4 rounded-full" />
+                    : <div className="w-4 h-4 rounded-full bg-muted" />}
+                  <span className="text-[10px] text-muted-foreground truncate">@{s.user_profiles.username}</span>
+                </div>
+              )}
+            </div>
+          </button>
         ))}
       </div>
     </div>

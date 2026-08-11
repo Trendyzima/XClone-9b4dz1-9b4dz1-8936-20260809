@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe, Wand2, AtSign } from 'lucide-react';
+import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe, Wand2, AtSign, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CreatePollDialog } from './CreatePollDialog';
 import { SchedulePostDialog } from './SchedulePostDialog';
@@ -113,6 +113,46 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
       setMentionResults([]);
     }
   }, [mentionResults, mentionQuery, mentionIdx, insertMention]);
+
+  // ── AI Caption Generator ─────────────────────────────────────────────────
+  const [showCaptionGen, setShowCaptionGen] = useState(false);
+  const [captionContext, setCaptionContext] = useState('');
+  const [captionSuggestions, setCaptionSuggestions] = useState<string[]>([]);
+  const [captionLoading, setCaptionLoading] = useState(false);
+
+  const handleGenerateCaptions = async () => {
+    setCaptionLoading(true);
+    setCaptionSuggestions([]);
+    try {
+      const context = captionContext.trim() || content.trim() || 'a social media post';
+      const imageHint = images.length > 0 ? ' for a photo' : video ? ' for a video' : '';
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: {
+          messages: [{
+            role: 'user',
+            content: `Generate exactly 3 catchy social media captions${imageHint} about: "${context}". Make them distinct: one witty/funny, one inspirational, one question-based/engaging. Under 200 characters each. Return ONLY the 3 captions separated by "|||" with no numbering or labels.`,
+          }],
+          model: 'google/gemini-3-flash-preview',
+        },
+      });
+      if (error) throw error;
+      const raw = data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? '';
+      const suggestions = raw.split('|||').map((s: string) => s.trim()).filter(Boolean).slice(0, 3);
+      setCaptionSuggestions(suggestions.length > 0 ? suggestions : ['Could not generate captions. Try again.']);
+    } catch (err) {
+      console.warn('[caption-gen]', err);
+      setCaptionSuggestions(['Failed to generate. Please try again.']);
+    } finally {
+      setCaptionLoading(false);
+    }
+  };
+
+  const applyCaptionSuggestion = (caption: string) => {
+    setContent(prev => prev ? prev + '\n\n' + caption : caption);
+    setShowCaptionGen(false);
+    setCaptionSuggestions([]);
+    setCaptionContext('');
+  };
 
   // ── AI Post Writer ────────────────────────────────────────────────────────
   const [showAiWriter, setShowAiWriter] = useState(false);
@@ -774,6 +814,19 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
               >
                 <ShoppingBag className="w-5 h-5" />
               </button>
+              {/* AI Caption Generator button */}
+              <button
+                onClick={() => setShowCaptionGen(v => !v)}
+                disabled={loading}
+                className={`cursor-pointer p-2 rounded-full transition-colors disabled:opacity-50 flex-shrink-0 ${
+                  showCaptionGen
+                    ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                    : 'hover:bg-primary/10 text-muted-foreground'
+                }`}
+                title="AI Caption Generator"
+              >
+                <Sparkles className="w-5 h-5" />
+              </button>
               {/* AI Write button */}
               <button
                 onClick={() => setShowAiWriter(v => !v)}
@@ -826,6 +879,51 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
               </Button>
             </div>
           </div>
+          {/* AI Caption Generator Panel */}
+          {showCaptionGen && (
+            <div className="mt-3 p-3 border border-amber-500/20 rounded-xl bg-amber-500/5">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">AI Caption Generator</span>
+                <button onClick={() => { setShowCaptionGen(false); setCaptionSuggestions([]); setCaptionContext(''); }} className="ml-auto text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={captionContext}
+                  onChange={e => setCaptionContext(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleGenerateCaptions()}
+                  placeholder={images.length > 0 || video ? 'Describe your photo/video (optional)…' : 'Describe your post topic…'}
+                  className="flex-1 text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  disabled={captionLoading}
+                />
+                <button
+                  onClick={handleGenerateCaptions}
+                  disabled={captionLoading}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors flex-shrink-0"
+                >
+                  {captionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {captionLoading ? 'Generating…' : 'Generate'}
+                </button>
+              </div>
+              {captionSuggestions.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-muted-foreground font-medium">Pick a caption to add:</p>
+                  {captionSuggestions.map((cap, i) => (
+                    <button
+                      key={i}
+                      onClick={() => applyCaptionSuggestion(cap)}
+                      className="w-full text-left text-sm p-2.5 border border-border rounded-lg hover:border-amber-500 hover:bg-amber-500/5 transition-colors leading-relaxed"
+                    >
+                      {cap}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* AI Writer Panel */}
           {showAiWriter && (
             <div className="mt-3 p-3 border border-purple-500/20 rounded-xl bg-purple-500/5">

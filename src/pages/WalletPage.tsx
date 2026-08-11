@@ -10,7 +10,8 @@ import { toast } from 'sonner';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import {
   Smartphone, Loader2, CheckCircle2, Clock, AlertCircle,
-  Phone, Zap, ArrowDownLeft, X, ArrowUpRight, Wallet, Download
+  Phone, Zap, ArrowDownLeft, X, ArrowUpRight, Wallet, Download,
+  Send, Search, UserCheck
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -18,7 +19,172 @@ const USD_TO_KES = 130;
 
 type TopUpStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
-type ActiveTab = 'wallet' | 'history';
+type ActiveTab = 'wallet' | 'history' | 'send';
+
+// ── P2P Send Money Tab ────────────────────────────────────────────────────
+function SendMoneyTab({ userId, walletBalance, onComplete }: { userId: string; walletBalance: number; onComplete: () => void }) {
+  const [query, setQuery] = useState('');
+  const [users, setUsers] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [sending, setSending] = useState(false);
+  const { supabase: _, ...rest } = { supabase: null }; // placeholder
+
+  const searchUsers = async (q: string) => {
+    setQuery(q);
+    if (q.trim().length < 2) { setUsers([]); return; }
+    setSearching(true);
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('id, username, avatar_url, verified')
+      .ilike('username', `%${q.trim()}%`)
+      .neq('id', userId)
+      .limit(8);
+    setUsers(data ?? []);
+    setSearching(false);
+  };
+
+  const handleSend = async () => {
+    if (!selectedUser || !amount || parseFloat(amount) <= 0) return;
+    const amt = parseFloat(amount);
+    if (amt > walletBalance) { toast.error('Insufficient balance'); return; }
+    setSending(true);
+    const { error } = await supabase.rpc('p2p_wallet_transfer', {
+      p_from_user_id: userId,
+      p_to_user_id: selectedUser.id,
+      p_amount: amt,
+      p_note: note.trim() || null,
+    });
+    setSending(false);
+    if (error) { toast.error(error.message || 'Transfer failed'); return; }
+    toast.success(`$${amt.toFixed(2)} sent to @${selectedUser.username}!`);
+    setSelectedUser(null);
+    setAmount('');
+    setNote('');
+    setQuery('');
+    onComplete();
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Balance reminder */}
+      <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20">
+        <p className="text-sm font-semibold text-muted-foreground">Available to send</p>
+        <p className="text-3xl font-black text-primary">${walletBalance.toFixed(2)}</p>
+      </div>
+
+      {/* User search */}
+      {!selectedUser ? (
+        <div className="space-y-3">
+          <label className="text-sm font-semibold">Send to user</label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={e => searchUsers(e.target.value)}
+              placeholder="Search by username…"
+              className="w-full pl-9 pr-4 py-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
+          </div>
+          {users.length > 0 && (
+            <div className="space-y-1">
+              {users.map(u => (
+                <button key={u.id} onClick={() => { setSelectedUser(u); setUsers([]); setQuery(''); }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all text-left">
+                  <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
+                    {u.avatar_url
+                      ? <img src={u.avatar_url} alt={u.username} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{u.username[0]?.toUpperCase()}</div>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1">
+                      <p className="font-bold text-sm truncate">@{u.username}</p>
+                      {u.verified && <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />}
+                    </div>
+                  </div>
+                  <Send className="w-4 h-4 text-muted-foreground" />
+                </button>
+              ))}
+            </div>
+          )}
+          {query.length >= 2 && users.length === 0 && !searching && (
+            <p className="text-sm text-muted-foreground text-center py-4">No users found for "{query}"</p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Selected recipient */}
+          <div className="flex items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-2xl">
+            <div className="w-12 h-12 rounded-full bg-muted overflow-hidden shrink-0">
+              {selectedUser.avatar_url
+                ? <img src={selectedUser.avatar_url} alt={selectedUser.username} className="w-full h-full object-cover" />
+                : <div className="w-full h-full flex items-center justify-center font-bold">{selectedUser.username[0]?.toUpperCase()}</div>}
+            </div>
+            <div className="flex-1">
+              <p className="font-bold">@{selectedUser.username}</p>
+              <p className="text-xs text-muted-foreground">Recipient</p>
+            </div>
+            <button onClick={() => setSelectedUser(null)} className="p-2 rounded-full hover:bg-muted text-muted-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Amount */}
+          <div>
+            <label className="text-sm font-semibold mb-2 block">Amount (USD)</label>
+            <div className="grid grid-cols-4 gap-2 mb-2">
+              {[1, 5, 10, 25].map(a => (
+                <button key={a} onClick={() => setAmount(String(a))}
+                  className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${amount === String(a) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
+                  ${a}
+                </button>
+              ))}
+            </div>
+            <input
+              type="number" min="0.01" step="0.01"
+              placeholder="Custom amount…"
+              value={amount && ![1,5,10,25].map(String).includes(amount) ? amount : ''}
+              onChange={e => setAmount(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+
+          {/* Note */}
+          <div>
+            <label className="text-sm font-semibold mb-2 block">Note (optional)</label>
+            <input
+              type="text" maxLength={100}
+              placeholder="What's this for?"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+
+          <button
+            onClick={handleSend}
+            disabled={sending || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > walletBalance}
+            className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+          >
+            {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+            {sending ? 'Sending…' : `Send $${parseFloat(amount || '0').toFixed(2)} to @${selectedUser.username}`}
+          </button>
+          {amount && parseFloat(amount) > walletBalance && (
+            <p className="text-xs text-red-500 text-center">Amount exceeds your balance of ${walletBalance.toFixed(2)}</p>
+          )}
+        </div>
+      )}
+
+      {/* Info */}
+      <div className="bg-muted/30 rounded-2xl p-4 text-xs text-muted-foreground">
+        <p><strong>Instant transfers</strong> — funds arrive immediately. Platform may take a small fee on some transfer types. Transfers cannot be reversed.</p>
+      </div>
+    </div>
+  );
+}
 
 // ── Transaction History Tab ───────────────────────────────────────────────
 function TransactionHistoryTab({ userId }: { userId: string }) {
@@ -391,11 +557,11 @@ export default function WalletPage() {
       {/* Tab toggle */}
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
         <div className="flex max-w-2xl mx-auto">
-          {(['wallet', 'history'] as const).map(t => (
+          {(['wallet', 'send', 'history'] as const).map(t => (
             <button key={t} onClick={() => setActiveTab(t)}
               className={`flex-1 py-3.5 font-semibold text-sm capitalize border-b-2 transition-colors ${
                 activeTab === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'
-              }`}>{t === 'wallet' ? '💳 Wallet' : '📋 History'}</button>
+              }`}>{t === 'wallet' ? '💳 Wallet' : t === 'send' ? '💸 Send' : '📋 History'}</button>
           ))}
         </div>
       </div>
@@ -404,7 +570,13 @@ export default function WalletPage() {
         {activeTab === 'history' && user && (
           <TransactionHistoryTab userId={user.id} />
         )}
-        {activeTab === 'history' && <></>}
+        {activeTab === 'send' && user && (
+          <SendMoneyTab
+            userId={user.id}
+            walletBalance={Number(wallet?.balance ?? 0)}
+            onComplete={fetchWallet}
+          />
+        )}
       </div>
 
       {activeTab === 'wallet' && <div className="max-w-2xl mx-auto p-4 space-y-5">
