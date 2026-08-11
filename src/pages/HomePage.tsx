@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ComposePost } from '@/components/features/ComposePost';
@@ -10,8 +10,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import {
   Loader2, Sparkles, Globe, Users, Rss, RefreshCw,
-  MessageCircle, Repeat2, Heart, Languages, ChevronDown, ChevronUp,
-  TrendingUp, Hash, BookOpen, Flame, Eye, Play,
+  MessageCircle, Repeat2, Heart, Languages, ChevronUp,
+  TrendingUp, Hash, BookOpen, Flame, Eye, Play, ShoppingBag,
 } from 'lucide-react';
 import { TrendingVideosSection } from '@/components/features/TrendingVideosSection';
 import { CommunitySpotlightStrip } from '@/components/features/CommunitySpotlightStrip';
@@ -26,6 +26,7 @@ import { StoriesStrip } from '@/components/features/StoriesStrip';
 import * as federation from '@/api/federation';
 
 const PAGE_SIZE = 15;
+const RECO_INJECT_INTERVAL = 8; // inject a recommendation card every N items
 
 type Tab = 'foryou' | 'following' | 'federated' | 'popular' | 'tech' | 'science';
 
@@ -34,7 +35,9 @@ type FeedItem =
   | { type: 'thread'; data: any }
   | { type: 'fedpost'; data: any }
   | { type: 'sponsored'; data: any }
-  | { type: 'user-suggestions'; data: null };
+  | { type: 'user-suggestions'; data: null }
+  | { type: 'recommended'; data: any }
+  | { type: 'product-spotlight'; data: any[] };
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'foryou',    label: 'For you',   icon: Sparkles   },
@@ -57,6 +60,15 @@ export default function HomePage() {
   const [sponsoredPosts, setSponsoredPosts] = useState<any[]>([]);
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
   const [trendingHashtags, setTrendingHashtags] = useState<any[]>([]);
+  const [recommendedPosts, setRecommendedPosts] = useState<any[]>([]);
+  const [spotlightProducts, setSpotlightProducts] = useState<any[]>([]);
+
+  const abortRef = useRef<AbortController | null>(null);
+  // Keep ref for latest reco/product state so fetchFeed closure can read them
+  const recoRef = useRef<any[]>([]);
+  const productRef = useRef<any[]>([]);
+  useEffect(() => { recoRef.current = recommendedPosts; }, [recommendedPosts]);
+  useEffect(() => { productRef.current = spotlightProducts; }, [spotlightProducts]);
 
   // Fetch blocked user IDs to filter from feed
   useEffect(() => {
@@ -66,13 +78,119 @@ export default function HomePage() {
         setBlockedUserIds(new Set((data ?? []).map((r: any) => r.blocked_id)));
       });
   }, [user?.id]);
-  const abortRef = useRef<AbortController | null>(null);
 
   usePageBanner({ adId: ADMOB_CONFIG.BANNER_FEED, margin: 64, delay: 4000 });
 
-  // Define fetchInitialFeed and fetchSponsoredContent outside useEffect to make them stable
-  // or use useCallback if they depend on props/state and need to be memoized.
-  // Given their usage in deps, making them stable is the goal.
+  // ── Fetch personalized recommendations ──────────────────────────────────
+  const fetchRecommendations = useCallback(async () => {
+    if (!user) return;
+    try {
+      // Try content_recommendations table first
+      const { data: recs } = await supabase
+        .from('content_recommendations')
+        .select('recommended_post_id, score, reason')
+        .eq('user_id', user.id)
+        .eq('shown', false)
+        .order('score', { ascending: false })
+        .limit(10);
+
+      if (recs && recs.length > 0) {
+        const postIds = recs.map((r: any) => r.recommended_post_id);
+        const { data: posts } = await supabase
+          .from('posts')
+          .select('*, user_profiles(*)')
+          .in('id', postIds)
+          .is('community_id', null);
+        if (posts && posts.length > 0) {
+          const postMap = Object.fromEntries(posts.map((p: any) => [p.id, p]));
+          const enriched = recs
+            .map((r: any) => ({ ...postMap[r.recommended_post_id], _reason: r.reason, _score: r.score }))
+            .filter((p: any) => p.id);
+          setRecommendedPosts(enriched);
+          // Mark shown async
+          supabase
+            .from('content_recommendations')
+            .update({ shown: true })
+            .in('recommended_post_id', postIds)
+            .eq('user_id', user.id)
+            .catch(() => {});
+          return;
+        }
+      }
+
+      // Fallback: interest-based — fetch user interest hashtags
+      const { data: interests } = await supabase
+        .from('user_interests')
+        .select('interest_score, hashtags(tag)')
+        .eq('user_id', user.id)
+        .order('interest_score', { ascending: false })
+        .limit(8);
+
+      const tags = ((interests ?? []) as any[])
+        .map((i: any) => i.hashtags?.tag)
+        .filter(Boolean);
+
+      if (tags.length > 0) {
+        const { data: hashtagRows } = await supabase
+          .from('hashtags').select('id').in('tag', tags);
+        const tagIds = (hashtagRows ?? []).map((t: any) => t.id);
+        if (tagIds.length > 0) {
+          const { data: phs } = await supabase
+            .from('post_hashtags').select('post_id').in('hashtag_id', tagIds).limit(50);
+          const pids = [...new Set((phs ?? []).map((ph: any) => ph.post_id))] as string[];
+          if (pids.length > 0) {
+            const { data: intPosts } = await supabase
+              .from('posts').select('*, user_profiles(*)')
+              .in('id', pids.slice(0, 10))
+              .is('community_id', null)
+              .neq('user_id', user.id);
+            if (intPosts && intPosts.length > 0) {
+              setRecommendedPosts(intPosts.map((p: any) => ({ ...p, _reason: 'Based on your interests' })));
+              return;
+            }
+          }
+        }
+      }
+
+      // Final fallback: popular posts from followed users
+      const { data: followingData } = await supabase
+        .from('follows').select('following_id').eq('follower_id', user.id).limit(20);
+      const followIds = (followingData ?? []).map((f: any) => f.following_id);
+      if (followIds.length > 0) {
+        const { data: followPosts } = await supabase
+          .from('posts').select('*, user_profiles(*)')
+          .in('user_id', followIds)
+          .is('community_id', null)
+          .order('likes_count', { ascending: false })
+          .limit(6);
+        if (followPosts && followPosts.length > 0) {
+          setRecommendedPosts(followPosts.map((p: any) => ({ ...p, _reason: 'Popular from people you follow' })));
+        }
+      }
+    } catch (err) {
+      console.warn('[feed] recommendations failed:', err);
+    }
+  }, [user?.id]);
+
+  // ── Fetch product spotlight (from creators user follows) ─────────────────
+  const fetchProductSpotlight = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data: followingData } = await supabase
+        .from('follows').select('following_id').eq('follower_id', user.id).limit(30);
+      const followIds = (followingData ?? []).map((f: any) => f.following_id);
+      if (followIds.length === 0) return;
+      const { data: products } = await supabase
+        .from('products')
+        .select('*, user_profiles(id, username, avatar_url, verified)')
+        .in('user_id', followIds)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(6);
+      setSpotlightProducts(products ?? []);
+    } catch { setSpotlightProducts([]); }
+  }, [user?.id]);
+
   // Only show ads that users actually created AND admin approved (status=active, payment=paid)
   const fetchSponsoredContent = async () => {
     try {
@@ -117,7 +235,6 @@ export default function HomePage() {
       await supabase
         .from('remote_posts')
         .upsert(rows, { onConflict: 'object_url', ignoreDuplicates: false });
-      console.log(`[feed] Cached ${rows.length} federated posts to remote_posts`);
     } catch (cacheErr) {
       console.warn('[feed] Failed to cache federated posts:', cacheErr);
     }
@@ -135,7 +252,6 @@ export default function HomePage() {
         created_at: p.created_at ?? p.published ?? new Date().toISOString(),
         actor: p.actor ?? p.account ?? {},
       }));
-      // Cache to DB in background (non-blocking)
       cacheFederatedPosts(normalized).catch(() => {});
       return normalized;
     } catch (err) {
@@ -225,13 +341,17 @@ export default function HomePage() {
         });
       }
 
+      // Enhanced scoring: engagement + recency + boost bonus
       const scorePost = (p: any) => {
         const ageHours = (Date.now() - new Date(p.created_at).getTime()) / 3_600_000;
+        const boostBonus = boostedMap[p.id] ? 50 : 0;
         return (
           (p.views_count ?? 0) * 0.1 +
           (p.likes_count ?? 0) * 2 +
           (p.reposts_count ?? 0) * 3 +
-          Math.max(0, 100 - ageHours * 0.5)
+          (p.replies_count ?? 0) * 1.5 +
+          Math.max(0, 100 - ageHours * 0.5) +
+          boostBonus
         );
       };
 
@@ -256,16 +376,34 @@ export default function HomePage() {
         combined.sort((a, b) => b._ts - a._ts);
       }
 
+      // Read recs/products from refs (stable across render cycles)
+      const currentRecos = recoRef.current;
+      const currentProducts = productRef.current;
+
       const withExtras: FeedItem[] = [];
       let sponsoredIdx = 0;
       let suggestionInserted = false;
+      let recoIdx = 0;
+      let productSpotlightInserted = false;
 
       for (let i = 0; i < combined.length; i++) {
         withExtras.push({ type: combined[i].type, data: combined[i].data } as FeedItem);
 
+        // Who to follow — after 3rd item on first page
         if (i === 2 && pageNum === 0 && !suggestionInserted) {
           withExtras.push({ type: 'user-suggestions', data: null });
           suggestionInserted = true;
+        }
+
+        // Personalized recommendation injection every RECO_INJECT_INTERVAL items
+        if (pageNum === 0 && (i + 1) % RECO_INJECT_INTERVAL === 0 && recoIdx < currentRecos.length) {
+          withExtras.push({ type: 'recommended', data: currentRecos[recoIdx++] });
+        }
+
+        // Product spotlight from followed creators — once around position 12
+        if (pageNum === 0 && i === 12 && !productSpotlightInserted && currentProducts.length > 0) {
+          withExtras.push({ type: 'product-spotlight', data: currentProducts });
+          productSpotlightInserted = true;
         }
 
         if ((i + 1) % (6 + Math.floor(Math.random() * 3)) === 0 && sponsoredIdx < sponsoredPosts.length) {
@@ -291,7 +429,6 @@ export default function HomePage() {
       const fedPosts = await fetchFederatedPosts();
       setFeedItems(fedPosts.map(p => ({ type: 'fedpost' as const, data: p })));
     } else if (activeTab === 'following' && user) {
-      // Merge local following posts + gateway federated home timeline
       const [localResult, gatewayResult] = await Promise.allSettled([
         fetchFeed(0),
         fetchFederatedPosts(),
@@ -301,7 +438,6 @@ export default function HomePage() {
         gatewayResult.status === 'fulfilled'
           ? gatewayResult.value.map((p: any) => ({ type: 'fedpost' as const, data: p }))
           : [];
-      // Interleave gateway posts: one every ~4 local items
       const merged: FeedItem[] = [...local];
       gateway.slice(0, 6).forEach((item: FeedItem, i: number) => {
         const insertAt = Math.min(merged.length, (i + 1) * 4);
@@ -322,6 +458,8 @@ export default function HomePage() {
   useEffect(() => {
     fetchInitialFeed();
     fetchSponsoredContent();
+    fetchRecommendations();
+    fetchProductSpotlight();
   }, [activeTab, user?.id]);
 
   // Trending hashtags — refresh every 2 minutes
@@ -337,15 +475,11 @@ export default function HomePage() {
     load();
     const t = setInterval(load, 120_000);
     return () => clearInterval(t);
-  }, []); // Removed fetchInitialFeed and fetchSponsoredContent from deps as they are defined in the component scope.
-                             // If they were wrapped in useCallback with their own deps, they could be included.
-                             // Given the error about 'exhaustive-deps' and the desire to make them stable,
-                             // moving their definitions outside and making them stable (not re-created on every render)
-                             // or carefully using useCallback is the standard fix.
-                             // For this correction, assuming they are stable by not being inside an effect/render block.
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    await Promise.all([fetchRecommendations(), fetchProductSpotlight()]);
     await fetchInitialFeed();
     setRefreshing(false);
   };
@@ -457,7 +591,6 @@ export default function HomePage() {
               .filter(i => i.type === 'post' && ((i.data as any)?.image_url || ((i.data as any)?.media_urls?.length > 0) || (i.data as any)?.is_video))
               .slice(0, 2);
             if (imgPosts.length < 2) return null;
-            const featuredIds = new Set(imgPosts.map(i => (i.data as any)?.id));
             return (
               <div className="grid grid-cols-2 gap-1.5 p-1.5 border-b border-border bg-muted/10">
                 {imgPosts.map(item => {
@@ -502,7 +635,7 @@ export default function HomePage() {
 
           {feedItems.map((item, index) => (
             <div
-              key={`${item.type}-${item.type === 'user-suggestions' ? 'sug' : (item.data as any)?.id ?? index}-${index}`}
+              key={`${item.type}-${item.type === 'user-suggestions' ? 'sug' : item.type === 'product-spotlight' ? 'products' : (item.data as any)?.id ?? index}-${index}`}
               ref={index === feedItems.length - 1 ? lastElementRef : null}
               className="animate-slide-in"
             >
@@ -514,6 +647,10 @@ export default function HomePage() {
                 <SponsoredPostCard post={item.data} />
               ) : item.type === 'user-suggestions' ? (
                 <InlineSuggestions />
+              ) : item.type === 'recommended' ? (
+                <RecommendedPostCard post={item.data} onNavigate={(p: string) => navigate(p)} />
+              ) : item.type === 'product-spotlight' ? (
+                <ProductSpotlightRail products={item.data} onNavigate={(p: string) => navigate(p)} />
               ) : (
                 <ThreadCard thread={item.data} />
               )}
@@ -582,6 +719,75 @@ function EmptyState({ tab, navigate }: { tab: Tab; navigate: (p: string) => void
   );
 }
 
+// ── Recommended Post Card ─────────────────────────────────────────────────────
+function RecommendedPostCard({ post, onNavigate }: { post: any; onNavigate: (p: string) => void }) {
+  if (!post?.id) return null;
+  return (
+    <div className="border-b border-border bg-primary/[0.02]">
+      <div className="px-4 pt-2.5 pb-0 flex items-center gap-1.5">
+        <Sparkles className="w-3 h-3 text-primary" />
+        <span className="text-[11px] font-bold text-primary uppercase tracking-wide">Recommended for you</span>
+        {post._reason && (
+          <span className="text-[10px] text-muted-foreground">· {post._reason}</span>
+        )}
+      </div>
+      <PostCard post={post} onUpdate={() => {}} />
+    </div>
+  );
+}
+
+// ── Product Spotlight Rail ────────────────────────────────────────────────────
+function ProductSpotlightRail({ products, onNavigate }: { products: any[]; onNavigate: (p: string) => void }) {
+  if (!products || products.length === 0) return null;
+  return (
+    <div className="border-b border-border py-3">
+      <div className="px-4 flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-1.5">
+          <ShoppingBag className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs font-bold text-foreground">From creators you follow</span>
+        </div>
+        <button
+          onClick={() => onNavigate('/products')}
+          className="text-xs text-primary font-semibold hover:underline"
+        >
+          See all
+        </button>
+      </div>
+      <div className="flex gap-3 overflow-x-auto scrollbar-hide px-4 pb-1">
+        {products.map((p: any) => (
+          <div key={p.id} className="shrink-0 w-36 rounded-xl border border-border bg-card overflow-hidden hover:shadow-md transition-shadow">
+            <div className="w-full h-24 bg-muted overflow-hidden">
+              {p.image_url
+                ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" loading="lazy" />
+                : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-8 h-8 text-muted-foreground" /></div>
+              }
+            </div>
+            <div className="p-2">
+              <p className="text-xs font-semibold line-clamp-1">{p.name}</p>
+              <p className="text-sm font-black text-primary">${Number(p.price).toFixed(2)}</p>
+              <div className="flex items-center gap-1 mt-1">
+                {p.user_profiles?.avatar_url
+                  ? <img src={p.user_profiles.avatar_url} alt="" className="w-3.5 h-3.5 rounded-full" />
+                  : <div className="w-3.5 h-3.5 rounded-full bg-muted" />
+                }
+                <span className="text-[10px] text-muted-foreground truncate">{p.user_profiles?.username}</span>
+              </div>
+              {p.external_link && (
+                <a
+                  href={p.external_link} target="_blank" rel="noopener noreferrer"
+                  className="mt-1.5 flex items-center justify-center gap-1 w-full py-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Buy
+                </a>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Federated Post Card ───────────────────────────────────────────────────────
 function FederatedPostCard({ post }: { post: any }) {
   const actor = post.actor ?? post.account ?? {};
@@ -595,40 +801,27 @@ function FederatedPostCard({ post }: { post: any }) {
   const displayName = actor.name ?? actor.display_name ?? username;
   const createdAt = post.created_at ?? post.published ?? '';
 
-  // ── Translator state ────────────────────────────────────────────────────
   const [translation, setTranslation] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
 
   const handleTranslate = async () => {
-    if (translation) {
-      setShowTranslation(prev => !prev);
-      return;
-    }
+    if (translation) { setShowTranslation(prev => !prev); return; }
     const rawText = (post.content ?? post.text ?? '').replace(/<[^>]*>/g, '').trim();
     if (!rawText) return;
     setTranslating(true);
     try {
       const { data, error } = await supabase.functions.invoke('ai-chat', {
         body: {
-          messages: [
-            {
-              role: 'user',
-              content: `Translate the following text to English. Return only the translation, nothing else:\n\n${rawText}`,
-            },
-          ],
+          messages: [{ role: 'user', content: `Translate the following text to English. Return only the translation, nothing else:\n\n${rawText}` }],
           model: 'gemini-2.0-flash',
         },
       });
       if (error) throw error;
-      const result = data?.choices?.[0]?.message?.content ??
-        data?.content ??
-        data?.text ??
-        data?.response ?? '';
+      const result = data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? data?.response ?? '';
       setTranslation(result.trim());
       setShowTranslation(true);
     } catch (err) {
-      console.warn('[translate] Error:', err);
       setTranslation('Translation failed. Please try again.');
       setShowTranslation(true);
     } finally {
@@ -669,7 +862,6 @@ function FederatedPostCard({ post }: { post: any }) {
             dangerouslySetInnerHTML={{ __html: post.content ?? post.text ?? '' }}
           />
 
-          {/* Translated text panel */}
           {showTranslation && translation && (
             <div className="mt-2 p-3 bg-blue-500/5 border border-blue-500/15 rounded-xl">
               <p className="text-xs font-semibold text-blue-500 mb-1 flex items-center gap-1">
@@ -683,13 +875,7 @@ function FederatedPostCard({ post }: { post: any }) {
             <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl overflow-hidden">
               {post.media_attachments.slice(0, 4).map((m: any, i: number) =>
                 m.type === 'image' ? (
-                  <img
-                    key={i}
-                    src={m.url ?? m.preview_url}
-                    alt={m.description ?? ''}
-                    className="w-full h-32 object-cover"
-                    loading="lazy"
-                  />
+                  <img key={i} src={m.url ?? m.preview_url} alt={m.description ?? ''} className="w-full h-32 object-cover" loading="lazy" />
                 ) : null
               )}
             </div>
@@ -708,7 +894,6 @@ function FederatedPostCard({ post }: { post: any }) {
               <Heart className="w-3.5 h-3.5" />
               {formatNumber(post.favourites_count ?? post.likes_count ?? 0)}
             </span>
-            {/* Translate button */}
             <button
               onClick={handleTranslate}
               disabled={translating}
@@ -748,9 +933,28 @@ function InlineSuggestions() {
       const followed = new Set(followData?.map((f: any) => f.following_id) ?? []);
       setFollowingIds(followed);
 
+      // Try user_suggestions table first
+      const { data: sugData } = await supabase
+        .from('user_suggestions')
+        .select('suggested_user_id, score, reason, user_profiles!user_suggestions_suggested_user_id_fkey(id, username, avatar_url, followers_count, verified)')
+        .eq('user_id', user.id)
+        .order('score', { ascending: false })
+        .limit(5);
+
+      if (sugData && sugData.length > 0) {
+        const sugProfiles = sugData
+          .map((s: any) => s.user_profiles)
+          .filter((p: any) => p && !followed.has(p.id));
+        if (sugProfiles.length > 0) {
+          setSuggestions(sugProfiles.slice(0, 3));
+          return;
+        }
+      }
+
+      // Fallback: popular users not yet followed
       const { data } = await supabase
         .from('user_profiles')
-        .select('id, username, avatar_url, followers_count')
+        .select('id, username, avatar_url, followers_count, verified')
         .neq('id', user.id)
         .order('followers_count', { ascending: false })
         .limit(10);
