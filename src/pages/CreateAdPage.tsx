@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -19,10 +19,11 @@ export default function CreateAdPage() {
   useSEO({ noindex: true, title: 'Create Advertisement', url: '/create-ad' });
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'mpesa' | 'success'>('form');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [title, setTitle] = useState(searchParams.get('title') ?? '');
+  const [description, setDescription] = useState(searchParams.get('desc') ?? '');
   const [targetUrl, setTargetUrl] = useState('');
   const [budgetKes, setBudgetKes] = useState('');
   const [image, setImage] = useState<File | null>(null);
