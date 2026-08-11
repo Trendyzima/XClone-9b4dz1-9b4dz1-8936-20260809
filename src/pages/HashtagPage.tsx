@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { Loader2, TrendingUp, Check, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
-import { useNavigate } from 'react-router-dom';
 import { useSEO, buildHashtagLD, buildOgImageUrl } from '@/hooks/useSEO';
 
 export default function HashtagPage() {
@@ -51,8 +50,7 @@ export default function HashtagPage() {
   }, [tag, user]);
 
   const fetchTopPosts = async (hashtagId: string) => {
-    // Top posts: sorted by engagement in last 7 days
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    // Top posts: sorted by engagement
     const { data } = await supabase
       .from('post_hashtags')
       .select('post_id, posts(*, user_profiles(*))')
