@@ -54,42 +54,37 @@ const stub = path.resolve(__dirname, 'src/lib/capacitor-stub.ts');
  */
 const resolveTypescriptExtensions = {
   name: 'resolve-ts-extensions',
-  resolveId: {
-    order: 'pre',
-    handler(source, importer) {
-      // Skip: already has an extension, or a bare module (no slash, no dot-start)
-      if (/\.[jt]sx?$/.test(source)) return null;
-      if (source.startsWith('\0')) return null;
-      if (!source.startsWith('/') && !source.startsWith('.') && !source.startsWith('@/')) return null;
+  enforce: 'pre',
+  resolveId(source, importer) {
+    // Skip: already has an extension, or a bare specifier without @/ prefix
+    if (/\.[jt]sx?$/.test(source)) return null;
+    if (source.startsWith('\0')) return null;
+    if (!source.startsWith('/') && !source.startsWith('.') && !source.startsWith('@/')) return null;
 
-      let base;
-      if (source.startsWith('@/')) {
-        base = path.join(__dirname, 'src', source.slice(2));
-      } else if (source.startsWith('/')) {
-        base = source;
-      } else if (importer) {
-        const importerDir = path.dirname(importer.split('?')[0]);
-        base = path.join(importerDir, source);
-      } else {
-        return null;
-      }
-
-      const exts = ['.tsx', '.ts', '.jsx', '.js'];
-
-      // Try direct extensions
-      for (const ext of exts) {
-        const full = base + ext;
-        if (fs.existsSync(full)) return full;
-      }
-
-      // Try index files
-      for (const ext of exts) {
-        const full = path.join(base, 'index' + ext);
-        if (fs.existsSync(full)) return full;
-      }
-
+    let base;
+    if (source.startsWith('@/')) {
+      base = path.join(__dirname, 'src', source.slice(2));
+    } else if (source.startsWith('/')) {
+      base = source;
+    } else if (importer) {
+      const importerDir = path.dirname(importer.split('?')[0]);
+      base = path.join(importerDir, source);
+    } else {
       return null;
-    },
+    }
+
+    const exts = ['.tsx', '.ts', '.jsx', '.js'];
+
+    for (const ext of exts) {
+      const full = base + ext;
+      if (fs.existsSync(full)) return full;
+    }
+    for (const ext of exts) {
+      const full = path.join(base, 'index' + ext);
+      if (fs.existsSync(full)) return full;
+    }
+
+    return null;
   },
 };
 
@@ -99,7 +94,7 @@ module.exports = defineConfig({
     port: 8080,
   },
 
-  plugins: reactPlugin ? [reactPlugin] : [],
+  plugins: reactPlugin ? [reactPlugin, resolveTypescriptExtensions] : [resolveTypescriptExtensions],
 
   esbuild: {
     jsx: 'automatic',
@@ -134,7 +129,6 @@ module.exports = defineConfig({
     rollupOptions: {
       external: (id) => /\.test\.[jt]sx?$/.test(id) || /\.spec\.[jt]sx?$/.test(id),
       plugins: [
-        resolveTypescriptExtensions,
         {
           name: 'vite-chunk-repatch',
           buildStart() { patchViteChunks(); },
