@@ -83,6 +83,35 @@ export default function ThreadDetailPage() {
     }
   };
 
+  // Chapter editor for thread owner
+  const [editingChapters, setEditingChapters] = useState(false);
+  const [editChapters, setEditChapters] = useState<{ time: string; title: string }[]>([]);
+  const [savingChapters, setSavingChapters] = useState(false);
+
+  const openChapterEditor = () => {
+    const chs: { time: number; title: string }[] = (thread as any).chapters ?? [];
+    setEditChapters(chs.map(ch => ({ time: `${Math.floor(ch.time / 60)}:${String(Math.floor(ch.time % 60)).padStart(2, '0')}`, title: ch.title })));
+    setEditingChapters(true);
+  };
+
+  const saveChapters = async () => {
+    if (!thread) return;
+    setSavingChapters(true);
+    const parsed = editChapters
+      .filter(ch => ch.title.trim())
+      .map(ch => {
+        const parts = ch.time.split(':').map(Number);
+        const secs = parts.length === 2 ? parts[0] * 60 + (parts[1] || 0) : parts[0] || 0;
+        return { time: secs, title: ch.title.trim() };
+      });
+    await supabase.from('threads').update({ chapters: parsed.length > 0 ? parsed : null }).eq('id', thread.id);
+    setThread({ ...thread, chapters: parsed.length > 0 ? parsed : null });
+    setChapters(parsed);
+    setEditingChapters(false);
+    setSavingChapters(false);
+    sonnerToast.success('Chapters saved!');
+  };
+
   // Video Chapters
   const videoRef = useRef<HTMLVideoElement>(null);
   const [chapters, setChapters] = useState<{ time: number; title: string }[]>([]);
@@ -202,6 +231,15 @@ export default function ThreadDetailPage() {
 
       if (error) throw error;
       setThread(data);
+
+      // Inject OG meta for deep link sharing
+      const ogTitle = `${data.title} — by @${data.user_profiles?.username}`;
+      const ogDesc = data.content?.replace(/<[^>]*>/g, '').slice(0, 200) || 'Read this thread';
+      const ogImg = data.cover_image || data.media_url || `${window.location.origin}/app-icon.jpg`;
+      const setM = (p: string, c: string) => { let el = document.querySelector(`meta[property="${p}"]`) as HTMLMetaElement | null; if (!el) { el = document.createElement('meta'); el.setAttribute('property', p); document.head.appendChild(el); } el.setAttribute('content', c); };
+      document.title = ogTitle;
+      setM('og:title', ogTitle); setM('og:description', ogDesc); setM('og:image', ogImg);
+      setM('og:url', window.location.href); setM('og:type', 'article');
 
       // Extract hashtags and fetch related posts
       const hashtags = (data.content.match(/#\w+/g) || []).map(tag => tag.substring(1).toLowerCase());
@@ -516,6 +554,39 @@ export default function ThreadDetailPage() {
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="Thread" showBack />
 
+      {/* ── Chapter Editor Modal ── */}
+      {editingChapters && (
+        <div className="fixed inset-0 z-[400] bg-black/60 flex items-end justify-center p-4" onClick={() => setEditingChapters(false)}>
+          <div className="bg-background border border-border rounded-2xl w-full max-w-lg p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2"><Clock className="w-4 h-4 text-primary" /> Edit Video Chapters</h3>
+              <button onClick={() => setEditingChapters(false)} className="p-1.5 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {editChapters.map((ch, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input type="text" value={ch.time} onChange={e => setEditChapters(prev => prev.map((c, j) => j === i ? { ...c, time: e.target.value } : c))}
+                    placeholder="0:00" className="w-16 text-sm border border-border rounded-lg px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                  <input type="text" value={ch.title} onChange={e => setEditChapters(prev => prev.map((c, j) => j === i ? { ...c, title: e.target.value } : c))}
+                    placeholder="Chapter title…" maxLength={40} className="flex-1 text-sm border border-border rounded-lg px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                  <button onClick={() => setEditChapters(prev => prev.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-destructive"><X className="w-4 h-4" /></button>
+                </div>
+              ))}
+              <button onClick={() => setEditChapters(prev => [...prev, { time: '0:00', title: '' }])} className="w-full py-2 border-2 border-dashed border-border rounded-xl text-xs font-semibold text-muted-foreground hover:border-primary/30 hover:text-primary transition-colors">
+                + Add Chapter
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setEditingChapters(false)} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted">Cancel</button>
+              <button onClick={saveChapters} disabled={savingChapters} className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+                {savingChapters ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Save Chapters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <article className="max-w-3xl mx-auto">
         {/* Thread Header */}
         <div className="p-6 border-b border-border">
@@ -611,7 +682,13 @@ export default function ThreadDetailPage() {
               />
               {chapters.length > 0 && (
                 <div className="bg-black/90 px-4 py-2.5">
-                  <p className="text-[10px] text-white/50 uppercase tracking-widest mb-1.5 flex items-center gap-1.5"><Clock className="w-3 h-3" /> Chapters</p>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] text-white/50 uppercase tracking-widest flex items-center gap-1.5"><Clock className="w-3 h-3" /> Chapters</p>
+                    {/* Chapter edit button — only for thread owner */}
+                    {user && thread?.user_profiles?.id === user.id && (
+                      <button onClick={openChapterEditor} className="text-[10px] text-primary font-semibold hover:underline">✏️ Edit</button>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {chapters.map((ch, i) => (
                       <button key={i} onClick={() => { if (videoRef.current) videoRef.current.currentTime = ch.time; setCurrentChapter(i); }}

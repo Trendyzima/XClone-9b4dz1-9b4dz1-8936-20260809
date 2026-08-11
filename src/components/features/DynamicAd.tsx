@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Capacitor } from '@/lib/capacitor-stub';
+import { usePremium } from '@/hooks/usePremium';
 
 interface DynamicAdProps {
   location: 'feed_top' | 'feed_inline' | 'sidebar' | 'profile' | 'explore';
@@ -23,6 +24,7 @@ export function DynamicAd({ location, className = '' }: DynamicAdProps) {
   const [adPlacements, setAdPlacements] = useState<AdPlacement[]>([]);
   const [loading, setLoading] = useState(true);
   const isNative = Capacitor.isNativePlatform();
+  const { isActive: isPremium } = usePremium();
 
   useEffect(() => {
     fetchAds();
@@ -46,6 +48,7 @@ export function DynamicAd({ location, className = '' }: DynamicAdProps) {
     supabase.rpc('track_ad_view', { ad_id_param: adId, user_id_param: null }).catch(() => {});
   };
 
+  if (isPremium) return null; // Ad-free for premium users
   if (loading || adPlacements.length === 0) return null;
   if (isNative) return null;
 

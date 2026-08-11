@@ -7,19 +7,22 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 import { VideoMonetizationAd } from './VideoMonetizationAd';
+import { usePremium } from '@/hooks/usePremium';
 
 interface VideoPlayerProps {
   post: Post;
   isActive: boolean;
   onUpdate?: () => void;
+  shouldPreload?: boolean;
 }
 
 // Show pre-roll ad on every 3rd video OR for monetized content
 let videoViewCounter = 0;
 
-export function VideoPlayer({ post, isActive, onUpdate }: VideoPlayerProps) {
+export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { user } = useAuth();
+  const { isActive: isPremium } = usePremium();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isPlaying, setIsPlaying] = useState(false);
@@ -30,7 +33,11 @@ export function VideoPlayer({ post, isActive, onUpdate }: VideoPlayerProps) {
   const [repostsCount, setRepostsCount] = useState(post.reposts_count);
   const [showComments, setShowComments] = useState(false);
   const [showPrerollAd, setShowPrerollAd] = useState(false);
+  const [showMidrollAd, setShowMidrollAd] = useState(false);
   const [adDoneForThisPost, setAdDoneForThisPost] = useState(false);
+  const [midrollDone, setMidrollDone] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -41,7 +48,7 @@ export function VideoPlayer({ post, isActive, onUpdate }: VideoPlayerProps) {
       videoViewCounter++;
 
       // Show pre-roll: every 3rd video OR if post is monetized
-      const shouldShowAd = !adDoneForThisPost && (post.is_monetized || videoViewCounter % 3 === 0);
+      const shouldShowAd = !isPremium && !adDoneForThisPost && (post.is_monetized || videoViewCounter % 3 === 0);
       if (shouldShowAd) {
         setShowPrerollAd(true);
         setAdDoneForThisPost(true);
@@ -56,8 +63,21 @@ export function VideoPlayer({ post, isActive, onUpdate }: VideoPlayerProps) {
 
   const handleAdComplete = () => {
     setShowPrerollAd(false);
+    setShowMidrollAd(false);
     const video = videoRef.current;
     if (video) video.play().then(() => setIsPlaying(true)).catch(() => {});
+  };
+
+  const handleTimeUpdate = () => {
+    const video = videoRef.current;
+    if (!video || midrollDone || !post.is_monetized || isPremium) return;
+    const pct = video.currentTime / (video.duration || 1);
+    setProgress(Math.round(pct * 100));
+    if (pct >= 0.5) {
+      setMidrollDone(true);
+      video.pause();
+      setShowMidrollAd(true);
+    }
   };
 
   const trackView = async () => {
@@ -145,6 +165,20 @@ export function VideoPlayer({ post, isActive, onUpdate }: VideoPlayerProps) {
           skipAfterSeconds={5}
         />
       )}
+      {/* Mid-roll ad overlay (fires at 50% of video) */}
+      {showMidrollAd && (
+        <div className="absolute inset-0 z-50 flex flex-col">
+          <div className="absolute top-2 right-2 z-10 bg-black/60 text-white/70 text-[10px] font-bold px-2 py-0.5 rounded-full">
+            Mid-roll Ad
+          </div>
+          <VideoMonetizationAd
+            postId={post.id}
+            creatorUserId={post.user_id}
+            onAdComplete={handleAdComplete}
+            skipAfterSeconds={5}
+          />
+        </div>
+      )}
 
       <video
         ref={videoRef}
@@ -152,9 +186,12 @@ export function VideoPlayer({ post, isActive, onUpdate }: VideoPlayerProps) {
         loop
         playsInline
         muted={isMuted}
+        preload={shouldPreload ? 'auto' : 'metadata'}
         className="h-full w-full object-cover"
         onClick={togglePlay}
         style={{ maxWidth: '100vw' }}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}
       />
 
       <div className="absolute inset-0 flex flex-col justify-between p-4 pointer-events-none" style={{ maxWidth: '100vw' }}>

@@ -525,6 +525,17 @@ export default function ProfilePage() {
 
       await Promise.all([
         fetchPosts(profileData.id),
+
+      // OG meta tags for deep link sharing
+      (() => {
+        const title = `@${profileData.username} on Testagram`;
+        const desc = profileData.bio?.slice(0, 200) || `Follow @${profileData.username} on Testagram`;
+        const img = profileData.avatar_url || `${window.location.origin}/app-icon.jpg`;
+        const setM = (p: string, v: string) => { let el = document.querySelector(`meta[property="${p}"]`) as HTMLMetaElement | null; if (!el) { el = document.createElement('meta'); el.setAttribute('property', p); document.head.appendChild(el); } el.setAttribute('content', v); };
+        document.title = title;
+        setM('og:title', title); setM('og:description', desc); setM('og:image', img);
+        setM('og:url', `${window.location.origin}/profile/${profileData.username}`);
+      })()
         fetchThreads(profileData.id),
         fetchReplies(profileData.id),
         fetchMedia(profileData.id),
