@@ -223,27 +223,50 @@ export function buildThreadLD(thread: {
   title: string;
   content: string;
   cover_image?: string;
+  media_url?: string;
   created_at: string;
+  updated_at?: string;
   user_id?: string;
   views_count?: number;
   likes_count?: number;
+  user_profiles?: { username?: string; avatar_url?: string; verified?: boolean };
 }) {
+  const author = thread.user_profiles?.username
+    ? {
+        '@type': 'Person',
+        name: thread.user_profiles.username,
+        url: `https://testagram.site/profile/${thread.user_profiles.username}`,
+        ...(thread.user_profiles.avatar_url ? { image: thread.user_profiles.avatar_url } : {}),
+      }
+    : { '@type': 'Organization', name: 'Testagram', url: 'https://testagram.site' };
+
+  const plainText = thread.content.replace(/<[^>]*>/g, '');
+  const wordCount = plainText.trim().split(/\s+/).filter(Boolean).length;
+
   return {
     '@context': 'https://schema.org',
     '@type': 'Article',
-    headline: thread.title,
-    articleBody: thread.content.slice(0, 500),
+    headline: thread.title.slice(0, 110),
+    description: plainText.slice(0, 200),
+    articleBody: plainText.slice(0, 1000),
+    wordCount,
     url: `https://testagram.site/thread/${thread.id}`,
+    mainEntityOfPage: {
+      '@type': 'WebPage',
+      '@id': `https://testagram.site/thread/${thread.id}`,
+    },
     datePublished: thread.created_at,
-    image: thread.cover_image || 'https://testagram.site/og-image.jpg',
+    dateModified: thread.updated_at || thread.created_at,
+    author,
+    image: thread.cover_image || thread.media_url || 'https://testagram.site/og-image.jpg',
     publisher: {
       '@type': 'Organization',
       name: 'Testagram',
       logo: { '@type': 'ImageObject', url: 'https://testagram.site/tsocial-logo.png' },
     },
     interactionStatistic: [
-      { '@type': 'InteractionCounter', interactionType: 'https://schema.org/ViewAction', userInteractionCount: thread.views_count ?? 0 },
-      { '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction', userInteractionCount: thread.likes_count ?? 0 },
+      { '@type': 'InteractionCounter', interactionType: 'https://schema.org/ViewAction',  userInteractionCount: thread.views_count ?? 0 },
+      { '@type': 'InteractionCounter', interactionType: 'https://schema.org/LikeAction',  userInteractionCount: thread.likes_count ?? 0 },
     ],
   };
 }

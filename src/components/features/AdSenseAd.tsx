@@ -13,7 +13,7 @@ interface AdSenseAdProps {
 
 /**
  * Google AdSense Ad Component
- * Client: ca-pub-7234579833875016
+ * Client: ca-pub-2458567543017441
  * Only renders on web (not native app).
  */
 export function AdSenseAd({
@@ -68,7 +68,7 @@ export function AdSenseAd({
         ref={adRef}
         className="adsbygoogle"
         style={{ display: 'block', minHeight: 60, ...style }}
-        data-ad-client="ca-pub-7234579833875016"
+        data-ad-client="ca-pub-2458567543017441"
         data-ad-slot={adSlot}
         data-ad-format={adFormat}
         data-full-width-responsive={fullWidthResponsive.toString()}

@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { TopBar } from '@/components/layout/TopBar';
 import {
-  Gift, Zap, CheckCircle2, Clock, Loader2, Coins,
+  Gift, CheckCircle2, Clock, Loader2, Coins,
   TrendingUp, Star, Play, BarChart3, RefreshCw,
   Flame, Shield, ArrowUpRight
 } from 'lucide-react';
@@ -17,6 +17,7 @@ import { AD_REVENUE_SPLIT, ADMOB_CONFIG, showRewarded, isAdMobSupported } from '
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MAX_ADS_PER_DAY = 10;
 const CREDITS_PER_AD = 25;
+const CREDITS_PER_DAY_REWARD = CREDITS_PER_AD;
 const STREAK_BONUS_CREDITS = 15; // extra credits on a 3-ad streak
 
 // ── Reward type metadata ──────────────────────────────────────────────────────
@@ -574,5 +575,4 @@ export default function RewardedAdHistory() {
   );
 }
 
-// Fix: Constant referenced inside component must be declared outside
-const CREDITS_PER_DAY_REWARD = CREDITS_PER_AD;
+

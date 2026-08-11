@@ -74,21 +74,7 @@ export default function ThreadsPage() {
 
   useEffect(() => {
     fetchThreads();
-    // The error message "Definition for rule 'react-hooks/exhaustive-deps' was not found"
-    // indicates an ESLint configuration issue, not a syntax error in the code itself.
-    // However, if the intent was to disable the rule for this specific line,
-    // the comment format `// eslint-disable-next-line react-hooks/exhaustive-deps` is correct.
-    // Since this is a syntax correction assistant, and the code's syntax is valid,
-    // no change is strictly needed for the `// eslint-disable-next-line` line.
-    // If we *must* change something because the linter *failed to understand* the directive,
-    // the only truly "syntax fix" would be to remove the comment, but that would
-    // re-introduce a potential linting warning/error if the rule *was* correctly configured.
-    // Given the prompt, the best course of action is to leave the code as is,
-    // as the issue is with the linter setup not parsing the directive, not the TSX syntax.
-    // However, if the directive itself was malformed, that would be a different case.
-    // Here, it's about the linter *rule definition* not being found.
-    // Thus, no change to the code is needed.
-  }, [activeTab, user]); // Added 'user' to the dependency array as it's used inside fetchThreads for 'Following' tab
+  }, [activeTab, user?.id]);
 
   const fetchThreads = async () => {
     setLoading(true);
