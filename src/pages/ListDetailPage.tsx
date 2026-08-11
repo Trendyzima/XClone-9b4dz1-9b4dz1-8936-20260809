@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { PostCard } from '@/components/features/PostCard';
-import { Users, Plus, Settings, Trash2, Lock, Globe, Search, X, Loader2 } from 'lucide-react';
+import { Users, Plus, Trash2, Lock, Globe, Search, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 
@@ -21,6 +22,34 @@ export default function ListDetailPage() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
+
+  const listJsonLd = useMemo(() => {
+    if (!list) return undefined;
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: list.name,
+      description: list.description ?? `A curated list by @${user?.email?.split('@')[0] ?? 'creator'} on Testagram`,
+      url: `https://testagram.site/lists/${id}`,
+      numberOfItems: members.length,
+      itemListElement: members.slice(0, 10).map((m: any, i: number) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: m.username,
+        url: `https://testagram.site/profile/${m.username}`,
+      })),
+    };
+  }, [list, members, id, user]);
+
+  useSEO({
+    title: list ? `${list.name} — List on Testagram` : 'List',
+    description: list
+      ? `${list.name}: ${members.length} member${members.length !== 1 ? 's' : ''}${list.description ? '. ' + list.description : ''}. Curated on Testagram.`
+      : 'A curated list on Testagram.',
+    url: `/lists/${id}`,
+    noindex: list?.is_private ?? true,
+    structuredData: listJsonLd,
+  });
 
   useEffect(() => {
     if (id) {
