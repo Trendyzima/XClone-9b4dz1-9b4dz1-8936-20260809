@@ -5,27 +5,28 @@ import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import {
-  Zap, Target, DollarSign, Calendar, Users, TrendingUp,
+  Zap, Target, DollarSign, Calendar, Users,
   Eye, MousePointerClick, Loader2, ChevronRight, CheckCircle2,
   Megaphone, Video, Image as ImageIcon, BarChart3
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
-
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function BoostCreateAdBanner() { return <PageAdBanner />; }
 
-const BOOST_TYPES = [
-  { id: 'reach', icon: <Eye className="w-5 h-5 text-blue-500" />, label: 'Reach', desc: 'Maximize impressions across feeds', color: 'border-blue-500/30 bg-blue-500/5', activeColor: 'border-blue-500 bg-blue-500/10' },
-  { id: 'engagement', icon: <MousePointerClick className="w-5 h-5 text-green-500" />, label: 'Engagement', desc: 'Drive likes, comments & shares', color: 'border-green-500/30 bg-green-500/5', activeColor: 'border-green-500 bg-green-500/10' },
-  { id: 'conversions', icon: <Target className="w-5 h-5 text-purple-500" />, label: 'Conversions', desc: 'Profile visits & follows', color: 'border-purple-500/30 bg-purple-500/5', activeColor: 'border-purple-500 bg-purple-500/10' },
-  { id: 'video_views', icon: <Video className="w-5 h-5 text-red-500" />, label: 'Video Views', desc: 'Maximize video play-throughs', color: 'border-red-500/30 bg-red-500/5', activeColor: 'border-red-500 bg-red-500/10' },
-];
+// Boost type data — no JSX at module scope to prevent esbuild non-determinism
+const BOOST_TYPE_DATA = [
+  { id: 'reach',       label: 'Reach',       desc: 'Maximize impressions across feeds',   color: 'border-blue-500/30 bg-blue-500/5',   activeColor: 'border-blue-500 bg-blue-500/10'   },
+  { id: 'engagement',  label: 'Engagement',  desc: 'Drive likes, comments & shares',      color: 'border-green-500/30 bg-green-500/5', activeColor: 'border-green-500 bg-green-500/10' },
+  { id: 'conversions', label: 'Conversions', desc: 'Profile visits & follows',            color: 'border-purple-500/30 bg-purple-500/5', activeColor: 'border-purple-500 bg-purple-500/10' },
+  { id: 'video_views', label: 'Video Views', desc: 'Maximize video play-throughs',        color: 'border-red-500/30 bg-red-500/5',    activeColor: 'border-red-500 bg-red-500/10'   },
+] as const;
 
 const AUDIENCE_INTERESTS = [
   'Technology', 'Sports', 'Music', 'Art', 'Food', 'Travel', 'Fashion', 'Gaming',
   'Finance', 'Health', 'Education', 'Entertainment', 'Business', 'Science',
-];
+] as const;
+
+function BoostCreateAdBanner() { return <PageAdBanner />; }
 
 export default function BoostCreatePage() {
   useSEO({ noindex: true, title: 'Create Boost Campaign', url: '/boost-create' });
@@ -44,8 +45,19 @@ export default function BoostCreatePage() {
   const [launching, setLaunching] = useState(false);
   const [launched, setLaunched] = useState(false);
   const [walletBalance, setWalletBalance] = useState(0);
+  // endDate label — computed in state to avoid new Date() in JSX
+  const [endDateLabel, setEndDateLabel] = useState('');
 
   const totalBudget = dailyBudget * duration;
+  // Deterministic estimate: ~545 impressions/$, 1.8% CTR
+  const estimatedImpressions = totalBudget * 545;
+  const estimatedClicks = Math.round(estimatedImpressions * 0.018);
+
+  // Update end date label whenever duration changes (inside effect, not render)
+  useEffect(() => {
+    const d = new Date(Date.now() + duration * 86400000);
+    setEndDateLabel(d.toLocaleDateString('en', { month: 'short', day: 'numeric' }));
+  }, [duration]);
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -73,10 +85,6 @@ export default function BoostCreatePage() {
     );
   };
 
-  // Estimated reach calculation
-  const estimatedImpressions = Math.round(totalBudget * 500 + Math.random() * totalBudget * 100);
-  const estimatedClicks = Math.round(estimatedImpressions * 0.018);
-
   const handleLaunch = async () => {
     if (!user || !postId) return;
     if (totalBudget > walletBalance) {
@@ -86,11 +94,7 @@ export default function BoostCreatePage() {
     setLaunching(true);
     try {
       const endDate = new Date(Date.now() + duration * 86400000).toISOString();
-      const targetAudience = {
-        age_min: ageMin,
-        age_max: ageMax,
-        interests: selectedInterests,
-      };
+      const targetAudience = { age_min: ageMin, age_max: ageMax, interests: selectedInterests };
 
       const { error } = await supabase.from('boosted_posts').insert({
         post_id: postId,
@@ -107,15 +111,9 @@ export default function BoostCreatePage() {
         daily_reach: 0,
         total_reach: 0,
       });
-
       if (error) throw error;
 
-      // Deduct from wallet
-      await supabase.rpc('deduct_from_wallet', {
-        p_user_id: user.id,
-        p_amount: totalBudget,
-      }).catch(() => {});
-
+      await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: totalBudget }).catch(() => {});
       setLaunched(true);
       toast.success('Boost campaign launched!');
       setTimeout(() => navigate(`/boost-analytics/${postId}`), 1800);
@@ -154,6 +152,8 @@ export default function BoostCreatePage() {
       </div>
     );
   }
+
+  const boostTypeLabel = BOOST_TYPE_DATA.find(b => b.id === boostType)?.label ?? boostType;
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -195,7 +195,7 @@ export default function BoostCreatePage() {
               <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                 <span className="flex items-center gap-0.5"><Eye className="w-3 h-3" />{formatNumber(post.views_count ?? 0)}</span>
                 <span>·</span>
-                {post.is_video ? <span className="text-red-500 font-semibold">📹 Video</span> : <span>📷 Image</span>}
+                {post.is_video ? <span className="text-red-500 font-semibold">Video</span> : <span>Image</span>}
               </div>
             </div>
             <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -206,71 +206,61 @@ export default function BoostCreatePage() {
         <div>
           <h2 className="text-sm font-bold mb-3 flex items-center gap-2"><Target className="w-4 h-4 text-primary" />Campaign Objective</h2>
           <div className="grid grid-cols-2 gap-2">
-            {BOOST_TYPES.map((bt) => (
-              <button
-                key={bt.id}
-                onClick={() => setBoostType(bt.id)}
-                className={`p-3 rounded-2xl border-2 text-left transition-all hover:scale-[1.01] ${boostType === bt.id ? bt.activeColor : bt.color}`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  {bt.icon}
-                  <span className={`text-sm font-bold ${boostType === bt.id ? 'text-foreground' : 'text-muted-foreground'}`}>{bt.label}</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground leading-snug">{bt.desc}</p>
-                {boostType === bt.id && (
-                  <div className="mt-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-primary-foreground" />
+            {BOOST_TYPE_DATA.map((bt) => {
+              const isActive = boostType === bt.id;
+              // Render icon inside the map callback (not at module scope)
+              const IconEl = bt.id === 'reach' ? <Eye className="w-5 h-5 text-blue-500" />
+                : bt.id === 'engagement' ? <MousePointerClick className="w-5 h-5 text-green-500" />
+                : bt.id === 'conversions' ? <Target className="w-5 h-5 text-purple-500" />
+                : <Video className="w-5 h-5 text-red-500" />;
+              return (
+                <button
+                  key={bt.id}
+                  onClick={() => setBoostType(bt.id)}
+                  className={`p-3 rounded-2xl border-2 text-left transition-all hover:scale-[1.01] ${isActive ? bt.activeColor : bt.color}`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    {IconEl}
+                    <span className={`text-sm font-bold ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>{bt.label}</span>
                   </div>
-                )}
-              </button>
-            ))}
+                  <p className="text-[11px] text-muted-foreground leading-snug">{bt.desc}</p>
+                  {isActive && (
+                    <div className="mt-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-primary-foreground" />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Budget & Duration */}
         <div className="border border-border rounded-2xl p-5 space-y-5">
           <h2 className="text-sm font-bold flex items-center gap-2"><DollarSign className="w-4 h-4 text-green-500" />Budget & Duration</h2>
-
-          {/* Daily budget */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-muted-foreground">Daily Budget</label>
               <span className="text-lg font-black text-green-600">${dailyBudget}/day</span>
             </div>
-            <input
-              type="range" min={1} max={100} step={1}
-              value={dailyBudget}
-              onChange={e => setDailyBudget(Number(e.target.value))}
-              className="w-full accent-green-500"
-            />
+            <input type="range" min={1} max={100} step={1} value={dailyBudget} onChange={e => setDailyBudget(Number(e.target.value))} className="w-full accent-green-500" />
             <div className="grid grid-cols-4 gap-1.5 mt-2">
-              {[2, 5, 10, 25].map(v => (
+              {([2, 5, 10, 25] as const).map(v => (
                 <button key={v} onClick={() => setDailyBudget(v)}
-                  className={`py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                    dailyBudget === v ? 'border-green-500 bg-green-500/10 text-green-700' : 'border-border hover:border-green-500/30'
-                  }`}>${v}/day</button>
+                  className={`py-1.5 rounded-lg text-xs font-bold border transition-colors ${dailyBudget === v ? 'border-green-500 bg-green-500/10 text-green-700' : 'border-border hover:border-green-500/30'}`}>${v}/day</button>
               ))}
             </div>
           </div>
-
-          {/* Duration */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-muted-foreground">Duration</label>
               <span className="text-lg font-black text-blue-600">{duration} days</span>
             </div>
-            <input
-              type="range" min={1} max={30} step={1}
-              value={duration}
-              onChange={e => setDuration(Number(e.target.value))}
-              className="w-full accent-blue-500"
-            />
+            <input type="range" min={1} max={30} step={1} value={duration} onChange={e => setDuration(Number(e.target.value))} className="w-full accent-blue-500" />
             <div className="grid grid-cols-4 gap-1.5 mt-2">
-              {[3, 7, 14, 30].map(v => (
+              {([3, 7, 14, 30] as const).map(v => (
                 <button key={v} onClick={() => setDuration(v)}
-                  className={`py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                    duration === v ? 'border-blue-500 bg-blue-500/10 text-blue-700' : 'border-border hover:border-blue-500/30'
-                  }`}>{v}d</button>
+                  className={`py-1.5 rounded-lg text-xs font-bold border transition-colors ${duration === v ? 'border-blue-500 bg-blue-500/10 text-blue-700' : 'border-border hover:border-blue-500/30'}`}>{v}d</button>
               ))}
             </div>
           </div>
@@ -279,8 +269,6 @@ export default function BoostCreatePage() {
         {/* Audience targeting */}
         <div className="border border-border rounded-2xl p-5 space-y-4">
           <h2 className="text-sm font-bold flex items-center gap-2"><Users className="w-4 h-4 text-purple-500" />Target Audience</h2>
-
-          {/* Age range */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-muted-foreground">Age Range</label>
@@ -289,20 +277,14 @@ export default function BoostCreatePage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="text-[10px] text-muted-foreground mb-1">Min age</p>
-                <input type="range" min={13} max={ageMax - 1} value={ageMin}
-                  onChange={e => setAgeMin(Number(e.target.value))}
-                  className="w-full accent-purple-500" />
+                <input type="range" min={13} max={ageMax - 1} value={ageMin} onChange={e => setAgeMin(Number(e.target.value))} className="w-full accent-purple-500" />
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground mb-1">Max age</p>
-                <input type="range" min={ageMin + 1} max={65} value={ageMax}
-                  onChange={e => setAgeMax(Number(e.target.value))}
-                  className="w-full accent-purple-500" />
+                <input type="range" min={ageMin + 1} max={65} value={ageMax} onChange={e => setAgeMax(Number(e.target.value))} className="w-full accent-purple-500" />
               </div>
             </div>
           </div>
-
-          {/* Interests */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-muted-foreground">Interests</label>
@@ -310,17 +292,12 @@ export default function BoostCreatePage() {
             </div>
             <div className="flex flex-wrap gap-1.5">
               {AUDIENCE_INTERESTS.map((interest) => (
-                <button
-                  key={interest}
-                  onClick={() => toggleInterest(interest)}
+                <button key={interest} onClick={() => toggleInterest(interest)}
                   className={`px-2.5 py-1.5 rounded-full text-xs font-semibold border transition-all ${
                     selectedInterests.includes(interest)
                       ? 'border-purple-500 bg-purple-500/10 text-purple-700 dark:text-purple-300'
                       : 'border-border text-muted-foreground hover:border-purple-500/40 hover:bg-purple-500/5'
-                  }`}
-                >
-                  {interest}
-                </button>
+                  }`}>{interest}</button>
               ))}
             </div>
           </div>
@@ -343,15 +320,13 @@ export default function BoostCreatePage() {
               <p className="text-[10px] text-muted-foreground mt-0.5">Est. clicks</p>
             </div>
           </div>
-
-          {/* Details list */}
           <div className="space-y-2 text-sm border-t border-border/50 pt-3">
             {[
-              { label: 'Objective', value: BOOST_TYPES.find(b => b.id === boostType)?.label ?? boostType },
-              { label: 'Duration', value: `${duration} days (ends ${new Date(Date.now() + duration * 86400000).toLocaleDateString('en', { month: 'short', day: 'numeric' })})` },
+              { label: 'Objective',   value: boostTypeLabel },
+              { label: 'Duration',    value: endDateLabel ? `${duration} days (ends ${endDateLabel})` : `${duration} days` },
               { label: 'Daily spend', value: `$${dailyBudget.toFixed(2)}` },
-              { label: 'Age target', value: `${ageMin}–${ageMax} years` },
-              { label: 'Interests', value: selectedInterests.length > 0 ? selectedInterests.join(', ') : 'All' },
+              { label: 'Age target',  value: `${ageMin}–${ageMax} years` },
+              { label: 'Interests',   value: selectedInterests.length > 0 ? selectedInterests.join(', ') : 'All' },
             ].map(({ label, value }) => (
               <div key={label} className="flex items-center justify-between">
                 <span className="text-muted-foreground">{label}</span>
