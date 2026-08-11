@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatNumber } from '@/lib/utils';
+import { useSEO } from '@/hooks/useSEO';
 import { toast } from 'sonner';
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, subMonths } from 'date-fns';
 
@@ -68,6 +69,13 @@ function buildSeasons(): Season[] {
 }
 
 export default function LeaderboardPage() {
+  useSEO({
+    title: 'Top Creator Leaderboard',
+    description: 'See the top-earning creators on Testagram ranked by followers, earnings, and engagement. Join the creator economy today.',
+    url: '/leaderboard',
+    type: 'website',
+    keywords: 'leaderboard, top creators, testagram, creator earnings, followers ranking',
+  });
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('followers');
   const [data, setData] = useState<LeaderboardEntry[]>([]);

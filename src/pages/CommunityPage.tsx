@@ -17,6 +17,7 @@ import {
   Camera, Check, Send, MessageCircle, Mail, Calendar
 } from 'lucide-react';
 import { SchedulePostDialog } from '@/components/features/SchedulePostDialog';
+import { useSEO, buildCommunityLD } from '@/hooks/useSEO';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
 import { toast as sonnerToast } from 'sonner';
@@ -53,6 +54,18 @@ export default function CommunityPage() {
 
   const [loading, setLoading] = useState(true);
   const [community, setCommunity] = useState<Community | null>(null);
+
+  useSEO({
+    title: community ? `${community.display_name} Community` : 'Community',
+    description: community
+      ? (community.description?.slice(0, 155) || `Join ${community.display_name} on Testagram — ${community.member_count?.toLocaleString() ?? 0} members`)
+      : 'Explore communities on Testagram',
+    image: community?.icon_url || undefined,
+    url: community ? `/c/${community.name}` : undefined,
+    type: 'website',
+    keywords: community ? `${community.display_name}, ${community.name}, community, testagram` : undefined,
+    structuredData: community ? buildCommunityLD(community) : undefined,
+  });
   const [posts, setPosts] = useState<Post[]>([]);
   const [isMember, setIsMember] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
