@@ -10,7 +10,7 @@ import {
 import {
   Eye, MousePointer, TrendingUp, DollarSign, Loader2,
   Megaphone, Plus, BarChart3, Pause, Play, ChevronDown,
-  ArrowUpRight, Clock, CheckCircle2, XCircle, Zap, RefreshCw, AlertTriangle
+  Zap, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
