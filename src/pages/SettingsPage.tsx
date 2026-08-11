@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -16,6 +17,7 @@ import { authService } from '@/lib/auth';
 type ThemeChoice = 'light' | 'dark' | 'system';
 
 export default function SettingsPage() {
+  useSEO({ noindex: true, title: 'Settings', url: '/settings' });
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState(true);

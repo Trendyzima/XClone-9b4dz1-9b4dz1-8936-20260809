@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { supabase } from '@/lib/supabase';
@@ -10,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Post } from '@/types/app-types';
 
 export default function HistoryPage() {
+  useSEO({ noindex: true, title: 'Browsing History', url: '/history' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();

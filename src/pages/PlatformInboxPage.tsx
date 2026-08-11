@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +21,7 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string; bg: string }> =
 };
 
 export default function PlatformInboxPage() {
+  useSEO({ noindex: true, title: 'Platform Inbox', url: '/platform-inbox' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [messages, setMessages] = useState<any[]>([]);

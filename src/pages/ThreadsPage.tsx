@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Loader2, BadgeCheck, Heart, MessageCircle, TrendingUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber } from '@/lib/utils';
+import { useSEO } from '@/hooks/useSEO';
 
 interface Thread {
   id: string;
@@ -31,6 +32,34 @@ export default function ThreadsPage() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('For You');
+
+  // ── SEO — dynamic title + ItemList JSON-LD from top 5 threads ─────────────
+  const topThreads = threads.filter(t => t.views_count > 0).slice(0, 5);
+  useSEO({
+    title: threads.length > 0
+      ? `Threads — ${formatNumber(threads.length)} stories & articles`
+      : 'Threads — Long-form Stories & Articles',
+    description: 'Read long-form articles, stories, and opinion threads from creators on Testagram. Discover trending threads and start your own.',
+    url: '/threads',
+    type: 'website',
+    keywords: 'threads, articles, long-form, stories, testagram, creator writing, opinion, trending',
+    structuredData: topThreads.length > 0 ? {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: 'Trending Threads on Testagram',
+      description: 'Top long-form articles and stories from creators on Testagram',
+      url: 'https://testagram.site/threads',
+      numberOfItems: topThreads.length,
+      itemListElement: topThreads.map((t, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: t.title,
+        url: `https://testagram.site/thread/${t.id}`,
+        description: t.content.replace(/<[^>]*>/g, '').slice(0, 150),
+        image: t.cover_image || undefined,
+      })),
+    } : undefined,
+  });
 
   const tabs = ['For You', 'Following', 'Trending'];
 

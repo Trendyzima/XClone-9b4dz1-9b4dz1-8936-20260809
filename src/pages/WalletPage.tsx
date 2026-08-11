@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useSearchParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { WalletDashboard } from '@/components/features/WalletDashboard';
@@ -364,6 +365,7 @@ function TransactionHistoryTab({ userId }: { userId: string }) {
 }
 
 export default function WalletPage() {
+  useSEO({ noindex: true, title: 'Wallet', url: '/wallet' });
   const { user } = useAuth();
   const { wallet, fetchWallet } = useWallet();
   const [searchParams] = useSearchParams();

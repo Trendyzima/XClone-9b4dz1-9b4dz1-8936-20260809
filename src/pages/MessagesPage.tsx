@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -18,6 +19,7 @@ import { Button } from '@/components/ui/button';
 type ChatMode = 'dms' | 'groups';
 
 export default function MessagesPage() {
+  useSEO({ noindex: true, title: 'Messages', url: '/messages' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

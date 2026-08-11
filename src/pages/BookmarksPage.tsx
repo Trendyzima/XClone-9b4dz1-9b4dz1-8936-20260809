@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { PostCard } from '@/components/features/PostCard';
@@ -7,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 export function BookmarksPage() {
+  useSEO({ noindex: true, title: 'Bookmarks', url: '/bookmarks' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [posts, setPosts] = useState<any[]>([]);

@@ -26,13 +26,33 @@ export default function HashtagPage() {
   const [followerCount, setFollowerCount] = useState(0);
 
   useSEO({
-    title: tag ? `#${tag} posts & trends` : 'Hashtag',
-    description: hashtag ? `Browse ${hashtag.usage_count?.toLocaleString() ?? '0'} posts tagged with #${tag} on Testagram. Join the conversation.` : `Posts tagged with #${tag} on Testagram.`,
+    title: hashtag
+      ? `#${tag} — ${formatNumber(hashtag.usage_count ?? posts.length)} posts on Testagram`
+      : tag ? `#${tag} on Testagram` : 'Hashtag',
+    description: hashtag
+      ? `Browse ${hashtag.usage_count?.toLocaleString() ?? '0'} posts tagged with #${tag} on Testagram. Join the conversation and follow this hashtag to see it in your feed.`
+      : `Posts tagged with #${tag} on Testagram.`,
     image: tag ? buildOgImageUrl({ tag }) : undefined,
     url: `/hashtag/${tag}`,
     type: 'website',
-    keywords: `${tag}, #${tag}, testagram, trending, social media`,
-    structuredData: hashtag ? buildHashtagLD(tag ?? '', hashtag?.usage_count ?? 0) : undefined,
+    keywords: `${tag}, #${tag}, testagram, trending, social media, hashtag, posts`,
+    structuredData: hashtag ? [
+      buildHashtagLD(tag ?? '', hashtag.usage_count ?? 0),
+      posts.length > 0 ? {
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        name: `Top posts for #${tag}`,
+        description: `Most popular posts tagged #${tag} on Testagram`,
+        url: `https://testagram.site/hashtag/${tag}`,
+        numberOfItems: Math.min(posts.length, 5),
+        itemListElement: posts.slice(0, 5).map((p: any, i: number) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          name: (p.content ?? '').replace(/<[^>]*>/g, '').slice(0, 80),
+          url: `https://testagram.site/post/${p.id}`,
+        })),
+      } : null,
+    ].filter(Boolean) : undefined,
   });
 
   useEffect(() => {

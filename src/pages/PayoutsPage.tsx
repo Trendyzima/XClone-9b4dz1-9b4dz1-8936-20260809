@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,6 +46,7 @@ function nextPayoutDate(frequency: string): Date {
 }
 
 export default function PayoutsPage() {
+  useSEO({ noindex: true, title: 'Payouts', url: '/payouts' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);

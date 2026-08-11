@@ -1,5 +1,6 @@
 
 import { useState, useEffect } from 'react';
+import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,6 +21,7 @@ const PAGE_SIZE = 20;
 type NotifTab = 'all' | 'mentions' | 'payments' | 'fediverse';
 
 export default function NotificationsPage() {
+  useSEO({ noindex: true, title: 'Notifications', url: '/notifications' });
   const { user } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<any[]>([]);
