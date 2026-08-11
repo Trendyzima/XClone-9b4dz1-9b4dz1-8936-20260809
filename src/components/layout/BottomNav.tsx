@@ -136,6 +136,32 @@ export function BottomNav() {
       .eq('user_id', user.id)
       .eq('read', false)
       .then(({ count }) => setUnreadInbox(count ?? 0));
+
+    // Real-time subscription for new inbox messages → instant badge + toast
+    const inboxSub = supabase
+      .channel(`inbox-realtime-${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'platform_inbox',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload: any) => {
+        setUnreadInbox(prev => prev + 1);
+        // Show in-app toast for the new message
+        const msg = payload.new;
+        if (msg?.subject) {
+          import('sonner').then(({ toast }) => {
+            toast(msg.icon_emoji ? `${msg.icon_emoji} ${msg.subject}` : msg.subject, {
+              description: msg.body?.slice(0, 100),
+              action: msg.cta_url ? { label: msg.cta_label ?? 'View', onClick: () => window.location.href = msg.cta_url } : undefined,
+              duration: 6000,
+            });
+          });
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(inboxSub); };
   }, [user?.id]);
 
   useEffect(() => {

@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
-import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send } from 'lucide-react';
 import { FediverseBadge } from '@/components/features/FediverseBadge';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
@@ -824,6 +824,15 @@ export default function ProfilePage() {
                   >
                     <MessageCircle className="w-4 h-4" />
                     Message
+                  </button>
+                  {/* P2P Send Money */}
+                  <button
+                    onClick={() => navigate(`/wallet?tab=send&to=${profile.username}`)}
+                    className="flex items-center gap-1.5 px-3 py-2 border border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary rounded-full font-semibold text-sm transition-colors"
+                    title="Send Money"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Send
                   </button>
                   <button
                     onClick={handleFollow}

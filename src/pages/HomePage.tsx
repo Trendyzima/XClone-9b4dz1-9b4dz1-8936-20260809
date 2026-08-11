@@ -1063,6 +1063,16 @@ function InlineSuggestions() {
 // ── Series Discovery Widget ──────────────────────────────────────────────────
 function SeriesDiscoveryWidget({ series, onNavigate }: { series: any[]; onNavigate: (p: string) => void }) {
   if (!series || series.length === 0) return null;
+
+  // Load progress from localStorage
+  const getProgress = (seriesId: string) => {
+    try {
+      const raw = localStorage.getItem('series_progress');
+      if (!raw) return null;
+      const all = JSON.parse(raw);
+      return all[seriesId] ?? null;
+    } catch { return null; }
+  };
   return (
     <div className="border-b border-border py-3 bg-gradient-to-br from-primary/[0.03] to-transparent">
       <div className="px-4 flex items-center justify-between mb-2.5">
@@ -1083,7 +1093,18 @@ function SeriesDiscoveryWidget({ series, onNavigate }: { series: any[]; onNaviga
             </div>
             <div className="p-2.5">
               <p className="text-xs font-bold line-clamp-1">{s.name}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">{s.item_count ?? 0} parts</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <p className="text-[10px] text-muted-foreground">{s.item_count ?? 0} parts</p>
+                {(() => {
+                  const prog = getProgress(s.id);
+                  if (!prog) return null;
+                  return (
+                    <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
+                      Part {prog.currentPart}/{prog.totalParts}
+                    </span>
+                  );
+                })()}
+              </div>
               {s.user_profiles && (
                 <div className="flex items-center gap-1 mt-1.5">
                   {s.user_profiles.avatar_url

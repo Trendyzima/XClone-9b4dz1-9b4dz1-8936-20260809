@@ -106,6 +106,37 @@ export function StoriesStrip() {
   // ── Story Stickers ─────────────────────────────────────────────────────────
   // ── Story Music ────────────────────────────────────────────────────────────
   const [showMusicPicker, setShowMusicPicker] = useState(false);
+
+  // ── Countdown Sticker ──────────────────────────────────────────────────────
+  const [countdownStickers, setCountdownStickers] = useState<{ id: string; targetDate: string; label: string; x: number; y: number }[]>([]);
+  const [showCountdownPicker, setShowCountdownPicker] = useState(false);
+  const [countdownDate, setCountdownDate] = useState('');
+  const [countdownLabel, setCountdownLabel] = useState('');
+
+  const addCountdown = () => {
+    if (!countdownDate) return;
+    setCountdownStickers(prev => [...prev, {
+      id: Date.now().toString(),
+      targetDate: countdownDate,
+      label: countdownLabel.trim() || 'Event',
+      x: 25 + Math.random() * 50,
+      y: 40 + Math.random() * 20,
+    }]);
+    setCountdownDate('');
+    setCountdownLabel('');
+    setShowCountdownPicker(false);
+  };
+
+  const getCountdownText = (targetDate: string) => {
+    const diff = new Date(targetDate).getTime() - Date.now();
+    if (diff <= 0) return 'LIVE!';
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  };
   const [musicSearch, setMusicSearch] = useState('');
   const [musicCatalogue, setMusicCatalogue] = useState<any[]>([]);
   const [selectedMusic, setSelectedMusic] = useState<any | null>(null);
@@ -409,7 +440,7 @@ export function StoriesStrip() {
     const { error: upErr } = await supabase.storage.from('posts').upload(path, pendingFile);
     if (upErr) { toast.error('Upload failed'); setUploading(false); return; }
     const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(path);
-    const stickerMeta = { ...(stickers.length > 0 ? { stickers } : {}), ...(textOverlays.length > 0 ? { textOverlays } : {}), ...(selectedMusic ? { music: { id: selectedMusic.id, title: selectedMusic.title, artist: selectedMusic.artist, cover_url: selectedMusic.cover_url } } : {}) };
+    const stickerMeta = { ...(stickers.length > 0 ? { stickers } : {}), ...(textOverlays.length > 0 ? { textOverlays } : {}), ...(selectedMusic ? { music: { id: selectedMusic.id, title: selectedMusic.title, artist: selectedMusic.artist, cover_url: selectedMusic.cover_url } } : {}), ...(countdownStickers.length > 0 ? { countdownStickers } : {}) };
     const { error: insErr } = await supabase.from('stories').insert({
       user_id: user.id,
       media_url: publicUrl,
@@ -425,6 +456,7 @@ export function StoriesStrip() {
     setPendingPreviewUrl(null);
     setStickers([]);
     setTextOverlays([]);
+    setCountdownStickers([]);
     setShowStickerPicker(false);
     setShowTextInput(false);
     setSelectedMusic(null);
@@ -506,8 +538,34 @@ export function StoriesStrip() {
     }
   };
 
-  // Skeleton while loading
-  if (loading && groups.length === 0) {
+  // ── Story AI Caption Generator ──────────────────────────────────────────────
+  const [captionSuggestions, setCaptionSuggestions] = useState<string[]>([]);
+  const [captionGenLoading, setCaptionGenLoading] = useState(false);
+
+  const generateStoryCaptions = async () => {
+    setCaptionGenLoading(true);
+    setCaptionSuggestions([]);
+    try {
+      const ctx = pendingCaption.trim() || (pendingFile?.type.startsWith('video') ? 'a video story' : 'a photo story');
+      const { data, error } = await supabase.functions.invoke('ai-chat', {
+        body: {
+          messages: [{
+            role: 'user',
+            content: `Generate exactly 3 short, catchy story captions for: "${ctx}". Under 80 characters each. Return ONLY the 3 captions separated by "|||" with no labels.`,
+          }],
+          model: 'google/gemini-3-flash-preview',
+        },
+      });
+      if (error) throw error;
+      const raw = data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? '';
+      const caps = raw.split('|||').map((s: string) => s.trim()).filter(Boolean).slice(0, 3);
+      setCaptionSuggestions(caps.length > 0 ? caps : ['No suggestions generated']);
+    } catch {
+      setCaptionSuggestions(['Failed to generate. Try again.']);
+    } finally {
+      setCaptionGenLoading(false);
+    }
+  };
     return (
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border overflow-hidden h-[88px]">
         {[0, 1, 2, 3].map(i => (
@@ -780,6 +838,16 @@ export function StoriesStrip() {
                 <Music className="w-3.5 h-3.5" />
                 Music {selectedMusic ? '✓' : ''}
               </button>
+              {/* Countdown Sticker button */}
+              <button
+                onClick={() => { setShowCountdownPicker(v => !v); setShowTextInput(false); setShowStickerPicker(false); setShowMusicPicker(false); }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                  showCountdownPicker ? 'bg-primary border-primary text-white' : countdownStickers.length > 0 ? 'bg-primary/30 border-primary/50 text-white' : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                }`}
+              >
+                ⏱️ Timer {countdownStickers.length > 0 ? `(${countdownStickers.length})` : ''}
+              </button>
+              </button>
               {(stickers.length > 0 || textOverlays.length > 0) && (
                 <button onClick={() => { setStickers([]); setTextOverlays([]); }} className="text-white/50 text-xs hover:text-white/80 transition-colors">
                   Clear all
@@ -797,6 +865,69 @@ export function StoriesStrip() {
               className="w-full bg-white/10 text-white placeholder:text-white/40 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
             />
             <p className="text-right text-[10px] text-white/40">{pendingCaption.length}/200</p>
+            {/* AI Caption Generator for stories */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={generateStoryCaptions}
+                disabled={captionGenLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 border border-amber-500/30 hover:bg-amber-500/30 text-amber-300 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+              >
+                {captionGenLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>✨</span>}
+                {captionGenLoading ? 'Generating…' : 'AI Caption'}
+              </button>
+              {captionSuggestions.length > 0 && (
+                <button onClick={() => setCaptionSuggestions([])} className="text-white/40 hover:text-white/70 text-xs">× Clear</button>
+              )}
+            </div>
+            {captionSuggestions.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-white/50 font-semibold uppercase tracking-wide">Tap to use:</p>
+                {captionSuggestions.map((cap, i) => (
+                  <button key={i} onClick={() => { setPendingCaption(cap); setCaptionSuggestions([]); }}
+                    className="w-full text-left text-xs text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl px-3 py-2 leading-relaxed transition-colors">
+                    {cap}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Countdown Sticker Picker */}
+            {showCountdownPicker && (
+              <div className="w-full bg-black/70 backdrop-blur-md rounded-2xl border border-white/20 p-3 space-y-2">
+                <p className="text-white/70 text-[10px] font-semibold uppercase tracking-widest text-center">Add Countdown Sticker</p>
+                <input
+                  type="datetime-local"
+                  value={countdownDate}
+                  onChange={e => setCountdownDate(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                  className="w-full bg-white/10 text-white text-sm border border-white/20 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <input
+                  type="text"
+                  value={countdownLabel}
+                  onChange={e => setCountdownLabel(e.target.value)}
+                  placeholder="Event name (e.g. My Birthday)"
+                  maxLength={30}
+                  className="w-full bg-white/10 text-white placeholder:text-white/40 text-sm border border-white/20 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => setShowCountdownPicker(false)} className="flex-1 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-medium">Cancel</button>
+                  <button onClick={addCountdown} disabled={!countdownDate} className="flex-1 py-2 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold disabled:opacity-50">Add ⏱️</button>
+                </div>
+              </div>
+            )}
+            {/* Countdown preview on creation canvas */}
+            {countdownStickers.map(cs => (
+              <div key={cs.id} className="flex items-center justify-between bg-white/10 border border-white/20 rounded-xl px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">⏱️</span>
+                  <div>
+                    <p className="text-white text-xs font-bold">{cs.label}</p>
+                    <p className="text-white/60 text-[10px]">{getCountdownText(cs.targetDate)} remaining</p>
+                  </div>
+                </div>
+                <button onClick={() => setCountdownStickers(prev => prev.filter(c => c.id !== cs.id))} className="text-white/40 hover:text-white/80 text-xs">× Remove</button>
+              </div>
+            ))}
             <div className="flex gap-3">
               <button onClick={cancelPending} disabled={uploading}
                 className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-colors disabled:opacity-50">
@@ -1001,11 +1132,12 @@ export function StoriesStrip() {
               </div>
             )}
 
-            {/* Story stickers overlay */}
+             {/* Story stickers overlay */}
             {(() => {
               const meta = (story as any).metadata;
               const stickerList: { emoji: string; x: number; y: number; id: string }[] = meta?.stickers ?? [];
               const textList: { text: string; x: number; y: number; id: string; color: string; size: string }[] = meta?.textOverlays ?? [];
+              const countdownList: { id: string; targetDate: string; label: string; x: number; y: number }[] = meta?.countdownStickers ?? [];
               return (
                 <>
                   {stickerList.map(s => (
@@ -1020,6 +1152,22 @@ export function StoriesStrip() {
                       {t.text}
                     </div>
                   ))}
+                  {countdownList.map(cs => {
+                    const diff = new Date(cs.targetDate).getTime() - Date.now();
+                    const d = Math.floor(diff / 86400000);
+                    const h = Math.floor((diff % 86400000) / 3600000);
+                    const m = Math.floor((diff % 3600000) / 60000);
+                    const text = diff <= 0 ? 'LIVE!' : d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+                    return (
+                      <div key={cs.id} className="absolute pointer-events-none select-none"
+                        style={{ left: `${cs.x ?? 50}%`, top: `${cs.y ?? 50}%`, transform: 'translate(-50%,-50%)', zIndex: 24 }}>
+                        <div className="bg-black/60 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-2.5 text-center">
+                          <p className="text-white/70 text-[10px] font-semibold uppercase tracking-widest">{cs.label}</p>
+                          <p className="text-white text-2xl font-black tabular-nums">{text}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </>
               );
             })()}

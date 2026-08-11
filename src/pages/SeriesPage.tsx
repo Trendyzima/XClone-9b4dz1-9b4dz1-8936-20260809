@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -150,6 +151,19 @@ export default function SeriesPage() {
     const currentPost = currentItem?.posts;
     const isOwn = user?.id === selectedSeries.user_id;
 
+    // Save reading progress to localStorage
+    const saveProgress = (partIdx: number) => {
+      try {
+        const raw = localStorage.getItem('series_progress');
+        const all = raw ? JSON.parse(raw) : {};
+        all[selectedSeries.id] = { currentPart: partIdx + 1, totalParts: seriesPosts.length, lastReadAt: new Date().toISOString() };
+        localStorage.setItem('series_progress', JSON.stringify(all));
+      } catch { /* ignore */ }
+    };
+
+    // Save on part change
+    if (seriesPosts.length > 0) saveProgress(currentPostIdx);
+
     return (
       <div className="min-h-screen bg-background pb-20">
         <TopBar title={selectedSeries.name} showBack onBack={() => setSelectedSeries(null)} />
@@ -214,6 +228,7 @@ export default function SeriesPage() {
                     >
                       <ChevronLeft className="w-4 h-4" /> Prev
                     </button>
+                    {/* The error was here, an extra button tag was opened without being closed. */}
                     <span className="text-sm font-bold text-muted-foreground">
                       Part {currentPostIdx + 1} of {seriesPosts.length}
                     </span>

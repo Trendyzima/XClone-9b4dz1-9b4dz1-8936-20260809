@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { WalletDashboard } from '@/components/features/WalletDashboard';
 import { showBanner, hideBanner, ADMOB_CONFIG } from '@/lib/admob';
@@ -22,14 +23,21 @@ type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type ActiveTab = 'wallet' | 'history' | 'send';
 
 // ── P2P Send Money Tab ────────────────────────────────────────────────────
-function SendMoneyTab({ userId, walletBalance, onComplete }: { userId: string; walletBalance: number; onComplete: () => void }) {
-  const [query, setQuery] = useState('');
+function SendMoneyTab({ userId, walletBalance, onComplete, prefillUsername }: { userId: string; walletBalance: number; onComplete: () => void; prefillUsername?: string }) {
+  const [query, setQuery] = useState(prefillUsername ?? '');
   const [users, setUsers] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
+
+  // Auto-search when prefillUsername is provided
+  useEffect(() => {
+    if (prefillUsername && prefillUsername.length >= 2) {
+      searchUsers(prefillUsername);
+    }
+  }, [prefillUsername]);
 
   const searchUsers = async (q: string) => {
     setQuery(q);
@@ -299,7 +307,14 @@ function TransactionHistoryTab({ userId }: { userId: string }) {
 export default function WalletPage() {
   const { user } = useAuth();
   const { wallet, fetchWallet } = useWallet();
-  const [activeTab, setActiveTab] = useState<ActiveTab>('wallet');
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'send') return 'send';
+    if (tab === 'history') return 'history';
+    return 'wallet';
+  });
+  const prefillTo = searchParams.get('to') ?? '';
 
   // Top-up state
   const [phone, setPhone]         = useState('');
@@ -574,6 +589,7 @@ export default function WalletPage() {
             userId={user.id}
             walletBalance={Number(wallet?.balance ?? 0)}
             onComplete={fetchWallet}
+            prefillUsername={prefillTo}
           />
         )}
       </div>
