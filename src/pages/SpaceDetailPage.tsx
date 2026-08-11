@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-function SpaceDetailAdBanner() { return <PageAdBanner />; }
 import { useParams, useNavigate } from 'react-router-dom';
+function SpaceDetailAdBanner() { return <PageAdBanner />; }
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';

@@ -120,14 +120,7 @@ export default function FediversePage() {
   const [searchingMulti, setSearchingMulti] = useState(false);
   const multiDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Push AdSense slot when feed tab is active
-  useEffect(() => {
-    if (tab === 'feed') {
-      try {
-        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
-      } catch (_) {}
-    }
-  }, [tab]);
+  // (AdSense push handled internally by PageAdBanner / FediverseAdBanner component)
 
   // Init on mount
   useEffect(() => {
