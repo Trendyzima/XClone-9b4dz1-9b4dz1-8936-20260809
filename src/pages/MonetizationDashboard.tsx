@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
