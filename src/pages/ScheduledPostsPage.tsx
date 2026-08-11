@@ -40,7 +40,7 @@ function useNow(intervalMs = 30_000) {
 export function ScheduledPostsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const now = useNow(); // refreshes every 30s — triggers re-render of countdowns
+  useNow(); // refreshes every 30s — triggers re-render of countdowns via forceUpdate
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);

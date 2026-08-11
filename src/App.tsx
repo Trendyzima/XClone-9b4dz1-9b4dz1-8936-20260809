@@ -8,6 +8,7 @@ import { BottomNav } from '@/components/layout/BottomNav';
 import { FloatingActionButton } from '@/components/layout/FloatingActionButton';
 import { LiveSpaceBanner } from '@/components/features/LiveSpaceBanner';
 import { LiveNotificationBanner } from '@/components/features/LiveNotificationBanner';
+import { useCreatorTierAlert } from '@/hooks/useCreatorTierAlert';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from 'sonner';
 import { Loader2 } from 'lucide-react';
@@ -96,6 +97,7 @@ const INTERSTITIAL_EVERY = 5;
 
 function AppInner() {
   const location = useLocation();
+  useCreatorTierAlert();
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;

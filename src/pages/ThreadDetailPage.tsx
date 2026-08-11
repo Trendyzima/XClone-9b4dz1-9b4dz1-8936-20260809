@@ -9,6 +9,7 @@ import { Loader2, Heart, Share, BadgeCheck, MessageCircle, Repeat2, Bookmark, Se
 import { formatDistanceToNow } from 'date-fns';
 import { parseContent, formatNumber } from '@/lib/utils';
 import { PostCard } from '@/components/features/PostCard';
+import { DynamicAd } from '@/components/features/DynamicAd';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -543,12 +544,40 @@ export default function ThreadDetailPage() {
             </div>
           )}
 
-          {thread.cover_image && (
+          {/* Thread video */}
+          {thread.media_url && thread.media_type === 'video' && (
+            <div className="rounded-xl overflow-hidden mb-5 bg-black">
+              <video
+                src={thread.media_url}
+                controls
+                className="w-full max-h-[420px] object-contain"
+                playsInline
+              />
+            </div>
+          )}
+
+          {/* Thread cover image */}
+          {thread.cover_image && !thread.media_url && (
             <img
               src={thread.cover_image}
               alt={thread.title}
               className="rounded-xl w-full max-h-[500px] object-cover mb-6"
             />
+          )}
+
+          {/* Inline media gallery */}
+          {thread.media_urls && Array.isArray(thread.media_urls) && thread.media_urls.length > 0 && (
+            <div className={`grid gap-2 mb-5 ${
+              thread.media_urls.length === 1 ? 'grid-cols-1' :
+              thread.media_urls.length === 2 ? 'grid-cols-2' :
+              'grid-cols-3'
+            }`}>
+              {thread.media_urls.map((url: string, i: number) => (
+                <div key={i} className="rounded-xl overflow-hidden aspect-square bg-muted">
+                  <img src={url} alt={`media-${i}`} className="w-full h-full object-cover" />
+                </div>
+              ))}
+            </div>
           )}
 
           <div
@@ -647,6 +676,12 @@ export default function ThreadDetailPage() {
           </div>
         )}
 
+        {/* ── Wise Brain Ad after thread content ── */}
+        <div className="border-t border-border px-4 py-3">
+          <p className="text-[9px] text-muted-foreground/50 uppercase tracking-widest text-center mb-1">🧠 Wise Brain Ad</p>
+          <DynamicAd location="feed_inline" className="rounded-2xl overflow-hidden" />
+        </div>
+
         {/* Replies */}
         {replies.length > 0 && (
           <div className="border-t border-border">
@@ -654,7 +689,18 @@ export default function ThreadDetailPage() {
               <h2 className="font-bold text-lg">{formatNumber(thread.replies_count)} Replies</h2>
             </div>
             <div className="divide-y divide-border">
-              {replies.map(reply => renderReply(reply))}
+              {replies.map((reply, idx) => (
+                <div key={reply.id}>
+                  {renderReply(reply)}
+                  {/* Inject ad wisely every 8 comments — not at position 0 */}
+                  {idx > 0 && (idx + 1) % 8 === 0 && (
+                    <div className="px-4 py-3 bg-muted/20 border-b border-border">
+                      <p className="text-[9px] text-muted-foreground/40 uppercase tracking-widest text-center mb-1">Sponsored</p>
+                      <DynamicAd location="feed_inline" className="rounded-xl overflow-hidden" />
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}

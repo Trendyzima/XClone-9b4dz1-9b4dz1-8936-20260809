@@ -1,5 +1,5 @@
 
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, Smile, DollarSign, Play, Coins, Flag, Check as CheckIcon } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types/app-types';
 import { formatDistanceToNow } from 'date-fns';
@@ -246,6 +246,50 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   };
   const handleViewsMouseUp = () => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current);
+  };
+
+  // ── Inline Comment Thread ─────────────────────────────────────────────────
+  const [showComments, setShowComments] = useState(false);
+  const [inlineReplies, setInlineReplies] = useState<any[]>([]);
+  const [inlineLoading, setInlineLoading] = useState(false);
+  const [inlineReplyText, setInlineReplyText] = useState('');
+  const [inlinePosting, setInlinePosting] = useState(false);
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
+
+  const fetchInlineReplies = async () => {
+    setInlineLoading(true);
+    const { data } = await supabase
+      .from('replies')
+      .select('*, user_profiles(id, username, avatar_url, verified)')
+      .eq('post_id', post.id)
+      .order('created_at', { ascending: true })
+      .limit(50);
+    setInlineReplies(data ?? []);
+    setInlineLoading(false);
+  };
+
+  const toggleComments = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!showComments) fetchInlineReplies();
+    setShowComments(v => !v);
+  };
+
+  const postInlineReply = async (parentId?: string) => {
+    const text = parentId ? replyText.trim() : inlineReplyText.trim();
+    if (!text || !user) return;
+    if (parentId) { setReplyText(''); setReplyingToId(null); }
+    else setInlineReplyText('');
+    setInlinePosting(true);
+    await supabase.from('replies').insert({ post_id: post.id, user_id: user.id, content: text });
+    await fetchInlineReplies();
+    setInlinePosting(false);
+  };
+
+  const nestReplies = (flat: any[]) => {
+    // For replies table (no parent_reply_id — flat threaded), just show flat
+    return flat;
   };
 
   // Tip dialog state
@@ -953,15 +997,13 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
           <div className="flex justify-between mt-3 max-w-md">
             <button 
               className="flex items-center space-x-2 text-muted-foreground hover:text-primary transition-colors group"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/post/${post.id}`);
-              }}
+              onClick={toggleComments}
             >
               <div className="p-2 rounded-full group-hover:bg-primary/10 transition-colors">
                 <MessageCircle className="w-5 h-5" />
               </div>
               <span className="text-sm">{formatNumber(post.replies_count)}</span>
+              {showComments ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3 opacity-50" />}
             </button>
 
             <button
@@ -1089,6 +1131,126 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Inline Comment Thread ──────────────────────────────────── */}
+      {showComments && (
+        <div className="mt-2 border-t border-border pt-3 space-y-3" onClick={e => e.stopPropagation()}>
+          {/* Comment input */}
+          {user && (
+            <div className="flex items-start gap-2 px-1">
+              <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0 mt-1">
+                {user.avatar
+                  ? <img src={user.avatar} alt={user.username} className="w-full h-full object-cover" />
+                  : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{user.username[0]?.toUpperCase()}</div>}
+              </div>
+              <div className="flex-1 flex items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-1.5">
+                <input
+                  type="text"
+                  value={inlineReplyText}
+                  onChange={e => setInlineReplyText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postInlineReply(); } }}
+                  placeholder="Add a comment…"
+                  className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60"
+                  maxLength={280}
+                />
+                <button
+                  onClick={() => postInlineReply()}
+                  disabled={!inlineReplyText.trim() || inlinePosting}
+                  className="text-primary disabled:opacity-30 hover:opacity-80 transition-opacity"
+                >
+                  {inlinePosting ? <TransLoader className="w-4 h-4 animate-spin" /> : <SendIcon className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Comment list */}
+          {inlineLoading ? (
+            <div className="flex justify-center py-3">
+              <TransLoader className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : inlineReplies.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-3">No comments yet. Be the first!</p>
+          ) : (
+            <div className="space-y-0.5">
+              {nestReplies(inlineReplies).slice(0, expandedReplies.has('all') ? 999 : 5).map((reply: any) => (
+                <div key={reply.id} className="flex gap-2 px-1 py-2 rounded-xl hover:bg-muted/30 transition-colors group">
+                  <button
+                    onClick={() => navigate(`/profile/${reply.user_profiles?.username}`)}
+                    className="shrink-0"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-muted overflow-hidden">
+                      {reply.user_profiles?.avatar_url
+                        ? <img src={reply.user_profiles.avatar_url} alt={reply.user_profiles.username} className="w-full h-full object-cover" />
+                        : <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">{reply.user_profiles?.username?.[0]?.toUpperCase()}</div>}
+                    </div>
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-bold">{reply.user_profiles?.username}</span>
+                      {reply.user_profiles?.verified && <BadgeCheck className="w-3 h-3 text-primary shrink-0" fill="currentColor" />}
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatDistanceToNow(new Date(reply.created_at), { addSuffix: true })}
+                      </span>
+                    </div>
+                    <p className="text-sm leading-relaxed mt-0.5 break-words">{reply.content}</p>
+                    {/* Reply to comment */}
+                    {user && (
+                      <button
+                        onClick={() => setReplyingToId(replyingToId === reply.id ? null : reply.id)}
+                        className="text-[11px] text-muted-foreground hover:text-primary mt-1 transition-colors"
+                      >
+                        Reply
+                      </button>
+                    )}
+                    {replyingToId === reply.id && (
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <input
+                          type="text"
+                          value={replyText}
+                          onChange={e => setReplyText(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') postInlineReply(reply.id); if (e.key === 'Escape') setReplyingToId(null); }}
+                          placeholder={`Reply to @${reply.user_profiles?.username}…`}
+                          className="flex-1 text-xs bg-muted/50 border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                          autoFocus
+                          maxLength={280}
+                        />
+                        <button onClick={() => postInlineReply(reply.id)} disabled={!replyText.trim()}
+                          className="text-primary disabled:opacity-30">
+                          <SendIcon className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {/* Show more / less toggle */}
+              {inlineReplies.length > 5 && (
+                <button
+                  onClick={() => setExpandedReplies(prev => {
+                    const n = new Set(prev);
+                    if (n.has('all')) n.delete('all'); else n.add('all');
+                    return n;
+                  })}
+                  className="w-full text-xs text-primary font-semibold py-2 hover:bg-primary/5 rounded-xl transition-colors flex items-center justify-center gap-1"
+                >
+                  {expandedReplies.has('all')
+                    ? <><ChevronUp className="w-3.5 h-3.5" /> Show less</>
+                    : <><ChevronDown className="w-3.5 h-3.5" /> View all {inlineReplies.length} comments</>}
+                </button>
+              )}
+              {inlineReplies.length > 0 && (
+                <button
+                  onClick={() => navigate(`/post/${post.id}`)}
+                  className="w-full text-xs text-muted-foreground py-1 hover:text-primary transition-colors text-center"
+                >
+                  View full thread →
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <SharePostDialog
         open={showShareDialog}
