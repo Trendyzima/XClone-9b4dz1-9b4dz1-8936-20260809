@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import {
   Smartphone, Loader2, CheckCircle2, Clock, AlertCircle,
-  Phone, Zap, ArrowDownLeft, X, ArrowUpRight, Wallet
+  Phone, Zap, ArrowDownLeft, X, ArrowUpRight, Wallet, Download
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -18,10 +18,123 @@ const USD_TO_KES = 130;
 
 type TopUpStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
+type ActiveTab = 'wallet' | 'history';
+
+// ── Transaction History Tab ───────────────────────────────────────────────
+function TransactionHistoryTab({ userId }: { userId: string }) {
+  const [txns, setTxns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
+
+  useEffect(() => { fetchTxns(); }, [userId, filter]);
+
+  const fetchTxns = async () => {
+    setLoading(true);
+    let q = supabase.from('wallet_transactions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(100);
+    if (filter !== 'all') q = q.eq('type', filter);
+    const { data } = await q;
+    setTxns(data ?? []);
+    setLoading(false);
+  };
+
+  const downloadCSV = () => {
+    const headers = ['Date', 'Type', 'Amount', 'Status', 'Method', 'Description'];
+    const rows = txns.map(t => [
+      new Date(t.created_at).toLocaleString(),
+      t.type, t.amount, t.status,
+      t.payment_method ?? '',
+      t.description ?? ''
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `transactions-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const totalIn = txns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s, t) => s + Number(t.amount), 0);
+  const totalOut = txns.filter(t => t.type === 'withdrawal').reduce((s, t) => s + Number(t.amount), 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 rounded-2xl bg-green-500/10 border border-green-500/20">
+          <p className="text-xs text-muted-foreground mb-1">Total Received</p>
+          <p className="text-xl font-black text-green-600">${totalIn.toFixed(2)}</p>
+        </div>
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
+          <p className="text-xs text-muted-foreground mb-1">Total Sent</p>
+          <p className="text-xl font-black text-red-500">${totalOut.toFixed(2)}</p>
+        </div>
+      </div>
+
+      {/* Filter + Export */}
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 bg-muted rounded-xl p-1 flex-1">
+          {(['all', 'deposit', 'withdrawal', 'earnings'] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                filter === f ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}>{f}</button>
+          ))}
+        </div>
+        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground">
+          <Download className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Transaction list */}
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : txns.length === 0 ? (
+        <div className="text-center py-12">
+          <Wallet className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="font-semibold text-sm">No transactions{filter !== 'all' ? ` in "${filter}"` : ''}</p>
+          <p className="text-xs text-muted-foreground mt-1">Your transaction history will appear here</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {txns.map(tx => {
+            const isIn = tx.type === 'deposit' || tx.type === 'earnings';
+            return (
+              <div key={tx.id} className="flex items-center gap-3 p-3.5 bg-card border border-border rounded-2xl hover:bg-muted/30 transition-colors">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                  isIn ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-500'
+                }`}>
+                  {isIn ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm capitalize">{tx.type.replace(/_/g, ' ')}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {tx.payment_method ? `${tx.payment_method.toUpperCase()} · ` : ''}
+                    {tx.description || new Date(tx.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`font-black text-base ${isIn ? 'text-green-600' : 'text-red-500'}`}>
+                    {isIn ? '+' : '-'}${Number(tx.amount).toFixed(2)}
+                  </p>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                    tx.status === 'completed' ? 'bg-green-500/10 text-green-600' :
+                    tx.status === 'pending' ? 'bg-orange-500/10 text-orange-600' :
+                    'bg-red-500/10 text-red-500'
+                  }`}>{tx.status}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function WalletPage() {
   const { user } = useAuth();
   const { wallet, fetchWallet } = useWallet();
+  const [activeTab, setActiveTab] = useState<ActiveTab>('wallet');
 
   // Top-up state
   const [phone, setPhone]         = useState('');
@@ -275,7 +388,26 @@ export default function WalletPage() {
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar title="My Wallet" showBack />
 
+      {/* Tab toggle */}
+      <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
+        <div className="flex max-w-2xl mx-auto">
+          {(['wallet', 'history'] as const).map(t => (
+            <button key={t} onClick={() => setActiveTab(t)}
+              className={`flex-1 py-3.5 font-semibold text-sm capitalize border-b-2 transition-colors ${
+                activeTab === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/40'
+              }`}>{t === 'wallet' ? '💳 Wallet' : '📋 History'}</button>
+          ))}
+        </div>
+      </div>
+
       <div className="max-w-2xl mx-auto p-4 space-y-5">
+        {activeTab === 'history' && user && (
+          <TransactionHistoryTab userId={user.id} />
+        )}
+        {activeTab === 'history' && <></>}
+      </div>
+
+      {activeTab === 'wallet' && <div className="max-w-2xl mx-auto p-4 space-y-5">
 
         {/* ── Quick Top-Up Card ─────────────────────────────────────────── */}
         <div className="bg-gradient-to-br from-green-600/10 via-emerald-500/5 to-transparent border border-green-600/20 rounded-2xl overflow-hidden">
@@ -592,7 +724,7 @@ export default function WalletPage() {
 
         {/* ── Full Wallet Dashboard ─────────────────────────────────────── */}
         <WalletDashboard />
-      </div>
+      </div>}
     </div>
   );
 }
