@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { Space } from '@/types/app-types';
@@ -13,6 +13,8 @@ import { JoinSpaceDialog } from '@/components/features/JoinSpaceDialog';
 import { ManageSpaceDialog } from '@/components/features/ManageSpaceDialog';
 import { toast } from 'sonner';
 import { useSEO } from '@/hooks/useSEO';
+import { PageAdBanner } from '@/components/features/AdSenseAd';
+function SpacesAdBanner() { return <PageAdBanner />; }
 
 const CATEGORIES = [
   { id: 'all', name: 'All', emoji: '🎙️' },
@@ -157,13 +159,7 @@ export default function SpacesPage() {
     return matchCat && matchSearch;
   });
 
-  // ── AdSense push when tab changes ────────────────────────────────────────
-  const adPushedRef = useRef(false);
-  useEffect(() => {
-    if (adPushedRef.current) return;
-    adPushedRef.current = true;
-    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
-  }, [activeTab]);
+
 
   const filteredRecordings = allRecordings.filter(r => {
     const matchCat = activeCategory === 'all' || r.spaces?.category === activeCategory;
@@ -250,17 +246,7 @@ export default function SpacesPage() {
       </div>
 
       {/* AdSense banner — spaces page */}
-      <div className="px-4 pt-3">
-        <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
-        <ins
-          className="adsbygoogle"
-          style={{ display: 'block', minHeight: 60 }}
-          data-ad-client="ca-pub-2458567543017441"
-          data-ad-slot="2031881558"
-          data-ad-format="auto"
-          data-full-width-responsive="true"
-        />
-      </div>
+      <SpacesAdBanner />
 
       {/* Verified badge info */}
       {user && !userProfile?.verified && (
