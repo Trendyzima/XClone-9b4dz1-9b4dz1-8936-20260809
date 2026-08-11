@@ -127,7 +127,7 @@ export default function PostThreadPage() {
       .in('reply_id', replyIds);
     const map: Record<string, { count: number; liked: boolean }> = {};
     replyIds.forEach(id => { map[id] = { count: 0, liked: false }; });
-    (likes ?? []).forEach((l: any) => {
+    (likes ?? []).forEach((l: { reply_id: string; user_id: string }) => {
       if (!map[l.reply_id]) map[l.reply_id] = { count: 0, liked: false };
       map[l.reply_id].count++;
       if (l.user_id === user?.id) map[l.reply_id].liked = true;
@@ -139,7 +139,7 @@ export default function PostThreadPage() {
     if (!user) { navigate('/auth'); return; }
     const current = replyLikes[replyId] ?? { count: 0, liked: false };
     if (current.liked) {
-      setReplyLikes(prev => ({ ...prev, [replyId]: { count: Math.max(0, prev[replyId].count - 1), liked: false } }));
+      setReplyLikes(prev => ({ ...prev, [replyId]: { count: Math.max(0, (prev[replyId]?.count ?? 0) - 1), liked: false } }));
       await supabase.from('reply_likes').delete().eq('reply_id', replyId).eq('user_id', user.id);
     } else {
       setReplyLikes(prev => ({ ...prev, [replyId]: { count: (prev[replyId]?.count ?? 0) + 1, liked: true } }));
@@ -176,7 +176,7 @@ export default function PostThreadPage() {
         .order('created_at', { ascending: true });
       if (repliesError) throw repliesError;
       setReplies(repliesData || []);
-      if (repliesData?.length) fetchReplyLikes(repliesData.map((r: any) => r.id));
+      if (repliesData?.length) fetchReplyLikes(repliesData.map((r: Reply) => r.id));
     } catch (err) {
       console.error('Error fetching post thread:', err);
       toast({ title: 'Error', description: 'Failed to load post', variant: 'destructive' });
@@ -395,7 +395,7 @@ export default function PostThreadPage() {
                 <img src={user.avatar} alt={user.username} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-sm font-bold">
-                  {user.username[0].toUpperCase()}
+                  {user.username[0]?.toUpperCase()}
                 </div>
               )}
             </div>
@@ -475,8 +475,8 @@ export default function PostThreadPage() {
               )}
             </div>
             {replies.map((reply, idx) => (
-              <>
-                <div key={reply.id} className="border-b border-border p-4 hover:bg-muted/5 transition-colors">
+              <div key={reply.id}>
+                <div className="border-b border-border p-4 hover:bg-muted/5 transition-colors">
                   <div className="flex space-x-3">
                     <div
                       className="w-10 h-10 rounded-full bg-muted flex-shrink-0 overflow-hidden cursor-pointer"
@@ -532,7 +532,7 @@ export default function PostThreadPage() {
                     <DynamicAd location="feed_inline" className="rounded-xl overflow-hidden" />
                   </div>
                 )}
-              </>
+              </div>
             ))}
           </>
         )}

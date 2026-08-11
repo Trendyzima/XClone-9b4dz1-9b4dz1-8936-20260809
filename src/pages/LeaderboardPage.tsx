@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
@@ -431,6 +431,9 @@ export default function LeaderboardPage() {
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Leaderboard" showBack />
 
+      {/* AdSense banner — leaderboard page */}
+      <LeaderboardAdBanner />
+
       {/* Hero header */}
       <div className="px-4 py-5 bg-gradient-to-br from-yellow-500/10 to-amber-500/5 border-b border-border flex items-center gap-4">
         <div className="w-12 h-12 rounded-xl bg-yellow-500/20 flex items-center justify-center shrink-0">
@@ -636,6 +639,29 @@ export default function LeaderboardPage() {
         </>
       )}
 
+    </div>
+  );
+}
+
+// ── AdSense banner — single push, mounted once ───────────────────────────────
+function LeaderboardAdBanner() {
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (pushed.current) return;
+    pushed.current = true;
+    try { ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({}); } catch (_) {}
+  }, []);
+  return (
+    <div className="px-4 pt-3 pb-1 border-b border-border bg-muted/5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Sponsored</p>
+      <ins
+        className="adsbygoogle"
+        style={{ display: 'block', minHeight: 60 }}
+        data-ad-client="ca-pub-2458567543017441"
+        data-ad-slot="2031881558"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
     </div>
   );
 }

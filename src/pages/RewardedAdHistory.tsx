@@ -29,7 +29,9 @@ const REWARD_META: Record<string, { label: string; icon: string; color: string; 
   viral_boost:       { label: 'Viral Push',            icon: '⚡', color: 'text-pink-600',   bg: 'bg-pink-500/10'   },
 };
 
-// ── Web ad overlay (AdSense + countdown) ─────────────────────────────────────
+// ── Web ad overlay (countdown only — no AdSense in overlays per policy) ────────
+// IMPORTANT: AdSense ads MUST NOT appear inside modal overlays, popups, or
+// auto-triggered interstitials. The AdSense unit is placed in the page body below.
 function showWebRewardedAd(): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -48,16 +50,6 @@ function showWebRewardedAd(): Promise<boolean> {
             <div style="font-size:42px;margin-bottom:6px;">🎁</div>
             <div style="font-size:17px;font-weight:800;letter-spacing:-0.3px;">Sponsored Content</div>
             <div style="font-size:12px;opacity:0.75;margin-top:3px;">Watch to unlock your reward</div>
-          </div>
-          <!-- AdSense slot -->
-          <div style="min-height:90px;margin-bottom:12px;border-radius:10px;overflow:hidden;background:#1a1a2e;">
-            <ins class="adsbygoogle"
-              style="display:block;"
-              data-ad-client="ca-pub-2458567543017441"
-              data-ad-slot="2031881558"
-              data-ad-format="auto"
-              data-full-width-responsive="true">
-            </ins>
           </div>
           <!-- Reward badges -->
           <div style="display:flex;gap:8px;justify-content:center;margin-bottom:14px;">
@@ -93,11 +85,6 @@ function showWebRewardedAd(): Promise<boolean> {
       </div>`;
 
     document.body.appendChild(overlay);
-
-    // Push AdSense ad
-    try {
-      ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
-    } catch (_) {}
 
     const timerEl = overlay.querySelector('#timer-count') as HTMLElement;
     const countdownEl = overlay.querySelector('#ad-countdown') as HTMLElement;
