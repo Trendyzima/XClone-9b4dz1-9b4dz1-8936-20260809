@@ -36,8 +36,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
   const [showMidrollAd, setShowMidrollAd] = useState(false);
   const [adDoneForThisPost, setAdDoneForThisPost] = useState(false);
   const [midrollDone, setMidrollDone] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [videoProgress, setVideoProgress] = useState(0);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -70,9 +69,10 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
 
   const handleTimeUpdate = () => {
     const video = videoRef.current;
-    if (!video || midrollDone || !post.is_monetized || isPremium) return;
+    if (!video) return;
     const pct = video.currentTime / (video.duration || 1);
-    setProgress(Math.round(pct * 100));
+    setVideoProgress(pct * 100);
+    if (midrollDone || !post.is_monetized || isPremium) return;
     if (pct >= 0.5) {
       setMidrollDone(true);
       video.pause();
@@ -191,8 +191,27 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
         onClick={togglePlay}
         style={{ maxWidth: '100vw' }}
         onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}
       />
+
+      {/* Mid-roll progress bar — thin bar at bottom showing when ad triggers at 50% */}
+      {post.is_monetized && !isPremium && !midrollDone && !showMidrollAd && !showPrerollAd && (
+        <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
+          <div className="h-0.5 bg-white/10 w-full">
+            <div
+              className="h-full bg-gradient-to-r from-amber-400 to-orange-500 transition-none relative"
+              style={{ width: `${Math.min(videoProgress, 100)}%` }}
+            >
+              {/* Ad trigger marker at 50% */}
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-amber-400 shadow-lg shadow-amber-500/50" />
+            </div>
+          </div>
+          {videoProgress >= 40 && videoProgress < 55 && (
+            <div className="absolute bottom-1 left-1/2 -translate-x-1/2 bg-black/70 text-amber-400 text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
+              Ad coming at 50%
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="absolute inset-0 flex flex-col justify-between p-4 pointer-events-none" style={{ maxWidth: '100vw' }}>
         <div className="flex items-center justify-between text-white pointer-events-auto">

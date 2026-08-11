@@ -1,5 +1,5 @@
 
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon, Crown } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types/app-types';
 import { formatDistanceToNow } from 'date-fns';
@@ -38,8 +38,13 @@ interface PostCardProps {
   onUpdate?: () => void;
 }
 
+// Per-post premium status cache to avoid N+1 fetches
+const premiumCache = new Map<string, boolean>();
+
 export function PostCard({ post, onUpdate }: PostCardProps) {
   const { user } = useAuth();
+  // Check if the post author has premium (for crown badge)
+  const [isAuthorPremium, setIsAuthorPremium] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isLiked, setIsLiked] = useState(false);
@@ -63,6 +68,29 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   // Edit history
   const [showEditHistory, setShowEditHistory] = useState(false);
   const editHistory: any[] = (post as any).edit_history ?? [];
+
+  // Fetch author premium status once
+  useEffect(() => {
+    const uid = post.user_id;
+    if (premiumCache.has(uid)) {
+      setIsAuthorPremium(premiumCache.get(uid)!);
+      return;
+    }
+    import('@/lib/supabase').then(({ supabase }) => {
+      supabase
+        .from('premium_subscriptions')
+        .select('id')
+        .eq('user_id', uid)
+        .eq('status', 'active')
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle()
+        .then(({ data }) => {
+          const has = !!data;
+          premiumCache.set(uid, has);
+          setIsAuthorPremium(has);
+        });
+    });
+  }, [post.user_id]);
 
   // Post Reactions
   const REACTIONS = ['❤️', '😂', '😮', '😢', '🔥'] as const;
@@ -715,6 +743,9 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               </span>
               {post.user_profiles?.verified && (
                 <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" fill="currentColor" />
+              )}
+              {isAuthorPremium && (
+                <Crown className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="currentColor" title="Premium Member" />
               )}
               <span className="text-muted-foreground text-sm truncate">
                 @{post.user_profiles?.username}
