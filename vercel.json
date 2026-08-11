@@ -1,5 +1,5 @@
 {
-  "installCommand": "sed -i '/^node-options/d' .npmrc && npm install",
+  "installCommand": "sed -i '/^node-options/d' .npmrc && npm install && node _patch-vite.cjs",
   "buildCommand": "node _build.cjs",
   "outputDirectory": "dist",
   "framework": "vite",

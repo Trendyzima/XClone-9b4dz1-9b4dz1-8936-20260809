@@ -1,17 +1,14 @@
 'use strict';
 
 /**
- * _preload.cjs v5
+ * _preload.cjs v7
  *
- * Synchronous-only protection against Vite chunk injection.
- * NO setTimeout, NO setInterval, NO fs.watchFile — all of which
- * keep the event loop alive and cause Vercel builds to hang.
+ * Minimal CJS hook — the disk patch is now handled by the installCommand
+ * in vercel.json BEFORE the build starts, so this file only needs to catch
+ * any remaining in-memory CJS loads (belt-and-suspenders).
  *
- * Strategy:
- *  1. DISK PATCH  — fix dep-*.js files on disk immediately + chmod 444
- *  2. CJS HOOK    — Module.prototype._compile intercepts Vite CJS loads
- *
- * File watchers deliberately omitted: they prevent process exit.
+ * NO setTimeout, NO setInterval, NO fs.watchFile, NO Atomics.wait.
+ * NO broad `??` regex — only the exact broken `code??""` / `code??''` patterns.
  */
 
 const fs     = require('fs');
@@ -20,156 +17,64 @@ const Module = require('module');
 
 const CHUNKS_DIR = path.join(
   __dirname,
-  'node_modules',
-  'vite',
-  'dist',
-  'node',
-  'chunks'
+  'node_modules', 'vite', 'dist', 'node', 'chunks'
 );
 
-// ─── Core fix function ───────────────────────────────────────────────────────
-
+/** Surgical fix — only the known bad patterns, nothing else */
 function applyFix(s) {
-  if (!s.includes('??')) return s;
-
-  s = s.split('code??"", ').join('code, ');
-  s = s.split("code??'', ").join('code, ');
-  s = s.split('code??"",').join('code,');
-  s = s.split("code??'',").join('code,');
-  s = s.split('code??""').join('code');
-  s = s.split("code??''").join('code');
-
-  s = s.replace(
-    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?"([^"\\]*)"/g,
-    '$1'
-  );
-
-  s = s.replace(
-    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?'([^'\\]*)'/g,
-    '$1'
-  );
-
-  s = s.replace(/\?\?"[^"]*"/g, '');
-  s = s.replace(/\?\?'[^']*'/g, '');
-
-  s = s.replace(
-    /\?\?(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g,
-    ' '
-  );
-
-  s = s.replace(
-    /\?\?(\r?\n[ \t]*)(?=[A-Za-z_$][A-Za-z0-9_$]*\s*\([^)]{0,120}\)\s*\{)/g,
-    '$1'
-  );
-
-  s = s.replace(
-    /(\r?\n)([ \t]*)\?\?(?=[^\s?])/g,
-    '$1$2'
-  );
-
-  s = s.replace(
-    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?(\r?\n)/g,
-    '$1$2'
-  );
-
-  s = s.replace(
-    /([A-Za-z_$][A-Za-z0-9_$]*)\?\?(?=\s*\([^)]{0,200}\)\s*\{)/g,
-    '$1'
-  );
-
-  return s;
+  if (!s.includes('code??')) return s;
+  let o = s;
+  // comma follows
+  o = o.split('code??"", ').join('code, ');
+  o = o.split("code??'', ").join('code, ');
+  o = o.split('code??"",').join('code,');
+  o = o.split("code??'',").join('code,');
+  // no comma — trailing position
+  o = o.split('code??""').join('code');
+  o = o.split("code??''").join('code');
+  return o;
 }
 
-// ─── Disk patch (synchronous, no watchers) ───────────────────────────────────
-
-function patchFile(fpath) {
-  let src;
-  try {
-    try { fs.chmodSync(fpath, 0o644); } catch (_) {}
-    src = fs.readFileSync(fpath, 'utf8');
-  } catch (_) {
-    return false;
-  }
-
-  const lock = () => {
-    try { fs.chmodSync(fpath, 0o444); } catch (_) {}
-  };
-
-  if (!src.includes('??')) {
-    lock();
-    return false;
-  }
-
-  const fixed = applyFix(src);
-
-  if (fixed === src) {
-    lock();
-    return false;
-  }
-
-  try {
-    fs.writeFileSync(fpath, fixed, 'utf8');
-    lock();
-    process.stderr.write(
-      '[preload-fix] ✅ patched and verified ' +
-      path.basename(fpath) +
-      '\n'
-    );
-    return true;
-  } catch (e) {
-    lock();
-    process.stderr.write(
-      '[preload-fix] ⚠️ write failed ' +
-      path.basename(fpath) + ': ' + e.message + '\n'
-    );
-    return false;
-  }
-}
-
-function patchAll(label) {
+/** Synchronous disk patch (run once at startup) */
+function patchAll() {
   if (!fs.existsSync(CHUNKS_DIR)) return;
   let files;
-  try {
-    files = fs.readdirSync(CHUNKS_DIR).filter(f => f.endsWith('.js'));
-  } catch (_) {
-    return;
-  }
-  let count = 0;
-  files.forEach(f => {
-    if (patchFile(path.join(CHUNKS_DIR, f))) count++;
-  });
-  if (count > 0) {
-    process.stderr.write(
-      '[preload-fix] 💾 patchAll(' + label + ') fixed ' + count + ' file(s)\n'
-    );
-  }
-}
+  try { files = fs.readdirSync(CHUNKS_DIR).filter(f => f.endsWith('.js')); }
+  catch (_) { return; }
 
-// ─── STEP 1: Patch existing chunks immediately (synchronous) ─────────────────
-patchAll('startup');
-
-// ─── STEP 2: Module._compile CJS fallback ────────────────────────────────────
-const _origCompile = Module.prototype._compile;
-
-Module.prototype._compile = function _compileFix(content, filename) {
-  if (
-    filename &&
-    filename.includes('/vite/dist/node/') &&
-    content.includes('??')
-  ) {
-    const fixed = applyFix(content);
-    if (fixed !== content) {
-      process.stderr.write(
-        '[preload-fix] 🔧 _compile fixed ' +
-        path.basename(filename) +
-        '\n'
-      );
-      return _origCompile.call(this, fixed, filename);
+  let fixed = 0;
+  for (const f of files) {
+    const fp = path.join(CHUNKS_DIR, f);
+    try {
+      try { fs.chmodSync(fp, 0o644); } catch (_) {}
+      const src = fs.readFileSync(fp, 'utf8');
+      if (!src.includes('code??')) { try { fs.chmodSync(fp, 0o444); } catch (_) {} continue; }
+      const out = applyFix(src);
+      if (out === src) { try { fs.chmodSync(fp, 0o444); } catch (_) {} continue; }
+      fs.writeFileSync(fp, out, 'utf8');
+      try { fs.chmodSync(fp, 0o444); } catch (_) {}
+      process.stderr.write('[preload-fix] ✅ patched ' + f + '\n');
+      fixed++;
+    } catch (e) {
+      process.stderr.write('[preload-fix] ⚠️ ' + f + ': ' + e.message + '\n');
     }
   }
-  return _origCompile.call(this, content, filename);
+  if (fixed) process.stderr.write('[preload-fix] 💾 patchAll fixed ' + fixed + ' file(s)\n');
+}
+
+patchAll();
+
+/** CJS compile hook — catches any remaining runtime loads */
+const _orig = Module.prototype._compile;
+Module.prototype._compile = function(content, filename) {
+  if (filename && filename.includes('/vite/dist/node/') && content.includes('code??')) {
+    const fixed = applyFix(content);
+    if (fixed !== content) {
+      process.stderr.write('[preload-fix] 🔧 _compile patched ' + path.basename(filename) + '\n');
+      return _orig.call(this, fixed, filename);
+    }
+  }
+  return _orig.call(this, content, filename);
 };
 
-process.stderr.write(
-  '[preload-fix] ✅ preload v5 installed (disk-patch + CJS hook)\n'
-);
+process.stderr.write('[preload-fix] ✅ preload v7 installed\n');
