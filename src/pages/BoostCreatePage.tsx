@@ -49,9 +49,16 @@ export default function BoostCreatePage() {
   const [endDateLabel, setEndDateLabel] = useState('');
 
   const totalBudget = dailyBudget * duration;
-  // Deterministic estimate: ~545 impressions/$, 1.8% CTR
-  const estimatedImpressions = totalBudget * 545;
-  const estimatedClicks = Math.round(estimatedImpressions * 0.018);
+
+  // Dynamic CPM & CTR per objective — deterministic, no Math.random()
+  const CPM_MAP: Record<string, number> = { reach: 8, engagement: 12, conversions: 20, video_views: 6 };
+  const CTR_MAP: Record<string, number> = { reach: 0.012, engagement: 0.025, conversions: 0.045, video_views: 0.018 };
+  const cpmBase = CPM_MAP[boostType] ?? 10;
+  const ctrBase = CTR_MAP[boostType] ?? 0.018;
+  const estimatedImpressionsBase = Math.round((totalBudget / cpmBase) * 1000);
+  const estimatedImpressionsMin = Math.round(estimatedImpressionsBase * 0.8);
+  const estimatedImpressionsMax = Math.round(estimatedImpressionsBase * 1.2);
+  const estimatedClicks = Math.round(estimatedImpressionsBase * ctrBase);
 
   // Update end date label whenever duration changes (inside effect, not render)
   useEffect(() => {
@@ -144,7 +151,7 @@ export default function BoostCreatePage() {
             <p className="text-[10px] text-muted-foreground">Duration</p>
           </div>
           <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl px-4 py-3 text-center">
-            <p className="text-lg font-black text-purple-600">{formatNumber(estimatedImpressions)}</p>
+            <p className="text-lg font-black text-purple-600">{formatNumber(estimatedImpressionsBase)}</p>
             <p className="text-[10px] text-muted-foreground">Est. Reach</p>
           </div>
         </div>
@@ -312,17 +319,20 @@ export default function BoostCreatePage() {
               <p className="text-[10px] text-muted-foreground mt-0.5">Total budget</p>
             </div>
             <div className="bg-background/70 rounded-xl p-3 text-center">
-              <p className="text-xl font-black text-blue-600">{formatNumber(estimatedImpressions)}</p>
+              <p className="text-base font-black text-blue-600 leading-tight">{formatNumber(estimatedImpressionsMin)}–{formatNumber(estimatedImpressionsMax)}</p>
               <p className="text-[10px] text-muted-foreground mt-0.5">Est. impressions</p>
+              <p className="text-[9px] text-blue-400 mt-0.5">${cpmBase} CPM</p>
             </div>
             <div className="bg-background/70 rounded-xl p-3 text-center">
               <p className="text-xl font-black text-purple-600">{formatNumber(estimatedClicks)}</p>
               <p className="text-[10px] text-muted-foreground mt-0.5">Est. clicks</p>
+              <p className="text-[9px] text-purple-400 mt-0.5">{(ctrBase * 100).toFixed(1)}% CTR</p>
             </div>
           </div>
           <div className="space-y-2 text-sm border-t border-border/50 pt-3">
             {[
               { label: 'Objective',   value: boostTypeLabel },
+              { label: 'Est. reach',  value: `${formatNumber(estimatedImpressionsMin)}–${formatNumber(estimatedImpressionsMax)} impressions` },
               { label: 'Duration',    value: endDateLabel ? `${duration} days (ends ${endDateLabel})` : `${duration} days` },
               { label: 'Daily spend', value: `$${dailyBudget.toFixed(2)}` },
               { label: 'Age target',  value: `${ageMin}–${ageMax} years` },
@@ -345,7 +355,7 @@ export default function BoostCreatePage() {
           <button
             onClick={handleLaunch}
             disabled={launching || !postId || totalBudget > walletBalance}
-            className="mt-4 w-full py-4 bg-gradient-to-r from-primary to-purple-600 text-white rounded-xl font-bold text-base disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+            className="mt-4 w-full py-4 bg-gradient-to-r from-primary to-purple-600 text-white rounded-2xl font-bold text-base disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg"
           >
             {launching
               ? <><Loader2 className="w-5 h-5 animate-spin" /> Launching…</>
