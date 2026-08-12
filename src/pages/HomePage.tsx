@@ -29,6 +29,22 @@ import * as federation from '@/api/federation';
 const PAGE_SIZE = 20;
 const RECO_INJECT_INTERVAL = 8; // inject a recommendation card every N items
 
+// ── Feed Prefetch Cache (SWR-style) ──────────────────────────────────────────
+// Caches the first page of each tab so switching is instant on second visit
+const feedCache: { tab: string; items: FeedItem[]; ts: number }[] = [];
+const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+function getCachedFeed(tab: string): FeedItem[] | null {
+  const entry = feedCache.find(e => e.tab === tab);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) return null;
+  return entry.items;
+}
+function setCachedFeed(tab: string, items: FeedItem[]) {
+  const idx = feedCache.findIndex(e => e.tab === tab);
+  if (idx >= 0) feedCache.splice(idx, 1);
+  feedCache.push({ tab, items, ts: Date.now() });
+}
+
 // Module-level helpers — esbuild guard: no IIFEs in render
 function extractHostname(url: string): string {
   try { return new URL(url).hostname; } catch { return ''; }
@@ -643,7 +659,30 @@ export default function HomePage() {
     }
   };
 
-  const fetchInitialFeed = async () => {
+  const fetchInitialFeed = async (skipCache = false) => {
+    // ── Serve from prefetch cache when available (tab switch) ──────────────
+    if (!skipCache && activeTab !== 'federated') {
+      const cached = getCachedFeed(activeTab);
+      if (cached && cached.length > 0) {
+        setFeedItems(cached);
+        setLoading(false);
+        setPage(0);
+        setFeedCursor(null);
+        setFeedHasMore(true);
+        // Refresh in background without showing spinner
+        setTimeout(async () => {
+          await fetchSponsoredContent();
+          await fetchRecommendations();
+          // silent background refresh — don't block UI
+          const fresh = await fetchFeed(0);
+          if (fresh.length > 0) {
+            setFeedItems(fresh);
+            setCachedFeed(activeTab, fresh);
+          }
+        }, 800);
+        return;
+      }
+    }
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     setLoading(true);
@@ -698,6 +737,8 @@ export default function HomePage() {
       const lastPost = items.filter((i: any) => i.type === 'post').slice(-1)[0];
       if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);
       setFeedHasMore(items.filter((i: any) => i.type === 'post').length >= PAGE_SIZE);
+      // Populate prefetch cache for instant tab-switch on next visit
+      if (items.length > 0) setCachedFeed(activeTab, items);
     }
     setLoading(false);
   };

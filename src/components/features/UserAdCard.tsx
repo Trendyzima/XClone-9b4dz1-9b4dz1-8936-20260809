@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BadgeCheck, Globe, MoreHorizontal, X, ThumbsUp, MessageCircle, Share2, ExternalLink } from 'lucide-react';
+import { BadgeCheck, Globe, MoreHorizontal, X, ThumbsUp, MessageCircle, Share2, ExternalLink, Play, Pause, ChevronRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { formatNumber } from '@/lib/utils';
@@ -38,6 +38,14 @@ export function UserAdCard({ ad }: UserAdCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(ad.impressions ? Math.floor(ad.impressions * 0.04) : 0);
+  const [shareCount, setShareCount] = useState(ad.clicks ? Math.floor(ad.clicks * 0.05) : 0);
+  const [showStoryFormat, setShowStoryFormat] = useState(false);
+  const videoProbeRef = useRef<HTMLVideoElement | null>(null);
+  const [isVerticalVideo, setIsVerticalVideo] = useState(false);
+  const storyProgressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [storyProgress, setStoryProgress] = useState(0);
+  const [storyPaused, setStoryPaused] = useState(false);
+  const storyPausedRef = useRef(false);
 
   useEffect(() => {
     if (impressionTracked.current) return;
@@ -49,6 +57,62 @@ export function UserAdCard({ ad }: UserAdCardProps) {
     }).catch(() => {});
   }, [ad.id, user?.id]);
 
+  // Detect vertical video (9:16 aspect ratio) for Story format
+  useEffect(() => {
+    if (!ad.video_url) return;
+    const v = document.createElement('video');
+    v.src = ad.video_url;
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => {
+      const ratio = v.videoHeight / v.videoWidth;
+      setIsVerticalVideo(ratio >= 1.4); // roughly 9:16 or taller
+      v.src = '';
+    };
+    videoProbeRef.current = v;
+    return () => { v.src = ''; };
+  }, [ad.video_url]);
+
+  // Story format: 15-second auto-advance with progress bar
+  const startStoryProgress = useCallback(() => {
+    setStoryProgress(0);
+    storyPausedRef.current = false;
+    if (storyProgressRef.current) clearInterval(storyProgressRef.current);
+    const DURATION_MS = 15000;
+    const TICK_MS = 100;
+    let elapsed = 0;
+    storyProgressRef.current = setInterval(() => {
+      if (storyPausedRef.current) return;
+      elapsed += TICK_MS;
+      const pct = Math.min((elapsed / DURATION_MS) * 100, 100);
+      setStoryProgress(pct);
+      if (pct >= 100) {
+        clearInterval(storyProgressRef.current!);
+        setShowStoryFormat(false);
+      }
+    }, TICK_MS);
+  }, []);
+
+  const stopStoryProgress = useCallback(() => {
+    if (storyProgressRef.current) clearInterval(storyProgressRef.current);
+    setShowStoryFormat(false);
+    setStoryProgress(0);
+  }, []);
+
+  const toggleStoryPause = useCallback(() => {
+    storyPausedRef.current = !storyPausedRef.current;
+    setStoryPaused(storyPausedRef.current);
+  }, []);
+
+  const openStoryFormat = useCallback(() => {
+    setShowStoryFormat(true);
+    startStoryProgress();
+    supabase.from('ad_impressions').insert({ ad_id: ad.id, user_id: user?.id ?? null, clicked: true }).catch(() => {});
+  }, [ad.id, user?.id, startStoryProgress]);
+
+  useEffect(() => {
+    return () => { if (storyProgressRef.current) clearInterval(storyProgressRef.current); };
+  }, []);
+
   const handleClick = () => {
     supabase.from('ad_impressions').insert({
       ad_id: ad.id,
@@ -59,13 +123,30 @@ export function UserAdCard({ ad }: UserAdCardProps) {
     if (ad.target_url) window.open(ad.target_url, '_blank', 'noopener,noreferrer');
   };
 
+  const handleLike = () => {
+    const next = !liked;
+    setLiked(next);
+    if (next) {
+      // Track like as an engagement impression
+      supabase.from('ad_impressions').insert({ ad_id: ad.id, user_id: user?.id ?? null, clicked: true }).catch(() => {});
+    }
+  };
+
+  const handleShare = () => {
+    setShareCount(c => c + 1);
+    supabase.from('ad_impressions').insert({ ad_id: ad.id, user_id: user?.id ?? null, clicked: true }).catch(() => {});
+    if (ad.target_url) {
+      navigator.clipboard.writeText(ad.target_url).catch(() => {});
+    }
+  };
+
   if (dismissed) return null;
 
+  // Derived display values — declared before any early return so Story Format can use them
   const advertiserName = ad.user_profiles?.username ?? 'Advertiser';
   const advertiserAvatar = ad.user_profiles?.avatar_url;
   const isVerified = ad.user_profiles?.verified;
 
-  // Extract domain from target_url for link preview strip
   let domain = '';
   let domainShort = '';
   if (ad.target_url) {
@@ -79,10 +160,76 @@ export function UserAdCard({ ad }: UserAdCardProps) {
   const bodyText = ad.description ?? '';
   const SHORT_LIMIT = 120;
   const isLong = bodyText.length > SHORT_LIMIT;
-  const displayBody = expanded || !isLong ? bodyText : bodyText.slice(0, SHORT_LIMIT) + '…';
+  const displayBody = expanded || !isLong ? bodyText : bodyText.slice(0, SHORT_LIMIT) + '\u2026';
 
   const commentCount = ad.clicks ? Math.floor(ad.clicks * 0.12) : 0;
-  const shareCount = ad.clicks ? Math.floor(ad.clicks * 0.05) : 0;
+
+  // ── Story Format (vertical video 9:16) ──────────────────────────────────
+  if (isVerticalVideo && showStoryFormat && ad.video_url) {
+    return (
+      <div
+        className="fixed inset-0 z-[500] bg-black flex items-center justify-center"
+        onClick={toggleStoryPause}
+      >
+        {/* Progress bar */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-white/20 z-10">
+          <div
+            className="h-full bg-white transition-none rounded-full"
+            style={{ width: storyProgress + '%' }}
+          />
+        </div>
+        {/* Header */}
+        <div className="absolute top-4 left-0 right-0 flex items-center gap-3 px-4 z-10">
+          <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-white shrink-0">
+            {advertiserAvatar
+              ? <img src={advertiserAvatar} alt={advertiserName} className="w-full h-full object-cover" />
+              : <div className="w-full h-full bg-primary flex items-center justify-center font-bold text-white text-sm">{advertiserName[0]?.toUpperCase()}</div>}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white font-bold text-sm leading-tight truncate">{advertiserName}</p>
+            <p className="text-white/60 text-[11px] flex items-center gap-1"><Globe className="w-2.5 h-2.5" />Ad</p>
+          </div>
+          <button onClick={e => { e.stopPropagation(); stopStoryProgress(); }} className="w-9 h-9 flex items-center justify-center rounded-full bg-black/40 text-white">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        {/* Video */}
+        <video
+          src={ad.video_url}
+          className="h-full w-full object-cover"
+          autoPlay
+          muted
+          playsInline
+          loop
+          style={{ maxHeight: '100dvh' }}
+        />
+        {/* Overlay gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30 pointer-events-none" />
+        {/* Pause indicator */}
+        {storyPaused && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-16 h-16 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+              <Pause className="w-8 h-8 text-white" />
+            </div>
+          </div>
+        )}
+        {/* Footer CTA */}
+        <div className="absolute bottom-8 left-4 right-4 z-10" onClick={e => e.stopPropagation()}>
+          <p className="text-white font-bold text-lg leading-tight mb-1">{ad.title}</p>
+          <p className="text-white/80 text-sm mb-4 line-clamp-2">{ad.description}</p>
+          {ad.target_url && (
+            <button
+              onClick={handleClick}
+              className="w-full py-3.5 bg-white text-black rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all"
+            >
+              {domainShort || 'Learn more'}
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="border-b border-border bg-card hover:bg-muted/5 transition-colors">
@@ -163,7 +310,7 @@ export function UserAdCard({ ad }: UserAdCardProps) {
           />
         </div>
       ) : ad.image_url ? (
-        <div className="w-full cursor-pointer" onClick={handleClick}>
+        <div className="w-full cursor-pointer relative" onClick={handleClick}>
           <img
             src={ad.image_url}
             alt={ad.title}
@@ -172,6 +319,32 @@ export function UserAdCard({ ad }: UserAdCardProps) {
           />
         </div>
       ) : null}
+
+      {/* Story format trigger — shown when vertical video detected */}
+      {isVerticalVideo && ad.video_url && !showStoryFormat && (
+        <div
+          className="relative cursor-pointer overflow-hidden bg-black"
+          onClick={openStoryFormat}
+        >
+          <video
+            src={`${ad.video_url}#t=0.5`}
+            className="w-full max-h-[300px] object-cover opacity-80"
+            muted
+            preload="metadata"
+            playsInline
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30">
+              <Play className="w-7 h-7 text-white fill-white ml-1" />
+            </div>
+          </div>
+          <div className="absolute bottom-3 left-3 right-3">
+            <p className="text-white text-sm font-bold line-clamp-1">{ad.title}</p>
+            <p className="text-white/60 text-[11px] mt-0.5">Tap to watch full story ad</p>
+          </div>
+        </div>
+      )}
 
       {/* ── Link preview strip (Facebook-style) ─────────────────────── */}
       {domain && (
@@ -221,22 +394,27 @@ export function UserAdCard({ ad }: UserAdCardProps) {
       {/* ── Action bar ─────────────────────────────────────────────── */}
       <div className="px-2 py-0.5 flex items-center border-t border-border/60">
         <button
-          onClick={() => setLiked(l => !l)}
+          onClick={handleLike}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-colors hover:bg-muted/60 ${liked ? 'text-blue-600' : 'text-muted-foreground'}`}
         >
           <ThumbsUp className={`w-4 h-4 ${liked ? 'fill-blue-600' : ''}`} />
           Like
         </button>
-        <button className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold text-muted-foreground hover:bg-muted/60 transition-colors">
+        <button
+          onClick={() => {
+            supabase.from('ad_impressions').insert({ ad_id: ad.id, user_id: user?.id ?? null, clicked: true }).catch(() => {});
+          }}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold text-muted-foreground hover:bg-muted/60 transition-colors"
+        >
           <MessageCircle className="w-4 h-4" />
           Comment
         </button>
         <button
-          onClick={() => { if (ad.target_url) navigator.clipboard.writeText(ad.target_url).catch(() => {}); }}
+          onClick={handleShare}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold text-muted-foreground hover:bg-muted/60 transition-colors"
         >
           <Share2 className="w-4 h-4" />
-          Share
+          Share {shareCount > 0 && <span className="text-xs opacity-60">{shareCount}</span>}
         </button>
       </div>
 
