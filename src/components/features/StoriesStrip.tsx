@@ -36,6 +36,8 @@ export function StoriesStrip() {
 
   // Viewer
   const [viewerGroupIdx, setViewerGroupIdx] = useState<number | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeStoryIdx, setActiveStoryIdx] = useState(0);
   const [progressPct, setProgressPct] = useState(0);
 
@@ -384,7 +386,7 @@ export function StoriesStrip() {
     );
   }, [user?.id]);
 
-  // Auto-advance with smooth progress bar
+  // Auto-advance with smooth progress bar — pauses on hold
   useEffect(() => {
     if (viewerGroupIdx === null) { setProgressPct(0); return; }
     const g = groups[viewerGroupIdx];
@@ -393,11 +395,16 @@ export function StoriesStrip() {
     if (!story || story.media_type === 'video') { setProgressPct(0); return; }
 
     setProgressPct(0);
-    const start = Date.now();
     const DURATION = 5000;
+    let elapsed = 0;
+    let lastTick = Date.now();
 
     const iv = setInterval(() => {
-      const pct = Math.min(((Date.now() - start) / DURATION) * 100, 100);
+      if (isPaused) { lastTick = Date.now(); return; }
+      const now = Date.now();
+      elapsed += now - lastTick;
+      lastTick = now;
+      const pct = Math.min((elapsed / DURATION) * 100, 100);
       setProgressPct(pct);
       if (pct >= 100) {
         clearInterval(iv);
@@ -419,7 +426,7 @@ export function StoriesStrip() {
     }, 50);
 
     return () => clearInterval(iv);
-  }, [viewerGroupIdx, activeStoryIdx, groups, markViewed]);
+  }, [viewerGroupIdx, activeStoryIdx, groups, markViewed, isPaused]);
 
   const closeViewer = () => {
     stopStoryAudio();
@@ -1110,18 +1117,35 @@ export function StoriesStrip() {
         return (
           <div
             className="fixed inset-0 z-[200] bg-black flex items-center justify-center select-none"
-            onTouchStart={e => { touchStartX.current = e.touches[0].clientX; isSwiping.current = false; }}
+            onTouchStart={e => {
+              touchStartX.current = e.touches[0].clientX;
+              isSwiping.current = false;
+              // Hold-to-pause: set pause after 150ms
+              if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+              holdTimerRef.current = setTimeout(() => setIsPaused(true), 150);
+            }}
             onTouchMove={e => {
               if (touchStartX.current !== null && Math.abs(e.touches[0].clientX - touchStartX.current) > 10)
                 isSwiping.current = true;
             }}
             onTouchEnd={e => {
+              if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+              setIsPaused(false);
               if (touchStartX.current === null) return;
               const delta = e.changedTouches[0].clientX - touchStartX.current;
               touchStartX.current = null;
               if (Math.abs(delta) < 50) { isSwiping.current = false; return; }
               if (delta < 0) advance(); else retreat();
             }}
+            onMouseDown={() => {
+              if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+              holdTimerRef.current = setTimeout(() => setIsPaused(true), 150);
+            }}
+            onMouseUp={() => {
+              if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+              setIsPaused(false);
+            }}
+            onMouseLeave={() => { if (holdTimerRef.current) clearTimeout(holdTimerRef.current); setIsPaused(false); }}
             onClick={e => {
               if (showViewers) return;
               if (isSwiping.current) { isSwiping.current = false; return; }
@@ -1130,6 +1154,15 @@ export function StoriesStrip() {
               if (x < w / 2) retreat(); else advance();
             }}
           >
+            {/* Pause overlay indicator */}
+            {isPaused && (
+              <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+                <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center border border-white/30">
+                  <Pause className="w-7 h-7 text-white" fill="white" />
+                </div>
+              </div>
+            )}
+
             {/* Progress segments */}
             <div className="absolute top-3 left-3 right-3 flex gap-1 z-20 pointer-events-none">
               {g.stories.map((_, i) => (

@@ -91,6 +91,9 @@ export default function MessagesPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const groupPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // DM polling — 3-second fallback for when realtime misses messages
+  const dmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastDmCountRef = useRef(0);
 
   const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); };
   useEffect(() => { scrollToBottom(); }, [messages, groupMessages]);
@@ -104,15 +107,55 @@ export default function MessagesPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!selectedConversation) return;
+    if (!selectedConversation) {
+      if (dmPollRef.current) clearInterval(dmPollRef.current);
+      return;
+    }
     fetchMessages(selectedConversation.id);
+    // Realtime subscription
     const subscription = supabase
       .channel(`conversation:${selectedConversation.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages', filter: `conversation_id=eq.${selectedConversation.id}` },
-        (payload) => { setMessages(prev => [...prev, payload.new]); })
+        (payload) => {
+          setMessages(prev => {
+            // Deduplicate by id
+            if (prev.some(m => m.id === payload.new.id)) return prev;
+            if ((payload.new as any).sender_id !== user?.id) playSound('dm');
+            return [...prev, payload.new];
+          });
+          scrollToBottom();
+        })
       .subscribe();
-    return () => { subscription.unsubscribe(); };
-  }, [selectedConversation]);
+    // 3-second polling fallback — catches missed realtime events
+    dmPollRef.current = setInterval(async () => {
+      const { data } = await supabase
+        .from('direct_messages')
+        .select('*, sender:user_profiles!direct_messages_sender_id_fkey(*)')
+        .eq('conversation_id', selectedConversation.id)
+        .order('created_at', { ascending: true });
+      const newMsgs = data ?? [];
+      if (newMsgs.length > lastDmCountRef.current) {
+        const incoming = newMsgs.slice(lastDmCountRef.current).filter((m: any) => m.sender_id !== user?.id);
+        if (incoming.length > 0) {
+          playSound('dm');
+          scrollToBottom();
+        }
+        lastDmCountRef.current = newMsgs.length;
+        setMessages(newMsgs);
+        // Mark as read
+        await supabase.from('direct_messages').update({ read: true })
+          .eq('conversation_id', selectedConversation.id).eq('read', false).neq('sender_id', user!.id).catch(() => {});
+        // Update unread badge in conversation list
+        setConversations(prev => prev.map(c =>
+          c.id === selectedConversation.id ? { ...c, unreadCount: 0 } : c
+        ));
+      }
+    }, 3000);
+    return () => {
+      subscription.unsubscribe();
+      if (dmPollRef.current) clearInterval(dmPollRef.current);
+    };
+  }, [selectedConversation?.id]);
 
   // Poll group messages every 3s
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Bell, User, Flame, UserSearch, Inbox, ShieldCheck } from 'lucide-react';
+import { Home, Bell, User, Flame, UserSearch, Inbox, ShieldCheck, MessageSquare } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useIsRegulator } from '@/hooks/useFeatureUnlock';
@@ -213,12 +213,12 @@ export function BottomNav() {
   }, [location.pathname]);
 
   const navItems = [
-    { icon: Home,      label: 'Home',      path: '/',         badge: 0 },
-    { icon: UserSearch, label: 'Discover',  path: '/discover', badge: 0, dot: hasNewSuggestions },
-    { icon: Flame,  label: 'Streak',    path: '/daily-rewards',                                badge: streakDay, badgeStyle: 'bg-orange-500', requireAuth: true },
-    { icon: Inbox,  label: 'Inbox',     path: '/platform-inbox', requireAuth: true,            badge: unreadInbox + (isReg ? pendingAppeals : 0) },
-    { icon: Bell,   label: 'Alerts',    path: '/notifications',  requireAuth: true,              badge: unreadNotifs },
-    { icon: User,   label: 'Profile',   path: user ? `/profile/${user.username}` : '/auth',     badge: 0, requireAuth: true },
+    { icon: Home,          label: 'Home',      path: '/',         badge: 0 },
+    { icon: MessageSquare, label: 'Messages',  path: '/messages', badge: unreadMessages, requireAuth: true },
+    { icon: Flame,         label: 'Streak',    path: '/daily-rewards',                                badge: streakDay, badgeStyle: 'bg-orange-500', requireAuth: true },
+    { icon: Inbox,         label: 'Inbox',     path: '/platform-inbox', requireAuth: true,            badge: unreadInbox + (isReg ? pendingAppeals : 0) },
+    { icon: Bell,          label: 'Alerts',    path: '/notifications',  requireAuth: true,              badge: unreadNotifs },
+    { icon: User,          label: 'Profile',   path: user ? `/profile/${user.username}` : '/auth',     badge: 0, requireAuth: true },
   ];
 
   const handleNavClick = (path: string, requireAuth?: boolean) => {
