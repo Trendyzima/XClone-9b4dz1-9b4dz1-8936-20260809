@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import {
   Play, Pause, Volume2, VolumeX, Download, Share2,
   Loader2, Users, Clock, ChevronRight, Radio, Bookmark,
-  BookmarkCheck
+  BookmarkCheck, Scissors, X
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -24,7 +24,13 @@ interface Chapter {
 export default function SpaceRecordingViewerPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
+
+  // ── Clip params from URL (t=startSec&end=endSec) ────────────────────────
+  const clipStart = searchParams.get('t') !== null ? Number(searchParams.get('t')) : null;
+  const clipEnd   = searchParams.get('end') !== null ? Number(searchParams.get('end')) : null;
+  const isClipMode = clipStart !== null && clipEnd !== null && clipEnd > (clipStart ?? 0);
 
   const [recording, setRecording] = useState<any>(null);
   const [space, setSpace] = useState<any>(null);
@@ -42,6 +48,8 @@ export default function SpaceRecordingViewerPage() {
   const [buffered, setBuffered] = useState(0);
   const [bookmarked, setBookmarked] = useState(false);
   const [activeChapter, setActiveChapter] = useState<number>(-1);
+  const [clipDismissed, setClipDismissed] = useState(false);
+  const clipAutoStarted = useRef(false);
 
   // ── SEO — PodcastEpisode JSON-LD ────────────────────────────────────────
   useSEO({
@@ -162,8 +170,20 @@ export default function SpaceRecordingViewerPage() {
         }
         setActiveChapter(ci);
       }
+      // ── Clip auto-pause at clip end ──────────────────────────────────────
+      if (isClipMode && clipEnd !== null && audio.currentTime >= clipEnd && !audio.paused) {
+        audio.pause();
+      }
     };
-    const onLoadedMetadata = () => setDuration(audio.duration || 0);
+    const onLoadedMetadata = () => {
+      setDuration(audio.duration || 0);
+      // ── Auto-seek to clip start and play once ──────────────────────────────
+      if (isClipMode && clipStart !== null && !clipAutoStarted.current) {
+        clipAutoStarted.current = true;
+        audio.currentTime = clipStart;
+        audio.play().catch(() => {});
+      }
+    };
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     const onEnded = () => { setPlaying(false); setCurrentTime(0); };
@@ -254,6 +274,10 @@ export default function SpaceRecordingViewerPage() {
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  // Clip region percentages for the waveform overlay
+  const clipStartPct = (isClipMode && duration > 0 && clipStart !== null) ? (clipStart / duration) * 100 : null;
+  const clipEndPct   = (isClipMode && duration > 0 && clipEnd   !== null) ? (clipEnd   / duration) * 100 : null;
+
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Space Recording" showBack />
@@ -262,6 +286,34 @@ export default function SpaceRecordingViewerPage() {
       {/* Hidden audio element */}
       {recording?.audio_url && (
         <audio ref={audioRef} src={recording.audio_url} preload="metadata" />
+      )}
+
+      {/* ── Clip mode banner ── */}
+      {isClipMode && !clipDismissed && (
+        <div className="mx-4 mt-3 flex items-center gap-3 px-4 py-2.5 bg-primary/10 border border-primary/25 rounded-2xl">
+          <Scissors className="w-4 h-4 text-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-primary">Clip Preview</p>
+            <p className="text-[10px] text-muted-foreground">
+              {fmtTime(clipStart ?? 0)} – {fmtTime(clipEnd ?? 0)}
+              <span className="ml-1 font-semibold text-primary">({(clipEnd ?? 0) - (clipStart ?? 0)}s clip)</span>
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              if (audioRef.current && clipStart !== null) {
+                audioRef.current.currentTime = clipStart;
+                audioRef.current.play().catch(() => {});
+              }
+            }}
+            className="flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:opacity-90"
+          >
+            <Play className="w-3 h-3 fill-current" />Play Clip
+          </button>
+          <button onClick={() => setClipDismissed(true)} className="text-muted-foreground hover:text-foreground">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
 
       {/* Hero section */}
@@ -334,6 +386,13 @@ export default function SpaceRecordingViewerPage() {
             className="absolute inset-y-0 left-0 bg-primary/15 transition-all duration-100"
             style={{ width: `${progress}%` }}
           />
+          {/* Clip region highlight */}
+          {clipStartPct !== null && clipEndPct !== null && (
+            <div
+              className="absolute inset-y-0 bg-orange-400/25 border-x-2 border-orange-400/60 pointer-events-none"
+              style={{ left: `${clipStartPct}%`, width: `${clipEndPct - clipStartPct}%` }}
+            />
+          )}
           {/* Waveform bars */}
           <div className="absolute inset-0 flex items-center justify-between px-1 gap-[1px]">
             {waveformBars.map((h, i) => {

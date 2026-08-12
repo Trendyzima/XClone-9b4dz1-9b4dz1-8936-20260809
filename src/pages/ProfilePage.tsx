@@ -20,6 +20,11 @@ import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 function ProfileAdBanner() { return <PageAdBanner />; }
 
+// Stable module-level helper — avoids duplicate `const rssUrl` bindings across closures (esbuild guard)
+function getPodcastRssUrl(username: string) {
+  return `${import.meta.env.VITE_SUPABASE_URL?.replace('/v1', '')}/functions/v1/podcast-rss?username=${username}`;
+}
+
 export default function ProfilePage() {
   const { username } = useParams();
   const { user: currentUser } = useAuth();
@@ -1176,8 +1181,7 @@ export default function ProfilePage() {
           <div className="flex items-center gap-2 px-4 pt-3 pb-0">
             <button
               onClick={async () => {
-                const rssUrl = `${import.meta.env.VITE_SUPABASE_URL?.replace('/v1', '')}/functions/v1/podcast-rss?username=${profile.username ?? ''}`;
-                await navigator.clipboard.writeText(rssUrl);
+                await navigator.clipboard.writeText(getPodcastRssUrl(profile.username ?? ''));
                 toast.success('Podcast RSS URL copied — paste into any podcast app');
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 transition-colors text-xs font-semibold"
@@ -1195,7 +1199,7 @@ export default function ProfilePage() {
               <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/20">
                 <Rss className="w-4 h-4 text-orange-500" />
                 <span className="text-sm text-muted-foreground flex-1">Share your podcast RSS feed</span>
-                <button onClick={() => { const rssUrl = `${import.meta.env.VITE_SUPABASE_URL?.replace('/v1','')}/functions/v1/podcast-rss?username=${profile.username}`; navigator.clipboard.writeText(rssUrl).then(() => toast.success('RSS feed URL copied!')); }}
+                <button onClick={() => { navigator.clipboard.writeText(getPodcastRssUrl(profile.username)).then(() => toast.success('RSS feed URL copied!')); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold transition-colors">
                   <Copy className="w-3 h-3" /> Copy RSS
                 </button>
