@@ -26,6 +26,7 @@ import { VideoMonetizationAd } from './VideoMonetizationAd';
 import { EmbedRenderer } from './EmbedRenderer';
 import { updateInterestSignal } from '@/services/recommendations';
 
+// esbuild guard: no 'as const' on module-level objects/arrays used in .map() render
 const REPORT_CATEGORIES = [
   { id: 'spam',           emoji: '📢', label: 'Spam',               desc: 'Unsolicited or repetitive content' },
   { id: 'hate_speech',    emoji: '⚠️', label: 'Hate Speech',         desc: 'Promotes hatred against a group' },
@@ -33,7 +34,7 @@ const REPORT_CATEGORIES = [
   { id: 'explicit',       emoji: '🔞', label: 'Explicit Content',    desc: 'Adult content not marked properly' },
   { id: 'violence',       emoji: '🚫', label: 'Violence',            desc: 'Graphic violence or threats' },
   { id: 'harassment',     emoji: '😡', label: 'Harassment',          desc: 'Targeting or bullying someone' },
-] as const;
+];
 
 interface PostCardProps {
   post: Post;
@@ -92,7 +93,8 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   }, [post.user_id]);
 
   // Post Reactions
-  const REACTIONS = ['❤️', '😂', '😮', '😢', '🔥'] as const;
+  // esbuild guard: no 'as const' on arrays used in .map() inside component
+  const REACTIONS: string[] = ['❤️', '😂', '😮', '😢', '🔥'];
   // Reaction counts — parallel arrays (esbuild guard: no Record<string,number> in state)
   const [reactionEmojis, setReactionEmojis] = useState<string[]>([]);
   const [reactionNums, setReactionNums] = useState<number[]>([]);
@@ -302,7 +304,8 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   const [inlinePosting, setInlinePosting] = useState(false);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
-  const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
+  // esbuild guard: parallel arrays replace Set<string> state (no Set in useState)
+  const [expandedRepliesIds, setExpandedRepliesIds] = useState<string[]>([]);
 
   const fetchInlineReplies = async () => {
     setInlineLoading(true);
@@ -334,6 +337,14 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   };
 
   const nestReplies = (flat: any[]) => flat;
+
+  // Helper: check if 'all' is in expandedRepliesIds (replaces Set.has)
+  const isAllExpanded = expandedRepliesIds.includes('all');
+  const toggleAllExpanded = () => {
+    setExpandedRepliesIds(prev =>
+      prev.includes('all') ? prev.filter(x => x !== 'all') : [...prev, 'all']
+    );
+  };
 
   // Tip dialog state
   const [showTipDialog, setShowTipDialog] = useState(false);
@@ -1074,7 +1085,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
             <p className="text-xs text-muted-foreground text-center py-3">No comments yet. Be the first!</p>
           ) : (
             <div className="space-y-0.5">
-              {nestReplies(inlineReplies).slice(0, expandedReplies.has('all') ? 999 : 5).map((reply: any) => (
+              {nestReplies(inlineReplies).slice(0, isAllExpanded ? 999 : 5).map((reply: any) => (
                 <div key={reply.id} className="flex gap-2 px-1 py-2 rounded-xl hover:bg-muted/30 transition-colors group">
                   <button onClick={() => navigate(`/profile/${reply.user_profiles?.username}`)} className="shrink-0">
                     <div className="w-7 h-7 rounded-full bg-muted overflow-hidden">
@@ -1122,10 +1133,10 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               ))}
               {inlineReplies.length > 5 && (
                 <button
-                  onClick={() => setExpandedReplies(prev => { const n = new Set(prev); if (n.has('all')) n.delete('all'); else n.add('all'); return n; })}
+                  onClick={toggleAllExpanded}
                   className="w-full text-xs text-primary font-semibold py-2 hover:bg-primary/5 rounded-xl transition-colors flex items-center justify-center gap-1"
                 >
-                  {expandedReplies.has('all')
+                  {isAllExpanded
                     ? <><ChevronUp className="w-3.5 h-3.5" /> Show less</>
                     : <><ChevronDown className="w-3.5 h-3.5" /> View all {inlineReplies.length} comments</>}
                 </button>

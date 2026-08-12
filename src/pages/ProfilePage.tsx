@@ -22,15 +22,6 @@ import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 function ProfileAdBanner() { return <PageAdBanner />; }
 
 function ProfileSkeleton() {
-  // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <div className="h-12 border-b border-border flex items-center px-4 gap-3">
@@ -635,16 +626,7 @@ export default function ProfilePage() {
         else closeHighlightViewer();
       }
     }, 50);
-    // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return () => clearInterval(iv);
+    return () => clearInterval(iv);
   }, [viewingHighlight, highlightStoryIdx, highlightStories]);
 
   useEffect(() => {
@@ -1098,16 +1080,7 @@ export default function ProfilePage() {
               )}
               {highlights.map((h: any, hIdx: number) => {
                 const viewCount = getHighlightCount(h.id);
-                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return (
+                return (
                   <div key={h.id} draggable={isOwnProfile}
                     onDragStart={() => setDraggingHighlightIdx(hIdx)}
                     onDragOver={e => { e.preventDefault(); setDragOverHighlightIdx(hIdx); }}
@@ -1423,16 +1396,7 @@ export default function ProfilePage() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-2">
               {media.map(post => {
                 const mediaUrl = post.video_url || post.image_url || post.media_urls?.[0];
-                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return (
+                return (
                   <div key={post.id} onClick={() => navigate(`/post/${post.id}`)} className="aspect-square bg-muted rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity">
                     {post.is_video || post.video_url ? <video src={mediaUrl} className="w-full h-full object-cover" /> : <img src={mediaUrl} alt="Media" className="w-full h-full object-cover" />}
                   </div>
@@ -1521,16 +1485,7 @@ export default function ProfilePage() {
                     const podTitle = pod.spaces?.title ?? pod.title;
                     const podEp = pod.spaces?.episode_number ?? null;
                     const podSub = pod.spaces?.subscriber_only ?? false;
-                    // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return (
+                    return (
                       <div key={pod.id} className="flex items-center gap-3 p-4 hover:bg-muted/15 transition-colors cursor-pointer" onClick={() => navigate(`/space-recording/${pod.id}`)}>
                         <div className="w-14 h-14 rounded-xl overflow-hidden bg-gradient-to-br from-primary/15 to-purple-500/10 shrink-0 shadow-sm flex items-center justify-center">
                           {podArt ? <img src={podArt} alt="" className="w-full h-full object-cover" /> : <Headphones className="w-6 h-6 text-primary opacity-70" />}
@@ -1578,16 +1533,7 @@ export default function ProfilePage() {
                 const gifterMatch = hint.match(/@(\w+)\s+gifted you/);
                 const gifterName = gifterMatch?.[1] ?? null;
                 const isReceived = sub.user_id === profile.id;
-                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return (
+                return (
                   <div key={sub.id} className="p-4 hover:bg-muted/5 transition-colors flex items-center gap-3">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${isActive ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-muted border border-border'}`}>
                       <Crown className={`w-6 h-6 ${isActive ? 'text-amber-500' : 'text-muted-foreground'}`} fill={isActive ? 'currentColor' : 'none'} />
@@ -1636,16 +1582,7 @@ export default function ProfilePage() {
                 const isSent = tip.from_user_id === profile.id;
                 const other = isSent ? tip.recipient : tip.sender;
                 const uname = other?.username ?? 'user';
-                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return (
+                return (
                   <div key={tip.id} className="p-4 hover:bg-muted/5 transition-colors flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0 cursor-pointer" onClick={() => navigate(`/profile/${uname}`)}>
                       {other?.avatar_url ? <img src={other.avatar_url} alt={uname} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{uname[0]?.toUpperCase()}</div>}
@@ -1681,16 +1618,7 @@ export default function ProfilePage() {
                 try { const raw = localStorage.getItem('series_progress'); sProg = raw ? (JSON.parse(raw)[s.id] ?? null) : null; } catch { sProg = null; }
                 const sTotal = s.item_count ?? 0;
                 const sPct = sProg && sTotal > 0 ? Math.round((sProg.currentPart / sTotal) * 100) : 0;
-                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return (
+                return (
                   <div key={s.id} className="hover:bg-muted/20 transition-colors">
                     <button onClick={() => navigate('/series')} className="w-full flex items-start gap-3 p-4 text-left">
                       <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center shrink-0 overflow-hidden border border-border">
@@ -1829,16 +1757,7 @@ export default function ProfilePage() {
                     .map((post: any, i: number) => {
                       const maxViews = Math.max(...posts.map((p: any) => p.views_count ?? 0), 1);
                       const pct = Math.max(4, Math.round(((post.views_count ?? 0) / maxViews) * 100));
-                      // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return (
+                      return (
                         <button
                           key={post.id}
                           onClick={() => navigate(`/post/${post.id}`)}
@@ -2165,16 +2084,7 @@ export default function ProfilePage() {
                   {availableStories.map((s: any) => {
                     const isSelected = selectedStoryIds.includes(s.id);
                     const selIdx = selectedStoryIds.indexOf(s.id);
-                    // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
-  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
-  const goalProgressPct = tipGoal && tipGoal > 0
-    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
-    : 0;
-  const goalRemainingAmt = tipGoal && tipGoal > 0
-    ? Math.max(0, tipGoal - currentMonthTips)
-    : 0;
-
-  return (
+                    return (
                       <button key={s.id} onClick={() => { setSelectedStoryIds(prev => isSelected ? prev.filter(id => id !== s.id) : [...prev, s.id]); if (!isSelected && selectedStoryIds.length === 0 && !highlightCoverUrl) setHighlightCoverUrl(s.media_url); }}
                         className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-transparent hover:border-muted-foreground/30'}`}>
                         {s.media_type === 'video' ? <video src={s.media_url} className="w-full h-full object-cover" /> : <img src={s.media_url} alt="story" className="w-full h-full object-cover" />}

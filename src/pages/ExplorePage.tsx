@@ -15,7 +15,8 @@ import { useSEO } from '@/hooks/useSEO';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 // ── Module-level trending filter categories (esbuild guard: no as-const in render)
-const TRENDING_FILTER_CATS = ['All', 'Tech', 'Sports', 'Entertainment', 'Music', 'Politics'] as const;
+// esbuild guard: no 'as const' on module-level arrays used in .map() render
+const TRENDING_FILTER_CATS: string[] = ['All', 'Tech', 'Sports', 'Entertainment', 'Music', 'Politics'];
 // Plain object — no index-sig type annotation (esbuild guard)
 const TRENDING_FILTER_KEYWORDS = {
   Tech:          ['tech', 'ai', 'code', 'dev', 'app', 'crypto', 'web', 'data', 'software', 'digital', 'robot', 'cloud'],
@@ -476,7 +477,12 @@ export default function ExplorePage() {
             <section className="border-b border-border">
               <div className="px-4 pt-4 pb-2 flex items-center justify-between">
                 <h2 className="font-bold text-xl flex items-center gap-2"><BookOpen className="w-5 h-5 text-pink-500" />Stories For You</h2>
-                {exploreStories.length > 9 && <span className="text-xs text-muted-foreground">{exploreStories.length} stories</span>}
+                <button
+                  onClick={() => navigate('/home?tab=stories')}
+                  className="text-xs text-primary font-bold hover:underline"
+                >
+                  View all →
+                </button>
               </div>
               {storiesLoading ? (
                 <div className="grid grid-cols-3 gap-1.5 px-4 pb-4">
