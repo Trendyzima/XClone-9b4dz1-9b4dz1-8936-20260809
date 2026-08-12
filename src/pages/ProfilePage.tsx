@@ -1863,7 +1863,7 @@ export default function ProfilePage() {
               </div>
               {viewerHighlightStory.caption && <div className="absolute bottom-8 left-6 right-6 z-30 pointer-events-none"><p className="text-white text-sm font-medium bg-black/50 rounded-2xl px-4 py-2.5 text-center backdrop-blur-sm">{viewerHighlightStory.caption}</p></div>}
             </>
-          ) : null
+          ) : null}
         </div>
       )}
 
