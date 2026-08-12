@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -30,6 +31,7 @@ interface Community {
   display_name: string;
   icon_url?: string;
   member_count: number;
+  description?: string; // Added missing property
 }
 
 interface Space {
@@ -52,6 +54,7 @@ interface LeaderboardEntry {
   weekly_earnings: number;
 }
 
+// ── Creator Leaderboard Widget (compact podium) ────────────────────────────────
 function CreatorLeaderboardWidget() {
   const navigate = useNavigate();
   const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
@@ -65,16 +68,20 @@ function CreatorLeaderboardWidget() {
       .gte('created_at', sevenDaysAgo)
       .eq('status', 'paid');
 
-    if (!data) { setLoading(false); return; }
-
-    // Aggregate by user
-    const totals: { [uid: string]: number } = {};
-    data.forEach(e => {
-      totals[e.user_id] = (totals[e.user_id] ?? 0) + Number(e.amount);
-    });
-    const topIds = (Object.keys(totals) as string[])
-      .sort((a, b) => (totals[b] ?? 0) - (totals[a] ?? 0))
-      .slice(0, 5);
+    // Aggregate by user — parallel arrays (esbuild guard: no index-sig object)
+    const uids: string[] = [];
+    const amounts: number[] = [];
+    for (const row of data ?? []) {
+      const idx = uids.indexOf(row.user_id);
+      if (idx >= 0) amounts[idx] += Number(row.amount ?? 0);
+      else { uids.push(row.user_id); amounts.push(Number(row.amount ?? 0)); }
+    }
+    const sorted = amounts
+      .map((a, i) => ({ a, i }))
+      .sort((x, y) => y.a - x.a)
+      .slice(0, 3);
+    const topIds = sorted.map(s => uids[s.i]);
+    const topAmounts = sorted.map(s => s.a);
 
     if (topIds.length === 0) { setLoading(false); return; }
 
@@ -83,14 +90,14 @@ function CreatorLeaderboardWidget() {
       .select('id, username, avatar_url, verified')
       .in('id', topIds);
 
-    const merged: LeaderboardEntry[] = topIds.map(uid => {
-      const p = profiles?.find(pr => pr.id === uid);
+    const merged: LeaderboardEntry[] = topIds.map((uid, rank) => {
+      const p = (profiles ?? []).find((pr: any) => pr.id === uid);
       return {
         user_id: uid,
         username: p?.username ?? 'Unknown',
         avatar_url: p?.avatar_url ?? null,
         verified: p?.verified ?? false,
-        weekly_earnings: totals[uid],
+        weekly_earnings: topAmounts[rank],
       };
     });
     setLeaders(merged);
@@ -105,34 +112,117 @@ function CreatorLeaderboardWidget() {
 
   if (loading || leaders.length === 0) return null;
 
-  const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+  const maxEarnings = Math.max(...leaders.map(l => l.weekly_earnings), 1);
+  const podiumBorders = ['border-yellow-400/60', 'border-slate-300/60', 'border-amber-600/60'];
+  const podiumRings  = ['ring-yellow-400/30', 'ring-slate-300/30', 'ring-amber-600/30'];
+  const rankEmojis   = ['🥇', '🥈', '🥉'];
 
   return (
-    <div className="bg-gradient-to-br from-amber-500/8 to-orange-500/5 rounded-xl p-4 border border-amber-500/20">
-      <div className="flex items-center gap-2 mb-3">
-        <Trophy className="w-4 h-4 text-amber-500" />
-        <h3 className="font-bold text-sm">Top Earners This Week</h3>
+    <div className="bg-gradient-to-br from-amber-500/8 to-orange-500/4 rounded-2xl p-4 border border-amber-500/20 shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Trophy className="w-4 h-4 text-amber-500" />
+          <h3 className="font-bold text-sm">Top Creators This Week</h3>
+        </div>
+        <button
+          onClick={() => navigate('/leaderboard/creators')}
+          className="text-[11px] font-bold text-amber-600 hover:text-amber-700 hover:underline transition-colors"
+        >
+          Full board →
+        </button>
       </div>
+
+      {/* Compact podium strip */}
+      <div className="flex items-end justify-center gap-2 mb-4">
+        {/* 2nd place (left) */}
+        {leaders[1] && (
+          <div className="flex flex-col items-center gap-1 flex-1">
+            <button
+              onClick={() => navigate(`/profile/${leaders[1].username}`)}
+              className={`relative w-10 h-10 rounded-full overflow-hidden border-2 ${podiumBorders[1]} ring-1 ${podiumRings[1]}`}
+            >
+              {leaders[1].avatar_url
+                ? <img src={leaders[1].avatar_url} alt={leaders[1].username} className="w-full h-full object-cover" />
+                : <div className="w-full h-full bg-muted flex items-center justify-center text-xs font-black">{leaders[1].username[0]?.toUpperCase()}</div>}
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-slate-300 rounded-full flex items-center justify-center text-[8px] font-black text-black border border-background">2</div>
+            </button>
+            <p className="text-[10px] font-bold truncate text-center w-full">{leaders[1].username}</p>
+            <p className="text-[10px] text-green-600 font-black">${leaders[1].weekly_earnings.toFixed(0)}</p>
+            <div className="w-full h-8 bg-slate-200/40 dark:bg-slate-500/20 rounded-t-lg" />
+          </div>
+        )}
+        {/* 1st place (center, taller) */}
+        {leaders[0] && (
+          <div className="flex flex-col items-center gap-1 flex-1">
+            <span className="text-base leading-none">👑</span>
+            <button
+              onClick={() => navigate(`/profile/${leaders[0].username}`)}
+              className={`relative w-12 h-12 rounded-full overflow-hidden border-2 ${podiumBorders[0]} ring-2 ${podiumRings[0]} shadow-md`}
+            >
+              {leaders[0].avatar_url
+                ? <img src={leaders[0].avatar_url} alt={leaders[0].username} className="w-full h-full object-cover" />
+                : <div className="w-full h-full bg-muted flex items-center justify-center font-black">{leaders[0].username[0]?.toUpperCase()}</div>}
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-gradient-to-br from-yellow-400 to-amber-500 rounded-full flex items-center justify-center text-[8px] font-black text-black border border-background">1</div>
+            </button>
+            <p className="text-[11px] font-black truncate text-center w-full">{leaders[0].username}</p>
+            <p className="text-[11px] text-green-600 font-black">${leaders[0].weekly_earnings.toFixed(0)}</p>
+            <div className="w-full h-12 bg-gradient-to-t from-yellow-400/30 to-transparent rounded-t-lg" />
+          </div>
+        )}
+        {/* 3rd place (right) */}
+        {leaders[2] && (
+          <div className="flex flex-col items-center gap-1 flex-1">
+            <button
+              onClick={() => navigate(`/profile/${leaders[2].username}`)}
+              className={`relative w-10 h-10 rounded-full overflow-hidden border-2 ${podiumBorders[2]} ring-1 ${podiumRings[2]}`}
+            >
+              {leaders[2].avatar_url
+                ? <img src={leaders[2].avatar_url} alt={leaders[2].username} className="w-full h-full object-cover" />
+                : <div className="w-full h-full bg-muted flex items-center justify-center text-xs font-black">{leaders[2].username[0]?.toUpperCase()}</div>}
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-amber-600 rounded-full flex items-center justify-center text-[8px] font-black text-white border border-background">3</div>
+            </button>
+            <p className="text-[10px] font-bold truncate text-center w-full">{leaders[2].username}</p>
+            <p className="text-[10px] text-green-600 font-black">${leaders[2].weekly_earnings.toFixed(0)}</p>
+            <div className="w-full h-5 bg-amber-600/20 rounded-t-lg" />
+          </div>
+        )}
+      </div>
+
+      {/* Earnings bars */}
       <div className="space-y-2">
-        {leaders.map((entry, idx) => (
-          <button
-            key={entry.user_id}
-            onClick={() => navigate(`/profile/${entry.username}`)}
-            className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-muted/50 transition-colors text-left"
-          >
-            <span className="text-base shrink-0 w-5 text-center">{medals[idx]}</span>
-            <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0">
-              {entry.avatar_url
-                ? <img src={entry.avatar_url} alt={entry.username} className="w-full h-full object-cover" />
-                : <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">{entry.username[0]?.toUpperCase()}</div>}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold truncate">@{entry.username}</p>
-            </div>
-            <span className="text-xs font-bold text-green-600 shrink-0">${entry.weekly_earnings.toFixed(2)}</span>
-          </button>
-        ))}
+        {leaders.map((entry, idx) => {
+          const barWidth = Math.max(10, Math.round((entry.weekly_earnings / maxEarnings) * 100));
+          return (
+            <button
+              key={entry.user_id}
+              onClick={() => navigate(`/profile/${entry.username}`)}
+              className="w-full flex items-center gap-2 hover:bg-muted/40 rounded-xl px-2 py-1.5 transition-colors text-left"
+            >
+              <span className="text-sm w-5 shrink-0 text-center">{rankEmojis[idx]}</span>
+              <span className="text-xs font-bold truncate flex-1">@{entry.username}</span>
+              <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden shrink-0">
+                <div
+                  className={`h-full rounded-full ${
+                    idx === 0 ? 'bg-gradient-to-r from-yellow-400 to-amber-500' :
+                    idx === 1 ? 'bg-gradient-to-r from-slate-300 to-slate-400' :
+                    'bg-gradient-to-r from-amber-600 to-amber-700'
+                  }`}
+                  style={{ width: barWidth + '%' }}
+                />
+              </div>
+              <span className="text-[10px] font-black text-green-600 w-12 text-right shrink-0">${entry.weekly_earnings.toFixed(0)}</span>
+            </button>
+          );
+        })}
       </div>
+
+      <button
+        onClick={() => navigate('/leaderboard/creators')}
+        className="mt-3 w-full py-2 text-xs font-bold text-amber-700 bg-amber-500/10 hover:bg-amber-500/15 rounded-xl transition-colors flex items-center justify-center gap-1.5"
+      >
+        <Trophy className="w-3.5 h-3.5" />View Full Leaderboard
+      </button>
     </div>
   );
 }
@@ -144,76 +234,25 @@ export function RightSidebar() {
   const [trendingHashtags, setTrendingHashtags] = useState<TrendingHashtag[]>([]);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [liveSpaces, setLiveSpaces] = useState<Space[]>([]);
-  const [followedTags, setFollowedTags] = useState<Set<string>>(new Set());
+  // followedTags — plain array (esbuild guard: no Set<string> state)
+  const [followedTagIds, setFollowedTagIds] = useState<string[]>([]);
   const [suggestedCommunity, setSuggestedCommunity] = useState<Community | null>(null);
   const [suggestedSpace, setSuggestedSpace] = useState<Space | null>(null);
   const [followedHashtags, setFollowedHashtags] = useState<any[]>([]);
   const [followedHashtagsLoading, setFollowedHashtagsLoading] = useState(false);
 
-  const pickRandomSuggestions = useCallback((comms: Community[], spaces: Space[]) => {
-    if (comms.length > 0) setSuggestedCommunity(comms[Math.floor(Math.random() * comms.length)]);
-    if (spaces.length > 0) setSuggestedSpace(spaces[Math.floor(Math.random() * spaces.length)]);
-  }, []);
-
-  useEffect(() => {
-    fetchTrending();
-    fetchTrendingHashtags();
-    fetchCommunities();
-    fetchLiveSpaces();
-    if (user) { fetchFollowedTags(); fetchFollowedHashtagsPanel(); }
-
-    // Auto-refresh trending hashtags every 60s
-    const iv = setInterval(fetchTrendingHashtags, 60_000);
-    // Rotate suggestions every 30s
-    const sv = setInterval(() => {
-      pickRandomSuggestions(communities, liveSpaces);
-    }, 30_000);
-    return () => { clearInterval(iv); clearInterval(sv); };
-  }, [user?.id]);
-
-  const fetchFollowedHashtagsPanel = async () => {
-    if (!user) return;
-    setFollowedHashtagsLoading(true);
+  // Define fetch functions before useCallback to ensure they are available
+  const fetchTrending = async () => {
+    // Refresh trending from real posts
+    await supabase.rpc('refresh_trending_topics');
+    
     const { data } = await supabase
-      .from('hashtag_follows')
-      .select('hashtag_id, hashtags(id, tag, usage_count)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+      .from('trending_topics')
+      .select('*')
+      .order('posts_count', { ascending: false })
       .limit(5);
-    setFollowedHashtags((data ?? []).map((d: any) => d.hashtags).filter(Boolean));
-    setFollowedHashtagsLoading(false);
-  };
 
-  const unfollowHashtag = async (hashtagId: string, tag: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!user) return;
-    await supabase.from('hashtag_follows').delete().eq('user_id', user.id).eq('hashtag_id', hashtagId);
-    setFollowedHashtags(prev => prev.filter(h => h.id !== hashtagId));
-    setFollowedTags(prev => { const s = new Set(prev); s.delete(hashtagId); return s; });
-  };
-
-  const fetchFollowedTags = async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from('hashtag_follows')
-      .select('hashtag_id')
-      .eq('user_id', user.id);
-    if (data) setFollowedTags(new Set(data.map((r: any) => r.hashtag_id)));
-  };
-
-  const toggleTagFollow = async (tag: TrendingHashtag, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!user) { navigate('/auth'); return; }
-    const isFollowing = followedTags.has(tag.id);
-    if (isFollowing) {
-      await supabase.from('hashtag_follows').delete().eq('user_id', user.id).eq('hashtag_id', tag.id);
-      setFollowedTags(prev => { const s = new Set(prev); s.delete(tag.id); return s; });
-      toast.success(`Unfollowed #${tag.tag}`);
-    } else {
-      await supabase.from('hashtag_follows').insert({ user_id: user.id, hashtag_id: tag.id });
-      setFollowedTags(prev => new Set([...prev, tag.id]));
-      toast.success(`Following #${tag.tag}`);
-    }
+    if (data) setTrending(data);
   };
 
   const fetchTrendingHashtags = async () => {
@@ -236,19 +275,6 @@ export function RightSidebar() {
     }
   };
 
-  const fetchTrending = async () => {
-    // Refresh trending from real posts
-    await supabase.rpc('refresh_trending_topics');
-    
-    const { data } = await supabase
-      .from('trending_topics')
-      .select('*')
-      .order('posts_count', { ascending: false })
-      .limit(5);
-
-    if (data) setTrending(data);
-  };
-
   const fetchCommunities = async () => {
     const { data } = await supabase
       .from('communities')
@@ -257,6 +283,7 @@ export function RightSidebar() {
       .limit(10);
     if (data) {
       setCommunities(data);
+      // Initialize suggested community here
       if (data.length > 0) setSuggestedCommunity(data[Math.floor(Math.random() * data.length)]);
     }
   };
@@ -270,10 +297,75 @@ export function RightSidebar() {
       .limit(5);
     if (data) {
       setLiveSpaces(data);
+      // Initialize suggested space here
       if (data.length > 0) setSuggestedSpace(data[Math.floor(Math.random() * data.length)]);
     }
   };
 
+  const fetchFollowedTags = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('hashtag_follows')
+      .select('hashtag_id')
+      .eq('user_id', user.id);
+    if (data) setFollowedTagIds(data.map((r: any) => r.hashtag_id));
+  };
+
+  const fetchFollowedHashtagsPanel = async () => {
+    if (!user) return;
+    setFollowedHashtagsLoading(true);
+    const { data } = await supabase
+      .from('hashtag_follows')
+      .select('hashtag_id, hashtags(id, tag, usage_count)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    setFollowedHashtags((data ?? []).map((d: any) => d.hashtags).filter(Boolean));
+    setFollowedHashtagsLoading(false);
+  };
+
+
+  const pickRandomSuggestions = useCallback((comms: Community[], spaces: Space[]) => {
+    if (comms.length > 0) setSuggestedCommunity(comms[Math.floor(Math.random() * comms.length)]);
+    if (spaces.length > 0) setSuggestedSpace(spaces[Math.floor(Math.random() * spaces.length)]);
+  }, []); // Dependencies are now explicit empty array, because comms and spaces are passed as arguments
+
+  useEffect(() => {
+    fetchTrending();
+    fetchTrendingHashtags();
+    fetchCommunities();
+    fetchLiveSpaces();
+    if (user) { fetchFollowedTags(); fetchFollowedHashtagsPanel(); }
+
+    // Auto-refresh trending hashtags every 60s
+    const iv = setInterval(fetchTrendingHashtags, 60_000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const unfollowHashtag = async (hashtagId: string, _tag: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) return;
+    await supabase.from('hashtag_follows').delete().eq('user_id', user.id).eq('hashtag_id', hashtagId);
+    setFollowedHashtags(prev => prev.filter(h => h.id !== hashtagId));
+    setFollowedTagIds(prev => prev.filter(id => id !== hashtagId));
+  };
+
+  const toggleTagFollow = async (tag: TrendingHashtag, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) { navigate('/auth'); return; }
+    const isFollowing = (followedTagIds ?? []).includes(tag.id);
+    if (isFollowing) {
+      await supabase.from('hashtag_follows').delete().eq('user_id', user.id).eq('hashtag_id', tag.id);
+      setFollowedTagIds(prev => prev.filter(id => id !== tag.id));
+      toast.success(`Unfollowed #${tag.tag}`);
+    } else {
+      await supabase.from('hashtag_follows').insert({ user_id: user.id, hashtag_id: tag.id });
+      setFollowedTagIds(prev => [...prev, tag.id]);
+      toast.success(`Following #${tag.tag}`);
+    }
+  };
+  
   return (
     <aside className="hidden xl:block w-80 h-screen sticky top-0 p-4 space-y-4 overflow-y-auto">
       {/* Create Community */}
@@ -490,13 +582,13 @@ export function RightSidebar() {
                   <button
                     onClick={(e) => toggleTagFollow(tag, e)}
                     className={`p-1 rounded-full transition-colors ${
-                      followedTags.has(tag.id)
+                      (followedTagIds ?? []).includes(tag.id)
                         ? 'bg-primary/10 text-primary'
                         : 'opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground'
                     }`}
-                    title={followedTags.has(tag.id) ? 'Unfollow' : 'Follow'}
+                    title={(followedTagIds ?? []).includes(tag.id) ? 'Unfollow' : 'Follow'}
                   >
-                    {followedTags.has(tag.id)
+                    {(followedTagIds ?? []).includes(tag.id)
                       ? <Check className="w-3 h-3" />
                       : <Plus className="w-3 h-3" />
                     }
