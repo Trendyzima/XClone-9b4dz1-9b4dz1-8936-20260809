@@ -6,6 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
+import CreatorMonetizationHub, { SubscriptionTiersDisplay, TipGoalWidget, SubscriberBadge } from '@/components/features/CreatorMonetizationHub';
 import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
@@ -997,6 +998,46 @@ export default function ProfilePage() {
       )}
 
       {isOwnProfile && <div className="px-4 mt-4"><RevenueAnalyticsWidget /></div>}
+      {isOwnProfile && profile && (
+        <div className="px-4 mt-4">
+          <CreatorMonetizationHub userId={profile.id} />
+        </div>
+      )}
+      {!isOwnProfile && profile && user && (
+        <div className="px-4 mt-4 space-y-3">
+          <SubscriptionTiersDisplay
+            creatorId={profile.id}
+            viewerId={user.id}
+            creatorUsername={profile.username ?? 'creator'}
+          />
+          <TipGoalWidget creatorId={profile.id} />
+        </div>
+      )}
+      {profile && (
+        <div className="px-4 mt-1">
+          <SubscriberBadge creatorId={profile.id} />
+        </div>
+      )}
+      {isOwnProfile && profile && (
+        <div className="px-4 mt-4">
+          <CreatorMonetizationHub userId={profile.id} />
+        </div>
+      )}
+      {!isOwnProfile && profile && user && (
+        <div className="px-4 mt-4 space-y-3">
+          <SubscriptionTiersDisplay
+            creatorId={profile.id}
+            viewerId={user.id}
+            creatorUsername={profile.username ?? 'creator'}
+          />
+          <TipGoalWidget creatorId={profile.id} />
+        </div>
+      )}
+      {profile && (
+        <div className="px-4 mt-1">
+          <SubscriberBadge creatorId={profile.id} />
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="sticky top-14 z-30 bg-background border-b border-border">

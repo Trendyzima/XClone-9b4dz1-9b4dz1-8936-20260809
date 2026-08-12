@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn, parseContent, formatNumber } from '@/lib/utils';
 import { SharePostDialog } from './SharePostDialog';
 import { BookmarkButton } from './BookmarkButton';
+import { TipButton, PaywallGate } from './CreatorMonetizationHub';
 import { PollCard } from './PollCard';
 import { EditPostDialog } from './EditPostDialog';
 import { BoostPostDialog } from './BoostPostDialog';
@@ -873,6 +874,15 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
             <div onClick={(e) => e.stopPropagation()}>
               <BookmarkButton postId={post.id} />
+              {user && post.user_id !== user.id && (post as any).user_id && (
+                <TipButton
+                  postId={post.id}
+                  creatorId={(post as any).user_id}
+                  creatorUsername={(post as any).author?.username ?? 'creator'}
+                  senderId={user.id}
+                  senderUsername={user.username ?? user.email ?? 'me'}
+                />
+              )}
             </div>
 
             {user && user.id !== post.user_id && (

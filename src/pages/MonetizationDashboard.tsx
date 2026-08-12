@@ -1,3 +1,5 @@
+
+import { Button } from '@/components/ui/button';
 import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useAuth } from '@/hooks/useAuth';
@@ -10,8 +12,8 @@ import {
   Coins, Gift, Zap, Play, Trophy, ArrowRight, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
+import CreatorMonetizationHub from '@/components/features/CreatorMonetizationHub';
 import { formatNumber } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, PieChart, Pie, Cell
@@ -382,6 +384,10 @@ export function MonetizationDashboard() {
                 <div className="flex gap-3">
                   <Button onClick={() => navigate('/payouts')} className="flex-1">Request Payout</Button>
                   <Button onClick={() => navigate('/creator-studio')} variant="outline" className="flex-1">Creator Studio</Button>
+                </div>
+                {/* Full Creator Monetization Hub */}
+                <div className="mt-4">
+                  <CreatorMonetizationHub userId={user.id} />
                 </div>
               </>
             )}

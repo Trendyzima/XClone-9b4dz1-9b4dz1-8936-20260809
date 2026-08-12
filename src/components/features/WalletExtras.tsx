@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
   Shield, X, Loader2, CheckCircle2, Smartphone,
-  BarChart3, Lock, Phone, Send,
+  BarChart3, Lock, Phone, Send, Copy, Printer,
 } from 'lucide-react';
 
 // ── esbuild-safe module-level constants ──────────────────────────────────
@@ -12,6 +12,7 @@ const MPESA_QUICK_KES_AMOUNTS = [100, 500, 1000, 2000, 5000] as const;
 const MPESA_RECENTS_MAX   = 5;
 const TWO_FA_DEFAULT_THRESHOLD = 10;
 const TWO_FA_AMOUNTS      = [5, 10, 25, 50] as const;
+const EXT_PIN_PAD_KEYS    = ['1','2','3','4','5','6','7','8','9','','0','del'] as const;
 
 const BUDGET_CATEGORIES_LIST = ['deposits','withdrawals','transfers','boosts','other'] as const;
 
@@ -556,7 +557,8 @@ export function DirectMpesaSendPanel({ userId, walletBalance, pinHash, currency,
   const [sending,      setSending]      = useState(false);
   const [showPin,      setShowPin]      = useState(false);
   const [pinInput,     setPinInput]     = useState('');
-  const [done,         setDone]         = useState<{ kes: number; phone: string } | null>(null);
+  const [done,         setDone]         = useState<{ kes: number; usd: number; phone: string; ref: string; timestamp: string; note: string } | null>(null);
+  const [receiptCopied, setReceiptCopied] = useState(false);
   const [recentPhones, setRecentPhones] = useState<string[]>([]);
   const recentKey = useMemo(() => `ts-mpesa-recents-${userId}`, [userId]);
 
@@ -598,7 +600,9 @@ export function DirectMpesaSendPanel({ userId, walletBalance, pinHash, currency,
       await supabase.rpc('deduct_from_wallet', { p_user_id: userId, p_amount: usdAmt });
       saveRecent(phone);
       setSending(false);
-      setDone({ kes, phone });
+      const txRef = payload.conversation_id || payload.originator_conversation_id
+        || `MPESA${Date.now().toString(36).toUpperCase().slice(-8)}`;
+      setDone({ kes, usd: usdAmt, phone, ref: txRef, timestamp: new Date().toISOString(), note });
       toast.success(`KES ${Math.floor(kes).toLocaleString()} sent to ${phone}!`);
       onComplete();
     } catch (err: any) {
@@ -622,19 +626,121 @@ export function DirectMpesaSendPanel({ userId, walletBalance, pinHash, currency,
     }
   };
 
+  const handleCopyReceipt = () => {
+    if (!done) return;
+    const lines = [
+      'M-Pesa Send Receipt',
+      `Recipient: ${done.phone}`,
+      `Amount:    KES ${Math.floor(done.kes).toLocaleString()} (${xfmt(done.usd, currency)})`,
+      `Reference: ${done.ref}`,
+      `Date:      ${new Date(done.timestamp).toLocaleString()}`,
+      `Status:    Sent`,
+      done.note ? `Note:      ${done.note}` : '',
+    ].filter(Boolean).join('\n');
+    navigator.clipboard.writeText(lines).then(() => {
+      setReceiptCopied(true);
+      setTimeout(() => setReceiptCopied(false), 2500);
+    });
+  };
+
+  const handlePrintReceipt = () => {
+    if (!done) return;
+    const w = window.open('', '_blank', 'width=480,height=600');
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html><head><title>M-Pesa Send Receipt</title>
+<style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;padding:32px;max-width:400px;margin:0 auto;color:#111}
+h1{font-size:20px;font-weight:900;margin-bottom:4px;color:#16a34a}h2{font-size:12px;color:#666;margin-bottom:24px;font-weight:400}
+.badge{display:inline-flex;align-items:center;gap:6px;background:#dcfce7;color:#16a34a;border:1px solid #86efac;border-radius:99px;padding:4px 12px;font-size:11px;font-weight:700;margin-bottom:16px}
+.amount{font-size:36px;font-weight:900;color:#16a34a;margin:8px 0}
+.sub{font-size:13px;color:#666;margin-bottom:20px}
+table{width:100%;border-collapse:collapse}td{padding:9px 0;border-bottom:1px solid #eee;font-size:13px}td:first-child{color:#666}td:last-child{text-align:right;font-weight:600}
+.footer{margin-top:20px;font-size:11px;color:#999;text-align:center}
+.btn{margin-bottom:20px;padding:8px 20px;background:#16a34a;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px}
+@media print{.btn{display:none}}
+</style></head><body>
+<div class="badge">✓ Sent Successfully</div>
+<h1>M-Pesa Send Receipt</h1>
+<h2>Direct wallet-to-M-Pesa transfer</h2>
+<div class="amount">KES ${Math.floor(done.kes).toLocaleString()}</div>
+<div class="sub">${xfmt(done.usd, currency)} deducted from wallet</div>
+<button class="btn" onclick="window.print()">🖨 Print / Save PDF</button>
+<table>
+<tr><td>Recipient</td><td>${done.phone}</td></tr>
+<tr><td>Reference</td><td><code style="font-size:11px">${done.ref}</code></td></tr>
+<tr><td>Date &amp; Time</td><td>${new Date(done.timestamp).toLocaleString()}</td></tr>
+<tr><td>Status</td><td style="color:#16a34a;font-weight:700">Sent</td></tr>
+${done.note ? `<tr><td>Note</td><td>${done.note}</td></tr>` : ''}
+</table>
+<div class="footer">Testagram Wallet · Powered by Safaricom M-Pesa</div>
+</body></html>`);
+    w.document.close();
+  };
+
   if (done) {
     return (
-      <div className="flex flex-col items-center gap-4 p-6 bg-gradient-to-br from-green-500/10 to-emerald-400/5 border border-green-500/20 rounded-2xl text-center">
-        <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
-          <CheckCircle2 className="w-9 h-9 text-green-500" />
+      <div className="space-y-5">
+        <div className="flex flex-col items-center gap-4 p-6 bg-gradient-to-br from-green-500/10 to-emerald-400/5 border border-green-500/20 rounded-2xl text-center">
+          <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
+            <CheckCircle2 className="w-9 h-9 text-green-500" />
+          </div>
+          <div>
+            <p className="text-lg font-black text-green-600">M-Pesa Sent!</p>
+            <p className="text-4xl font-black mt-1">KES {Math.floor(done.kes).toLocaleString()}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">≈ {xfmt(done.usd, currency)}</p>
+          </div>
         </div>
-        <div>
-          <p className="text-lg font-black text-green-600">Sent!</p>
-          <p className="text-3xl font-black mt-1">KES {Math.floor(done.kes).toLocaleString()}</p>
-          <p className="text-sm text-muted-foreground mt-0.5">to {done.phone}</p>
+        <div className="border border-border rounded-2xl overflow-hidden bg-card">
+          <div className="px-4 py-3 bg-green-500/5 border-b border-border flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-green-600" />
+            <p className="font-bold text-sm">Receipt</p>
+            <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Sent</span>
+          </div>
+          <div className="divide-y divide-border">
+            <div className="flex justify-between items-center px-4 py-3">
+              <span className="text-xs text-muted-foreground">Recipient</span>
+              <span className="font-semibold text-sm">{done.phone}</span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-3">
+              <span className="text-xs text-muted-foreground">Amount (KES)</span>
+              <span className="font-black text-sm text-green-600">KES {Math.floor(done.kes).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-3">
+              <span className="text-xs text-muted-foreground">Amount (Wallet)</span>
+              <span className="font-semibold text-sm">{xfmt(done.usd, currency)}</span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-3">
+              <span className="text-xs text-muted-foreground">Reference</span>
+              <span className="font-mono text-xs font-black">{done.ref}</span>
+            </div>
+            <div className="flex justify-between items-center px-4 py-3">
+              <span className="text-xs text-muted-foreground">Date &amp; Time</span>
+              <span className="font-semibold text-xs">{new Date(done.timestamp).toLocaleString()}</span>
+            </div>
+            {done.note && (
+              <div className="flex justify-between items-center px-4 py-3">
+                <span className="text-xs text-muted-foreground">Note</span>
+                <span className="font-semibold text-xs max-w-[160px] text-right truncate">{done.note}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center px-4 py-3">
+              <span className="text-xs text-muted-foreground">Status</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Sent</span>
+            </div>
+          </div>
         </div>
-        <button onClick={() => { setDone(null); setKesAmt(''); setPhone(''); setNote(''); }}
-          className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90 transition-opacity">
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={handleCopyReceipt}
+            className="flex items-center justify-center gap-2 py-3 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors">
+            {receiptCopied ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+            {receiptCopied ? 'Copied!' : 'Copy Receipt'}
+          </button>
+          <button onClick={handlePrintReceipt}
+            className="flex items-center justify-center gap-2 py-3 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+        </div>
+        <button onClick={() => { setDone(null); setKesAmt(''); setPhone(''); setNote(''); setReceiptCopied(false); }}
+          className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90 transition-opacity">
           Send Another
         </button>
       </div>
@@ -663,7 +769,7 @@ export function DirectMpesaSendPanel({ userId, walletBalance, pinHash, currency,
               ))}
             </div>
             <div className="grid grid-cols-3 gap-3">
-              {['1','2','3','4','5','6','7','8','9','','0','del'].map((key, i) => {
+              {EXT_PIN_PAD_KEYS.map((key, i) => {
                 if (!key) return <div key={i} />;
                 return (
                   <button key={i} onClick={() => handlePinKey(key)}
