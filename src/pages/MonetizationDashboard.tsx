@@ -166,7 +166,7 @@ export function MonetizationDashboard() {
       setMonthlyChartData(months6.map(m => ({ month: m.label, ...byMonth[m.key] })));
 
       // Source breakdown for pie
-      const srcTotals: Record<string, number> = {};
+      const srcTotals: { [src: string]: number } = {};
       earningsList.forEach((e: any) => { srcTotals[e.source] = (srcTotals[e.source] || 0) + Number(e.amount); });
       setSourceChartData(Object.entries(srcTotals).map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: parseFloat(value.toFixed(4)) })));
 

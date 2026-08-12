@@ -628,14 +628,14 @@ export default function HomePage() {
         .is('community_id', null)
         .order('created_at', { ascending: false });
       // Build tag map for badge display
-      const postTagMap: Record<string, string[]> = {};
+      const postTagMap: { [k: string]: string[] } = {};
       (phs ?? []).forEach((ph: any) => {
         if (!postTagMap[ph.post_id]) postTagMap[ph.post_id] = [];
         if (ph.hashtags?.tag) postTagMap[ph.post_id].push(ph.hashtags.tag);
       });
       setHashtagFeedItems((posts ?? []).map((p: any) => ({
         type: 'post' as const,
-        data: { ...p, _hashtag_tags: postTagMap[p.id] ?? [] },
+        data: { ...p, _hashtag_tags: (postTagMap[p.id] ?? []) as string[] },
       })));
     } catch (err) {
       console.warn('[hashtagFeed]', err);
