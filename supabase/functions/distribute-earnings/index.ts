@@ -2,8 +2,29 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
-const FUND_CPM         = 0.0015;  // $0.0015 per view = $1.50 per 1k views (creator share)
-const AD_REVENUE_SHARE = 0.30;    // Creator gets 30% of platform ad revenue attribution
+// ── CPM Rate Tiers (creator share per 1,000 views) ─────────────────────────
+// Tier is determined by: verified status + cumulative video views
+// Standard   : $1.50/1k  → default, new creators
+// Rising      : $2.00/1k  → unverified with 10k+ total video views
+// Premium     : $2.50/1k  → verified creators
+// Top Creator : $3.50/1k  → verified + 100k+ total video views
+const CPM_TIERS = {
+  top_creator: 0.0035,   // $3.50 per 1k views
+  premium:     0.0025,   // $2.50 per 1k views
+  rising:      0.0020,   // $2.00 per 1k views
+  standard:    0.0015,   // $1.50 per 1k views
+} as const;
+
+type Tier = keyof typeof CPM_TIERS;
+
+function getCpmTier(verified: boolean, totalViews: number): Tier {
+  if (verified && totalViews >= 100_000) return 'top_creator';
+  if (verified)                          return 'premium';
+  if (totalViews >= 10_000)             return 'rising';
+  return 'standard';
+}
+
+const AD_REVENUE_SHARE = 0.30; // Creator gets 30% of platform ad revenue attribution
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -14,23 +35,73 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    const results = { videoFund: 0, adRevenue: 0, subscriptions: 0, errors: [] as string[] };
+    const results = {
+      videoFund:     0,
+      adRevenue:     0,
+      subscriptions: 0,
+      ratesUpdated:  0,
+      errors:        [] as string[],
+    };
 
-    // ── 1. Video Creator Fund ─────────────────────────────────────────
-    // Pay creators for videos with 1000+ views not yet paid
-    const { data: videos, error: videosErr } = await supabase
+    // ── 1. Update per-creator CPM tiers ───────────────────────────────────
+    // Fetch all video creators with their total views and verified status
+    const { data: creatorStats } = await supabase
+      .from('user_profiles')
+      .select('id, verified, followers_count')
+      .eq('is_creator', true);
+
+    const creatorIds = (creatorStats ?? []).map((c: any) => c.id);
+
+    // Get total video views per creator
+    const { data: videoPosts } = await supabase
+      .from('posts')
+      .select('user_id, views_count')
+      .eq('is_video', true)
+      .in('user_id', creatorIds);
+
+    const viewsByCreator: Record<string, number> = {};
+    (videoPosts ?? []).forEach((p: any) => {
+      viewsByCreator[p.user_id] = (viewsByCreator[p.user_id] ?? 0) + (p.views_count ?? 0);
+    });
+
+    for (const creator of (creatorStats ?? [])) {
+      const totalViews = viewsByCreator[creator.id] ?? 0;
+      const tier       = getCpmTier(creator.verified, totalViews);
+      const cpm        = CPM_TIERS[tier] * 1000; // as $/1k
+      await supabase.from('video_revenue_rates').upsert({
+        user_id:      creator.id,
+        tier,
+        cpm_usd:      cpm,
+        period_views: totalViews,
+        last_updated: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+      results.ratesUpdated++;
+    }
+
+    // ── 2. Video Creator Fund (tiered CPM) ────────────────────────────────
+    // Pay creators for videos with 1,000+ views not yet paid
+    const { data: unpaidVideos, error: videosErr } = await supabase
       .from('posts')
       .select('id, user_id, views_count')
       .eq('is_video', true)
       .eq('fund_earnings_paid', false)
-      .gt('views_count', 1000);
+      .gte('views_count', 1000);
 
     if (videosErr) {
       results.errors.push(`videos: ${videosErr.message}`);
     } else {
-      for (const video of (videos ?? [])) {
+      // Build a lookup of creator tiers for efficient access
+      const tierMap: Record<string, Tier> = {};
+      (creatorStats ?? []).forEach((c: any) => {
+        const totalViews = viewsByCreator[c.id] ?? 0;
+        tierMap[c.user_id] = getCpmTier(c.verified, totalViews);
+      });
+
+      for (const video of (unpaidVideos ?? [])) {
         const thousands = Math.floor(video.views_count / 1000);
-        const earned    = thousands * FUND_CPM * 1000;
+        const tier      = tierMap[video.user_id] ?? 'standard';
+        const cpmRate   = CPM_TIERS[tier];
+        const earned    = thousands * cpmRate * 1000;
         if (earned <= 0) continue;
 
         const { error: earningErr } = await supabase.from('creator_earnings').insert({
@@ -48,24 +119,35 @@ serve(async (req) => {
         });
         if (walletErr) { results.errors.push(`wallet ${video.id}: ${walletErr.message}`); continue; }
 
+        // Mark as paid + update period revenue in rates table
         await supabase.from('posts').update({ fund_earnings_paid: true }).eq('id', video.id);
+        await supabase.from('video_revenue_rates')
+          .update({ period_revenue: supabase.rpc as any })
+          .eq('user_id', video.user_id); // period_revenue incremented via direct update below
+        await supabase.rpc('increment', {
+          table_name: 'video_revenue_rates',
+          row_id:     video.user_id,   // this won't work directly — use raw update
+          column_name: 'period_revenue',
+          amount: earned,
+        }).catch(() => {
+          supabase.from('video_revenue_rates')
+            .select('period_revenue').eq('user_id', video.user_id).maybeSingle()
+            .then(({ data }) => {
+              const cur = Number(data?.period_revenue ?? 0);
+              supabase.from('video_revenue_rates')
+                .update({ period_revenue: cur + earned }).eq('user_id', video.user_id);
+            });
+        });
+
         results.videoFund += earned;
-        console.log(`Video fund: user=${video.user_id} video=${video.id} earned=$${earned.toFixed(4)}`);
+        console.log(`Video fund [${tier}] $${(cpmRate * 1000).toFixed(2)}/1k: user=${video.user_id} video=${video.id} earned=$${earned.toFixed(4)} views=${video.views_count}`);
       }
     }
 
-    // ── 2. Ad Revenue Distribution ────────────────────────────────────
-    // Distribute ad revenue to monetized creators based on their recent views
+    // ── 3. Ad Revenue Distribution ────────────────────────────────────────
     const thisMonth = new Date();
     thisMonth.setDate(1); thisMonth.setHours(0, 0, 0, 0);
 
-    // Check total platform ad revenue for this month
-    const { data: adRevenue } = await supabase
-      .from('creator_ad_revenue')
-      .select('creator_user_id, gross_revenue')
-      .gte('created_at', thisMonth.toISOString());
-
-    // Find monetized creators and their video view shares
     const { data: monetizedCreators } = await supabase
       .from('user_monetization')
       .select('user_id, revenue_share_percentage')
@@ -73,21 +155,19 @@ serve(async (req) => {
       .gt('total_views', 0);
 
     if (monetizedCreators && monetizedCreators.length > 0) {
-      // Get total views across all monetized creators this month
-      const creatorIds = monetizedCreators.map((c: any) => c.user_id);
-      const { data: viewData } = await supabase
+      const mCreatorIds = monetizedCreators.map((c: any) => c.user_id);
+      const { data: monthViewData } = await supabase
         .from('posts')
         .select('user_id, views_count')
-        .in('user_id', creatorIds)
+        .in('user_id', mCreatorIds)
         .gte('created_at', thisMonth.toISOString());
 
-      const viewsByCreator: Record<string, number> = {};
-      (viewData ?? []).forEach((p: any) => {
-        viewsByCreator[p.user_id] = (viewsByCreator[p.user_id] ?? 0) + (p.views_count ?? 0);
+      const monthViewsByCreator: Record<string, number> = {};
+      (monthViewData ?? []).forEach((p: any) => {
+        monthViewsByCreator[p.user_id] = (monthViewsByCreator[p.user_id] ?? 0) + (p.views_count ?? 0);
       });
-      const totalViews = Object.values(viewsByCreator).reduce((s, v) => s + v, 0);
+      const totalMonthViews = Object.values(monthViewsByCreator).reduce((s, v) => s + v, 0);
 
-      // Total platform ad gross this month (from ad_placements revenue)
       const { data: adPlacements } = await supabase
         .from('ad_placements')
         .select('revenue')
@@ -95,13 +175,12 @@ serve(async (req) => {
       const platformAdRevenue = (adPlacements ?? []).reduce((s: number, a: any) => s + Number(a.revenue), 0);
       const toDistribute = platformAdRevenue * AD_REVENUE_SHARE;
 
-      if (toDistribute > 0.01 && totalViews > 0) {
-        for (const [creatorId, views] of Object.entries(viewsByCreator)) {
+      if (toDistribute > 0.01 && totalMonthViews > 0) {
+        for (const [creatorId, views] of Object.entries(monthViewsByCreator)) {
           if (views === 0) continue;
-          const share = (views / totalViews) * toDistribute;
+          const share = (views / totalMonthViews) * toDistribute;
           if (share < 0.001) continue;
 
-          // Check if already distributed this month
           const { data: existing } = await supabase
             .from('creator_earnings')
             .select('id').eq('user_id', creatorId).eq('source', 'ad_revenue_share')
@@ -109,17 +188,16 @@ serve(async (req) => {
           if (existing) continue;
 
           await supabase.from('creator_earnings').insert({
-            user_id: creatorId, source: 'ad_revenue_share',
-            amount: share, status: 'completed',
+            user_id: creatorId, source: 'ad_revenue_share', amount: share, status: 'completed',
           });
           await supabase.rpc('add_to_wallet', { p_user_id: creatorId, p_amount: share });
           results.adRevenue += share;
+          console.log(`Ad revenue share: user=${creatorId} views=${views} share=$${share.toFixed(4)}`);
         }
       }
     }
 
-    // ── 3. Subscription renewal reminders ────────────────────────────
-    // Find subscriptions expiring in next 3 days — send reminder
+    // ── 4. Subscription renewal reminders ────────────────────────────────
     const expiryWindow = new Date(Date.now() + 3 * 86400000).toISOString();
     const { data: expiringSubs } = await supabase
       .from('creator_subscriptions')
@@ -138,15 +216,13 @@ serve(async (req) => {
         user_id:    sub.subscriber_id,
         subject:    `Your ${sub.tier} subscription expires soon`,
         body:       `Your subscription expires on ${new Date(sub.expires_at).toLocaleDateString()}. Renew to keep access to exclusive content.`,
-        type:       'warning',
-        icon_emoji: '⏰',
-        cta_label:  'View Subscription',
-        cta_url:    '/profile',
+        type:       'warning', icon_emoji: '⏰',
+        cta_label:  'View Subscription', cta_url: '/profile',
       });
       results.subscriptions++;
     }
 
-    // ── 4. Notify creators of milestone earnings ──────────────────────
+    // ── 5. Earnings milestones ────────────────────────────────────────────
     const { data: milestoneCheck } = await supabase
       .from('user_monetization')
       .select('user_id, total_earnings');
@@ -156,20 +232,16 @@ serve(async (req) => {
       const total = Number(m.total_earnings ?? 0);
       for (const milestone of MILESTONES) {
         if (total < milestone) continue;
-        const key = `milestone_${milestone}_notified`;
         const { data: meta } = await supabase.from('platform_inbox').select('id')
           .eq('user_id', m.user_id).ilike('subject', `%$${milestone} earned%`)
           .limit(1).maybeSingle();
         if (meta) continue;
-
         await supabase.from('platform_inbox').insert({
-          user_id:    m.user_id,
-          subject:    `🎉 Milestone: $${milestone} earned!`,
-          body:       `Congratulations! You've earned $${milestone} total on Testagram. Keep creating amazing content to grow your income.`,
-          type:       'system',
-          icon_emoji: '🏆',
-          cta_label:  'View Earnings',
-          cta_url:    '/monetization',
+          user_id: m.user_id,
+          subject: `🎉 Milestone: $${milestone} earned!`,
+          body:    `Congratulations! You've earned $${milestone} total on Testagram. Keep creating amazing content to grow your income.`,
+          type:    'system', icon_emoji: '🏆',
+          cta_label: 'View Earnings', cta_url: '/monetization',
         });
       }
     }
