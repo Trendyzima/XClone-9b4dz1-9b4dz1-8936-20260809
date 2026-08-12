@@ -715,11 +715,9 @@ export function StoriesStrip() {
   const viewerPollData   = viewerStory ? getPollVote(viewerStory.id) : undefined;
   const viewerTotalVotes = viewerPollData ? (viewerPollData.counts ?? [0, 0]).reduce((a, b) => a + b, 0) : 0;
   const viewerHasVoted   = viewerPollData !== undefined && viewerPollData.userVote !== null && viewerPollData.userVote !== undefined;
-  // Story reply count for own story — pre-fetched, safe to call (returns cached after first fetch)
-  const viewerReplyCount = viewerIsOwn && viewerStory ? (() => {
-    void fetchStoryReplyCount(viewerStory.id, viewerG!.userId);
-    return getStoryReplyCount(viewerStory.id);
-  })() : 0;
+  // Story reply count for own story — trigger side-effect and read cache (esbuild guard: no IIFE)
+  if (viewerIsOwn && viewerStory) { void fetchStoryReplyCount(viewerStory.id, viewerG!.userId); }
+  const viewerReplyCount = viewerIsOwn && viewerStory ? getStoryReplyCount(viewerStory.id) : 0;
 
   return (
     <>

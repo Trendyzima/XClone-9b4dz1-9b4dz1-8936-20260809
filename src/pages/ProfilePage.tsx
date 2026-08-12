@@ -1228,19 +1228,15 @@ export default function ProfilePage() {
         {activeTab === 'Posts' && (
           posts.length > 0 ? (
             <div>
-              {pinnedPostId && (() => {
-                const pinned = posts.find(p => p.id === pinnedPostId);
-                if (!pinned) return null;
-                return (
-                  <div className="border-b-2 border-primary/20 bg-primary/3">
-                    <div className="flex items-center gap-2 px-4 pt-3 pb-0">
-                      <span className="text-[10px] font-bold text-primary uppercase tracking-wide">📌 Pinned Post</span>
-                      {isOwnProfile && <button onClick={() => togglePinPost(pinnedPostId)} className="ml-auto text-[10px] text-muted-foreground hover:text-destructive transition-colors">Unpin</button>}
-                    </div>
-                    <PostCard post={pinned} onUpdate={fetchProfile} />
+              {pinnedPostId && posts.find(p => p.id === pinnedPostId) && (
+                <div className="border-b-2 border-primary/20 bg-primary/3">
+                  <div className="flex items-center gap-2 px-4 pt-3 pb-0">
+                    <span className="text-[10px] font-bold text-primary uppercase tracking-wide">📌 Pinned Post</span>
+                    {isOwnProfile && <button onClick={() => togglePinPost(pinnedPostId)} className="ml-auto text-[10px] text-muted-foreground hover:text-destructive transition-colors">Unpin</button>}
                   </div>
-                );
-              })()}
+                  <PostCard post={posts.find(p => p.id === pinnedPostId)!} onUpdate={fetchProfile} />
+                </div>
+              )}
               {posts.filter(p => p.id !== pinnedPostId).map(post => (
                 <div key={post.id} className="relative group">
                   <PostCard post={post} onUpdate={fetchProfile} />
