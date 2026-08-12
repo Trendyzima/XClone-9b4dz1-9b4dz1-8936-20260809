@@ -24,7 +24,7 @@ import { FeedAdCard } from '@/components/features/FeedAdCard';
 import { StoriesStrip } from '@/components/features/StoriesStrip';
 import * as federation from '@/api/federation';
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 20;
 const RECO_INJECT_INTERVAL = 8; // inject a recommendation card every N items
 
 type Tab = 'foryou' | 'following' | 'hashtags' | 'federated' | 'popular' | 'tech' | 'science';
@@ -59,6 +59,9 @@ export default function HomePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('foryou');
   const [page, setPage] = useState(0);
+  // Cursor for pagination — tracks oldest post created_at seen
+  const [feedCursor, setFeedCursor] = useState<string | null>(null);
+  const [feedHasMore, setFeedHasMore] = useState(true);
   const [sponsoredPosts, setSponsoredPosts] = useState<any[]>([]);
   const [userAds, setUserAds] = useState<any[]>([]);
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
@@ -462,9 +465,10 @@ export default function HomePage() {
 
       const [postsRes, threadsRes] = await Promise.all([postsQuery, threadsQuery]);
 
-      // Boosted map
+      // Boosted — parallel arrays (esbuild guard: no Record<string,T> type annotation)
       const postIds = (postsRes.data ?? []).map((p: any) => p.id);
-      let boostedMap: Record<string, { boost_type: string }> = {};
+      const boostedIds: string[] = [];
+      const boostedTypes: string[] = [];
       if (postIds.length > 0) {
         const { data: bd } = await supabase
           .from('boosted_posts')
@@ -472,14 +476,18 @@ export default function HomePage() {
           .in('post_id', postIds)
           .eq('is_active', true);
         (bd ?? []).forEach((b: any) => {
-          boostedMap[b.post_id] = { boost_type: b.budget > 0 ? 'paid' : 'rewarded_ad' };
+          boostedIds.push(b.post_id);
+          boostedTypes.push(b.budget > 0 ? 'paid' : 'rewarded_ad');
         });
       }
+      const getBoostedType = (pid: string): string | null => {
+        const i = boostedIds.indexOf(pid); return i >= 0 ? boostedTypes[i] : null;
+      };
 
       // Enhanced scoring: engagement + recency + boost bonus
       const scorePost = (p: any) => {
         const ageHours = (Date.now() - new Date(p.created_at).getTime()) / 3_600_000;
-        const boostBonus = boostedMap[p.id] ? 50 : 0;
+        const boostBonus = getBoostedType(p.id) ? 50 : 0;
         return (
           (p.views_count ?? 0) * 0.1 +
           (p.likes_count ?? 0) * 2 +
@@ -492,7 +500,7 @@ export default function HomePage() {
 
       const posts = (postsRes.data ?? []).map((p: any) => ({
         type: 'post' as const,
-        data: { ...p, is_boosted: !!boostedMap[p.id], boost_type: boostedMap[p.id]?.boost_type },
+        data: { ...p, is_boosted: !!getBoostedType(p.id), boost_type: getBoostedType(p.id) ?? undefined },
         _score: scorePost(p),
         _ts: new Date(p.created_at).getTime(),
       }));
@@ -571,6 +579,8 @@ export default function HomePage() {
     setLoading(true);
     setFeedItems([]);
     setPage(0);
+    setFeedCursor(null);
+    setFeedHasMore(true);
 
     if (activeTab === 'federated') {
       const fedPosts = await fetchFederatedPosts();
@@ -595,9 +605,15 @@ export default function HomePage() {
         return !uid || !blockedUserIds.has(uid);
       });
       setFeedItems(filtered);
+      // Set cursor from last local post
+      const lastPost = filtered.filter((i: any) => i.type === 'post').slice(-1)[0];
+      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);
     } else {
       const items = await fetchFeed(0);
       setFeedItems(items);
+      const lastPost = items.filter((i: any) => i.type === 'post').slice(-1)[0];
+      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);
+      setFeedHasMore(items.filter((i: any) => i.type === 'post').length >= PAGE_SIZE);
     }
     setLoading(false);
   };
@@ -628,14 +644,20 @@ export default function HomePage() {
         .is('community_id', null)
         .order('created_at', { ascending: false });
       // Build tag map for badge display
-      const postTagMap: { [k: string]: string[] } = {};
+      // postTagMap as parallel arrays (esbuild guard: no index-sig type annotations)
+      const tagPostIds: string[] = [];
+      const tagPostTags: string[][] = [];
       (phs ?? []).forEach((ph: any) => {
-        if (!postTagMap[ph.post_id]) postTagMap[ph.post_id] = [];
-        if (ph.hashtags?.tag) postTagMap[ph.post_id].push(ph.hashtags.tag);
+        const idx = tagPostIds.indexOf(ph.post_id);
+        if (idx >= 0) { if (ph.hashtags?.tag) tagPostTags[idx].push(ph.hashtags.tag); }
+        else { tagPostIds.push(ph.post_id); tagPostTags.push(ph.hashtags?.tag ? [ph.hashtags.tag] : []); }
       });
+      const getPostTags = (pid: string): string[] => {
+        const i = tagPostIds.indexOf(pid); return i >= 0 ? tagPostTags[i] : [];
+      };
       setHashtagFeedItems((posts ?? []).map((p: any) => ({
         type: 'post' as const,
-        data: { ...p, _hashtag_tags: (postTagMap[p.id] ?? []) as string[] },
+        data: { ...p, _hashtag_tags: getPostTags(p.id) },
       })));
     } catch (err) {
       console.warn('[hashtagFeed]', err);
@@ -677,14 +699,25 @@ export default function HomePage() {
   };
 
   const loadMoreFeed = async (): Promise<boolean> => {
-    if (activeTab === 'federated') return false;
+    if (activeTab === 'federated' || !feedHasMore) return false;
     const nextPage = page + 1;
     const newItems = await fetchFeed(nextPage);
-    if (newItems.length > 0) {
-      setFeedItems(prev => [...prev, ...newItems]);
+    const newPosts = newItems.filter((i: any) => i.type === 'post');
+    if (newPosts.length > 0) {
+      setFeedItems(prev => {
+        // Deduplicate by post id
+        const existingIds = new Set(prev.filter((i: any) => i.type === 'post').map((i: any) => (i.data as any).id));
+        const deduped = newItems.filter((i: any) => i.type !== 'post' || !existingIds.has((i.data as any).id));
+        return [...prev, ...deduped];
+      });
       setPage(nextPage);
-      return newItems.length >= PAGE_SIZE;
+      const lastPost = newPosts.slice(-1)[0];
+      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);
+      const hasMore = newPosts.length >= PAGE_SIZE;
+      setFeedHasMore(hasMore);
+      return hasMore;
     }
+    setFeedHasMore(false);
     return false;
   };
 
@@ -910,6 +943,21 @@ export default function HomePage() {
           {loadingMore && (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            </div>
+          )}
+          {!loadingMore && !feedHasMore && feedItems.length > 0 && activeTab !== 'federated' && (
+            <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mb-3">
+                <Sparkles className="w-5 h-5 text-primary" />
+              </div>
+              <p className="text-sm font-semibold">You’re all caught up!</p>
+              <p className="text-xs mt-1">Check back later for new posts</p>
+              <button
+                onClick={handleRefresh}
+                className="mt-3 flex items-center gap-1.5 px-4 py-2 border border-border rounded-full text-xs font-semibold hover:bg-muted transition-colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />Refresh
+              </button>
             </div>
           )}
         </>

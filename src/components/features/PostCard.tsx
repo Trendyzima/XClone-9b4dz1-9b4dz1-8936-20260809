@@ -92,7 +92,15 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
   // Post Reactions
   const REACTIONS = ['❤️', '😂', '😮', '😢', '🔥'] as const;
-  const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
+  // Reaction counts — parallel arrays (esbuild guard: no Record<string,number> in state)
+  const [reactionEmojis, setReactionEmojis] = useState<string[]>([]);
+  const [reactionNums, setReactionNums] = useState<number[]>([]);
+  // Derived helper — reads from parallel arrays
+  const getReactionCount = (emoji: string): number => {
+    const idx = reactionEmojis.indexOf(emoji);
+    return idx >= 0 ? (reactionNums[idx] ?? 0) : 0;
+  };
+
   const [userReaction, setUserReaction] = useState<string | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
 
@@ -102,13 +110,17 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
       .select('emoji, user_id')
       .eq('post_id', post.id);
     if (data) {
-      const counts: Record<string, number> = {};
+      const emojis: string[] = [];
+      const nums: number[] = [];
       let myReaction: string | null = null;
       data.forEach(r => {
-        counts[r.emoji] = (counts[r.emoji] || 0) + 1;
+        const idx = emojis.indexOf(r.emoji);
+        if (idx >= 0) nums[idx]++;
+        else { emojis.push(r.emoji); nums.push(1); }
         if (r.user_id === user?.id) myReaction = r.emoji;
       });
-      setReactionCounts(counts);
+      setReactionEmojis(emojis);
+      setReactionNums(nums);
       setUserReaction(myReaction);
     }
   }, [post.id, user?.id]);
@@ -123,11 +135,15 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
     if (prevReaction === emoji) {
       setUserReaction(null);
-      setReactionCounts(prev => {
-        const updated = { ...prev };
-        updated[emoji] = Math.max(0, (updated[emoji] || 1) - 1);
-        if (!updated[emoji]) delete updated[emoji];
-        return updated;
+      setReactionEmojis(prev => {
+        const idx = prev.indexOf(emoji);
+        if (idx < 0) return prev;
+        const next = [...prev];
+        const nextNums = [...reactionNums];
+        nextNums[idx] = Math.max(0, (nextNums[idx] ?? 1) - 1);
+        if (nextNums[idx] === 0) { next.splice(idx, 1); nextNums.splice(idx, 1); }
+        setReactionNums(nextNums);
+        return next;
       });
       await supabase.from('post_reactions').delete().eq('post_id', post.id).eq('user_id', user.id);
       if (emoji === '❤️' && isLiked) {
@@ -139,14 +155,21 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
       }
     } else {
       setUserReaction(emoji);
-      setReactionCounts(prev => {
-        const updated = { ...prev };
+      setReactionEmojis(prev => {
+        const nextEmojis = [...prev];
+        const nextNums = [...reactionNums];
         if (prevReaction) {
-          updated[prevReaction] = Math.max(0, (updated[prevReaction] || 1) - 1);
-          if (!updated[prevReaction]) delete updated[prevReaction];
+          const pi = nextEmojis.indexOf(prevReaction);
+          if (pi >= 0) {
+            nextNums[pi] = Math.max(0, (nextNums[pi] ?? 1) - 1);
+            if (nextNums[pi] === 0) { nextEmojis.splice(pi, 1); nextNums.splice(pi, 1); }
+          }
         }
-        updated[emoji] = (updated[emoji] || 0) + 1;
-        return updated;
+        const ei = nextEmojis.indexOf(emoji);
+        if (ei >= 0) nextNums[ei]++;
+        else { nextEmojis.push(emoji); nextNums.push(1); }
+        setReactionNums(nextNums);
+        return nextEmojis;
       });
       await supabase.from('post_reactions').upsert(
         { post_id: post.id, user_id: user.id, emoji },
@@ -790,9 +813,9 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
           {!post.is_video && <EmbedRenderer content={post.content} />}
 
           {/* Reaction bubbles */}
-          {Object.keys(reactionCounts).length > 0 && (
+          {reactionEmojis.length > 0 && (
             <div className="flex gap-1.5 mt-2 flex-wrap" onClick={e => e.stopPropagation()}>
-              {REACTIONS.filter(e => (reactionCounts[e] ?? 0) > 0).map(emoji => (
+              {REACTIONS.filter(e => getReactionCount(e) > 0).map(emoji => (
                 <button
                   key={emoji}
                   onClick={(e) => handleReact(emoji, e)}
@@ -804,7 +827,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                   )}
                 >
                   <span>{emoji}</span>
-                  <span className="font-medium">{formatNumber(reactionCounts[emoji])}</span>
+                  <span className="font-medium">{formatNumber(getReactionCount(emoji))}</span>
                 </button>
               ))}
             </div>

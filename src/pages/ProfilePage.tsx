@@ -134,6 +134,12 @@ export default function ProfilePage() {
   const { isActive: isPremiumUser } = usePremium();
 
   const [profile, setProfile] = useState<any>(null);
+
+  // ── CRITICAL: isOwnProfile must be at top level (before any useEffect/useCallback)
+  // because it's referenced in dependency arrays. Using optional chaining since
+  // profile is null initially — this avoids TDZ ReferenceError (blank screen).
+  // DO NOT move this below any conditional return.
+  const isOwnProfile = !!currentUser && !!profile && currentUser.id === profile.id;
   const [posts, setPosts] = useState<Post[]>([]);
   const [threads, setThreads] = useState<any[]>([]);
   const [replies, setReplies] = useState<any[]>([]);
@@ -709,8 +715,6 @@ export default function ProfilePage() {
   if (loading) return <ProfileSkeleton />;
 
   if (!profile) return null;
-
-  const isOwnProfile = currentUser?.id === profile.id;
   const videoPosts = posts.filter(p => p.is_video && p.video_url);
   const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
 
