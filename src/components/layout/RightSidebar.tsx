@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check, RefreshCw, Trophy, Loader2, X } from 'lucide-react';
+import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check, RefreshCw, Trophy, Loader2, X, DollarSign } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { UserSuggestionsWidget } from '../features/UserSuggestionsWidget';
 import { ContentSuggestionsWidget } from '../features/ContentSuggestionsWidget';
@@ -52,6 +52,84 @@ interface LeaderboardEntry {
   avatar_url: string | null;
   verified: boolean;
   weekly_earnings: number;
+}
+
+// ── Creator Earnings Widget ────────────────────────────────────────────────────
+function CreatorEarningsWidget() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [monthEarnings, setMonthEarnings] = useState(0);
+  const [pendingPayout, setPendingPayout] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    Promise.all([
+      supabase.from('creator_earnings').select('amount').eq('user_id', user.id).gte('created_at', startOfMonth.toISOString()),
+      supabase.from('user_monetization').select('pending_user_payout').eq('user_id', user.id).maybeSingle(),
+    ]).then(([earningsRes, monRes]) => {
+      const total = (earningsRes.data ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
+      setMonthEarnings(total);
+      setPendingPayout(Number(monRes.data?.pending_user_payout ?? 0));
+      setLoading(false);
+    });
+  }, [user?.id]);
+
+  if (!user || loading || (monthEarnings === 0 && pendingPayout === 0)) return null;
+
+  return (
+    <div className="bg-gradient-to-br from-green-500/8 to-emerald-500/4 rounded-2xl p-4 border border-green-500/20 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <DollarSign className="w-4 h-4 text-green-600" />
+          <h3 className="font-bold text-sm">My Earnings</h3>
+        </div>
+        <button
+          onClick={() => navigate('/payouts')}
+          className="text-[11px] font-bold text-green-700 hover:text-green-800 hover:underline transition-colors"
+        >
+          Withdraw →
+        </button>
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-muted-foreground">This month</p>
+            <p className="text-2xl font-black text-green-600 leading-none">${monthEarnings.toFixed(2)}</p>
+          </div>
+          {pendingPayout > 0 && (
+            <div className="text-right">
+              <p className="text-[10px] text-muted-foreground">Pending payout</p>
+              <p className="text-base font-black text-amber-600">${pendingPayout.toFixed(2)}</p>
+            </div>
+          )}
+        </div>
+        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full transition-all duration-500"
+            style={{ width: '100%' }}
+          />
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/monetization')}
+            className="flex-1 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-700 dark:text-green-400 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
+          >
+            <TrendingUp className="w-3.5 h-3.5" />Analytics
+          </button>
+          <button
+            onClick={() => navigate('/payouts')}
+            className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+          >
+            <DollarSign className="w-3.5 h-3.5" />Withdraw
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Creator Leaderboard Widget (compact podium) ────────────────────────────────
@@ -242,7 +320,7 @@ export function RightSidebar() {
   const [followedHashtagsLoading, setFollowedHashtagsLoading] = useState(false);
 
   // Define fetch functions before useCallback to ensure they are available
-  const fetchTrending = async () => {
+  const fetchTrending = useCallback(async () => {
     // Refresh trending from real posts
     await supabase.rpc('refresh_trending_topics');
     
@@ -253,9 +331,9 @@ export function RightSidebar() {
       .limit(5);
 
     if (data) setTrending(data);
-  };
+  }, []); // Added useCallback wrapper and empty dependency array
 
-  const fetchTrendingHashtags = async () => {
+  const fetchTrendingHashtags = useCallback(async () => {
     const { data } = await supabase
       .from('trending_hashtags')
       .select('hashtag_id, trend_score, daily_posts, hashtags(id, tag, usage_count)')
@@ -273,9 +351,9 @@ export function RightSidebar() {
         }));
       setTrendingHashtags(tags);
     }
-  };
+  }, []); // Added useCallback wrapper and empty dependency array
 
-  const fetchCommunities = async () => {
+  const fetchCommunities = useCallback(async () => {
     const { data } = await supabase
       .from('communities')
       .select('*')
@@ -286,9 +364,9 @@ export function RightSidebar() {
       // Initialize suggested community here
       if (data.length > 0) setSuggestedCommunity(data[Math.floor(Math.random() * data.length)]);
     }
-  };
+  }, []); // Added useCallback wrapper and empty dependency array
 
-  const fetchLiveSpaces = async () => {
+  const fetchLiveSpaces = useCallback(async () => {
     const { data } = await supabase
       .from('spaces')
       .select(`*, user_profiles (username, avatar_url)`)
@@ -300,18 +378,18 @@ export function RightSidebar() {
       // Initialize suggested space here
       if (data.length > 0) setSuggestedSpace(data[Math.floor(Math.random() * data.length)]);
     }
-  };
+  }, []); // Added useCallback wrapper and empty dependency array
 
-  const fetchFollowedTags = async () => {
+  const fetchFollowedTags = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase
       .from('hashtag_follows')
       .select('hashtag_id')
       .eq('user_id', user.id);
     if (data) setFollowedTagIds(data.map((r: any) => r.hashtag_id));
-  };
+  }, [user]); // Added useCallback wrapper and user to dependency array
 
-  const fetchFollowedHashtagsPanel = async () => {
+  const fetchFollowedHashtagsPanel = useCallback(async () => {
     if (!user) return;
     setFollowedHashtagsLoading(true);
     const { data } = await supabase
@@ -322,7 +400,7 @@ export function RightSidebar() {
       .limit(5);
     setFollowedHashtags((data ?? []).map((d: any) => d.hashtags).filter(Boolean));
     setFollowedHashtagsLoading(false);
-  };
+  }, [user]); // Added useCallback wrapper and user to dependency array
 
 
   const pickRandomSuggestions = useCallback((comms: Community[], spaces: Space[]) => {
@@ -340,8 +418,7 @@ export function RightSidebar() {
     // Auto-refresh trending hashtags every 60s
     const iv = setInterval(fetchTrendingHashtags, 60_000);
     return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user, fetchTrending, fetchTrendingHashtags, fetchCommunities, fetchLiveSpaces, fetchFollowedTags, fetchFollowedHashtagsPanel]);
 
   const unfollowHashtag = async (hashtagId: string, _tag: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -691,6 +768,9 @@ export function RightSidebar() {
 
       {/* User Suggestions */}
       <UserSuggestionsWidget />
+
+      {/* Creator Earnings */}
+      <CreatorEarningsWidget />
 
       {/* Creator Leaderboard */}
       <CreatorLeaderboardWidget />

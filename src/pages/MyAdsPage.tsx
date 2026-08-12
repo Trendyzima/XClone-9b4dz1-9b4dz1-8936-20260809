@@ -89,6 +89,9 @@ export default function MyAdsPage() {
   // Video Ad Performance: view-through rate, skip rate, completion rate, avg watch time
   const [videoAdStats, setVideoAdStats] = useState<{ impressions: number; completed: number; skipped: number; avgWatchSeconds: number } | null>(null);
   const [loadingVideoStats, setLoadingVideoStats] = useState(false);
+  // Story Ad Analytics: story_format vs feed impressions, story-specific rates
+  const [storyAdStats, setStoryAdStats] = useState<{ storyImpressions: number; feedImpressions: number; storyCompleted: number; storySkipped: number; storyAvgWatch: number } | null>(null);
+  const [loadingStoryStats, setLoadingStoryStats] = useState(false);
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -159,8 +162,39 @@ export default function MyAdsPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'performance' && ads.length > 0) { fetchDailyStats(); fetchHeatmap(); fetchReactionStats(); fetchVideoAdStats(); }
+    if (activeTab === 'performance' && ads.length > 0) { fetchDailyStats(); fetchHeatmap(); fetchReactionStats(); fetchVideoAdStats(); fetchStoryAdStats(); }
   }, [activeTab, ads.length]);
+
+  const fetchStoryAdStats = async () => {
+    if (!user || ads.length === 0) return;
+    setLoadingStoryStats(true);
+    const adIds = ads.map((a: any) => a.id);
+    const { data: rows } = await supabase
+      .from('ad_impressions')
+      .select('story_format, completed, skipped, watch_seconds')
+      .in('ad_id', adIds);
+    if (!rows || rows.length === 0) { setLoadingStoryStats(false); return; }
+    let storyImpr = 0; let feedImpr = 0;
+    let storyCom = 0; let storySkip = 0; let storyWatch = 0;
+    for (const row of rows) {
+      if (row.story_format) {
+        storyImpr++;
+        if (row.completed) storyCom++;
+        if (row.skipped) storySkip++;
+        storyWatch += Number(row.watch_seconds ?? 0);
+      } else {
+        feedImpr++;
+      }
+    }
+    setStoryAdStats({
+      storyImpressions: storyImpr,
+      feedImpressions: feedImpr,
+      storyCompleted: storyCom,
+      storySkipped: storySkip,
+      storyAvgWatch: storyImpr > 0 ? Math.round(storyWatch / storyImpr) : 0,
+    });
+    setLoadingStoryStats(false);
+  };
 
   const fetchVideoAdStats = async () => {
     if (!user || ads.length === 0) return;
@@ -308,20 +342,28 @@ export default function MyAdsPage() {
 
       <div className="max-w-3xl mx-auto p-4 md:p-6 space-y-5">
 
-        {/* Summary KPI cards */}
+        {/* Summary KPI cards — no inline array.map() with icon refs (esbuild guard) */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: 'Total Spent',  value: `$${totalStats.spent.toFixed(2)}`,          icon: DollarSign, color: 'text-green-500',  bg: 'from-green-500/10 to-emerald-500/5' },
-            { label: 'Impressions',  value: formatNumber(totalStats.impressions),         icon: Eye,         color: 'text-blue-500',   bg: 'from-blue-500/10 to-sky-500/5' },
-            { label: 'Clicks',       value: formatNumber(totalStats.clicks),              icon: MousePointer,color: 'text-purple-500', bg: 'from-purple-500/10 to-violet-500/5' },
-            { label: 'Avg CTR',      value: `${totalStats.ctr.toFixed(1)}%`,              icon: Target,      color: 'text-amber-500',  bg: 'from-amber-500/10 to-orange-500/5' },
-          ].map((s, i) => (
-            <div key={i} className={`bg-gradient-to-br ${s.bg} border border-border rounded-xl p-3.5`}>
-              <s.icon className={`w-5 h-5 mb-2 ${s.color}`} />
-              <p className="font-bold text-lg leading-none">{s.value}</p>
-              <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
-            </div>
-          ))}
+          <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/5 border border-border rounded-xl p-3.5">
+            <DollarSign className="w-5 h-5 mb-2 text-green-500" />
+            <p className="font-bold text-lg leading-none">${totalStats.spent.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Total Spent</p>
+          </div>
+          <div className="bg-gradient-to-br from-blue-500/10 to-sky-500/5 border border-border rounded-xl p-3.5">
+            <Eye className="w-5 h-5 mb-2 text-blue-500" />
+            <p className="font-bold text-lg leading-none">{formatNumber(totalStats.impressions)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Impressions</p>
+          </div>
+          <div className="bg-gradient-to-br from-purple-500/10 to-violet-500/5 border border-border rounded-xl p-3.5">
+            <MousePointer className="w-5 h-5 mb-2 text-purple-500" />
+            <p className="font-bold text-lg leading-none">{formatNumber(totalStats.clicks)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Clicks</p>
+          </div>
+          <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-border rounded-xl p-3.5">
+            <Target className="w-5 h-5 mb-2 text-amber-500" />
+            <p className="font-bold text-lg leading-none">{totalStats.ctr.toFixed(1)}%</p>
+            <p className="text-xs text-muted-foreground mt-1">Avg CTR</p>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -423,19 +465,23 @@ export default function MyAdsPage() {
                           </div>
                         </div>
 
-                        {/* Stats grid */}
+                        {/* Stats grid — no inline .map() with icon refs (esbuild guard) */}
                         <div className="grid grid-cols-3 gap-2 text-center">
-                          {[
-                            { label: 'Impressions', value: formatNumber(ad.impressions || 0), icon: Eye },
-                            { label: 'Clicks',      value: formatNumber(ad.clicks || 0),      icon: MousePointer },
-                            { label: 'CTR',         value: `${ctr}%`,                          icon: TrendingUp },
-                          ].map((s, i) => (
-                            <div key={i} className="bg-muted/50 rounded-lg p-2">
-                              <s.icon className="w-3.5 h-3.5 text-muted-foreground mx-auto mb-0.5" />
-                              <p className="font-bold text-sm">{s.value}</p>
-                              <p className="text-[10px] text-muted-foreground">{s.label}</p>
-                            </div>
-                          ))}
+                          <div className="bg-muted/50 rounded-lg p-2">
+                            <Eye className="w-3.5 h-3.5 text-muted-foreground mx-auto mb-0.5" />
+                            <p className="font-bold text-sm">{formatNumber(ad.impressions || 0)}</p>
+                            <p className="text-[10px] text-muted-foreground">Impressions</p>
+                          </div>
+                          <div className="bg-muted/50 rounded-lg p-2">
+                            <MousePointer className="w-3.5 h-3.5 text-muted-foreground mx-auto mb-0.5" />
+                            <p className="font-bold text-sm">{formatNumber(ad.clicks || 0)}</p>
+                            <p className="text-[10px] text-muted-foreground">Clicks</p>
+                          </div>
+                          <div className="bg-muted/50 rounded-lg p-2">
+                            <TrendingUp className="w-3.5 h-3.5 text-muted-foreground mx-auto mb-0.5" />
+                            <p className="font-bold text-sm">{ctr}%</p>
+                            <p className="text-[10px] text-muted-foreground">CTR</p>
+                          </div>
                         </div>
 
                         {ad.status === 'completed' && (
@@ -735,6 +781,95 @@ export default function MyAdsPage() {
                   )}
                 </div>
 
+                {/* ── Story Ad Analytics ── */}
+                {(loadingStoryStats || (storyAdStats && (storyAdStats.storyImpressions + storyAdStats.feedImpressions) > 0)) && (
+                  <div className="bg-card border border-border rounded-2xl p-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="text-base leading-none">📖</span>
+                      <h3 className="font-bold">Story Ad Analytics</h3>
+                      <span className="text-xs text-muted-foreground">story vs feed impressions</span>
+                    </div>
+                    {loadingStoryStats ? (
+                      <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+                    ) : storyAdStats ? (
+                      <div className="space-y-4">
+                        {/* Story vs Feed impression split */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-semibold">Story Impressions</span>
+                            <span className="text-xs font-black text-purple-600">{storyAdStats.storyImpressions}</span>
+                          </div>
+                          <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-purple-400 to-purple-600 rounded-full transition-all duration-700"
+                              style={{ width: (storyAdStats.storyImpressions + storyAdStats.feedImpressions) > 0 ? Math.max(2, Math.round((storyAdStats.storyImpressions / (storyAdStats.storyImpressions + storyAdStats.feedImpressions)) * 100)) + '%' : '0%' }}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-semibold">Feed Impressions</span>
+                            <span className="text-xs font-black text-blue-600">{storyAdStats.feedImpressions}</span>
+                          </div>
+                          <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all duration-700"
+                              style={{ width: (storyAdStats.storyImpressions + storyAdStats.feedImpressions) > 0 ? Math.max(2, Math.round((storyAdStats.feedImpressions / (storyAdStats.storyImpressions + storyAdStats.feedImpressions)) * 100)) + '%' : '0%' }}
+                            />
+                          </div>
+                        </div>
+                        {/* Story-specific completion and skip rates */}
+                        {storyAdStats.storyImpressions > 0 && (
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border">
+                            <div className="bg-gradient-to-br from-purple-500/10 to-transparent border border-border rounded-xl p-2.5 text-center">
+                              <p className="font-black text-lg leading-none text-purple-600">{storyAdStats.storyImpressions}</p>
+                              <p className="text-[10px] text-muted-foreground mt-1">Story Views</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-green-500/10 to-transparent border border-border rounded-xl p-2.5 text-center">
+                              <p className="font-black text-lg leading-none text-green-600">
+                                {storyAdStats.storyImpressions > 0 ? ((storyAdStats.storyCompleted / storyAdStats.storyImpressions) * 100).toFixed(0) : '0'}%
+                              </p>
+                              <p className="text-[10px] text-muted-foreground mt-1">Completion</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-orange-500/10 to-transparent border border-border rounded-xl p-2.5 text-center">
+                              <p className="font-black text-lg leading-none text-orange-600">{storyAdStats.storyAvgWatch}s</p>
+                              <p className="text-[10px] text-muted-foreground mt-1">Avg Watch</p>
+                            </div>
+                          </div>
+                        )}
+                        {/* Skip rate bar */}
+                        {storyAdStats.storyImpressions > 0 && (
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-semibold">Story Skip Rate</span>
+                              <span className="text-xs font-black text-orange-600">
+                                {((storyAdStats.storySkipped / storyAdStats.storyImpressions) * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="h-2 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-orange-400 to-orange-500 rounded-full"
+                                style={{ width: Math.max(2, (storyAdStats.storySkipped / storyAdStats.storyImpressions) * 100) + '%' }}
+                              />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">% of story viewers who skipped after 3s</p>
+                          </div>
+                        )}
+                        <div className="p-3 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                          <p className="text-xs font-bold text-purple-600 mb-1">📖 Story Format Tip</p>
+                          <p className="text-xs text-muted-foreground">
+                            {storyAdStats.storyImpressions > 0 && (storyAdStats.storyCompleted / storyAdStats.storyImpressions) >= 0.6
+                              ? 'Great story completion rate! Your full-screen creative is resonating with viewers.'
+                              : storyAdStats.storyImpressions > 0
+                              ? 'Improve completion by leading with your best visual in the first second of your story ad.'
+                              : 'Create story-format ads to reach users in the Stories feed for higher engagement.'}
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
                 {/* ── Video Ad Performance ── */}
                 {(loadingVideoStats || (videoAdStats && videoAdStats.impressions > 0)) && (
                   <div className="bg-card border border-border rounded-2xl p-4">
@@ -747,18 +882,20 @@ export default function MyAdsPage() {
                       <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
                     ) : videoAdStats ? (
                       <div className="space-y-4">
-                        {/* KPI row */}
+                        {/* KPI row — no inline .map() with icon refs (esbuild guard) */}
                         <div className="grid grid-cols-3 gap-2">
-                          {[
-                            { label: 'Impressions', value: String(videoAdStats.impressions), color: 'text-blue-500',   bg: 'from-blue-500/10' },
-                            { label: 'Completed',   value: String(videoAdStats.completed),   color: 'text-green-500',  bg: 'from-green-500/10' },
-                            { label: 'Skipped',     value: String(videoAdStats.skipped),     color: 'text-orange-500', bg: 'from-orange-500/10' },
-                          ].map(k => (
-                            <div key={k.label} className={`bg-gradient-to-br ${k.bg} to-transparent border border-border rounded-xl p-2.5 text-center`}>
-                              <p className={`font-black text-lg leading-none ${k.color}`}>{k.value}</p>
-                              <p className="text-[10px] text-muted-foreground mt-1">{k.label}</p>
-                            </div>
-                          ))}
+                          <div className="bg-gradient-to-br from-blue-500/10 to-transparent border border-border rounded-xl p-2.5 text-center">
+                            <p className="font-black text-lg leading-none text-blue-500">{String(videoAdStats.impressions)}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1">Impressions</p>
+                          </div>
+                          <div className="bg-gradient-to-br from-green-500/10 to-transparent border border-border rounded-xl p-2.5 text-center">
+                            <p className="font-black text-lg leading-none text-green-500">{String(videoAdStats.completed)}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1">Completed</p>
+                          </div>
+                          <div className="bg-gradient-to-br from-orange-500/10 to-transparent border border-border rounded-xl p-2.5 text-center">
+                            <p className="font-black text-lg leading-none text-orange-500">{String(videoAdStats.skipped)}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1">Skipped</p>
+                          </div>
                         </div>
                         {/* Rate bars */}
                         <div className="space-y-3">
