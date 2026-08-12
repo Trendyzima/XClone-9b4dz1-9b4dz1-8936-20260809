@@ -48,6 +48,17 @@ function getActionLabel(action: string): string {
   if (action === 'flag') return '🚩 Flagged';
   return '✅ Passed';
 }
+// Pure helper — replaces Object.entries in render scope (esbuild guard)
+function getTopCategory(cats: any): { key: string; score: number } | null {
+  let bestKey = '';
+  let bestScore = -1;
+  const keys = Object.keys(cats ?? {});
+  for (let i = 0; i < keys.length; i++) {
+    const s = Number(cats[keys[i]] ?? 0);
+    if (s > bestScore) { bestScore = s; bestKey = keys[i]; }
+  }
+  return bestKey ? { key: bestKey, score: bestScore } : null;
+}
 
 export default function RegulatorPanel() {
   const { user } = useAuth();
@@ -1315,7 +1326,7 @@ export default function RegulatorPanel() {
               <div className="space-y-3">
                 {filteredLogs.map((log: any) => {
                   const cats = log.categories ?? {};
-                  const topCat = Object.entries(cats).sort(([,a]: any, [,b]: any) => (b as number) - (a as number))[0];
+                  const topCat = getTopCategory(cats);
                   return (
                     <div key={log.id} className={`bg-card border rounded-2xl overflow-hidden ${log.reviewed ? 'border-border opacity-60' : 'border-orange-500/20'}`}>
                       <div className={`px-4 py-3 border-b border-border flex items-center gap-2 ${getScoreBg(log.overall_score)}`}>
@@ -1338,10 +1349,10 @@ export default function RegulatorPanel() {
                         )}
                         <p className="text-xs font-semibold text-foreground">{log.reason}</p>
                         {topCat && (
-                          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${getScoreBg(topCat[1] as number)}`}>
-                            <AlertCircle className={`w-3.5 h-3.5 shrink-0 ${getScoreColor(topCat[1] as number)}`} />
-                            <span className="text-[11px] font-bold capitalize">{String(topCat[0]).replace('_', ' ')}</span>
-                            <span className={`text-[11px] font-black ml-auto ${getScoreColor(topCat[1] as number)}`}>{topCat[1] as number}/100</span>
+                          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${getScoreBg(topCat.score)}`}>
+                            <AlertCircle className={`w-3.5 h-3.5 shrink-0 ${getScoreColor(topCat.score)}`} />
+                            <span className="text-[11px] font-bold capitalize">{topCat.key.replace('_', ' ')}</span>
+                            <span className={`text-[11px] font-black ml-auto ${getScoreColor(topCat.score)}`}>{topCat.score}/100</span>
                           </div>
                         )}
                         {!log.reviewed && (
