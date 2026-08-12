@@ -60,6 +60,7 @@ export function MonetizationDashboard() {
   const [dailyReward, setDailyReward]   = useState<any>(null);
   const [claimingReward, setClaimingReward] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'credits' | 'earnings'>('overview');
+  const [rateInfo,   setRateInfo]   = useState<any | null>(null);
 
   // ── Earnings Milestone Alerts ──────────────────────────────────────────────
   const MILESTONES = [1, 10, 50, 100, 500, 1000];
@@ -82,7 +83,7 @@ export function MonetizationDashboard() {
   const fetchAll = async () => {
     if (!user) return;
     try {
-      const [monRes, profileRes, earningsRes, subsRes, tipsRes, videosRes, walletRes, dailyRes, postCountRes, videoCountRes] = await Promise.all([
+      const [monRes, profileRes, earningsRes, subsRes, tipsRes, videosRes, walletRes, dailyRes, postCountRes, videoCountRes, rateRes] = await Promise.all([
         supabase.from('user_monetization').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('user_profiles').select('subscriber_count, followers_count, is_creator, can_monetize').eq('id', user.id).single(),
         supabase.from('creator_earnings').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
@@ -93,6 +94,7 @@ export function MonetizationDashboard() {
         supabase.from('daily_rewards').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('posts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('posts').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_video', true),
+        supabase.from('video_revenue_rates').select('*').eq('user_id', user.id).maybeSingle(),
       ]);
 
       setMonetizationStatus(monRes.data);
@@ -102,6 +104,7 @@ export function MonetizationDashboard() {
       setDailyReward(dailyRes.data);
       setPostCount(postCountRes.count ?? 0);
       setVideoCount(videoCountRes.count ?? 0);
+      setRateInfo(rateRes.data);
 
       const earningsList = earningsRes.data || [];
       setEarnings(earningsList);
@@ -222,6 +225,102 @@ export function MonetizationDashboard() {
   const canClaimDaily = () => {
     if (!dailyReward?.last_claimed_at) return true;
     return new Date().toDateString() !== new Date(dailyReward.last_claimed_at).toDateString();
+  };
+
+  const handleExportEarningsPDF = () => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const monthEarnings = earnings.filter(e => e.created_at >= monthStart);
+
+    const groups: Record<string, { rows: any[]; total: number }> = {};
+    monthEarnings.forEach(e => {
+      const src = e.source ?? 'other';
+      if (!groups[src]) groups[src] = { rows: [], total: 0 };
+      groups[src].rows.push(e);
+      groups[src].total += Number(e.amount);
+    });
+
+    const grandTotal = monthEarnings.reduce((s, e) => s + Number(e.amount), 0);
+    const tier  = rateInfo?.tier ?? 'standard';
+    const cpm   = Number(rateInfo?.cpm_usd ?? 1.50);
+    const monthLabel = now.toLocaleDateString('en', { month: 'long', year: 'numeric' });
+
+    const w = window.open('', '_blank', 'width=720,height=940');
+    if (!w) { toast.error('Please allow popups to export PDF'); return; }
+
+    const tierEmoji: Record<string, string> = {
+      top_creator: '\uD83D\uDC51', premium: '\u2B50', rising: '\uD83D\uDCC8', standard: '\uD83C\uDF31',
+    };
+
+    const srcLabel = (src: string) =>
+      src.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+    const groupsHtml = Object.entries(groups).map(([src, g]) => {
+      const rowsHtml = g.rows.map((row: any) =>
+        `<tr>
+          <td>${new Date(row.created_at).toLocaleDateString()}</td>
+          <td>${srcLabel(src)}</td>
+          <td style="color:#166534;font-weight:700">+$${Number(row.amount).toFixed(4)}</td>
+          <td><span class="badge ${row.status === 'completed' ? 'badge-green' : 'badge-orange'}">${row.status}</span></td>
+        </tr>`
+      ).join('');
+      return `<tr class="group-hdr">
+        <td colspan="2"><strong>${srcLabel(src)}</strong></td>
+        <td colspan="2" style="text-align:right;color:#166534;font-weight:900">Subtotal: $${g.total.toFixed(4)}</td>
+      </tr>${rowsHtml}`;
+    }).join('');
+
+    const tableHtml = monthEarnings.length === 0
+      ? '<p style="text-align:center;color:#888;padding:40px 0">No earnings recorded for this month.</p>'
+      : `<table><thead><tr><th>Date</th><th>Source</th><th>Amount</th><th>Status</th></tr></thead><tbody>${groupsHtml}<tr class="total-row"><td colspan="2">Grand Total \u2014 ${monthLabel}</td><td colspan="2">$${grandTotal.toFixed(4)}</td></tr></tbody></table>`;
+
+    w.document.write(`<!DOCTYPE html><html><head>
+<title>Earnings Statement \u2014 ${monthLabel}</title>
+<meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;color:#111;padding:40px;max-width:700px;margin:0 auto}
+h1{font-size:22px;font-weight:900;margin-bottom:4px}
+.sub{font-size:13px;color:#666;margin-bottom:24px}
+.tier-card{background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:16px}
+.tier-emoji{font-size:30px}
+.tier-label{font-size:17px;font-weight:900;text-transform:capitalize}
+.tier-cpm{font-size:13px;color:#16a34a;font-weight:700;margin-top:2px}
+.summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px}
+.card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px;text-align:center}
+.card-label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.card-val{font-size:22px;font-weight:900}
+table{width:100%;border-collapse:collapse;margin-bottom:24px;font-size:13px}
+th{background:#f3f4f6;padding:10px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#555;border-bottom:2px solid #e5e7eb}
+td{padding:9px 12px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+.group-hdr td{background:#fefce8;font-size:11px;font-weight:700;padding:8px 12px;border-top:2px solid #fde047;color:#854d0e}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700}
+.badge-green{background:#dcfce7;color:#166534}
+.badge-orange{background:#fff7ed;color:#c2410c}
+.total-row td{border-top:3px solid #111;font-weight:900;background:#f0fdf4;font-size:14px;color:#166534}
+.footer{font-size:11px;color:#aaa;text-align:center;margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb}
+.btn{margin-bottom:24px;padding:10px 24px;background:#4f46e5;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px}
+@media print{.btn{display:none}body{padding:20px}}
+</style></head><body>
+<button class="btn" onclick="window.print()">&amp;#128424; Print / Save PDF</button>
+<h1>Earnings Statement</h1>
+<div class="sub">${monthLabel} &middot; Generated ${now.toLocaleString()}</div>
+<div class="tier-card">
+  <div class="tier-emoji">${tierEmoji[tier] ?? '\uD83C\uDF31'}</div>
+  <div>
+    <div class="tier-label">${tier.replace(/_/g, ' ')} Creator</div>
+    <div class="tier-cpm">CPM Rate: $${ cpm.toFixed(2)} per 1,000 video views</div>
+  </div>
+</div>
+<div class="summary">
+  <div class="card"><div class="card-label">Total Earned</div><div class="card-val" style="color:#16a34a">$${ grandTotal.toFixed(2)}</div></div>
+  <div class="card"><div class="card-label">Transactions</div><div class="card-val">${monthEarnings.length}</div></div>
+  <div class="card"><div class="card-label">Sources</div><div class="card-val">${Object.keys(groups).length}</div></div>
+</div>
+${tableHtml}
+<div class="footer">Testagram Creator Earnings &middot; Confidential &middot; ${ window.location.origin}</div>
+</body></html>`);
+    w.document.close();
   };
 
   if (!user) return null;
@@ -500,6 +599,14 @@ export function MonetizationDashboard() {
         {/* ─── EARNINGS ─── */}
         {activeTab === 'earnings' && (
           <>
+            {/* Export button */}
+            <button
+              onClick={handleExportEarningsPDF}
+              className="w-full flex items-center justify-center gap-2 py-3 border border-primary/30 bg-primary/5 hover:bg-primary/10 rounded-xl font-semibold text-sm text-primary transition-colors"
+            >
+              <BarChart3 className="w-4 h-4" /> Export Monthly PDF Receipt
+            </button>
+
             {/* 6-month earnings by source BarChart */}
             <div className="bg-card border border-border rounded-2xl p-4">
               <h3 className="font-bold mb-4 flex items-center gap-2">
