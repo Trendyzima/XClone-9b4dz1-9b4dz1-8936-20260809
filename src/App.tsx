@@ -78,6 +78,7 @@ const PlatformInboxPage = lazy(() => import('@/pages/PlatformInboxPage'));
 const AdAnalyticsPage = lazy(() => import('@/pages/AdAnalyticsPage'));
 const SEOAuditPage = lazy(() => import('@/pages/SEOAuditPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
+const VideoWatchLaterPage = lazy(() => import('@/pages/VideoWatchLaterPage'));
 
 function PageLoader() {
   return (
@@ -183,6 +184,7 @@ function AppInner() {
               <Route path="/series" element={<SeriesPage />} />
               <Route path="/platform-inbox" element={<PlatformInboxPage />} />
               <Route path="/admin/seo" element={<SEOAuditPage />} />
+              <Route path="/videos/watchlater" element={<VideoWatchLaterPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
