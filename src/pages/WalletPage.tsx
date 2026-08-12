@@ -2403,6 +2403,15 @@ const TOUR_STEPS: { emoji: string; title: string; body: string; tab: ActiveTab }
 // ── Module-level heatmap color scales ────────────────────────────────────
 const HEATMAP_GREEN = ['bg-green-200 dark:bg-green-950','bg-green-300 dark:bg-green-800','bg-green-500 dark:bg-green-700','bg-green-600 dark:bg-green-500'] as const;
 const HEATMAP_RED   = ['bg-red-200 dark:bg-red-950',  'bg-red-300 dark:bg-red-800',  'bg-red-500 dark:bg-red-700',  'bg-red-600 dark:bg-red-500'  ] as const;
+const CALENDAR_GREENS = ['bg-green-100 dark:bg-green-950','bg-green-200 dark:bg-green-900','bg-green-400 dark:bg-green-700','bg-green-600 dark:bg-green-500'] as const;
+const CALENDAR_REDS   = ['bg-red-100 dark:bg-red-950','bg-red-200 dark:bg-red-900','bg-red-400 dark:bg-red-700','bg-red-600 dark:bg-red-500'] as const;
+
+function heatmapCellBg(amount: number, hasIn: boolean, maxAmount: number): string {
+  if (amount === 0) return 'bg-muted';
+  const i = Math.min(Math.ceil((amount / maxAmount) * 4), 4);
+  const g = hasIn ? HEATMAP_GREEN : HEATMAP_RED;
+  return g[i - 1] ?? g[3];
+}
 
 // ── Crypto Price Widget ───────────────────────────────────────────────────
 function CryptoWidget() {
@@ -2486,12 +2495,7 @@ function ActivityHeatmap({ userId }: { userId: string }) {
     return { cells: arr, maxAmount: Math.max(...arr.map(c => c.amount), 1) };
   }, [txns]);
 
-  const getCellBg = (amount: number, hasIn: boolean) => {
-    if (amount === 0) return 'bg-muted';
-    const i = Math.min(Math.ceil((amount / maxAmount) * 4), 4);
-    const g = hasIn ? HEATMAP_GREEN : HEATMAP_RED;
-    return g[i - 1] ?? g[3];
-  };
+  const getCellBg = (amount: number, hasIn: boolean) => heatmapCellBg(amount, hasIn, maxAmount);
 
   return (
     <div className="border border-border rounded-2xl p-4">
@@ -3042,9 +3046,9 @@ function MonthlyHeatmapCalendar({ userId, currency }: { userId: string; currency
     if (!data || data.count === 0) return 'bg-muted/60';
     const total     = data.inAmt + data.outAmt;
     const intensity = Math.min(Math.ceil((total / maxAmt) * 4), 4);
-    const greens    = ['bg-green-100 dark:bg-green-950','bg-green-200 dark:bg-green-900','bg-green-400 dark:bg-green-700','bg-green-600 dark:bg-green-500'] as const;
-    const reds      = ['bg-red-100 dark:bg-red-950','bg-red-200 dark:bg-red-900','bg-red-400 dark:bg-red-700','bg-red-600 dark:bg-red-500'] as const;
-    return data.inAmt >= data.outAmt ? (greens[intensity - 1] ?? greens[3]) : (reds[intensity - 1] ?? reds[3]);
+    return data.inAmt >= data.outAmt
+      ? (CALENDAR_GREENS[intensity - 1] ?? CALENDAR_GREENS[3])
+      : (CALENDAR_REDS[intensity - 1] ?? CALENDAR_REDS[3]);
   };
 
   const today = new Date();
