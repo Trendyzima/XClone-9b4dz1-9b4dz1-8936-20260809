@@ -4,20 +4,13 @@ import { toast } from 'sonner';
 import {
   DollarSign, Users, TrendingUp, Star, Lock, Zap, Play, Heart,
   Plus, X, CheckCircle2, Loader2, BarChart3, Gift, Edit3,
-  CreditCard, Bell, ArrowUpRight, Coins,
+  CreditCard, ArrowUpRight, Coins,
 } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── esbuild-safe module-level constants ─────────────────────────────────────
 const HUB_PIE_COLORS   = ['#f59e0b', '#6366f1', '#22c55e', '#ec4899', '#94a3b8'] as const;
 const HUB_TIER_PRESETS = ['Basic', 'Pro', 'Premium'] as const;
-
-// CPM rate tiers (must match distribute-earnings edge function)
-const CPM_TIERS = [
-  { tier: 'top_creator', cpm: 3.50, label: 'Top Creator', emoji: '👑', color: 'text-purple-600', bg: 'bg-purple-500/10', border: 'border-purple-500/20', condition: 'Verified + 100k+ views' },
-  { tier: 'premium',     cpm: 2.50, label: 'Premium',     emoji: '⭐', color: 'text-blue-600',   bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   condition: 'Verified creator' },
-  { tier: 'rising',      cpm: 2.00, label: 'Rising',      emoji: '📈', color: 'text-green-600', bg: 'bg-green-500/10', border: 'border-green-500/20', condition: '10k+ total video views' },
-  { tier: 'standard',    cpm: 1.50, label: 'Standard',    emoji: '🌱', color: 'text-amber-600', bg: 'bg-amber-500/10', border: 'border-amber-500/20', condition: 'Default (new creators)' },
-] as const;
 const HUB_PERK_PRESETS = [
   'Exclusive posts',
   'Behind-the-scenes content',
@@ -28,47 +21,80 @@ const HUB_PERK_PRESETS = [
   'Discord access',
   'Priority replies',
 ] as const;
-const HUB_TABS = ['overview', 'tiers', 'content', 'tips', 'analytics', 'rates'] as const;
+const HUB_TABS         = ['overview', 'tiers', 'content', 'tips', 'analytics', 'rates'] as const;
 const HUB_TIP_AMOUNTS  = [1, 2, 5, 10, 25, 50] as const;
-const HUB_FUND_CPM     = 0.0015; // $0.0015 per view ≈ $1.50 CPM creator share
+const HUB_FUND_CPM     = 0.0015; // $0.0015 per view = $1.50 CPM (base tier creator share)
+
+// CPM rate tiers — must match supabase/functions/distribute-earnings/index.ts
+const HUB_CPM_TIERS = [
+  { tier: 'top_creator', cpm: 3.50, label: 'Top Creator', emoji: '👑', color: 'text-purple-600', bg: 'bg-purple-500/10', border: 'border-purple-500/20', condition: 'Verified + 100k+ views' },
+  { tier: 'premium',     cpm: 2.50, label: 'Premium',     emoji: '⭐', color: 'text-blue-600',   bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   condition: 'Verified creator' },
+  { tier: 'rising',      cpm: 2.00, label: 'Rising',      emoji: '📈', color: 'text-green-600', bg: 'bg-green-500/10', border: 'border-green-500/20', condition: '10k+ total video views' },
+  { tier: 'standard',    cpm: 1.50, label: 'Standard',    emoji: '🌱', color: 'text-amber-600', bg: 'bg-amber-500/10', border: 'border-amber-500/20', condition: 'Default (new creators)' },
+] as const;
 
 type HubTab = typeof HUB_TABS[number];
 
-// ── Revenue Rate Card (exported for MonetizationDashboard) ───────────────
+// ── Currency helper (local — avoids cross-file name collision) ────────────
+function hfmt(usd: number): string { return `$${usd.toFixed(2)}`; }
+
+// ── Revenue Rate Card (exported for MonetizationDashboard) ────────────────
 export function VideoRevenueRateCard({ userId }: { userId: string }) {
-  const [rate, setRate] = useState<any | null>(null);
-  const [videos, setVideos] = useState<{ id: string; views_count: number; content: string; fund_earnings_paid: boolean }[]>([]);
+  const [rate,    setRate]    = useState<any | null>(null);
+  const [videos,  setVideos]  = useState<{ id: string; views_count: number; content: string; fund_earnings_paid: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [chartData, setChartData] = useState<{ date: string; earning: number }[]>([]);
 
   useEffect(() => {
+    const since30 = new Date();
+    since30.setDate(since30.getDate() - 29);
+    since30.setHours(0, 0, 0, 0);
     Promise.all([
       supabase.from('video_revenue_rates').select('*').eq('user_id', userId).maybeSingle(),
-      supabase.from('posts').select('id,views_count,content,fund_earnings_paid').eq('user_id', userId).eq('is_video', true).order('views_count', { ascending: false }).limit(10),
-    ]).then(([{ data: rateData }, { data: videosData }]) => {
+      supabase.from('posts')
+        .select('id,views_count,content,fund_earnings_paid')
+        .eq('user_id', userId).eq('is_video', true)
+        .order('views_count', { ascending: false }).limit(10),
+      supabase.from('creator_earnings')
+        .select('amount,created_at')
+        .eq('user_id', userId)
+        .gte('created_at', since30.toISOString())
+        .order('created_at', { ascending: true }),
+    ]).then(([{ data: rateData }, { data: videosData }, { data: earningsData }]) => {
       setRate(rateData);
       setVideos(videosData ?? []);
+      // Build 30-day chart — computed inside effect to avoid module-level Date()
+      const days: { date: string; earning: number }[] = [];
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        days.push({ date: d.toISOString().split('T')[0], earning: 0 });
+      }
+      (earningsData ?? []).forEach((e: any) => {
+        const day = e.created_at?.split('T')[0];
+        const entry = days.find(d => d.date === day);
+        if (entry) entry.earning = parseFloat((entry.earning + Number(e.amount)).toFixed(6));
+      });
+      setChartData(days.map(d => ({ date: d.date.slice(5), earning: d.earning })));
       setLoading(false);
     });
   }, [userId]);
 
   const currentTierInfo = useMemo(() => {
     const t = rate?.tier ?? 'standard';
-    return CPM_TIERS.find(c => c.tier === t) ?? CPM_TIERS[3];
+    return HUB_CPM_TIERS.find(c => c.tier === t) ?? HUB_CPM_TIERS[3];
   }, [rate]);
 
-  const { projected1m, unclaimedRevenue } = useMemo(() => {
+  const { unclaimedRevenue } = useMemo(() => {
     const cpmRate = Number(rate?.cpm_usd ?? 1.50) / 1000;
-    const totalViews = videos.reduce((s, v) => s + (v.views_count ?? 0), 0);
-    const projected1m = Math.floor(totalViews / 1000) * cpmRate * 1000;
     const unclaimedRevenue = videos
       .filter(v => !v.fund_earnings_paid && v.views_count >= 1000)
       .reduce((s, v) => s + Math.floor(v.views_count / 1000) * cpmRate * 1000, 0);
-    return { projected1m, unclaimedRevenue };
+    return { unclaimedRevenue };
   }, [videos, rate]);
 
   const nextTier = useMemo(() => {
-    const idx = CPM_TIERS.findIndex(c => c.tier === (rate?.tier ?? 'standard'));
-    return idx > 0 ? CPM_TIERS[idx - 1] : null;
+    const idx = HUB_CPM_TIERS.findIndex(c => c.tier === (rate?.tier ?? 'standard'));
+    return idx > 0 ? HUB_CPM_TIERS[idx - 1] : null;
   }, [rate]);
 
   if (loading) return <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>;
@@ -104,7 +130,7 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
         </div>
       </div>
 
-      {/* All tiers reference */}
+      {/* All tiers reference table */}
       <div className="border border-border rounded-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center gap-2">
           <TrendingUp className="w-4 h-4 text-primary" />
@@ -112,7 +138,7 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
           <span className="text-[10px] text-muted-foreground ml-auto">paid daily at midnight</span>
         </div>
         <div className="divide-y divide-border">
-          {CPM_TIERS.map(t => {
+          {HUB_CPM_TIERS.map(t => {
             const isActive = (rate?.tier ?? 'standard') === t.tier;
             return (
               <div key={t.tier} className={`flex items-center gap-3 px-4 py-3 ${isActive ? t.bg : ''}`}>
@@ -120,7 +146,11 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-bold text-sm">{t.label}</p>
-                    {isActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold border border-primary/20">Your tier</span>}
+                    {isActive && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold border border-primary/20">
+                        Your tier
+                      </span>
+                    )}
                   </div>
                   <p className="text-[10px] text-muted-foreground">{t.condition}</p>
                 </div>
@@ -144,7 +174,10 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
           </div>
           <p className="text-xs text-muted-foreground">{nextTier.condition}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            +${(nextTier.cpm - currentTierInfo.cpm).toFixed(2)} more per 1k views · {Number(rate?.period_views ?? 0) >= 1000 ? `+$${(((nextTier.cpm - currentTierInfo.cpm) / 1000) * Number(rate?.period_views ?? 0)).toFixed(2)} on your current views` : 'Upload more videos to increase views'}
+            +${(nextTier.cpm - currentTierInfo.cpm).toFixed(2)} more per 1k views
+            {Number(rate?.period_views ?? 0) >= 1000
+              ? ` · +$${(((nextTier.cpm - currentTierInfo.cpm) / 1000) * Number(rate?.period_views ?? 0)).toFixed(2)} on your current views`
+              : ' · Upload more videos to increase views'}
           </p>
         </div>
       )}
@@ -169,13 +202,23 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
                     <p className="text-xs font-semibold truncate">{v.content?.slice(0, 50) ?? 'Video'}…</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[10px] text-muted-foreground">{v.views_count?.toLocaleString() ?? 0} views</span>
-                      {v.fund_earnings_paid && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold">Paid</span>}
-                      {!v.fund_earnings_paid && v.views_count >= 1000 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-bold">Claimable</span>}
+                      {v.fund_earnings_paid && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold">Paid</span>
+                      )}
+                      {!v.fund_earnings_paid && v.views_count >= 1000 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-bold">Claimable</span>
+                      )}
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className={`font-black text-sm ${earned > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>{earned > 0 ? `$${earned.toFixed(2)}` : '—'}</p>
-                    <p className="text-[10px] text-muted-foreground">{v.views_count >= 1000 ? `${Math.floor(v.views_count/1000)}k × $${currentTierInfo.cpm.toFixed(2)}` : '< 1k views'}</p>
+                    <p className={`font-black text-sm ${earned > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                      {earned > 0 ? `$${earned.toFixed(2)}` : '—'}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {v.views_count >= 1000
+                        ? `${Math.floor(v.views_count / 1000)}k × $${currentTierInfo.cpm.toFixed(2)}`
+                        : '< 1k views'}
+                    </p>
                   </div>
                 </div>
               );
@@ -183,14 +226,39 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
           </div>
         </div>
       )}
+
+      {/* 30-day earnings chart */}
+      {chartData.some(d => d.earning > 0) && (
+        <div className="border border-border rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-green-600" />
+            <p className="font-bold text-sm">30-Day Earnings</p>
+            <span className="text-[10px] text-muted-foreground ml-auto">all sources combined</span>
+          </div>
+          <div className="px-2 pt-3 pb-2">
+            <ResponsiveContainer width="100%" height={160}>
+              <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="hubEarnGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} interval={6} />
+                <YAxis tick={{ fontSize: 9 }} />
+                <Tooltip formatter={(v: any) => [`$${Number(v).toFixed(4)}`, 'Earned']} labelStyle={{ fontSize: 10 }} />
+                <Area type="monotone" dataKey="earning" stroke="#22c55e" strokeWidth={2} fill="url(#hubEarnGrad)" dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Currency helper (local copy to avoid cross-file collision) ───────────
-function hfmt(usd: number): string { return `$${usd.toFixed(2)}`; }
-
-// ── Tip Button (exported for PostCard) ───────────────────────────────────
+// ── Tip Button (exported for PostCard) ────────────────────────────────────
 export function TipButton({ postId, creatorId, creatorUsername, senderId, senderUsername, disabled }: {
   postId: string; creatorId: string; creatorUsername: string;
   senderId: string; senderUsername: string; disabled?: boolean;
@@ -215,7 +283,7 @@ export function TipButton({ postId, creatorId, creatorUsername, senderId, sender
       p_from_user_id: senderId,
       p_to_user_id:   creatorId,
       p_amount:       finalAmt,
-      p_note:         note.trim() || `Tip on post`,
+      p_note:         note.trim() || 'Tip on post',
     });
     if (walletErr) { setSending(false); toast.error(walletErr.message || 'Transfer failed'); return; }
     await Promise.allSettled([
@@ -254,14 +322,10 @@ export function TipButton({ postId, creatorId, creatorUsername, senderId, sender
       </button>
 
       {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setOpen(false)}>
+          <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl"
+            onClick={e => e.stopPropagation()}>
             {done ? (
               <div className="flex flex-col items-center gap-3 py-4 text-center">
                 <div className="w-16 h-16 rounded-full bg-amber-500/15 flex items-center justify-center">
@@ -281,38 +345,24 @@ export function TipButton({ postId, creatorId, creatorUsername, senderId, sender
                     <X className="w-4 h-4" />
                   </button>
                 </div>
-
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   {HUB_TIP_AMOUNTS.map(a => (
-                    <button
-                      key={a}
-                      onClick={() => { setAmount(a); setCustom(''); }}
+                    <button key={a} onClick={() => { setAmount(a); setCustom(''); }}
                       className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${
                         amount === a && !custom
                           ? 'border-amber-500 bg-amber-500/10 text-amber-600'
                           : 'border-border hover:border-amber-500/40'
-                      }`}
-                    >${a}</button>
+                      }`}>${a}</button>
                   ))}
                 </div>
-
-                <input
-                  type="number" min="0.01" step="0.01" placeholder="Custom amount (USD)…"
+                <input type="number" min="0.01" step="0.01" placeholder="Custom amount (USD)…"
                   value={custom} onChange={e => setCustom(e.target.value)}
-                  className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 mb-3"
-                />
-
-                <input
-                  type="text" maxLength={80} placeholder="Leave a message (optional)…"
+                  className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 mb-3" />
+                <input type="text" maxLength={80} placeholder="Leave a message (optional)…"
                   value={note} onChange={e => setNote(e.target.value)}
-                  className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 mb-4"
-                />
-
-                <button
-                  onClick={send}
-                  disabled={sending || finalAmt <= 0}
-                  className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-400 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-                >
+                  className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 mb-4" />
+                <button onClick={send} disabled={sending || finalAmt <= 0}
+                  className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-400 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
                   {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Gift className="w-5 h-5" />}
                   {sending ? 'Sending…' : `Send ${hfmt(finalAmt)}`}
                 </button>
@@ -326,7 +376,7 @@ export function TipButton({ postId, creatorId, creatorUsername, senderId, sender
   );
 }
 
-// ── Paywall Gate (exported for PostCard) ─────────────────────────────────
+// ── Paywall Gate (exported for PostCard) ──────────────────────────────────
 export function PaywallGate({ post, viewerId, onUnlocked }: {
   post: any; viewerId: string; onUnlocked: () => void;
 }) {
@@ -382,11 +432,8 @@ export function PaywallGate({ post, viewerId, onUnlocked }: {
           <p className="text-sm text-muted-foreground mt-1">Unlock this post for a one-time payment</p>
         </div>
         <div className="text-3xl font-black text-amber-600">{hfmt(Number(post.price ?? 0))}</div>
-        <button
-          onClick={purchase}
-          disabled={purchasing}
-          className="px-8 py-3 bg-amber-500 text-white rounded-full font-bold text-sm hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-2"
-        >
+        <button onClick={purchase} disabled={purchasing}
+          className="px-8 py-3 bg-amber-500 text-white rounded-full font-bold text-sm hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-2">
           {purchasing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
           {purchasing ? 'Processing…' : `Unlock for ${hfmt(Number(post.price ?? 0))}`}
         </button>
@@ -396,7 +443,7 @@ export function PaywallGate({ post, viewerId, onUnlocked }: {
   );
 }
 
-// ── Subscription Tier Card (public view) ─────────────────────────────────
+// ── Subscription Tiers Display (public profile view) ──────────────────────
 export function SubscriptionTiersDisplay({ creatorId, viewerId, creatorUsername }: {
   creatorId: string; viewerId: string; creatorUsername: string;
 }) {
@@ -481,8 +528,7 @@ export function SubscriptionTiersDisplay({ creatorId, viewerId, creatorUsername 
                 <ul className="space-y-1 mb-3">
                   {perks.map((perk: string, i: number) => (
                     <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
-                      {perk}
+                      <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />{perk}
                     </li>
                   ))}
                 </ul>
@@ -492,11 +538,8 @@ export function SubscriptionTiersDisplay({ creatorId, viewerId, creatorUsername 
                   <CheckCircle2 className="w-4 h-4" /> Subscribed
                 </div>
               ) : (
-                <button
-                  onClick={() => subscribe(tier)}
-                  disabled={subscribing === tier.id}
-                  className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-                >
+                <button onClick={() => subscribe(tier)} disabled={subscribing === tier.id}
+                  className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
                   {subscribing === tier.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4" />}
                   {subscribing === tier.id ? 'Processing…' : `Subscribe · ${hfmt(tier.price_usd)}/mo`}
                 </button>
@@ -509,27 +552,27 @@ export function SubscriptionTiersDisplay({ creatorId, viewerId, creatorUsername 
   );
 }
 
-// ── Creator Monetization Hub (full management dashboard) ─────────────────
+// ── Creator Monetization Hub (full management dashboard) ──────────────────
 export default function CreatorMonetizationHub({ userId }: { userId: string }) {
-  const [activeTab, setActiveTab] = useState<HubTab>('overview');
+  const [activeTab,    setActiveTab]    = useState<HubTab>('overview');
   const [monetization, setMonetization] = useState<any>(null);
-  const [tiers,    setTiers]    = useState<any[]>([]);
-  const [earnings, setEarnings] = useState<any[]>([]);
-  const [tips,     setTips]     = useState<any[]>([]);
-  const [subs,     setSubs]     = useState<any[]>([]);
-  const [loading,  setLoading]  = useState(true);
+  const [tiers,        setTiers]        = useState<any[]>([]);
+  const [earnings,     setEarnings]     = useState<any[]>([]);
+  const [tips,         setTips]         = useState<any[]>([]);
+  const [subs,         setSubs]         = useState<any[]>([]);
+  const [loading,      setLoading]      = useState(true);
 
-  // Tier editor state
-  const [editingTier, setEditingTier]   = useState<any | null>(null);
-  const [tierName,    setTierName]      = useState('');
-  const [tierPrice,   setTierPrice]     = useState('');
-  const [tierDesc,    setTierDesc]      = useState('');
-  const [tierPerks,   setTierPerks]     = useState<string[]>([]);
-  const [savingTier,  setSavingTier]    = useState(false);
-  const [newPerk,     setNewPerk]       = useState('');
+  // Tier editor
+  const [editingTier, setEditingTier] = useState<any | null>(null);
+  const [tierName,    setTierName]    = useState('');
+  const [tierPrice,   setTierPrice]   = useState('');
+  const [tierDesc,    setTierDesc]    = useState('');
+  const [tierPerks,   setTierPerks]   = useState<string[]>([]);
+  const [savingTier,  setSavingTier]  = useState(false);
+  const [newPerk,     setNewPerk]     = useState('');
 
-  // Content pricing state
-  const [pricedPosts, setPricedPosts]   = useState<any[]>([]);
+  // Content pricing
+  const [pricedPosts,  setPricedPosts]  = useState<any[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
 
   useEffect(() => { loadAll(); }, [userId]);
@@ -543,7 +586,8 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
         .order('created_at', { ascending: false }).limit(50),
       supabase.from('tips').select('*, from_user:user_profiles!tips_from_user_id_fkey(username,avatar_url)')
         .eq('to_user_id', userId).order('created_at', { ascending: false }).limit(20),
-      supabase.from('creator_subscriptions').select('*, subscriber:user_profiles!creator_subscriptions_subscriber_id_fkey(username,avatar_url)')
+      supabase.from('creator_subscriptions')
+        .select('*, subscriber:user_profiles!creator_subscriptions_subscriber_id_fkey(username,avatar_url)')
         .eq('creator_id', userId).eq('status', 'active').limit(50),
     ]);
     setMonetization(monRes.data);
@@ -603,16 +647,11 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
       price_usd: parseFloat(tierPrice), description: tierDesc.trim() || null,
       perks: tierPerks, is_active: true,
     };
-    let err;
-    if (editingTier) {
-      const { error } = await supabase.from('creator_subscription_tiers').update(payload).eq('id', editingTier.id);
-      err = error;
-    } else {
-      const { error } = await supabase.from('creator_subscription_tiers').insert(payload);
-      err = error;
-    }
+    const { error } = editingTier
+      ? await supabase.from('creator_subscription_tiers').update(payload).eq('id', editingTier.id)
+      : await supabase.from('creator_subscription_tiers').insert(payload);
     setSavingTier(false);
-    if (err) { toast.error(err.message); return; }
+    if (error) { toast.error(error.message); return; }
     toast.success(editingTier ? 'Tier updated!' : 'Tier created!');
     setEditingTier(undefined);
     setTierName(''); setTierPrice(''); setTierDesc(''); setTierPerks([]);
@@ -635,13 +674,13 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
   };
 
   const claimVideoFundEarnings = async () => {
-    const { data: videos } = await supabase.from('posts')
+    const { data: vids } = await supabase.from('posts')
       .select('id,views_count').eq('user_id', userId)
       .eq('is_video', true).eq('fund_earnings_paid', false)
       .gt('views_count', 1000);
-    if (!videos || videos.length === 0) { toast.info('No new video fund earnings to claim'); return; }
+    if (!vids || vids.length === 0) { toast.info('No new video fund earnings to claim'); return; }
     let total = 0;
-    for (const v of videos) {
+    for (const v of vids) {
       const earned = Math.floor(v.views_count / 1000) * HUB_FUND_CPM * 1000;
       total += earned;
       await supabase.from('creator_earnings').insert({
@@ -651,7 +690,7 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
       await supabase.from('posts').update({ fund_earnings_paid: true }).eq('id', v.id);
     }
     await supabase.rpc('add_to_wallet', { p_user_id: userId, p_amount: total });
-    toast.success(`Claimed ${hfmt(total)} from Video Creator Fund (${videos.length} videos)`);
+    toast.success(`Claimed ${hfmt(total)} from Video Creator Fund (${vids.length} videos)`);
     loadAll();
   };
 
@@ -683,10 +722,10 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
           )}
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: 'Total Earnings',  val: hfmt(totalEarnings), sub: 'all sources', color: 'text-primary',   bg: 'bg-primary/10 border-primary/20'       },
-              { label: 'Active Subs',     val: String(subs.length), sub: hfmt(totalSubs) + '/mo', color: 'text-blue-600', bg: 'bg-blue-500/10 border-blue-500/20'   },
-              { label: 'Tips Received',   val: hfmt(totalTips),     sub: `from ${tips.length} tips`, color: 'text-amber-600', bg: 'bg-amber-500/10 border-amber-500/20' },
-              { label: 'Paid Content',    val: String(pricedPosts.length || '—'), sub: 'monetized posts', color: 'text-green-600', bg: 'bg-green-500/10 border-green-500/20' },
+              { label: 'Total Earnings', val: hfmt(totalEarnings), sub: 'all sources',           color: 'text-primary',   bg: 'bg-primary/10 border-primary/20'         },
+              { label: 'Active Subs',    val: String(subs.length), sub: hfmt(totalSubs) + '/mo', color: 'text-blue-600', bg: 'bg-blue-500/10 border-blue-500/20'       },
+              { label: 'Tips Received',  val: hfmt(totalTips),     sub: `from ${tips.length} tips`, color: 'text-amber-600', bg: 'bg-amber-500/10 border-amber-500/20' },
+              { label: 'Paid Content',   val: String(pricedPosts.length || '—'), sub: 'monetized posts', color: 'text-green-600', bg: 'bg-green-500/10 border-green-500/20' },
             ].map(s => (
               <div key={s.label} className={`p-4 rounded-2xl border ${s.bg}`}>
                 <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
@@ -709,10 +748,8 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
               Earn from your video views. We pay creators ${(HUB_FUND_CPM * 1000).toFixed(2)} per 1,000 views.
               Claims are processed for videos with 1,000+ views not yet paid.
             </p>
-            <button
-              onClick={claimVideoFundEarnings}
-              className="w-full py-2.5 bg-purple-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-            >
+            <button onClick={claimVideoFundEarnings}
+              className="w-full py-2.5 bg-purple-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
               <Zap className="w-4 h-4" /> Claim Video Fund Earnings
             </button>
           </div>
@@ -753,15 +790,12 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
               <p className="font-bold text-sm">Subscription Tiers</p>
               <p className="text-xs text-muted-foreground">Earn recurring monthly income from fans</p>
             </div>
-            <button
-              onClick={openNewTier}
-              className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-xs hover:opacity-90"
-            >
+            <button onClick={openNewTier}
+              className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-xs hover:opacity-90">
               <Plus className="w-3.5 h-3.5" /> New Tier
             </button>
           </div>
 
-          {/* Tier editor */}
           {(editingTier !== undefined) && (
             <div className="p-4 border border-primary/30 bg-primary/5 rounded-2xl space-y-3">
               <p className="font-bold text-sm">{editingTier ? 'Edit Tier' : 'Create Tier'}</p>
@@ -772,11 +806,9 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
                       tierName === p ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'
                     }`}>{p}</button>
                 ))}
-                <input
-                  type="text" placeholder="Custom name…" value={tierName}
+                <input type="text" placeholder="Custom name…" value={tierName}
                   onChange={e => setTierName(e.target.value)}
-                  className="col-span-2 h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
-                />
+                  className="col-span-2 h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/40" />
               </div>
               <div className="flex gap-2">
                 <div className="flex-1">
@@ -796,9 +828,8 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide block mb-2">Perks</label>
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {HUB_PERK_PRESETS.map(p => (
-                    <button key={p} onClick={() => {
-                      setTierPerks(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]);
-                    }}
+                    <button key={p}
+                      onClick={() => setTierPerks(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])}
                       className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-all ${
                         tierPerks.includes(p)
                           ? 'border-primary bg-primary/10 text-primary'
@@ -809,11 +840,7 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
                 <div className="flex gap-2">
                   <input type="text" placeholder="Custom perk…" value={newPerk}
                     onChange={e => setNewPerk(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && newPerk.trim()) {
-                        setTierPerks(prev => [...prev, newPerk.trim()]); setNewPerk('');
-                      }
-                    }}
+                    onKeyDown={e => { if (e.key === 'Enter' && newPerk.trim()) { setTierPerks(prev => [...prev, newPerk.trim()]); setNewPerk(''); } }}
                     className="flex-1 h-9 px-2.5 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary/40" />
                   <button onClick={() => { if (newPerk.trim()) { setTierPerks(prev => [...prev, newPerk.trim()]); setNewPerk(''); } }}
                     className="px-3 h-9 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90">Add</button>
@@ -823,16 +850,14 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
                     {tierPerks.map((p, i) => (
                       <span key={i} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-[10px] font-semibold">
                         {p}
-                        <button onClick={() => setTierPerks(prev => prev.filter((_, j) => j !== i))}
-                          className="ml-0.5 opacity-60 hover:opacity-100">×</button>
+                        <button onClick={() => setTierPerks(prev => prev.filter((_, j) => j !== i))} className="ml-0.5 opacity-60 hover:opacity-100">×</button>
                       </span>
                     ))}
                   </div>
                 )}
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setEditingTier(undefined)}
-                  className="flex-1 py-2.5 border border-border rounded-xl font-semibold text-sm hover:bg-muted">Cancel</button>
+                <button onClick={() => setEditingTier(undefined)} className="flex-1 py-2.5 border border-border rounded-xl font-semibold text-sm hover:bg-muted">Cancel</button>
                 <button onClick={saveTier} disabled={savingTier}
                   className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90">
                   {savingTier ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
@@ -879,12 +904,10 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
             ))}
           </div>
 
-          {/* Revenue info */}
           <div className="p-3 bg-muted/30 rounded-2xl text-xs text-muted-foreground">
             <p><strong>Revenue split:</strong> You keep 85% · Platform takes 15%. Payouts go directly to your wallet monthly.</p>
           </div>
 
-          {/* Active subscribers */}
           {subs.length > 0 && (
             <div className="border border-border rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
@@ -920,7 +943,7 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
             <p className="text-xs text-muted-foreground mt-0.5">Lock posts behind a paywall — you earn 80% of each purchase</p>
           </div>
           <div className="p-4 border border-amber-500/20 bg-amber-500/5 rounded-2xl text-xs text-muted-foreground">
-            <p><strong>How it works:</strong> Set a price on any post. Viewers who don't follow you see a locked preview and must pay to see the full content. You receive 80% instantly to your wallet.</p>
+            <p><strong>How it works:</strong> Set a price on any post. Viewers see a locked preview and must pay to see full content. You receive 80% instantly to your wallet.</p>
           </div>
           {loadingPosts ? (
             <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
@@ -1029,8 +1052,6 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
                   ))}
                 </div>
               </div>
-
-              {/* Revenue split info */}
               <div className="border border-border rounded-2xl p-4">
                 <p className="font-bold text-sm mb-3 flex items-center gap-2">
                   <DollarSign className="w-4 h-4 text-primary" />Revenue Split Breakdown
@@ -1061,7 +1082,7 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
   );
 }
 
-// ── Post Price Card (inline price editor) ────────────────────────────────
+// ── Post Price Card ───────────────────────────────────────────────────────
 function PostPriceCard({ post, onUpdate }: { post: any; onUpdate: (id: string, price: number | null) => void }) {
   const [editing, setEditing] = useState(false);
   const [price,   setPrice]   = useState(String(post.price ?? ''));
@@ -1095,11 +1116,9 @@ function PostPriceCard({ post, onUpdate }: { post: any; onUpdate: (id: string, p
       </div>
       {editing && (
         <div className="px-4 pb-3 flex gap-2 border-t border-border pt-3">
-          <input
-            type="number" min="0.01" step="0.01" placeholder="Price (USD)…"
+          <input type="number" min="0.01" step="0.01" placeholder="Price (USD)…"
             value={price} onChange={e => setPrice(e.target.value)}
-            className="flex-1 h-9 px-2.5 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/40"
-          />
+            className="flex-1 h-9 px-2.5 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/40" />
           <button onClick={() => { onUpdate(post.id, parseFloat(price) || null); setEditing(false); }}
             className="px-3 h-9 bg-amber-500 text-white rounded-lg text-xs font-bold hover:opacity-90">Set</button>
           <button onClick={() => setEditing(false)} className="px-2 h-9 border border-border rounded-lg text-xs hover:bg-muted">✕</button>
@@ -1175,10 +1194,10 @@ function AddPaidPostCard({ userId, onAdded }: { userId: string; onAdded: () => v
   );
 }
 
-// ── Quick Tip Stats Widget ────────────────────────────────────────────────
+// ── Tip Goal Widget (profile page) ────────────────────────────────────────
 export function TipGoalWidget({ creatorId }: { creatorId: string }) {
-  const [goal,   setGoal]   = useState<number | null>(null);
-  const [earned, setEarned] = useState(0);
+  const [goal,    setGoal]    = useState<number | null>(null);
+  const [earned,  setEarned]  = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -1214,7 +1233,8 @@ export function SubscriberBadge({ creatorId }: { creatorId: string }) {
   const [count, setCount] = useState<number | null>(null);
 
   useEffect(() => {
-    supabase.from('creator_subscriptions').select('id', { count: 'exact', head: true })
+    supabase.from('creator_subscriptions')
+      .select('id', { count: 'exact', head: true })
       .eq('creator_id', creatorId).eq('status', 'active')
       .then(({ count: c }) => setCount(c ?? 0));
   }, [creatorId]);
