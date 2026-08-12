@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
@@ -57,17 +56,20 @@ export function ThemeToggle() {
   return (
     <Button
       variant="ghost"
-      size="icon"
+      size="sm"
       onClick={toggle}
-      className="rounded-full w-10 h-10"
-      title={`Theme: ${choice}`}
+      className="rounded-full h-9 px-2.5 gap-1.5 text-xs font-semibold"
+      title={`Theme: ${choice} (click to cycle)`}
       aria-label="Toggle theme"
     >
       {effectiveTheme === 'dark' ? (
-        <Sun className="w-5 h-5 text-yellow-400" />
+        <Moon className="w-4 h-4 text-blue-400" />
+      ) : choice === 'system' ? (
+        <Monitor className="w-4 h-4 text-muted-foreground" />
       ) : (
-        <Moon className="w-5 h-5 text-slate-600" />
+        <Sun className="w-4 h-4 text-yellow-500" />
       )}
+      <span className="hidden sm:inline text-muted-foreground capitalize">{choice}</span>
     </Button>
   );
 }

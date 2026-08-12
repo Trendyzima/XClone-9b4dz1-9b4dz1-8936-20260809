@@ -246,7 +246,21 @@ export default function ProfilePage() {
     return idx >= 0 ? (highlightCounts[idx] ?? 0) : 0;
   };
 
-  const goalAchieved = tipGoal !== null && tipGoal > 0 && currentMonthTips >= tipGoal;
+  // ── Story Ring ─────────────────────────────────────────────────────────
+  const [profileHasStories, setProfileHasStories] = useState(false);
+  const [profileStoryGroupIdx, setProfileStoryGroupIdx] = useState<number | null>(null);
+  const [showProfileStories, setShowProfileStories] = useState(false);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    // Check if this user has active (non-expired) stories
+    supabase
+      .from('stories')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', profile.id)
+      .gt('expires_at', new Date().toISOString())
+      .then(({ count }) => setProfileHasStories((count ?? 0) > 0));
+  }, [profile?.id]);
 
   const checkBlockMuteStatus = async (profileId: string) => {
     if (!currentUser) return;
@@ -749,11 +763,23 @@ export default function ProfilePage() {
 
         <div className="px-4 pb-4">
           <div className="flex justify-between items-start -mt-16 mb-4">
-            <div className="w-32 h-32 rounded-full border-4 border-background bg-muted overflow-hidden">
-              {profile.avatar_url
-                ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
-                : <div className="w-full h-full flex items-center justify-center text-4xl font-bold">{profile.username[0].toUpperCase()}</div>}
-            </div>
+            {/* Avatar — wrapped in gradient story ring when user has active stories */}
+            <button
+              className={`w-32 h-32 rounded-full border-4 border-background bg-muted overflow-hidden shrink-0 transition-all duration-200 ${
+                profileHasStories
+                  ? 'ring-4 ring-offset-2 ring-offset-background ring-transparent bg-gradient-to-br from-primary to-purple-500 p-0.5 cursor-pointer hover:scale-[1.03] active:scale-[0.98]'
+                  : ''
+              }`}
+              onClick={() => { if (profileHasStories) setShowProfileStories(true); }}
+              disabled={!profileHasStories}
+              style={profileHasStories ? { background: 'linear-gradient(135deg, hsl(var(--primary)), #a855f7)', padding: '3px' } : undefined}
+            >
+              <div className="w-full h-full rounded-full overflow-hidden bg-muted">
+                {profile.avatar_url
+                  ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
+                  : <div className="w-full h-full flex items-center justify-center text-4xl font-bold">{profile.username[0].toUpperCase()}</div>}
+              </div>
+            </button>
             <div className="flex gap-2 mt-2 flex-wrap items-center">
               {isOwnProfile ? (
                 <>
@@ -1632,6 +1658,54 @@ export default function ProfilePage() {
               </>
             );
           })()}
+        </div>
+      )}
+
+      {/* ── Profile Story Ring Viewer ──────────────────────────────── */}
+      {showProfileStories && profile && (
+        <div
+          className="fixed inset-0 z-[400] bg-black flex items-center justify-center"
+          onClick={() => setShowProfileStories(false)}
+        >
+          <div className="relative w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            {/* Close */}
+            <button
+              onClick={() => setShowProfileStories(false)}
+              className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            {/* Header */}
+            <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-white/20">
+                {profile.avatar_url
+                  ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
+                  : <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold">{profile.username[0].toUpperCase()}</div>}
+              </div>
+              <span className="text-white font-semibold text-sm">@{profile.username}'s Stories</span>
+            </div>
+            {/* Redirect to main stories strip which handles the actual viewer */}
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-8">
+              <div
+                className="w-24 h-24 rounded-full overflow-hidden ring-4 ring-white/40 ring-offset-4 ring-offset-black"
+                style={{ background: 'linear-gradient(135deg, hsl(var(--primary)), #a855f7)', padding: '3px' }}
+              >
+                <div className="w-full h-full rounded-full overflow-hidden">
+                  {profile.avatar_url
+                    ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center text-4xl font-bold bg-muted">{profile.username[0].toUpperCase()}</div>}
+                </div>
+              </div>
+              <p className="text-white font-bold text-lg">@{profile.username}</p>
+              <p className="text-white/60 text-sm text-center">This user has active stories — view them in your home feed</p>
+              <button
+                onClick={() => { setShowProfileStories(false); navigate('/'); }}
+                className="flex items-center gap-2 px-6 py-3 bg-white/15 hover:bg-white/25 border border-white/30 rounded-full text-white font-semibold text-sm transition-colors"
+              >
+                View Stories in Feed
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

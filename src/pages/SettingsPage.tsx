@@ -19,6 +19,28 @@ function SettingsAdBanner() { return <PageAdBanner />; }
 
 type ThemeChoice = 'light' | 'dark' | 'system';
 
+// Module-level constants (esbuild guard: no `as const` arrays or icon components in .map() data)
+const THEME_IDS: ThemeChoice[] = ['light', 'dark', 'system'];
+const THEME_LABELS = ['Light', 'Dark', 'System'];
+const THEME_CLS = ['text-yellow-500', 'text-slate-400', 'text-blue-400'];
+
+const SOUND_PREVIEW_ITEMS: { type: 'like'|'follow'|'tip'|'comment'|'repost'|'dm'|'group'; label: string; emoji: string; desc: string }[] = [
+  { type: 'like',    label: 'Like',    emoji: '❤️', desc: 'Soft two-tone chime'       },
+  { type: 'follow',  label: 'Follow',  emoji: '👤', desc: 'Rising three-note fanfare' },
+  { type: 'tip',     label: 'Tip',     emoji: '💰', desc: 'Warm coin-drop jingle'     },
+  { type: 'comment', label: 'Comment', emoji: '💬', desc: 'Subtle pop'                },
+  { type: 'repost',  label: 'Repost',  emoji: '🔁', desc: 'Double-tap click'          },
+  { type: 'dm',      label: 'DM',      emoji: '✉️',  desc: 'Friendly ping'             },
+  { type: 'group',   label: 'Group',   emoji: '👥', desc: 'Richer group chime'        },
+];
+
+function ThemeIcon({ id, cls, active }: { id: ThemeChoice; cls: string; active: boolean }) {
+  const iconCls = `w-6 h-6 ${active ? 'text-primary' : cls}`;
+  if (id === 'light')  return <Sun className={iconCls} />;
+  if (id === 'dark')   return <Moon className={iconCls} />;
+  return <Monitor className={iconCls} />;
+}
+
 export default function SettingsPage() {
   useSEO({ noindex: true, title: 'Settings', url: '/settings' });
   const { user, logout } = useAuth();
@@ -126,11 +148,9 @@ export default function SettingsPage() {
 
           {/* 3-pill selector */}
           <div className="grid grid-cols-3 gap-2 px-3 pb-1">
-            {([
-              { id: 'light'  as ThemeChoice, label: 'Light',  Icon: Sun,     cls: 'text-yellow-500'  },
-              { id: 'dark'   as ThemeChoice, label: 'Dark',   Icon: Moon,    cls: 'text-slate-400'   },
-              { id: 'system' as ThemeChoice, label: 'System', Icon: Monitor, cls: 'text-blue-400'    },
-            ] as const).map(({ id, label, Icon, cls }) => {
+            {THEME_IDS.map((id, i) => {
+              const label = THEME_LABELS[i];
+              const cls   = THEME_CLS[i];
               const active = themeChoice === id;
               return (
                 <button
@@ -142,7 +162,7 @@ export default function SettingsPage() {
                       : 'border-border hover:border-muted-foreground/30 hover:bg-muted/40'
                   }`}
                 >
-                  <Icon className={`w-6 h-6 ${active ? 'text-primary' : cls}`} />
+                  <ThemeIcon id={id} cls={cls} active={active} />
                   <span className={`font-semibold text-xs ${active ? 'text-primary' : 'text-foreground'}`}>
                     {label}
                   </span>
@@ -239,15 +259,7 @@ export default function SettingsPage() {
           {soundsOn && (
             <div className="bg-muted/30 rounded-2xl p-3 space-y-1">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1 mb-2">Preview sounds</p>
-              {([
-                { type: 'like'    as const, label: 'Like',    emoji: '❤️', desc: 'Soft two-tone chime'        },
-                { type: 'follow'  as const, label: 'Follow',  emoji: '👤', desc: 'Rising three-note fanfare'  },
-                { type: 'tip'     as const, label: 'Tip',     emoji: '💰', desc: 'Warm coin-drop jingle'      },
-                { type: 'comment' as const, label: 'Comment', emoji: '💬', desc: 'Subtle pop'                 },
-                { type: 'repost'  as const, label: 'Repost',  emoji: '🔁', desc: 'Double-tap click'           },
-                { type: 'dm'      as const, label: 'DM',      emoji: '✉️',  desc: 'Friendly ping'              },
-                { type: 'group'   as const, label: 'Group',   emoji: '👥', desc: 'Richer group chime'         },
-              ]).map(({ type, label, emoji, desc }) => (
+              {SOUND_PREVIEW_ITEMS.map(({ type, label, emoji, desc }) => (
                 <button
                   key={type}
                   onClick={() => playSound(type)}

@@ -160,10 +160,11 @@ export default function SEOAuditPage() {
     ? routes
     : routes.filter(r => r.status === filterStatus);
 
-  const groupedRoutes: { [g: string]: RouteAudit[] } = GROUPS.reduce((acc, g) => {
+  // Use plain object without index-sig type annotation (esbuild guard)
+  const groupedRoutes = GROUPS.reduce((acc: { [k: string]: RouteAudit[] }, g) => {
     acc[g] = filteredRoutes.filter(r => r.group === g);
     return acc;
-  }, {} as { [g: string]: RouteAudit[] });
+  }, {});
 
   if (checkingAdmin) {
     return (
@@ -388,16 +389,18 @@ export default function SEOAuditPage() {
               {isExpanded && (
                 <div className="divide-y divide-border">
                   {groupRoutes.map(route => {
-                    const cfg = { color: getStatusColor(route.status), bg: getStatusBg(route.status), label: getStatusLabel(route.status) };
+                    const cfgColor = getStatusColor(route.status);
+                  const cfgBg    = getStatusBg(route.status);
+                  const cfgLabel = getStatusLabel(route.status);
                     return (
                       <div key={route.path} className="px-4 py-3 hover:bg-muted/20 transition-colors">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-0.5">
                               <p className="font-semibold text-sm truncate">{route.label}</p>
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${cfg.bg} ${cfg.color}`}>
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${cfgBg} ${cfgColor}`}>
                                 <StatusIcon status={route.status} className={`w-2.5 h-2.5 ${route.status === 'loading' ? 'animate-spin' : ''}`} />
-                                {cfg.label}
+                                {cfgLabel}
                               </span>
                             </div>
                             <p className="text-[11px] text-muted-foreground font-mono truncate">{route.path}</p>
