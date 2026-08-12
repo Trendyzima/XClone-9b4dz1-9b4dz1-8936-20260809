@@ -1332,51 +1332,45 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                       </p>
                     </div>
                   )}
-                  {/* Share Analytics — ratio vs views/likes */}
-                  {fullAnalyticsMeta && (fullAnalyticsMeta.shares > 0 || fullAnalyticsMeta.views > 0) && (() => {
-                    const totalActions = fullAnalyticsMeta.views + fullAnalyticsMeta.unique + (reactionSummaryCounts.reduce((a, b) => a + b, 0)) + fullAnalyticsMeta.shares;
-                    const shareRatio = fullAnalyticsMeta.views > 0
-                      ? ((fullAnalyticsMeta.shares / fullAnalyticsMeta.views) * 100).toFixed(1)
-                      : '0.0';
-                    const SHARE_METRICS = [
-                      { label: 'Views',     val: fullAnalyticsMeta.views,   pct: 100,                                                  color: 'bg-blue-500' },
-                      { label: 'Unique',    val: fullAnalyticsMeta.unique,  pct: fullAnalyticsMeta.views > 0 ? Math.round((fullAnalyticsMeta.unique / fullAnalyticsMeta.views) * 100) : 0, color: 'bg-violet-500' },
-                      { label: 'Reactions', val: reactionSummaryCounts.reduce((a, b) => a + b, 0), pct: fullAnalyticsMeta.views > 0 ? Math.round((reactionSummaryCounts.reduce((a, b) => a + b, 0) / fullAnalyticsMeta.views) * 100) : 0, color: 'bg-pink-500' },
-                      { label: 'Shares',    val: fullAnalyticsMeta.shares,  pct: fullAnalyticsMeta.views > 0 ? Math.round((fullAnalyticsMeta.shares / fullAnalyticsMeta.views) * 100) : 0, color: 'bg-orange-500' },
-                    ];
-                    return (
-                      <div className="bg-card border border-border rounded-2xl p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-sm font-bold flex items-center gap-2">
-                            <Share className="w-4 h-4 text-orange-500" />Share Analytics
-                          </p>
-                          <span className="text-xs font-bold text-orange-600 bg-orange-500/10 px-2 py-0.5 rounded-full border border-orange-500/20">
-                            {shareRatio}% share rate
-                          </span>
-                        </div>
-                        <div className="space-y-2.5">
-                          {SHARE_METRICS.map(m => (
-                            <div key={m.label} className="flex items-center gap-2.5">
-                              <span className="text-xs text-muted-foreground w-16 shrink-0">{m.label}</span>
-                              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full transition-all duration-500 ${m.color}`}
-                                  style={{ width: Math.max(2, Math.min(m.pct, 100)) + '%' }}
-                                />
-                              </div>
-                              <span className="text-xs font-bold tabular-nums text-muted-foreground w-10 text-right shrink-0">{m.val.toLocaleString()}</span>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground mt-2.5">
-                          {fullAnalyticsMeta.shares === 0
-                            ? 'No shares yet — share the post to track'
-                            : `${fullAnalyticsMeta.shares} share${fullAnalyticsMeta.shares !== 1 ? 's' : ''} out of ${fullAnalyticsMeta.views.toLocaleString()} views`
-                          }
+                  {/* Share Analytics — flat conditional render (esbuild guard: no IIFE, no const in render) */}
+                  {fullAnalyticsMeta && fullAnalyticsMeta.shares >= 0 && (
+                    <div className="bg-card border border-border rounded-2xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-bold flex items-center gap-2">
+                          <Share className="w-4 h-4 text-orange-500" />Share Analytics
                         </p>
+                        <span className="text-xs font-bold text-orange-600 bg-orange-500/10 px-2 py-0.5 rounded-full border border-orange-500/20">
+                          {fullAnalyticsMeta.views > 0 ? ((fullAnalyticsMeta.shares / fullAnalyticsMeta.views) * 100).toFixed(1) : '0.0'}% share rate
+                        </span>
                       </div>
-                    );
-                  })()}
+                      <div className="space-y-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-xs text-muted-foreground w-16 shrink-0">Views</span>
+                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{ width: '100%' }} /></div>
+                          <span className="text-xs font-bold tabular-nums text-muted-foreground w-10 text-right shrink-0">{fullAnalyticsMeta.views.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-xs text-muted-foreground w-16 shrink-0">Unique</span>
+                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden"><div className="h-full bg-violet-500 rounded-full" style={{ width: Math.max(2, fullAnalyticsMeta.views > 0 ? Math.round((fullAnalyticsMeta.unique / fullAnalyticsMeta.views) * 100) : 0) + '%' }} /></div>
+                          <span className="text-xs font-bold tabular-nums text-muted-foreground w-10 text-right shrink-0">{fullAnalyticsMeta.unique.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-xs text-muted-foreground w-16 shrink-0">Reactions</span>
+                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden"><div className="h-full bg-pink-500 rounded-full" style={{ width: Math.max(2, fullAnalyticsMeta.views > 0 ? Math.round((reactionSummaryCounts.reduce((a, b) => a + b, 0) / fullAnalyticsMeta.views) * 100) : 0) + '%' }} /></div>
+                          <span className="text-xs font-bold tabular-nums text-muted-foreground w-10 text-right shrink-0">{reactionSummaryCounts.reduce((a, b) => a + b, 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-xs text-muted-foreground w-16 shrink-0">Shares</span>
+                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden"><div className="h-full bg-orange-500 rounded-full" style={{ width: Math.max(2, fullAnalyticsMeta.views > 0 ? Math.round((fullAnalyticsMeta.shares / fullAnalyticsMeta.views) * 100) : 0) + '%' }} /></div>
+                          <span className="text-xs font-bold tabular-nums text-muted-foreground w-10 text-right shrink-0">{fullAnalyticsMeta.shares.toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-2.5">
+                        {fullAnalyticsMeta.shares === 0 ? 'No shares yet — share the post to track' : `${fullAnalyticsMeta.shares} share${fullAnalyticsMeta.shares !== 1 ? 's' : ''} out of ${fullAnalyticsMeta.views.toLocaleString()} views`}
+                      </p>
+                    </div>
+                  )}
+
                   <button onClick={() => { setShowFullAnalytics(false); navigate(`/post-analytics/${post.id}`); }}
                     className="w-full py-2.5 border border-border rounded-xl text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
                     <BarChart3 className="w-4 h-4" />Full Analytics Dashboard

@@ -2001,8 +2001,33 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
   const [filter,         setFilter]        = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
   const [search,         setSearch]        = useState('');
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
-  // tags — plain object state (esbuild guard: replaced Record<string,T> with explicit shape)
-  const [tags,       setTags]       = useState<{ [id: string]: { text: string; color: string } }>({});
+  // tags — parallel arrays (esbuild guard: no index-sig type in state)
+  const [tagIds,   setTagIds]   = useState<string[]>([]);
+  const [tagTexts, setTagTexts] = useState<string[]>([]);
+  const [tagColors, setTagColors2] = useState<string[]>([]);
+  const getTag = (id: string) => { const i = tagIds.indexOf(id); return i >= 0 ? { text: tagTexts[i], color: tagColors[i] ?? 'blue' } : undefined; };
+  const setTag = (id: string, data: { text: string; color: string }) => {
+    setTagIds(prev => {
+      const i = prev.indexOf(id);
+      if (i >= 0) {
+        setTagTexts(t => { const n = [...t]; n[i] = data.text; return n; });
+        setTagColors2(c => { const n = [...c]; n[i] = data.color; return n; });
+        return prev;
+      }
+      setTagTexts(t => [...t, data.text]);
+      setTagColors2(c => [...c, data.color]);
+      return [...prev, id];
+    });
+  };
+  const removeTagById = (id: string) => {
+    setTagIds(prev => {
+      const i = prev.indexOf(id);
+      if (i < 0) return prev;
+      setTagTexts(t => t.filter((_, j) => j !== i));
+      setTagColors2(c => c.filter((_, j) => j !== i));
+      return prev.filter((_, j) => j !== i);
+    });
+  };
   const [editingTag, setEditingTag] = useState<string | null>(null);
   const [tagInput,   setTagInput]   = useState('');
   const [tagColor,   setTagColor]   = useState('blue');
@@ -2011,24 +2036,23 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
   useEffect(() => {
     try {
       const raw = localStorage.getItem(tagsKey);
-      if (raw) setTags(JSON.parse(raw));
+      if (raw) { const obj = JSON.parse(raw); Object.keys(obj).forEach(k => setTag(k, obj[k])); }
     } catch { /* ignore */ }
   }, [tagsKey]);
 
   const saveTag = (txnId: string) => {
     if (!tagInput.trim()) return;
-    const next = { ...tags, [txnId]: { text: tagInput.trim(), color: tagColor } };
-    setTags(next);
-    localStorage.setItem(tagsKey, JSON.stringify(next));
+    setTag(txnId, { text: tagInput.trim(), color: tagColor });
+    const obj: any = {}; tagIds.forEach((id, i) => { obj[id] = { text: tagTexts[i], color: tagColors[i] }; }); obj[txnId] = { text: tagInput.trim(), color: tagColor };
+    localStorage.setItem(tagsKey, JSON.stringify(obj));
     setEditingTag(null); setTagInput('');
     toast.success('Note saved!');
   };
 
   const removeTag = (txnId: string) => {
-    const next = { ...tags };
-    delete next[txnId];
-    setTags(next);
-    localStorage.setItem(tagsKey, JSON.stringify(next));
+    removeTagById(txnId);
+    const obj: any = {}; tagIds.filter(id => id !== txnId).forEach((id, i) => { obj[id] = { text: tagTexts[i], color: tagColors[i] }; });
+    localStorage.setItem(tagsKey, JSON.stringify(obj));
   };
 
   useEffect(() => { fetchTxns(); }, [userId, filter]);

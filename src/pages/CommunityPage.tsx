@@ -178,7 +178,7 @@ export default function CommunityPage() {
       .select('user_id, likes_count, user_profiles!posts_user_id_fkey(id, username, avatar_url, verified)')
       .eq('community_id', communityId).gte('created_at', since30d);
     if (data) {
-      const agg: { [uid: string]: { profile: any; likes: number; posts: number } } = {};
+      const agg: any = {};
       for (const row of data) {
         if (!row.user_id) continue;
         if (!agg[row.user_id]) agg[row.user_id] = { profile: row.user_profiles, likes: 0, posts: 0 };
@@ -222,7 +222,24 @@ export default function CommunityPage() {
   const [chatSending, setChatSending] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; username: string } | null>(null);
   const [showEmojiPickerFor, setShowEmojiPickerFor] = useState<string | null>(null);
-  const [messageReactions, setMessageReactions] = useState<{ [msgId: string]: { [emoji: string]: number } }>({});
+  // messageReactions — parallel arrays instead of nested index-sig state (esbuild guard)
+  const [reactionMsgIds, setReactionMsgIds] = useState<string[]>([]);
+  const [reactionData, setReactionData] = useState<any[]>([]);
+  const getReactions = (msgId: string): any => {
+    const i = reactionMsgIds.indexOf(msgId);
+    return i >= 0 ? reactionData[i] : {};
+  };
+  const setReactionForMsg = (msgId: string, updater: (prev: any) => any) => {
+    setReactionMsgIds(prev => {
+      const i = prev.indexOf(msgId);
+      if (i >= 0) {
+        setReactionData(d => { const n = [...d]; n[i] = updater(n[i] ?? {}); return n; });
+        return prev;
+      }
+      setReactionData(d => [...d, updater({})]);
+      return [...prev, msgId];
+    });
+  };
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
   const chatPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -271,7 +288,7 @@ export default function CommunityPage() {
       .eq('community_id', community.id).order('created_at', { ascending: true }).limit(100);
     if (data) {
       setChatMessages(data);
-      try { const raw = localStorage.getItem(`chat_reactions_${community.id}`); if (raw) setMessageReactions(JSON.parse(raw)); } catch { /* ignore */ }
+      try { const rr = localStorage.getItem(`chat_reactions_${community.id}`); if (rr) { const parsed = JSON.parse(rr); const ids = Object.keys(parsed); setReactionMsgIds(ids); setReactionData(ids.map((k: string) => parsed[k])); } } catch { /* ignore */ }
       const raw = localStorage.getItem(`chat_pinned_${community.id}`);
       if (raw) setPinnedChatIds(JSON.parse(raw));
     }
@@ -279,11 +296,8 @@ export default function CommunityPage() {
 
   const handleAddReaction = useCallback((msgId: string, emoji: string) => {
     if (!community) return;
-    setMessageReactions(prev => {
-      const updated = { ...prev };
-      if (!updated[msgId]) updated[msgId] = {};
-      updated[msgId][emoji] = (updated[msgId][emoji] ?? 0) + 1;
-      localStorage.setItem(`chat_reactions_${community.id}`, JSON.stringify(updated));
+    setReactionForMsg(msgId, prev => {
+      const updated = { ...prev, [emoji]: (prev[emoji] ?? 0) + 1 };
       return updated;
     });
     triggerFloat(emoji);
@@ -323,7 +337,9 @@ export default function CommunityPage() {
   // Events state
   const [events, setEvents] = useState<any[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
-  const [rsvpSet, setRsvpSet] = useState<Set<string>>(() => new Set<string>());
+  // rsvpSet — plain array (esbuild guard: no Set constructor in useState)
+  const [rsvpArr, setRsvpArr] = useState<string[]>([]);
+  const rsvpSet = { has: (id: string) => rsvpArr.indexOf(id) >= 0 };
   const [showCreateEvent, setShowCreateEvent] = useState(false);
   const [eventForm, setEventForm] = useState({ title: '', description: '', scheduled_for: '' });
   const [creatingEvent, setCreatingEvent] = useState(false);
@@ -341,17 +357,17 @@ export default function CommunityPage() {
       const unique = combined.filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i);
       setEvents(unique.sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()));
     } catch { setEvents(data ?? []); }
-    try { const rsvpRaw = localStorage.getItem(`rsvp_${communityId}`); if (rsvpRaw) setRsvpSet(new Set(JSON.parse(rsvpRaw))); } catch { /* ignore */ }
+    try { const rsvpRawData = localStorage.getItem(`rsvp_${communityId}`); if (rsvpRawData) setRsvpArr(JSON.parse(rsvpRawData)); } catch { /* ignore */ }
     setLoadingEvents(false);
   }, [community?.created_by]);
 
   const handleRsvp = useCallback((eventId: string) => {
     if (!community) return;
-    setRsvpSet(prev => {
-      const next = new Set(prev);
-      if (next.has(eventId)) next.delete(eventId); else next.add(eventId);
-      localStorage.setItem(`rsvp_${community.id}`, JSON.stringify([...next]));
-      sonnerToast.success(next.has(eventId) ? "You're going! 🎉" : 'RSVP cancelled');
+    setRsvpArr(prev => {
+      const wasIn = prev.indexOf(eventId) >= 0;
+      const next = wasIn ? prev.filter(id => id !== eventId) : [...prev, eventId];
+      localStorage.setItem(`rsvp_${community.id}`, JSON.stringify(next));
+      sonnerToast.success(!wasIn ? "You're going! 🎉" : 'RSVP cancelled');
       return next;
     });
   }, [community]);
@@ -372,7 +388,9 @@ export default function CommunityPage() {
   useEffect(() => { if (activeTab === 'shop' && community && !shopFetched) fetchShopProducts(community.id); }, [activeTab, community?.id, shopFetched]);
   useEffect(() => { if (activeTab === 'members' && community && nftUnlocked) fetchNftBadges(community.id); }, [activeTab, community?.id, nftUnlocked]);
 
-  const [pinnedPostIds, setPinnedPostIds] = useState<Set<string>>(() => new Set<string>());
+  // pinnedPostIds — plain array (esbuild guard: no Set constructor in useState)
+  const [pinnedPostArr, setPinnedPostArr] = useState<string[]>([]);
+  const pinnedPostIds = { has: (id: string) => pinnedPostArr.indexOf(id) >= 0 };
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [scheduleContent, setScheduleContent] = useState('');
 
@@ -420,7 +438,7 @@ export default function CommunityPage() {
   useEffect(() => {
     if (!community?.id) return;
     supabase.from('platform_settings').select('setting_value').eq('setting_key', `community_pinned_${community.id}`).maybeSingle()
-      .then(({ data }) => { if (data?.setting_value?.pinned) setPinnedPostIds(new Set(data.setting_value.pinned)); });
+      .then(({ data }) => { if (data?.setting_value?.pinned) setPinnedPostArr(data.setting_value.pinned); });
   }, [community?.id]);
   useEffect(() => {
     if (community?.rules) setRules(Array.isArray(community.rules) ? community.rules.map((r: any) => typeof r === 'string' ? r : r.text ?? r.rule ?? String(r)) : []);
@@ -488,11 +506,11 @@ export default function CommunityPage() {
 
   const handlePinPost = async (postId: string) => {
     if (!community || !isAdmin) return;
-    const updated = new Set(pinnedPostIds);
-    if (updated.has(postId)) updated.delete(postId); else updated.add(postId);
-    setPinnedPostIds(updated);
-    await supabase.from('platform_settings').upsert({ setting_key: `community_pinned_${community.id}`, setting_value: { pinned: [...updated] } }, { onConflict: 'setting_key' });
-    toast({ title: updated.has(postId) ? 'Post pinned' : 'Post unpinned' });
+    const wasPin = pinnedPostIds.has(postId);
+    const updatedArr = wasPin ? pinnedPostArr.filter(id => id !== postId) : [...pinnedPostArr, postId];
+    setPinnedPostArr(updatedArr);
+    await supabase.from('platform_settings').upsert({ setting_key: `community_pinned_${community.id}`, setting_value: { pinned: updatedArr } }, { onConflict: 'setting_key' });
+    toast({ title: !wasPin ? 'Post pinned' : 'Post unpinned' });
   };
 
   const handleModDeletePost = async (postId: string) => {
@@ -856,7 +874,7 @@ export default function CommunityPage() {
                 const isOwn = msg.user_id === user?.id;
                 const prev = chatMessages[i - 1];
                 const showHeader = !prev || prev.user_id !== msg.user_id;
-                const reactions = messageReactions[msg.id] ?? {};
+                const reactions = getReactions(msg.id);
                 const isPinned = pinnedChatIds.includes(msg.id);
                 const isGif = GIF_URL_RE.test(msg.message);
                 return (
