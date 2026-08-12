@@ -32,7 +32,6 @@ const REG_TAB_DEFS = [
   { key: 'reports',    label: 'Reports',    Icon: TrendingUp  },
 ] as const;
 
-// Moderation score color helper — module scope (esbuild guard)
 function getScoreColor(score: number): string {
   if (score >= 80) return 'text-red-600';
   if (score >= 50) return 'text-orange-500';
@@ -57,7 +56,6 @@ export default function RegulatorPanel() {
   const [activeTab, setActiveTab] = useState<RegTab>('employees');
   const [loading, setLoading] = useState(true);
 
-  // ── Employees ─────────────────────────────────────────────────────────────
   const [employees, setEmployees] = useState<any[]>([]);
   const [showHireDialog, setShowHireDialog] = useState(false);
   const [hireSearch, setHireSearch] = useState('');
@@ -69,14 +67,12 @@ export default function RegulatorPanel() {
   const [revShareInput, setRevShareInput] = useState('');
   const [savingRevShare, setSavingRevShare] = useState(false);
 
-  // ── Feature Lock Management ───────────────────────────────────────────────
   const [unlockSearch, setUnlockSearch] = useState('');
   const [unlockResults, setUnlockResults] = useState<any[]>([]);
   const [selectedUnlockUser, setSelectedUnlockUser] = useState<any | null>(null);
   const [lockedFeatures, setLockedFeatures] = useState<FeatureKey[]>([]);
   const [savingLocks, setSavingLocks] = useState(false);
 
-  // ── Wallet Viewer + Top-up ────────────────────────────────────────────────
   const [walletSearch, setWalletSearch] = useState('');
   const [walletSearchResults, setWalletSearchResults] = useState<any[]>([]);
   const [selectedWalletUser, setSelectedWalletUser] = useState<any | null>(null);
@@ -91,7 +87,6 @@ export default function RegulatorPanel() {
   const [toppingUp, setToppingUp] = useState(false);
   const [topUpNote, setTopUpNote] = useState('');
 
-  // ── Announcement ──────────────────────────────────────────────────────────
   const [annSubject, setAnnSubject] = useState('');
   const [annBody, setAnnBody] = useState('');
   const [annEmoji, setAnnEmoji] = useState('📣');
@@ -100,12 +95,10 @@ export default function RegulatorPanel() {
   const [sendingAnn, setSendingAnn] = useState(false);
   const [annSent, setAnnSent] = useState(false);
 
-  // ── Platform Stats ────────────────────────────────────────────────────────
   const [platformStats, setPlatformStats] = useState<{ [k: string]: number }>({});
   const [recentUsers, setRecentUsers] = useState<any[]>([]);
   const [platformRevenue, setPlatformRevenue] = useState(0);
 
-  // ── Moderation ────────────────────────────────────────────────────────────
   const [modLogs, setModLogs] = useState<any[]>([]);
   const [bannedUsers, setBannedUsers] = useState<any[]>([]);
   const [pendingAppeals, setPendingAppeals] = useState<any[]>([]);
@@ -127,7 +120,6 @@ export default function RegulatorPanel() {
     if (activeTab === 'moderation' && modLogs.length === 0) fetchModeration();
   }, [activeTab]);
 
-  // ── Employees ─────────────────────────────────────────────────────────────
   const fetchEmployees = useCallback(async () => {
     const { data } = await supabase
       .from('employee_assignments')
@@ -168,7 +160,6 @@ export default function RegulatorPanel() {
     setLoadingTopWallets(false);
   }, []);
 
-  // ── Hire employee ─────────────────────────────────────────────────────────
   const searchUsersToHire = useCallback(async (q: string) => {
     if (!q.trim()) { setHireResults([]); return; }
     const { data } = await supabase.from('user_profiles')
@@ -182,23 +173,19 @@ export default function RegulatorPanel() {
     setHiring(true);
     const revPct = Math.max(0, Math.min(100, Number(hireForm.rev_share_pct) || 0));
     const { error } = await supabase.from('employee_assignments').upsert({
-      user_id:    selectedHireUser.id,
-      job_title:  hireForm.job_title.trim(),
-      department: hireForm.department,
-      notes:      hireForm.notes.trim(),
-      assigned_by: user.id,
-      is_active:  true,
+      user_id: selectedHireUser.id, job_title: hireForm.job_title.trim(),
+      department: hireForm.department, notes: hireForm.notes.trim(),
+      assigned_by: user.id, is_active: true,
       permissions: { revenue_share_pct: revPct },
     }, { onConflict: 'user_id' });
     if (error) { toast.error(error.message); setHiring(false); return; }
     await supabase.from('platform_inbox').insert({
       user_id: selectedHireUser.id,
       subject: `🎉 You've been hired on Testagram!`,
-      body: `The platform regulator has assigned you the role of "${hireForm.job_title}" in ${hireForm.department}.${hireForm.notes ? '\n\nNote: ' + hireForm.notes : ''}${revPct > 0 ? `\n\n💰 Revenue share: ${revPct}%` : ''} Welcome to the team! Use /team-chat to connect.`,
-      type: 'update', icon_emoji: '🎉',
-      cta_label: 'Open Team Chat', cta_url: '/team-chat',
+      body: `The platform regulator has assigned you the role of "${hireForm.job_title}" in ${hireForm.department}.${hireForm.notes ? '\n\nNote: ' + hireForm.notes : ''}${revPct > 0 ? `\n\n💰 Revenue share: ${revPct}%` : ''} Welcome to the team!`,
+      type: 'update', icon_emoji: '🎉', cta_label: 'Open Team Chat', cta_url: '/team-chat',
     }).catch(() => {});
-    toast.success(`@${selectedHireUser.username} hired as ${hireForm.job_title}!`);
+    toast.success(`@${selectedHireUser.username} hired!`);
     setShowHireDialog(false); setSelectedHireUser(null);
     setHireForm({ job_title: '', department: 'Engineering', notes: '', rev_share_pct: '0' });
     setHireSearch(''); setHireResults([]);
@@ -208,11 +195,10 @@ export default function RegulatorPanel() {
   const handleFire = useCallback(async (empId: string, username: string) => {
     if (!window.confirm(`Remove @${username} from employees?`)) return;
     await supabase.from('employee_assignments').update({ is_active: false }).eq('id', empId);
-    toast.success(`@${username} removed from employees`);
+    toast.success(`@${username} removed`);
     fetchEmployees();
   }, [fetchEmployees]);
 
-  // Grant verified badge
   const handleGrantVerified = useCallback(async (empUserId: string, username: string, isVerified: boolean) => {
     await supabase.from('user_profiles').update({ verified: !isVerified }).eq('id', empUserId);
     if (!isVerified) {
@@ -229,7 +215,6 @@ export default function RegulatorPanel() {
     fetchEmployees();
   }, [fetchEmployees]);
 
-  // Export payroll CSV
   const handleExportPayroll = useCallback(() => {
     if (employees.length === 0) { toast.error('No employees to export'); return; }
     const rows = ['Username,Job Title,Department,Revenue Share %,Est. Dollar Amount'];
@@ -249,7 +234,6 @@ export default function RegulatorPanel() {
     toast.success('Payroll CSV downloaded!');
   }, [employees, platformRevenue]);
 
-  // ── Revenue share ──────────────────────────────────────────────────────────
   const handleSaveRevShare = useCallback(async (empId: string, empUserId: string, username: string) => {
     const pct = Math.max(0, Math.min(100, Number(revShareInput) || 0));
     setSavingRevShare(true);
@@ -259,7 +243,7 @@ export default function RegulatorPanel() {
     await supabase.from('platform_inbox').insert({
       user_id: empUserId,
       subject: `💰 Revenue share updated: ${pct}%`,
-      body: `The platform regulator has set your revenue share to ${pct}% of platform earnings. This will be calculated from total platform revenue.`,
+      body: `The platform regulator has set your revenue share to ${pct}% of platform earnings.`,
       type: 'update', icon_emoji: '💰',
     }).catch(() => {});
     toast.success(`Revenue share set to ${pct}% for @${username}`);
@@ -267,7 +251,6 @@ export default function RegulatorPanel() {
     fetchEmployees();
   }, [revShareInput, fetchEmployees]);
 
-  // ── Feature lock management ───────────────────────────────────────────────
   const searchUsersToManage = useCallback(async (q: string) => {
     if (!q.trim()) { setUnlockResults([]); return; }
     const { data } = await supabase.from('user_profiles')
@@ -279,16 +262,13 @@ export default function RegulatorPanel() {
     setSelectedUnlockUser(profile);
     setUnlockResults([]);
     setUnlockSearch(profile.username);
-    const { data } = await supabase
-      .from('user_feature_unlocks').select('feature_key')
+    const { data } = await supabase.from('user_feature_unlocks').select('feature_key')
       .eq('user_id', profile.id).eq('is_locked', true);
     setLockedFeatures((data ?? []).map((r: any) => r.feature_key as FeatureKey));
   }, []);
 
   const toggleFeatureLock = (key: FeatureKey) => {
-    setLockedFeatures(prev =>
-      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
-    );
+    setLockedFeatures(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   };
 
   const saveFeatureLocks = useCallback(async () => {
@@ -298,15 +278,9 @@ export default function RegulatorPanel() {
       .eq('user_id', selectedUnlockUser.id).eq('is_locked', true);
     if (lockedFeatures.length > 0) {
       await supabase.from('user_feature_unlocks').upsert(
-        lockedFeatures.map(fk => ({
-          user_id:      selectedUnlockUser.id,
-          feature_key:  fk,
-          unlocked_by:  user.id,
-          is_locked:    true,
-        })), { onConflict: 'user_id,feature_key' }
+        lockedFeatures.map(fk => ({ user_id: selectedUnlockUser.id, feature_key: fk, unlocked_by: user.id, is_locked: true })),
+        { onConflict: 'user_id,feature_key' }
       );
-    }
-    if (lockedFeatures.length > 0) {
       await supabase.from('platform_inbox').insert({
         user_id: selectedUnlockUser.id,
         subject: `🔒 Feature access updated`,
@@ -318,7 +292,6 @@ export default function RegulatorPanel() {
     setSavingLocks(false);
   }, [selectedUnlockUser, lockedFeatures, user]);
 
-  // ── Wallet viewer + top-up ────────────────────────────────────────────────
   const searchWalletUsers = useCallback(async (q: string) => {
     if (!q.trim()) { setWalletSearchResults([]); return; }
     const { data } = await supabase.from('user_profiles')
@@ -333,8 +306,7 @@ export default function RegulatorPanel() {
     setLoadingWallet(true);
     const [walletRes, txnRes, earnRes] = await Promise.all([
       supabase.from('user_wallets').select('*').eq('user_id', profile.id).maybeSingle(),
-      supabase.from('wallet_transactions').select('*').eq('user_id', profile.id)
-        .order('created_at', { ascending: false }).limit(20),
+      supabase.from('wallet_transactions').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(20),
       supabase.from('user_monetization').select('*').eq('user_id', profile.id).maybeSingle(),
     ]);
     setWalletData(walletRes.data ?? null);
@@ -348,21 +320,13 @@ export default function RegulatorPanel() {
     const amount = Number(topUpAmount);
     if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
     setToppingUp(true);
-    const { error } = await supabase.rpc('add_to_wallet', {
-      p_user_id: selectedWalletUser.id,
-      p_amount: amount,
-    });
+    const { error } = await supabase.rpc('add_to_wallet', { p_user_id: selectedWalletUser.id, p_amount: amount });
     if (error) { toast.error(error.message); setToppingUp(false); return; }
-    // Log transaction
     const { data: walletRow } = await supabase.from('user_wallets').select('id').eq('user_id', selectedWalletUser.id).maybeSingle();
     if (walletRow) {
       await supabase.from('wallet_transactions').insert({
-        wallet_id: walletRow.id,
-        user_id: selectedWalletUser.id,
-        type: 'credit',
-        amount,
-        description: topUpNote.trim() || `Regulator top-up by @${user.username}`,
-        status: 'completed',
+        wallet_id: walletRow.id, user_id: selectedWalletUser.id, type: 'credit', amount,
+        description: topUpNote.trim() || `Regulator top-up by @${user.username}`, status: 'completed',
       }).catch(() => {});
     }
     await supabase.from('platform_inbox').insert({
@@ -374,28 +338,21 @@ export default function RegulatorPanel() {
     toast.success(`$${amount.toFixed(2)} added to @${selectedWalletUser.username}'s wallet!`);
     setShowTopUp(false); setTopUpAmount(''); setTopUpNote('');
     setToppingUp(false);
-    viewUserWallet(selectedWalletUser); // refresh
+    viewUserWallet(selectedWalletUser);
   }, [selectedWalletUser, topUpAmount, topUpNote, user, viewUserWallet]);
 
-  // ── Moderation ────────────────────────────────────────────────────────────
   const fetchModeration = useCallback(async () => {
     setLoadingMod(true);
     const [logsRes, bansRes, appealsRes] = await Promise.all([
       supabase.from('content_moderation_logs')
         .select('*, user_profiles:user_id(id, username, avatar_url), posts(content)')
-        .neq('action', 'pass')
-        .order('created_at', { ascending: false })
-        .limit(50),
+        .neq('action', 'pass').order('created_at', { ascending: false }).limit(50),
       supabase.from('user_bans')
         .select('*, user_profiles:user_id(id, username, avatar_url, is_blocked, strike_count)')
-        .eq('is_active', true)
-        .order('banned_at', { ascending: false })
-        .limit(20),
+        .eq('is_active', true).order('banned_at', { ascending: false }).limit(20),
       supabase.from('moderation_appeals')
         .select('*, user_profiles:user_id(id, username, avatar_url)')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
-        .limit(20),
+        .eq('status', 'pending').order('created_at', { ascending: false }).limit(20),
     ]);
     setModLogs(logsRes.data ?? []);
     setBannedUsers(bansRes.data ?? []);
@@ -406,35 +363,18 @@ export default function RegulatorPanel() {
   const handleScanPosts = useCallback(async () => {
     setScanningPosts(true); setScanResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke('ai-moderation', {
-        body: { scan_recent: true },
-      });
+      const { data, error } = await supabase.functions.invoke('ai-moderation', { body: { scan_recent: true } });
       if (error) {
         let msg = error.message;
-        if (error instanceof FunctionsHttpError) {
-          msg = await error.context?.text?.() ?? msg;
-        }
+        if (error instanceof FunctionsHttpError) { msg = await error.context?.text?.() ?? msg; }
         toast.error(`Scan failed: ${msg}`);
       } else {
         setScanResult({ scanned: data.scanned, flagged: data.flagged, banned: data.banned });
         toast.success(data.message);
         fetchModeration();
       }
-    } catch (err: any) {
-      toast.error(err.message ?? 'Scan failed');
-    }
+    } catch (err: any) { toast.error(err.message ?? 'Scan failed'); }
     setScanningPosts(false);
-  }, [fetchModeration]);
-
-  const handleModeratePost = useCallback(async (postId: string) => {
-    try {
-      const { data, error } = await supabase.functions.invoke('ai-moderation', {
-        body: { post_id: postId },
-      });
-      if (error) { toast.error('Moderation failed'); return; }
-      toast.success(`Score: ${data.overall_score}/100 — ${data.action}`);
-      fetchModeration();
-    } catch { toast.error('Moderation failed'); }
   }, [fetchModeration]);
 
   const handleLiftBan = useCallback(async (banId: string, userId: string, username: string) => {
@@ -442,37 +382,30 @@ export default function RegulatorPanel() {
     await supabase.from('user_bans').update({ is_active: false, lifted_at: new Date().toISOString(), lifted_by: user.id }).eq('id', banId);
     await supabase.from('user_profiles').update({ is_blocked: false }).eq('id', userId);
     await supabase.from('platform_inbox').insert({
-      user_id: userId,
-      subject: '✅ Your account restriction has been lifted',
-      body: 'The platform regulator has reviewed your case and lifted your account restriction. Please review our community guidelines.',
+      user_id: userId, subject: '✅ Your account restriction has been lifted',
+      body: 'The platform regulator has reviewed your case and lifted your account restriction.',
       type: 'update', icon_emoji: '✅',
     }).catch(() => {});
     toast.success(`@${username}'s ban lifted`);
     fetchModeration();
   }, [user, fetchModeration]);
 
-  // Reset strikes
   const handleResetStrikes = useCallback(async (userId: string, username: string) => {
     await supabase.from('user_profiles').update({ strike_count: 0 }).eq('id', userId);
     await supabase.from('platform_inbox').insert({
-      user_id: userId,
-      subject: '🔄 Strike count reset',
-      body: 'The platform regulator has reset your strike count to 0, giving you a clean slate. Please ensure future content complies with community guidelines.',
+      user_id: userId, subject: '🔄 Strike count reset',
+      body: 'The platform regulator has reset your strike count to 0, giving you a clean slate.',
       type: 'update', icon_emoji: '🔄',
     }).catch(() => {});
     toast.success(`Strikes reset for @${username}`);
     fetchModeration();
   }, [fetchModeration]);
 
-  // Appeal review
   const handleReviewAppeal = useCallback(async (appealId: string, decision: 'approved' | 'denied', appeal: any) => {
     if (!user) return;
     const note = appealNote[appealId]?.trim() ?? '';
     await supabase.from('moderation_appeals').update({
-      status: decision,
-      reviewed_by: user.id,
-      reviewed_at: new Date().toISOString(),
-      regulator_note: note || null,
+      status: decision, reviewed_by: user.id, reviewed_at: new Date().toISOString(), regulator_note: note || null,
     }).eq('id', appealId);
     if (decision === 'approved' && appeal.ban_id) {
       await supabase.from('user_bans').update({ is_active: false, lifted_at: new Date().toISOString(), lifted_by: user.id }).eq('id', appeal.ban_id);
@@ -480,12 +413,11 @@ export default function RegulatorPanel() {
     }
     const msgBody = decision === 'approved'
       ? `Great news! Your appeal has been approved. Your account restriction has been lifted.${note ? '\n\nNote: ' + note : ''}`
-      : `Your appeal has been reviewed and unfortunately could not be approved at this time.${note ? '\n\nNote: ' + note : ''}\n\nYou may submit a new appeal if your circumstances change.`;
+      : `Your appeal has been reviewed and could not be approved at this time.${note ? '\n\nNote: ' + note : ''}`;
     await supabase.from('platform_inbox').insert({
       user_id: appeal.user_id,
       subject: decision === 'approved' ? '✅ Appeal Approved' : '❌ Appeal Denied',
-      body: msgBody,
-      type: 'update', icon_emoji: decision === 'approved' ? '✅' : '❌',
+      body: msgBody, type: 'update', icon_emoji: decision === 'approved' ? '✅' : '❌',
     }).catch(() => {});
     toast.success(`Appeal ${decision}`);
     setAppealNote(prev => { const n = { ...prev }; delete n[appealId]; return n; });
@@ -511,8 +443,7 @@ export default function RegulatorPanel() {
       ban_type: 'temporary', duration_hours: 24, expires_at: expires,
     });
     await supabase.from('platform_inbox').insert({
-      user_id: userId,
-      subject: '🚫 Your account has been temporarily restricted',
+      user_id: userId, subject: '🚫 Your account has been temporarily restricted',
       body: 'A platform moderator has temporarily restricted your account for 24 hours due to a policy violation.',
       type: 'update', icon_emoji: '🚫',
     }).catch(() => {});
@@ -520,7 +451,6 @@ export default function RegulatorPanel() {
     fetchModeration();
   }, [user, fetchModeration]);
 
-  // ── Broadcast announcement ────────────────────────────────────────────────
   const handleBroadcast = useCallback(async () => {
     if (!annSubject.trim() || !annBody.trim()) return;
     setSendingAnn(true);
@@ -580,7 +510,6 @@ export default function RegulatorPanel() {
             <span className="text-xs font-bold text-green-600">Active</span>
           </div>
         </div>
-        {/* Stats strip */}
         <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
           {[
             { label: 'Users',     val: platformStats.users ?? 0,        icon: Users,      color: 'text-blue-500' },
@@ -592,12 +521,11 @@ export default function RegulatorPanel() {
           ].map(s => (
             <div key={s.label} className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl shrink-0">
               <s.icon className={`w-3.5 h-3.5 ${s.color}`} />
-              <span className="text-xs font-black">{s.prefix ?? ''}{s.label === 'Revenue' ? s.val.toFixed(0) : formatNumber(s.val)}</span>
+              <span className="text-xs font-black">{(s as any).prefix ?? ''}{s.label === 'Revenue' ? s.val.toFixed(0) : formatNumber(s.val)}</span>
               <span className="text-xs text-muted-foreground">{s.label}</span>
             </div>
           ))}
         </div>
-        {/* Quick links */}
         <div className="flex gap-2 mt-3">
           <button onClick={() => navigate('/team-chat')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 text-primary border border-primary/20 text-xs font-bold hover:bg-primary/15 transition-colors">
@@ -662,7 +590,6 @@ export default function RegulatorPanel() {
               </div>
             </div>
 
-            {/* Revenue distribution summary */}
             {employees.length > 0 && (() => {
               const totalSharePct = employees.reduce((s: number, e: any) => s + (e.permissions?.revenue_share_pct ?? 0), 0);
               return totalSharePct > 0 ? (
@@ -690,6 +617,7 @@ export default function RegulatorPanel() {
                   const revAmount = platformRevenue * revPct / 100;
                   return (
                     <div key={emp.id} className="p-3 bg-card border border-border rounded-2xl hover:border-primary/20 transition-colors">
+                      {/* Employee header */}
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
                           {emp.user_profiles?.avatar_url
@@ -709,19 +637,16 @@ export default function RegulatorPanel() {
                             className="text-[10px] text-destructive hover:underline">Remove</button>
                         </div>
                       </div>
+
                       {/* Revenue share row */}
                       <div className="mt-2 pt-2 border-t border-border flex items-center gap-2">
                         <DollarSign className="w-3 h-3 text-green-500 shrink-0" />
                         {editingRevShare === emp.id ? (
                           <div className="flex items-center gap-1.5 flex-1">
-                            <input
-                              type="number" min="0" max="100" step="0.1"
-                              value={revShareInput}
-                              onChange={e => setRevShareInput(e.target.value)}
-                              autoFocus
+                            <input type="number" min="0" max="100" step="0.1" value={revShareInput}
+                              onChange={e => setRevShareInput(e.target.value)} autoFocus
                               className="w-20 h-7 px-2 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
-                              placeholder="0-100"
-                            />
+                              placeholder="0-100" />
                             <span className="text-xs text-muted-foreground">%</span>
                             <button onClick={() => handleSaveRevShare(emp.id, emp.user_profiles?.id, emp.user_profiles?.username)}
                               disabled={savingRevShare}
@@ -734,7 +659,7 @@ export default function RegulatorPanel() {
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <span className="text-[11px] text-muted-foreground">Revenue share:</span>
+                            <span className="text-[11px] text-muted-foreground">Revenue share:</span>
                             <span className={`text-[11px] font-black ${revPct > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
                               {revPct > 0 ? `${revPct}% = $${revAmount.toFixed(2)}` : 'Not set'}
                             </span>
@@ -745,8 +670,8 @@ export default function RegulatorPanel() {
                           </div>
                         )}
                       </div>
-                    </div>
-                      {/* Grant Verified button */}
+
+                      {/* Verified badge row */}
                       <div className="mt-2 pt-2 border-t border-border flex items-center gap-2">
                         <BadgeCheck className={`w-3 h-3 shrink-0 ${emp.user_profiles?.verified ? 'text-primary' : 'text-muted-foreground'}`} />
                         <span className="text-[11px] text-muted-foreground flex-1">
@@ -806,8 +731,7 @@ export default function RegulatorPanel() {
                   )}
                   <div>
                     <label className="text-sm font-semibold mb-1 block">Job Title *</label>
-                    <input type="text" value={hireForm.job_title}
-                      onChange={e => setHireForm(p => ({ ...p, job_title: e.target.value }))}
+                    <input type="text" value={hireForm.job_title} onChange={e => setHireForm(p => ({ ...p, job_title: e.target.value }))}
                       placeholder="e.g. Content Moderator"
                       className="w-full h-10 px-3 bg-muted/40 border border-border rounded-xl text-sm focus:outline-none" />
                   </div>
@@ -825,8 +749,7 @@ export default function RegulatorPanel() {
                   <div>
                     <label className="text-sm font-semibold mb-1 block">Revenue Share %</label>
                     <input type="number" min="0" max="100" step="0.5" value={hireForm.rev_share_pct}
-                      onChange={e => setHireForm(p => ({ ...p, rev_share_pct: e.target.value }))}
-                      placeholder="0"
+                      onChange={e => setHireForm(p => ({ ...p, rev_share_pct: e.target.value }))} placeholder="0"
                       className="w-full h-10 px-3 bg-muted/40 border border-border rounded-xl text-sm focus:outline-none" />
                     <p className="text-[10px] text-muted-foreground mt-0.5">% of platform revenue this employee receives</p>
                   </div>
@@ -886,7 +809,6 @@ export default function RegulatorPanel() {
                   </div>
                 )}
               </div>
-
               {selectedUnlockUser ? (
                 <div className="space-y-3 mt-3">
                   <div className="flex items-center gap-2 px-3 py-2.5 bg-primary/5 border border-primary/20 rounded-xl">
@@ -965,7 +887,6 @@ export default function RegulatorPanel() {
                     {selectedWalletUser.avatar_url ? <img src={selectedWalletUser.avatar_url} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{selectedWalletUser.username?.[0]?.toUpperCase()}</div>}
                   </div>
                   <span className="font-bold text-sm">@{selectedWalletUser.username}</span>
-                  {/* Top-up button */}
                   <button onClick={() => setShowTopUp(true)}
                     className="ml-auto flex items-center gap-1 px-2.5 py-1.5 bg-green-500 text-white rounded-xl text-xs font-bold hover:opacity-90">
                     <ArrowUpRight className="w-3 h-3" />Top Up
@@ -974,7 +895,6 @@ export default function RegulatorPanel() {
                     className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
                 </div>
 
-                {/* Top-up form */}
                 {showTopUp && (
                   <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-2xl space-y-3">
                     <div className="flex items-center gap-2">
@@ -990,12 +910,11 @@ export default function RegulatorPanel() {
                       ))}
                     </div>
                     <input type="number" min="0.01" step="0.01" value={topUpAmount}
-                      onChange={e => setTopUpAmount(e.target.value)}
-                      placeholder="Custom amount ($)"
-                      className="w-full h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-green-500/30" />
+                      onChange={e => setTopUpAmount(e.target.value)} placeholder="Custom amount ($)"
+                      className="w-full h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none" />
                     <input type="text" value={topUpNote} onChange={e => setTopUpNote(e.target.value)}
                       placeholder="Note (optional)"
-                      className="w-full h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-green-500/30" />
+                      className="w-full h-10 px-3 bg-background border border-border rounded-xl text-sm focus:outline-none" />
                     <div className="flex gap-2">
                       <button onClick={() => setShowTopUp(false)} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted">Cancel</button>
                       <button onClick={handleTopUp} disabled={toppingUp || !topUpAmount}
@@ -1060,7 +979,6 @@ export default function RegulatorPanel() {
               </div>
             )}
 
-            {/* Top wallets */}
             {!selectedWalletUser && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -1104,7 +1022,6 @@ export default function RegulatorPanel() {
               </button>
             </div>
 
-            {/* AI Moderation model info */}
             <div className="p-4 bg-card border border-border rounded-2xl">
               <h3 className="font-bold text-sm mb-3 flex items-center gap-2"><BadgeCheck className="w-4 h-4 text-primary" />Moderation Model</h3>
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1135,7 +1052,7 @@ export default function RegulatorPanel() {
               </div>
             </div>
 
-              {bannedUsers.length > 0 && (
+            {bannedUsers.length > 0 && (
               <div className="bg-card border border-red-500/20 rounded-2xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-red-500/15 flex items-center gap-2 bg-red-500/5">
                   <Ban className="w-4 h-4 text-red-500" />
@@ -1171,7 +1088,6 @@ export default function RegulatorPanel() {
               </div>
             )}
 
-            {/* Pending Appeals */}
             {pendingAppeals.length > 0 && (
               <div className="bg-card border border-blue-500/20 rounded-2xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-blue-500/15 flex items-center gap-2 bg-blue-500/5">
@@ -1211,7 +1127,6 @@ export default function RegulatorPanel() {
               </div>
             )}
 
-            {/* Moderation log filters */}
             <div className="flex gap-2 overflow-x-auto scrollbar-hide">
               {[
                 { val: 'unreviewed', label: 'To Review' },
@@ -1249,7 +1164,6 @@ export default function RegulatorPanel() {
                         {log.reviewed && <span className="ml-auto text-[10px] text-green-600 font-bold bg-green-500/10 px-1.5 py-0.5 rounded-full">Reviewed ✓</span>}
                       </div>
                       <div className="p-4 space-y-3">
-                        {/* User */}
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0">
                             {log.user_profiles?.avatar_url ? <img src={log.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-[9px] font-bold">{log.user_profiles?.username?.[0]?.toUpperCase()}</div>}
@@ -1257,15 +1171,12 @@ export default function RegulatorPanel() {
                           <span className="text-sm font-bold">@{log.user_profiles?.username}</span>
                           <span className="text-[10px] text-muted-foreground ml-auto">{formatDistanceToNow(new Date(log.created_at), { addSuffix: true })}</span>
                         </div>
-                        {/* Content snippet */}
                         {log.content_snippet && (
                           <div className="bg-muted/40 rounded-xl px-3 py-2">
                             <p className="text-xs text-muted-foreground line-clamp-3 italic">"{log.content_snippet}"</p>
                           </div>
                         )}
-                        {/* Reason */}
                         <p className="text-xs font-semibold text-foreground">{log.reason}</p>
-                        {/* Top category */}
                         {topCat && (
                           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl ${getScoreBg(topCat[1] as number)}`}>
                             <AlertCircle className={`w-3.5 h-3.5 shrink-0 ${getScoreColor(topCat[1] as number)}`} />
@@ -1273,7 +1184,6 @@ export default function RegulatorPanel() {
                             <span className={`text-[11px] font-black ml-auto ${getScoreColor(topCat[1] as number)}`}>{topCat[1] as number}/100</span>
                           </div>
                         )}
-                        {/* Actions */}
                         {!log.reviewed && (
                           <div className="flex gap-2 pt-1">
                             {log.user_profiles?.id && (
@@ -1345,13 +1255,10 @@ export default function RegulatorPanel() {
             <div className="space-y-2 pt-2">
               <h3 className="font-bold text-sm mb-2">Quick Links</h3>
               {[
-                { label: 'Admin Panel',         path: '/admin' },
-                { label: 'Admin Revenue',       path: '/admin/revenue' },
-                { label: 'Fraud Detection',     path: '/fraud-detection' },
-                { label: 'Admin Verifications', path: '/admin/verifications' },
-                { label: 'Team Chat',           path: '/team-chat' },
-                { label: 'Monetization',        path: '/monetization' },
-                { label: 'Podcast Analytics',   path: '/podcasts/analytics' },
+                { label: 'Admin Panel', path: '/admin' }, { label: 'Admin Revenue', path: '/admin/revenue' },
+                { label: 'Fraud Detection', path: '/fraud-detection' }, { label: 'Admin Verifications', path: '/admin/verifications' },
+                { label: 'Team Chat', path: '/team-chat' }, { label: 'Monetization', path: '/monetization' },
+                { label: 'Podcast Analytics', path: '/podcasts/analytics' }, { label: 'Appeals', path: '/appeals' },
               ].map(l => (
                 <button key={l.path} onClick={() => navigate(l.path)}
                   className="w-full flex items-center justify-between px-4 py-2.5 bg-card border border-border rounded-xl text-sm hover:border-primary/20 transition-colors">
@@ -1430,6 +1337,7 @@ export default function RegulatorPanel() {
                 { label: 'Post Analytics',       icon: '📊', path: '/post-analytics', tab: undefined },
                 { label: 'Podcast Analytics',    icon: '🎙️', path: '/podcasts/analytics', tab: undefined },
                 { label: 'All Wallets',          icon: '👛', path: undefined, tab: 'wallets' as RegTab },
+                { label: 'Appeals Queue',        icon: '📋', path: '/appeals', tab: undefined },
               ].map(r => (
                 <button key={r.label}
                   onClick={() => r.path ? navigate(r.path) : r.tab ? setActiveTab(r.tab) : undefined}
