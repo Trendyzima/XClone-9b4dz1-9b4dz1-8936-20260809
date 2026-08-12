@@ -653,7 +653,7 @@ function InstallmentPanel({ userId, walletBalance, pinHash, currency, onClose }:
             <div>
               <label className="text-sm font-semibold mb-2 block">Frequency</label>
               <div className="grid grid-cols-2 gap-2">
-                {(['weekly','monthly'] as const).map(f => (
+                {FREQ_WEEKLY_MONTHLY.map(f => (
                   <button key={f} onClick={() => setFreq(f)}
                     className={`py-2.5 rounded-xl font-bold text-sm border-2 capitalize transition-all ${freq === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>{f}</button>
                 ))}
@@ -1153,7 +1153,7 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
             <div>
               <label className="text-xs text-muted-foreground mb-2 block font-semibold uppercase tracking-wide">Frequency</label>
               <div className="grid grid-cols-2 gap-2">
-                {(['weekly','monthly'] as const).map(f => (
+                {FREQ_WEEKLY_MONTHLY.map(f => (
                   <button key={f} onClick={() => setFrequency(f)}
                     className={`py-2.5 rounded-xl font-bold text-sm border-2 capitalize transition-all ${frequency === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>{f}</button>
                 ))}
@@ -1319,7 +1319,7 @@ function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: 
   return (
     <div className="space-y-5">
       <div className="flex gap-1 bg-muted rounded-xl p-1">
-        {(['week','month','all'] as const).map(p => (
+        {PERIOD_OPTIONS.map(p => (
           <button key={p} onClick={() => setPeriod(p)}
             className={`flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${period === p ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
             {p === 'all' ? 'All time' : `Last ${p}`}
@@ -1926,7 +1926,7 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
       </div>
       <div className="flex items-center gap-2">
         <div className="flex gap-1 bg-muted rounded-xl p-1 flex-1 overflow-x-auto">
-          {(['all','deposit','withdrawal','earnings'] as const).map(f => (
+          {FILTER_OPTIONS.map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`flex-shrink-0 flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${filter === f ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>{f}</button>
           ))}
@@ -2054,6 +2054,11 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
     </div>
   );
 }
+
+// ── Module-level frequency / filter arrays (esbuild-safe) ─────────────
+const FREQ_WEEKLY_MONTHLY = ['weekly','monthly'] as const;
+const PERIOD_OPTIONS      = ['week','month','all'] as const;
+const FILTER_OPTIONS      = ['all','deposit','withdrawal','earnings'] as const;
 
 // ── Module-level heatmap color scales ────────────────────────────────────
 const HEATMAP_GREEN = ['bg-green-200 dark:bg-green-950','bg-green-300 dark:bg-green-800','bg-green-500 dark:bg-green-700','bg-green-600 dark:bg-green-500'] as const;

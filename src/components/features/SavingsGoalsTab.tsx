@@ -16,7 +16,8 @@ function fmtAmt(usd: number, cur: CurrencyCode): string {
 }
 
 const SAVINGS_GOAL_EMOJIS = ['🎯','🏠','✈️','🎓','💻','🚗','💍','🌴','🎸','👶','🏋️','📱'] as const;
-const SAVINGS_COLORS = ['blue','green','purple','amber','red','pink'] as const;
+const SAVINGS_COLORS     = ['blue','green','purple','amber','red','pink'] as const;
+const SAVINGS_AUTO_FREQ  = ['weekly','monthly'] as const;
 const SAVINGS_GOAL_BG: Record<string, string> = {
   blue:   'from-blue-500/10 to-blue-400/5 border-blue-500/20',
   green:  'from-green-500/10 to-green-400/5 border-green-500/20',
@@ -292,7 +293,7 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
                       <div className="p-3 border border-primary/20 bg-primary/5 rounded-xl space-y-2">
                         <p className="text-xs font-bold">Set Auto-Fund</p>
                         <div className="grid grid-cols-2 gap-2">
-                          {(['weekly','monthly'] as const).map(f => (
+                          {SAVINGS_AUTO_FREQ.map(f => (
                             <button key={f} onClick={() => setAutoFundFreq(f)}
                               className={`py-2 rounded-xl font-bold text-xs border-2 capitalize transition-all ${autoFundFreq === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
                               {f}
