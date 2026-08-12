@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import SavingsGoalsTab from '@/components/features/SavingsGoalsTab';
+import TransactionRemindersTab from '@/components/features/TransactionRemindersTab';
+import FriendActivityFeed from '@/components/features/FriendActivityFeed';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useSEO } from '@/hooks/useSEO';
 import { useSearchParams } from 'react-router-dom';
@@ -16,7 +19,7 @@ import {
   PieChart as LucidePieChart, Shield, Bell, BellOff, Settings2,
   QrCode, Calendar, RefreshCw, ChevronDown, ExternalLink, Key,
   Filter, Lock, Users, Gift, Printer, Globe,
-  Fingerprint, Star, UserPlus, Activity, AlertTriangle
+  Fingerprint, Star, UserPlus, Activity, AlertTriangle, FileText
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -32,7 +35,7 @@ const PIN_PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','del'];
 type TopUpStep    = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type CurrencyCode = 'USD' | 'KES' | 'EUR';
-type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled';
+type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled' | 'savings' | 'reminders' | 'security';
 
 const CURRENCIES: { code: CurrencyCode; symbol: string; rate: number }[] = [
   { code: 'USD', symbol: '$',    rate: 1    },
@@ -198,6 +201,13 @@ function PinSetupCard({ userId, pinHash, onSaved }: { userId: string; pinHash: s
     const { error } = await supabase.from('user_wallets').update({ wallet_pin_hash: hash }).eq('user_id', userId);
     setSaving(false);
     if (error) { toast.error('Failed to save PIN'); return; }
+    // Track last changed in localStorage
+    try {
+      const raw = localStorage.getItem(`ts-pin-meta-${userId}`);
+      const meta = raw ? JSON.parse(raw) : {};
+      meta.lastChanged = new Date().toISOString();
+      localStorage.setItem(`ts-pin-meta-${userId}`, JSON.stringify(meta));
+    } catch { /* ignore */ }
     toast.success(hasPin ? 'PIN updated!' : 'PIN set!');
     resetForm(); onSaved();
   };
@@ -356,6 +366,325 @@ function BiometricCard({ userId, credentialId, onSaved }: { userId: string; cred
           {credentialId ? 'Face ID or fingerprint replaces your wallet PIN for withdrawals and transfers.' : 'Use Face ID, fingerprint, or device PIN as an alternative to your wallet PIN.'}
         </p>
         {!credentialId && <p className="text-[10px] text-muted-foreground/60 mt-1">Requires a device with a platform authenticator (Touch ID, Face ID, Windows Hello).</p>}
+      </div>
+    </div>
+  );
+}
+
+// ── PIN Security Dashboard ────────────────────────────────────────────────
+function PinSecurityDashboard({ userId, pinHash, credentialId, onRefresh }: {
+  userId: string; pinHash: string | null; credentialId: string | null; onRefresh: () => void;
+}) {
+  const [locked,      setLocked]      = useState(false);
+  const [failCount,   setFailCount]   = useState(0);
+  const [lastChanged, setLastChanged] = useState<string | null>(null);
+  const [supported,   setSupported]   = useState(false);
+
+  useEffect(() => {
+    setSupported(typeof (window as any).PublicKeyCredential !== 'undefined');
+    try {
+      const raw = localStorage.getItem(`ts-pin-meta-${userId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setFailCount(parsed.failCount ?? 0);
+        setLastChanged(parsed.lastChanged ?? null);
+      }
+    } catch { /* use defaults */ }
+    setLocked(localStorage.getItem(`ts-wallet-locked-${userId}`) === '1');
+  }, [userId]);
+
+  const lockWallet = () => {
+    localStorage.setItem(`ts-wallet-locked-${userId}`, '1');
+    setLocked(true);
+    toast.success('Wallet locked — re-authenticate to unlock');
+  };
+
+  const unlockWallet = () => {
+    localStorage.removeItem(`ts-wallet-locked-${userId}`);
+    setLocked(false);
+    toast.success('Wallet unlocked');
+  };
+
+  const resetFailCount = () => {
+    try {
+      const raw = localStorage.getItem(`ts-pin-meta-${userId}`);
+      const parsed = raw ? JSON.parse(raw) : {};
+      parsed.failCount = 0;
+      localStorage.setItem(`ts-pin-meta-${userId}`, JSON.stringify(parsed));
+      setFailCount(0);
+      toast.success('Fail count reset');
+    } catch { /* ignore */ }
+  };
+
+  const statusItems = [
+    {
+      label: 'Wallet PIN',
+      status: pinHash ? 'Active' : 'Not set',
+      ok: !!pinHash,
+      badgeColor: pinHash ? 'bg-green-500/10 text-green-600 border-green-500/20' : 'bg-muted text-muted-foreground border-border',
+      desc: pinHash ? 'PIN is required before transactions.' : 'Set a PIN for extra security.',
+      icon: <Lock className="w-4 h-4" />,
+    },
+    {
+      label: 'Biometric Auth',
+      status: credentialId ? 'Registered' : supported ? 'Not set' : 'Unavailable',
+      ok: !!credentialId,
+      badgeColor: credentialId ? 'bg-green-500/10 text-green-600 border-green-500/20' : 'bg-muted text-muted-foreground border-border',
+      desc: credentialId ? 'Face ID / fingerprint is registered.' : supported ? 'Enable biometric for faster auth.' : 'Your device does not support platform authenticators.',
+      icon: <Fingerprint className="w-4 h-4" />,
+    },
+    {
+      label: 'Wallet Status',
+      status: locked ? 'Locked' : 'Unlocked',
+      ok: !locked,
+      badgeColor: locked ? 'bg-red-500/10 text-red-500 border-red-500/20' : 'bg-green-500/10 text-green-600 border-green-500/20',
+      desc: locked ? 'All transactions are blocked until unlocked.' : 'Wallet is active and accepting transactions.',
+      icon: locked ? <Lock className="w-4 h-4" /> : <Shield className="w-4 h-4" />,
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 p-4 bg-gradient-to-br from-primary/10 to-purple-500/5 border border-primary/20 rounded-2xl">
+        <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+          <Shield className="w-6 h-6 text-primary" />
+        </div>
+        <div>
+          <h3 className="font-black text-base">Wallet Security</h3>
+          <p className="text-xs text-muted-foreground">PIN, biometric, and session lock status</p>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {statusItems.map(item => (
+          <div key={item.label} className="p-4 border border-border rounded-2xl bg-card">
+            <div className="flex items-start justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <div className={item.ok ? 'text-primary' : 'text-muted-foreground'}>{item.icon}</div>
+                <span className="font-bold text-sm">{item.label}</span>
+              </div>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${item.badgeColor}`}>{item.status}</span>
+            </div>
+            <p className="text-xs text-muted-foreground pl-6">{item.desc}</p>
+          </div>
+        ))}
+      </div>
+      <div className="p-4 border border-border rounded-2xl bg-card space-y-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-500" />
+          <h4 className="font-bold text-sm">Failed Attempts</h4>
+          <span className={`ml-auto text-sm font-black ${failCount > 0 ? 'text-red-500' : 'text-green-600'}`}>{failCount}</span>
+        </div>
+        <p className="text-xs text-muted-foreground">Number of incorrect PIN entries logged locally.</p>
+        {failCount > 0 && (
+          <button onClick={resetFailCount} className="flex items-center gap-1.5 text-xs text-primary font-semibold hover:underline">
+            <RefreshCw className="w-3 h-3" /> Reset counter
+          </button>
+        )}
+        {lastChanged && (
+          <p className="text-xs text-muted-foreground">Last PIN change: {new Date(lastChanged).toLocaleString()}</p>
+        )}
+      </div>
+      <div className={`p-4 border rounded-2xl ${locked ? 'border-red-500/30 bg-red-500/5' : 'border-green-500/30 bg-green-500/5'}`}>
+        <div className="flex items-center gap-2 mb-2">
+          <Lock className={`w-4 h-4 ${locked ? 'text-red-500' : 'text-green-600'}`} />
+          <h4 className="font-bold text-sm">Session Lock</h4>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          {locked ? 'Your wallet is locked. No transactions can be made until you unlock.' : 'Lock your wallet instantly to block all transactions without logging out.'}
+        </p>
+        {locked ? (
+          <button onClick={unlockWallet}
+            className="w-full py-2.5 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-green-700 transition-colors">
+            <Shield className="w-4 h-4" /> Unlock Wallet
+          </button>
+        ) : (
+          <button onClick={lockWallet}
+            className="w-full py-2.5 bg-red-500 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-600 transition-colors">
+            <Lock className="w-4 h-4" /> Lock Wallet Now
+          </button>
+        )}
+      </div>
+      <div className="p-4 bg-muted/30 border border-border rounded-2xl text-xs text-muted-foreground">
+        <p><strong>Security tip:</strong> Always set a PIN and enable biometric authentication to protect your wallet from unauthorized access.</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Installment Payments Panel ────────────────────────────────────────────
+function InstallmentPanel({ userId, walletBalance, pinHash, currency, onClose }: {
+  userId: string; walletBalance: number; pinHash: string | null; currency: CurrencyCode; onClose: () => void;
+}) {
+  const [query,       setQuery]     = useState('');
+  const [results,     setResults]   = useState<any[]>([]);
+  const [searching,   setSearching] = useState(false);
+  const [recipient,   setRecipient] = useState<any | null>(null);
+  const [totalAmt,    setTotalAmt]  = useState('');
+  const [installments,setInstall]   = useState(3);
+  const [freq,        setFreq]      = useState<'weekly' | 'monthly'>('monthly');
+  const [note,        setNote]      = useState('');
+  const [saving,      setSaving]    = useState(false);
+  const [done,        setDone]      = useState(false);
+  const [showPin,     setShowPin]   = useState(false);
+
+  const { perInstall, schedule } = useMemo(() => {
+    const total = parseFloat(totalAmt || '0');
+    const per   = total > 0 ? parseFloat((total / installments).toFixed(2)) : 0;
+    const arr: string[] = [];
+    const now = Date.now();
+    for (let i = 0; i < installments; i++) {
+      const d = new Date(now + (freq === 'weekly' ? (i + 1) * 7 : (i + 1) * 30) * 86400000);
+      d.setHours(10, 0, 0, 0);
+      arr.push(d.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' }));
+    }
+    return { perInstall: per, schedule: arr };
+  }, [totalAmt, installments, freq]);
+
+  const searchUsers = async (q: string) => {
+    setQuery(q);
+    if (q.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    const { data } = await supabase.from('user_profiles').select('id,username,avatar_url,verified')
+      .ilike('username', `%${q.trim()}%`).neq('id', userId).limit(6);
+    setResults(data ?? []); setSearching(false);
+  };
+
+  const execute = async () => {
+    if (!recipient || !totalAmt || parseFloat(totalAmt) <= 0) return;
+    setSaving(true);
+    const now = Date.now();
+    const rows = Array.from({ length: installments }, (_, i) => {
+      const d = new Date(now + (freq === 'weekly' ? (i + 1) * 7 : (i + 1) * 30) * 86400000);
+      d.setHours(10, 0, 0, 0);
+      return {
+        from_user_id: userId, to_user_id: recipient.id, to_username: recipient.username,
+        amount: perInstall,
+        note: note.trim() ? `Installment ${i + 1}/${installments}: ${note.trim()}` : `Installment ${i + 1}/${installments}`,
+        scheduled_for: d.toISOString(),
+      };
+    });
+    const { error } = await supabase.from('scheduled_transfers').insert(rows);
+    setSaving(false);
+    if (error) { toast.error('Failed to schedule installments'); return; }
+    toast.success(`${installments} installments scheduled!`);
+    setDone(true);
+  };
+
+  const handleConfirm = () => { if (pinHash) { setShowPin(true); } else { execute(); } };
+  const handlePinConfirm = (pin: string) => {
+    hashPin(pin).then(h => {
+      setShowPin(false);
+      if (h !== pinHash) { toast.error('Incorrect PIN'); return; }
+      execute();
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-5 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {showPin && <PinEntryModal title="Confirm Installments" onConfirm={handlePinConfirm} onCancel={() => setShowPin(false)} />}
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-black text-lg">Installment Payment</h3>
+            <p className="text-xs text-muted-foreground">Split a payment into equal scheduled transfers</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+        </div>
+        {done ? (
+          <div className="flex flex-col items-center gap-4 py-6 text-center">
+            <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
+              <CheckCircle2 className="w-9 h-9 text-green-500" />
+            </div>
+            <div>
+              <p className="font-black text-lg text-green-600">Installments Scheduled!</p>
+              <p className="text-sm text-muted-foreground mt-1">{installments} × {fmtAmt(perInstall, currency)} to @{recipient?.username}</p>
+            </div>
+            <button onClick={onClose} className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90">Done</button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {!recipient ? (
+              <div>
+                <label className="text-sm font-semibold mb-2 block">Recipient</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input value={query} onChange={e => searchUsers(e.target.value)} placeholder="Search by username…"
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin" />}
+                </div>
+                {results.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {results.map(u => (
+                      <button key={u.id} onClick={() => { setRecipient(u); setResults([]); setQuery(''); }}
+                        className="w-full flex items-center gap-2 p-2.5 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 text-left text-sm">
+                        <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs">
+                          {u.avatar_url ? <img src={u.avatar_url} alt="" className="w-full h-full object-cover" /> : u.username[0]?.toUpperCase()}
+                        </div>
+                        <span className="font-semibold flex-1">@{u.username}</span>
+                        {u.verified && <UserCheck className="w-3.5 h-3.5 text-primary" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-xl">
+                <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs">
+                  {recipient.avatar_url ? <img src={recipient.avatar_url} alt="" className="w-full h-full object-cover" /> : recipient.username[0]?.toUpperCase()}
+                </div>
+                <span className="font-semibold text-sm flex-1">@{recipient.username}</span>
+                <button onClick={() => setRecipient(null)} className="text-muted-foreground hover:text-destructive"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-semibold mb-2 block">Total Amount (USD)</label>
+              <input type="number" min="0.01" step="0.01" placeholder="0.00" value={totalAmt} onChange={e => setTotalAmt(e.target.value)}
+                className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+            </div>
+            <div>
+              <label className="text-sm font-semibold mb-2 block">Number of Installments</label>
+              <div className="flex gap-2">
+                {[2,3,4,5,6].map(n => (
+                  <button key={n} onClick={() => setInstall(n)}
+                    className={`flex-1 py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${installments === n ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>{n}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-semibold mb-2 block">Frequency</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['weekly','monthly'] as const).map(f => (
+                  <button key={f} onClick={() => setFreq(f)}
+                    className={`py-2.5 rounded-xl font-bold text-sm border-2 capitalize transition-all ${freq === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>{f}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-semibold mb-2 block">Note (optional)</label>
+              <input type="text" maxLength={80} placeholder="What's this for?" value={note} onChange={e => setNote(e.target.value)}
+                className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+            </div>
+            {recipient && perInstall > 0 && (
+              <div className="p-3 bg-primary/5 border border-primary/15 rounded-xl space-y-2">
+                <p className="text-xs font-bold text-primary mb-1">{installments} × {fmtAmt(perInstall, currency)} = {fmtAmt(perInstall * installments, currency)}</p>
+                <div className="space-y-1 max-h-36 overflow-y-auto">
+                  {schedule.map((d, i) => (
+                    <div key={i} className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">#{i + 1} · {d}</span>
+                      <span className="font-semibold">{fmtAmt(perInstall, currency)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button onClick={handleConfirm}
+              disabled={saving || !recipient || !totalAmt || parseFloat(totalAmt) <= 0}
+              className="w-full py-3.5 bg-primary text-primary-foreground rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+              {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Calendar className="w-5 h-5" />}
+              {saving ? 'Scheduling…' : `Schedule ${installments} Installments`}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -521,7 +850,7 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
                   <span className="font-black text-primary">{fmtAmt(perPerson, currency)}</span>
                 </div>
                 {perPerson * recipients.length > walletBalance && (
-                  <p className="text-xs text-red-500 pt-1">⚠️ Exceeds your balance of {fmtAmt(walletBalance, currency)}</p>
+                  <p className="text-xs text-red-500 pt-1">Exceeds your balance of {fmtAmt(walletBalance, currency)}</p>
                 )}
               </div>
             )}
@@ -873,6 +1202,77 @@ function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultP
   );
 }
 
+// ── Wallet Analytics Export Button ────────────────────────────────────────
+function WalletAnalyticsExportButton({ userId, currency }: { userId: string; currency: CurrencyCode }) {
+  const [exporting, setExporting] = useState(false);
+
+  const exportStatement = async () => {
+    setExporting(true);
+    const [{ data: txns }, { data: walletData }] = await Promise.all([
+      supabase.from('wallet_transactions').select('*').eq('user_id', userId)
+        .order('created_at', { ascending: false }).limit(500),
+      supabase.from('user_wallets').select('balance,total_deposited,total_withdrawn').eq('user_id', userId).maybeSingle(),
+    ]);
+    setExporting(false);
+    const allTxns   = txns ?? [];
+    const balance   = Number(walletData?.balance ?? 0);
+    const deposited = Number(walletData?.total_deposited ?? 0);
+    const withdrawn = Number(walletData?.total_withdrawn ?? 0);
+    const totalIn   = allTxns.filter(t => t.type === 'deposit' || t.type === 'earnings').reduce((s,t) => s + Number(t.amount), 0);
+    const totalOut  = allTxns.filter(t => t.type === 'withdrawal').reduce((s,t) => s + Number(t.amount), 0);
+    const avgTxn    = allTxns.length > 0 ? allTxns.reduce((s,t) => s + Number(t.amount), 0) / allTxns.length : 0;
+    const typeMap: Record<string,number> = {};
+    allTxns.forEach(t => { const l = t.type.replace(/_/g,' '); typeMap[l] = (typeMap[l]||0) + Number(t.amount); });
+    const breakdownRows = Object.entries(typeMap).map(([type, amt]) =>
+      `<tr><td>${type.charAt(0).toUpperCase()+type.slice(1)}</td><td style="text-align:right;font-weight:700">$${Number(amt).toFixed(2)}</td></tr>`
+    ).join('');
+    const txnRows = allTxns.slice(0,100).map(t => {
+      const isIn = t.type === 'deposit' || t.type === 'earnings';
+      return `<tr><td>${new Date(t.created_at).toLocaleDateString()}</td><td>${t.type.replace(/_/g,' ')}</td><td style="color:${isIn?'#10b981':'#ef4444'};font-weight:700">${isIn?'+':'-'}$${Number(t.amount).toFixed(2)}</td><td>${t.status}</td><td>${t.description||'—'}</td></tr>`;
+    }).join('');
+    const w = window.open('','_blank','width=900,height=700');
+    if (!w) { toast.error('Allow popups to export'); return; }
+    w.document.write(`<!DOCTYPE html><html><head><title>Wallet Statement</title><style>
+*{box-sizing:border-box}body{font-family:Arial,sans-serif;padding:32px;color:#111;max-width:860px;margin:0 auto}
+h1{font-size:24px;font-weight:900;margin-bottom:4px}h2{font-size:15px;font-weight:700;margin:24px 0 8px;border-bottom:2px solid #eee;padding-bottom:4px}
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:8px}
+.kpi{background:#f8f8f8;border:1px solid #e0e0e0;border-radius:12px;padding:14px}
+.kpi-label{font-size:11px;color:#666;margin-bottom:4px}.kpi-value{font-size:20px;font-weight:900}
+.green{color:#10b981}.red{color:#ef4444}.blue{color:#3b82f6}
+table{width:100%;border-collapse:collapse}th{background:#f5f5f5;padding:8px 10px;text-align:left;font-size:11px;border-bottom:2px solid #ddd}
+td{padding:7px 10px;border-bottom:1px solid #eee;font-size:11px}
+.btn{margin-bottom:16px;padding:8px 20px;background:#7c3aed;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700}
+@media print{.btn{display:none}}
+</style></head><body>
+<h1>Wallet Statement</h1>
+<p style="color:#666;font-size:12px">Exported ${new Date().toLocaleString()} · ${allTxns.length} transactions</p>
+<button class="btn" onclick="window.print()">Print / Save PDF</button>
+<h2>Account Overview</h2>
+<div class="kpi-grid">
+<div class="kpi"><div class="kpi-label">Current Balance</div><div class="kpi-value blue">$${balance.toFixed(2)}</div></div>
+<div class="kpi"><div class="kpi-label">Total Deposited</div><div class="kpi-value green">$${deposited.toFixed(2)}</div></div>
+<div class="kpi"><div class="kpi-label">Total Withdrawn</div><div class="kpi-value red">$${withdrawn.toFixed(2)}</div></div>
+<div class="kpi"><div class="kpi-label">Total Received (period)</div><div class="kpi-value green">$${totalIn.toFixed(2)}</div></div>
+<div class="kpi"><div class="kpi-label">Total Spent (period)</div><div class="kpi-value red">$${totalOut.toFixed(2)}</div></div>
+<div class="kpi"><div class="kpi-label">Avg Transaction</div><div class="kpi-value blue">$${avgTxn.toFixed(2)}</div></div>
+</div>
+<h2>Transaction Breakdown by Type</h2>
+<table><thead><tr><th>Type</th><th style="text-align:right">Total</th></tr></thead><tbody>${breakdownRows}</tbody></table>
+<h2>Recent Transactions (last 100)</h2>
+<table><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Status</th><th>Description</th></tr></thead><tbody>${txnRows}</tbody></table>
+</body></html>`);
+    w.document.close();
+  };
+
+  return (
+    <button onClick={exportStatement} disabled={exporting}
+      className="w-full flex items-center justify-center gap-2 py-3 border border-border rounded-2xl font-semibold text-sm hover:bg-muted transition-colors disabled:opacity-50">
+      {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4 text-primary" />}
+      {exporting ? 'Generating Statement…' : 'Export Full Wallet Statement (PDF)'}
+    </button>
+  );
+}
+
 // ── Spending Analytics Tab ────────────────────────────────────────────────
 function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: CurrencyCode }) {
   const [txns,    setTxns]    = useState<any[]>([]);
@@ -1094,7 +1494,7 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Status</span>
-              <span className="font-bold text-green-600 text-xs">✅ Completed</span>
+              <span className="font-bold text-green-600 text-xs">Completed</span>
             </div>
           </div>
           <div className="flex gap-3 w-full">
@@ -1631,7 +2031,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
               <div className="mb-3 space-y-1.5">
                 <div className="flex justify-between text-xs">
                   <span className={atLimit ? 'text-red-500 font-bold' : nearLimit ? 'text-orange-500 font-bold' : 'text-muted-foreground'}>
-                    {atLimit ? '🚫 Limit reached' : nearLimit ? '⚠️ Near limit' : 'Spent today'}
+                    {atLimit ? 'Limit reached' : nearLimit ? 'Near limit' : 'Spent today'}
                   </span>
                   <span className="font-semibold">${todaySpent.toFixed(2)} / ${limitVal.toFixed(2)}</span>
                 </div>
@@ -1655,7 +2055,7 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
   );
 }
 
-// ── Module-level heatmap color scales ───────────────────────────────────
+// ── Module-level heatmap color scales ────────────────────────────────────
 const HEATMAP_GREEN = ['bg-green-200 dark:bg-green-950','bg-green-300 dark:bg-green-800','bg-green-500 dark:bg-green-700','bg-green-600 dark:bg-green-500'] as const;
 const HEATMAP_RED   = ['bg-red-200 dark:bg-red-950',  'bg-red-300 dark:bg-red-800',  'bg-red-500 dark:bg-red-700',  'bg-red-600 dark:bg-red-500'  ] as const;
 
@@ -1790,6 +2190,7 @@ function SpendingAlertsCard({ userId }: { userId: string }) {
   const [prefs, setPrefs] = useState<{ enabled: boolean; threshold: string; budget: string }>(
     { enabled: false, threshold: '10', budget: '50' }
   );
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     try {
@@ -1797,7 +2198,6 @@ function SpendingAlertsCard({ userId }: { userId: string }) {
       if (raw) setPrefs(JSON.parse(raw));
     } catch { /* use defaults */ }
   }, [userId]);
-  const [checking, setChecking] = useState(false);
 
   const save = (next: { enabled: boolean; threshold: string; budget: string }) => {
     setPrefs(next);
@@ -1820,7 +2220,7 @@ function SpendingAlertsCard({ userId }: { userId: string }) {
 
     if (budget > 0 && todayTotal >= budget * 0.8 && !alerted[`budget-${todayKey}`]) {
       await supabase.from('platform_inbox').insert({
-        user_id: userId, subject: '⚠️ Spending Alert: 80% of daily budget used',
+        user_id: userId, subject: 'Spending Alert: 80% of daily budget used',
         body: `You have spent $${todayTotal.toFixed(2)} today — 80% of your $${budget.toFixed(2)} daily budget.`,
         type: 'warning', icon_emoji: '⚠️', cta_label: 'Review Limit', cta_url: '/wallet',
       });
@@ -1833,7 +2233,7 @@ function SpendingAlertsCard({ userId }: { userId: string }) {
         const k = `txn-${t.id}`;
         if (!alerted[k]) {
           await supabase.from('platform_inbox').insert({
-            user_id: userId, subject: `💸 Large withdrawal alert: $${Number(t.amount).toFixed(2)}`,
+            user_id: userId, subject: `Large withdrawal alert: $${Number(t.amount).toFixed(2)}`,
             body: `A withdrawal of $${Number(t.amount).toFixed(2)} was recorded — above your $${threshold.toFixed(2)} threshold.`,
             type: 'warning', icon_emoji: '💸', cta_label: 'View History', cta_url: '/wallet?tab=history',
           });
@@ -1911,6 +2311,9 @@ const WALLET_TABS: { key: ActiveTab; label: string }[] = [
   { key: 'analytics', label: '📊 Analytics' },
   { key: 'referrals', label: '👥 Referrals' },
   { key: 'scheduled', label: '⏰ Scheduled' },
+  { key: 'savings',   label: '🎯 Goals'     },
+  { key: 'reminders', label: '🔔 Reminders' },
+  { key: 'security',  label: '🔒 Security'  },
 ];
 
 function WalletAdBanner() { return <PageAdBanner />; }
@@ -1929,11 +2332,16 @@ export default function WalletPage() {
     if (t === 'receive')   return 'receive';
     if (t === 'referrals') return 'referrals';
     if (t === 'scheduled') return 'scheduled';
+    if (t === 'savings')   return 'savings';
+    if (t === 'reminders') return 'reminders';
+    if (t === 'security')  return 'security';
     return 'wallet';
   });
   const prefillTo = searchParams.get('to') ?? '';
 
-  const [showSplit, setShowSplit] = useState(false);
+  const [showSplit,       setShowSplit]       = useState(false);
+  const [showInstallment, setShowInstallment] = useState(false);
+  const [showDepositPin,  setShowDepositPin]  = useState(false);
   const [currency,  setCurrency]  = useState<CurrencyCode>('USD');
 
   useEffect(() => {
@@ -2031,6 +2439,14 @@ export default function WalletPage() {
         } else { await fetchWallet(); }
       } catch { /* keep polling */ }
     }, 3000);
+  };
+
+  const handleDepositClick = () => {
+    if (biometricCredentialId) {
+      verifyBiometric(biometricCredentialId).then(ok => {
+        if (ok) { handleTopUp(); } else if (pinHash) { setShowDepositPin(true); } else { handleTopUp(); }
+      });
+    } else if (pinHash) { setShowDepositPin(true); } else { handleTopUp(); }
   };
 
   const handleTopUp = async () => {
@@ -2138,8 +2554,12 @@ export default function WalletPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       {showPinModal && <PinEntryModal title="Confirm Withdrawal" onConfirm={handleWithdrawPinConfirm} onCancel={() => setShowPinModal(false)} />}
+      {showDepositPin && <PinEntryModal title="Confirm Deposit" onConfirm={async (pin) => { const h = await hashPin(pin); setShowDepositPin(false); if (h !== pinHash) { toast.error('Incorrect PIN'); return; } handleTopUp(); }} onCancel={() => setShowDepositPin(false)} />}
       {showSplit && user && (
         <SplitPaymentPanel userId={user.id} senderUsername={username} walletBalance={walletBalance} pinHash={pinHash} currency={currency} onClose={() => setShowSplit(false)} />
+      )}
+      {showInstallment && user && (
+        <InstallmentPanel userId={user.id} walletBalance={walletBalance} pinHash={pinHash} currency={currency} onClose={() => setShowInstallment(false)} />
       )}
 
       <TopBar title="My Wallet" showBack />
@@ -2164,21 +2584,32 @@ export default function WalletPage() {
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-5">
-        {activeTab === 'history' && user && <TransactionHistoryTab userId={user.id} currency={currency} />}
-        {activeTab === 'send' && user && (
+        {activeTab === 'history'   && user && <TransactionHistoryTab userId={user.id} currency={currency} />}
+        {activeTab === 'send'      && user && (
           <SendMoneyTab userId={user.id} senderUsername={username} walletBalance={walletBalance}
             pinHash={pinHash} biometricCredentialId={biometricCredentialId} onComplete={fetchWallet}
             prefillUsername={prefillTo} currency={currency} />
         )}
-        {activeTab === 'receive' && user && <ReceiveMoneyTab username={username} walletBalance={walletBalance} currency={currency} />}
+        {activeTab === 'receive'   && user && <ReceiveMoneyTab username={username} walletBalance={walletBalance} currency={currency} />}
         {activeTab === 'analytics' && user && (
           <>
             <ActivityHeatmap userId={user.id} />
+            <WalletAnalyticsExportButton userId={user.id} currency={currency} />
             <SpendingAnalyticsTab userId={user.id} currency={currency} />
           </>
         )}
-        {activeTab === 'referrals' && user && <ReferralEarningsTab userId={user.id} />}
+        {activeTab === 'referrals' && user && (
+          <div className="space-y-5">
+            <ReferralEarningsTab userId={user.id} />
+            <FriendActivityFeed userId={user.id} />
+          </div>
+        )}
         {activeTab === 'scheduled' && user && <ScheduledTransfersTab userId={user.id} currency={currency} pinHash={pinHash} />}
+        {activeTab === 'savings'   && user && <SavingsGoalsTab userId={user.id} walletBalance={walletBalance} currency={currency} />}
+        {activeTab === 'reminders' && user && <TransactionRemindersTab userId={user.id} currency={currency} />}
+        {activeTab === 'security'  && user && (
+          <PinSecurityDashboard userId={user.id} pinHash={pinHash} credentialId={biometricCredentialId} onRefresh={fetchWallet} />
+        )}
       </div>
 
       {activeTab === 'wallet' && (
@@ -2198,18 +2629,24 @@ export default function WalletPage() {
                 <TrendingUp className="w-3 h-3" /> Last top-up +{fmtAmt(lastTopUpAmount, currency)}
               </p>
             )}
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => setActiveTab('receive')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary/10 border border-primary/20 rounded-xl text-primary font-semibold text-xs hover:bg-primary/15 transition-colors">
+            <div className="grid grid-cols-3 gap-2 mt-4">
+              <button onClick={() => setActiveTab('receive')} className="flex items-center justify-center gap-1.5 py-2 bg-primary/10 border border-primary/20 rounded-xl text-primary font-semibold text-xs hover:bg-primary/15 transition-colors">
                 <QrCode className="w-3.5 h-3.5" /> Receive
               </button>
-              <button onClick={() => setActiveTab('send')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-xs hover:opacity-90 transition-opacity">
+              <button onClick={() => setActiveTab('send')} className="flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-xs hover:opacity-90 transition-opacity">
                 <Send className="w-3.5 h-3.5" /> Send
               </button>
-              <button onClick={() => setShowSplit(true)} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-600 font-semibold text-xs hover:bg-blue-500/15 transition-colors">
+              <button onClick={() => setShowSplit(true)} className="flex items-center justify-center gap-1.5 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-600 font-semibold text-xs hover:bg-blue-500/15 transition-colors">
                 <Star className="w-3.5 h-3.5" /> Split
               </button>
-              <button onClick={() => setActiveTab('referrals')} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-600 font-semibold text-xs hover:bg-purple-500/15 transition-colors">
+              <button onClick={() => setShowInstallment(true)} className="flex items-center justify-center gap-1.5 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-600 font-semibold text-xs hover:bg-amber-500/15 transition-colors">
+                <Calendar className="w-3.5 h-3.5" /> Pay Later
+              </button>
+              <button onClick={() => setActiveTab('referrals')} className="flex items-center justify-center gap-1.5 py-2 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-600 font-semibold text-xs hover:bg-purple-500/15 transition-colors">
                 <Users className="w-3.5 h-3.5" /> Refer
+              </button>
+              <button onClick={() => setActiveTab('security')} className="flex items-center justify-center gap-1.5 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 font-semibold text-xs hover:bg-red-500/15 transition-colors">
+                <Lock className="w-3.5 h-3.5" /> Security
               </button>
             </div>
           </div>
@@ -2257,7 +2694,7 @@ export default function WalletPage() {
                       <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide flex items-center gap-1.5"><Phone className="w-3 h-3" />M-Pesa Number</p>
                       <Input type="tel" placeholder="0712 345 678" value={phone} onChange={e => setPhone(e.target.value)} className="h-11" />
                     </div>
-                    <button onClick={handleTopUp} disabled={!amount || !phone || parseFloat(amount) <= 0}
+                    <button onClick={handleDepositClick} disabled={!amount || !phone || parseFloat(amount) <= 0}
                       className="w-full py-3.5 bg-gradient-to-r from-green-600 to-emerald-500 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
                       <Smartphone className="w-5 h-5" />
                       Request KES {amount && parseFloat(amount) > 0 ? Math.ceil(parseFloat(amount) * USD_TO_KES).toLocaleString() : '—'}

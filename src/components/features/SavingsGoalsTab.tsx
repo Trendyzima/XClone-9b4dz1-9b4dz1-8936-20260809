@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { Loader2, Star, X, ArrowDownLeft } from 'lucide-react';
+import { Loader2, Star, X, ArrowDownLeft, RefreshCw } from 'lucide-react';
 
 type CurrencyCode = 'USD' | 'KES' | 'EUR';
 const CURRENCIES_LOCAL = [
@@ -50,10 +50,32 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
   const [emoji,       setEmoji]      = useState('🎯');
   const [color,       setColor]      = useState('blue');
   const [saving,      setSaving]     = useState(false);
-  const [depositing,  setDepositing] = useState<string | null>(null);
-  const [depositAmt,  setDepositAmt] = useState<Record<string, string>>({});
+  const [depositing,    setDepositing]    = useState<string | null>(null);
+  const [depositAmt,    setDepositAmt]    = useState<Record<string, string>>({});
+  const [autoFundGoal,  setAutoFundGoal]  = useState<string | null>(null);
+  const [autoFundFreq,  setAutoFundFreq]  = useState<'weekly' | 'monthly'>('weekly');
+  const [autoFundAmt,   setAutoFundAmt]   = useState('');
+  const [savingAuto,    setSavingAuto]    = useState(false);
+  const [existingAuto,  setExistingAuto]  = useState<Record<string, any>>({});
 
-  useEffect(() => { loadGoals(); }, [userId]);
+  const minDateTime = useMemo(() => {
+    const d = new Date(Date.now() + 60000);
+    return d.toISOString().slice(0, 16);
+  }, []);
+
+  useEffect(() => { loadGoals(); loadAutoFunds(); }, [userId]);
+
+  const loadAutoFunds = async () => {
+    const { data } = await supabase.from('transaction_reminders')
+      .select('*').eq('user_id', userId).eq('is_active', true)
+      .ilike('label', 'Auto-fund:%');
+    const map: Record<string, any> = {};
+    (data ?? []).forEach((r: any) => {
+      const match = (r.label as string).match(/Auto-fund:([\w-]+)/);
+      if (match) map[match[1]] = r;
+    });
+    setExistingAuto(map);
+  };
 
   const loadGoals = async () => {
     setLoading(true);
@@ -106,6 +128,36 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
     const { error } = await supabase.from('savings_goals').delete().eq('id', id);
     if (error) { toast.error('Failed to delete'); return; }
     toast.success('Goal removed'); loadGoals();
+  };
+
+  const saveAutoFund = async (goalId: string) => {
+    const amt = parseFloat(autoFundAmt || '0');
+    if (!amt || amt <= 0) { toast.error('Enter a valid auto-fund amount'); return; }
+    setSavingAuto(true);
+    // Remove any existing auto-fund for this goal
+    if (existingAuto[goalId]) {
+      await supabase.from('transaction_reminders').update({ is_active: false }).eq('id', existingAuto[goalId].id);
+    }
+    const nextDate = new Date(Date.now() + (autoFundFreq === 'weekly' ? 7 : 30) * 86400000);
+    nextDate.setHours(9, 0, 0, 0);
+    const { error } = await supabase.from('transaction_reminders').insert({
+      user_id: userId, label: `Auto-fund:${goalId}`,
+      amount: amt, to_username: null, frequency: autoFundFreq,
+      next_reminder_at: nextDate.toISOString(),
+    });
+    setSavingAuto(false);
+    if (error) { toast.error('Failed to set auto-fund'); return; }
+    toast.success(`Auto-fund ${autoFundFreq === 'weekly' ? 'weekly' : 'monthly'} set!`);
+    setAutoFundGoal(null); setAutoFundAmt('');
+    loadAutoFunds();
+  };
+
+  const removeAutoFund = async (goalId: string) => {
+    const r = existingAuto[goalId];
+    if (!r) return;
+    await supabase.from('transaction_reminders').update({ is_active: false }).eq('id', r.id);
+    toast.success('Auto-fund removed');
+    loadAutoFunds();
   };
 
   return (
@@ -214,15 +266,56 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
                   </div>
                 </div>
                 {!g.is_completed && (
-                  <div className="flex gap-2">
-                    <input type="number" min="0.01" step="0.01" placeholder="Add funds (USD)…"
-                      value={depositAmt[g.id] ?? ''} onChange={e => setDepositAmt(prev => ({ ...prev, [g.id]: e.target.value }))}
-                      className="flex-1 h-9 px-3 rounded-xl border border-border/60 bg-background/80 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                    <button onClick={() => depositToGoal(g)} disabled={depositing === g.id}
-                      className={`px-4 h-9 rounded-xl font-bold text-xs text-white disabled:opacity-50 flex items-center gap-1 ${bar} hover:opacity-90 transition-opacity`}>
-                      {depositing === g.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowDownLeft className="w-3.5 h-3.5" />}
-                      Add
-                    </button>
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input type="number" min="0.01" step="0.01" placeholder="Add funds (USD)…"
+                        value={depositAmt[g.id] ?? ''} onChange={e => setDepositAmt(prev => ({ ...prev, [g.id]: e.target.value }))}
+                        className="flex-1 h-9 px-3 rounded-xl border border-border/60 bg-background/80 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                      <button onClick={() => depositToGoal(g)} disabled={depositing === g.id}
+                        className={`px-4 h-9 rounded-xl font-bold text-xs text-white disabled:opacity-50 flex items-center gap-1 ${bar} hover:opacity-90 transition-opacity`}>
+                        {depositing === g.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowDownLeft className="w-3.5 h-3.5" />}
+                        Add
+                      </button>
+                    </div>
+                    {/* Auto-Fund */}
+                    {existingAuto[g.id] ? (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border border-primary/20 rounded-xl text-xs">
+                        <RefreshCw className="w-3 h-3 text-primary shrink-0" />
+                        <span className="flex-1 text-primary font-semibold">
+                          Auto-fund ${Number(existingAuto[g.id].amount).toFixed(2)} {existingAuto[g.id].frequency}
+                        </span>
+                        <button onClick={() => removeAutoFund(g.id)} className="text-muted-foreground hover:text-destructive">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : autoFundGoal === g.id ? (
+                      <div className="p-3 border border-primary/20 bg-primary/5 rounded-xl space-y-2">
+                        <p className="text-xs font-bold">Set Auto-Fund</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(['weekly','monthly'] as const).map(f => (
+                            <button key={f} onClick={() => setAutoFundFreq(f)}
+                              className={`py-2 rounded-xl font-bold text-xs border-2 capitalize transition-all ${autoFundFreq === f ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
+                              {f}
+                            </button>
+                          ))}
+                        </div>
+                        <input type="number" min="0.01" step="0.01" placeholder="Amount per cycle (USD)…"
+                          value={autoFundAmt} onChange={e => setAutoFundAmt(e.target.value)}
+                          className="w-full h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                        <div className="flex gap-2">
+                          <button onClick={() => setAutoFundGoal(null)} className="flex-1 py-2 border border-border rounded-xl font-semibold text-xs hover:bg-muted">Cancel</button>
+                          <button onClick={() => saveAutoFund(g.id)} disabled={savingAuto}
+                            className="flex-1 py-2 bg-primary text-primary-foreground rounded-xl font-bold text-xs disabled:opacity-50 flex items-center justify-center gap-1">
+                            {savingAuto ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setAutoFundGoal(g.id); setAutoFundAmt(''); }}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 border border-border rounded-xl font-semibold text-xs text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors">
+                        <RefreshCw className="w-3 h-3" /> Set Auto-Fund
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
