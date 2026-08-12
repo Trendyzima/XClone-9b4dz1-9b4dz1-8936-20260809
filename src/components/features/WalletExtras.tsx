@@ -6,12 +6,10 @@ import {
   BarChart3, Star, ArrowDownLeft, ArrowUpRight,
 } from 'lucide-react';
 
-// ── Shared helpers (re-imported from parent scope via props) ─────────────
-const USD_TO_KES = 130;
-
 // ── esbuild-safe module-level constants ──────────────────────────────────
+const EXTRAS_USD_TO_KES = 130;
 const TWO_FA_DEFAULT_THRESHOLD = 10;
-const TWO_FA_AMOUNTS = [5, 10, 25, 50];
+const TWO_FA_AMOUNTS = [5, 10, 25, 50] as const;
 
 const BUDGET_CATEGORIES_LIST = ['deposits','withdrawals','transfers','boosts','other'] as const;
 
@@ -126,7 +124,7 @@ export function TwoFASetupCard({ userId }: { userId: string }) {
                 ))}
               </div>
               <input type="number" min="1" step="1" placeholder="Custom…"
-                value={!TWO_FA_AMOUNTS.includes(threshold) ? threshold : ''}
+                value={!(TWO_FA_AMOUNTS as readonly number[]).includes(threshold) ? threshold : ''}
                 onChange={e => setThreshold(parseFloat(e.target.value) || TWO_FA_DEFAULT_THRESHOLD)}
                 className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
             </div>
@@ -147,7 +145,7 @@ export function TwoFASetupCard({ userId }: { userId: string }) {
 interface ReceiptModalProps { tx: any; currency: CurrencyCode; onClose: () => void; }
 function InlineReceiptModal({ tx, currency, onClose }: ReceiptModalProps) {
   const [copied, setCopied] = useState(false);
-  const kesAmount = useMemo(() => Math.round(Number(tx.amount) * USD_TO_KES), [tx.amount]);
+  const kesAmount = useMemo(() => Math.round(Number(tx.amount) * EXTRAS_USD_TO_KES), [tx.amount]);
   const copyReceipt = () => {
     const text = ['M-Pesa Receipt', `Amount: KES ${kesAmount.toLocaleString()} (${fmtAmt(Number(tx.amount), currency)})`,
       tx.reference ? `Receipt: ${tx.reference}` : '', `Date: ${new Date(tx.created_at).toLocaleString()}`, `Status: ${tx.status}`].filter(Boolean).join('\n');
@@ -208,7 +206,7 @@ export function MpesaPaymentHistory({ userId, currency }: { userId: string; curr
       .then(({ data }) => { setTxns(data ?? []); setLoading(false); });
   }, [userId]);
   const { totalKes, totalUsd } = useMemo(() => ({
-    totalKes: Math.round(txns.reduce((s, t) => s + Number(t.amount), 0) * USD_TO_KES),
+    totalKes: Math.round(txns.reduce((s, t) => s + Number(t.amount), 0) * EXTRAS_USD_TO_KES),
     totalUsd: txns.reduce((s, t) => s + Number(t.amount), 0),
   }), [txns]);
   return (
@@ -249,7 +247,7 @@ export function MpesaPaymentHistory({ userId, currency }: { userId: string; curr
                     <p className="font-semibold text-sm text-green-700 dark:text-green-400">+{fmtAmt(Number(tx.amount), currency)}</p>
                     {tx.reference && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Receipt</span>}
                   </div>
-                  <p className="text-xs text-muted-foreground">KES {Math.round(Number(tx.amount) * USD_TO_KES).toLocaleString()} · {new Date(tx.created_at).toLocaleDateString()}</p>
+                  <p className="text-xs text-muted-foreground">KES {Math.round(Number(tx.amount) * EXTRAS_USD_TO_KES).toLocaleString()} · {new Date(tx.created_at).toLocaleDateString()}</p>
                   {tx.reference && <p className="text-[10px] font-mono text-muted-foreground/70">{tx.reference}</p>}
                 </div>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${tx.status === 'completed' ? 'bg-green-500/10 text-green-600' : 'bg-orange-500/10 text-orange-600'}`}>{tx.status}</span>

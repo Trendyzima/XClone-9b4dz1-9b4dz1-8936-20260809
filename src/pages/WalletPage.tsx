@@ -34,7 +34,6 @@ const USD_TO_KES = 130;
 const PIE_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 const PIN_PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','del'];
 const PIN_MAX_ATTEMPTS    = 3;
-const PIN_LOCK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 const FAVORITES_MAX = 5;
 // TWO_FA_DEFAULT_THRESHOLD, BUDGET_CATEGORIES_LIST, SAVINGS_TIERS defined in WalletExtras.tsx
 
