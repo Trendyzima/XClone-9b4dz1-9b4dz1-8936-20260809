@@ -65,7 +65,8 @@ export default function ThreadDetailPage() {
   const [showMobileChapters, setShowMobileChapters] = useState(false);
 
   // Thread Reactions
-  const THREAD_REACTIONS = ['❤️', '😂', '🔥', '😮', '👏'] as const;
+  // esbuild guard: no 'as const' on arrays used in .map() inside component
+  const THREAD_REACTIONS: string[] = ['❤️', '😂', '🔥', '😮', '👏'];
   const [threadReactionCounts, setThreadReactionCounts] = useState<Record<string, number>>({});
   const [userThreadReaction, setUserThreadReaction] = useState<string | null>(null);
   const [showThreadReactionPicker, setShowThreadReactionPicker] = useState(false);
