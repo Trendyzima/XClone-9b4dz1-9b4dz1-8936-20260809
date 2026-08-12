@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import {
   Megaphone, Eye, MousePointer, DollarSign, Loader2, Plus,
   Pause, Play, Trash2, CheckCircle2, Clock, XCircle, AlertCircle,
-  TrendingUp, BarChart3, RefreshCw, Target, Zap,
+  TrendingUp, BarChart3, RefreshCw, Target, Zap, ShieldCheck, ShieldAlert, ShieldX,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
@@ -47,6 +47,9 @@ export default function MyAdsPage() {
   const [dailyChartData, setDailyChartData] = useState<any[]>([]);
   const [perAdChartData, setPerAdChartData] = useState<any[]>([]);
   const [loadingCharts, setLoadingCharts] = useState(false);
+  // Heatmap: per-ad impressions/clicks by day (last 7 days)
+  const [heatmapData, setHeatmapData] = useState<{ adId: string; adTitle: string; days: { date: string; impressions: number; clicks: number }[] }[]>([]);
+  const [loadingHeatmap, setLoadingHeatmap] = useState(false);
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -129,8 +132,44 @@ export default function MyAdsPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'performance' && ads.length > 0) fetchDailyStats();
+    if (activeTab === 'performance' && ads.length > 0) { fetchDailyStats(); fetchHeatmap(); }
   }, [activeTab, ads.length]);
+
+  const fetchHeatmap = async () => {
+    if (!user || ads.length === 0) return;
+    setLoadingHeatmap(true);
+    const adIds = ads.slice(0, 5).map((a: any) => a.id);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: rows } = await supabase
+      .from('ad_impressions')
+      .select('ad_id, clicked, created_at')
+      .in('ad_id', adIds)
+      .gte('created_at', sevenDaysAgo);
+
+    const last7Dates: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      last7Dates.push(d.toISOString().slice(0, 10));
+    }
+
+    const result: { adId: string; adTitle: string; days: { date: string; impressions: number; clicks: number }[] }[] = [];
+    for (const ad of ads.slice(0, 5)) {
+      const dayMap: { [d: string]: { impressions: number; clicks: number } } = {};
+      for (const dt of last7Dates) dayMap[dt] = { impressions: 0, clicks: 0 };
+      for (const row of rows ?? []) {
+        if (row.ad_id !== ad.id) continue;
+        const day = String(row.created_at ?? '').slice(0, 10);
+        if (dayMap[day]) { dayMap[day].impressions++; if (row.clicked) dayMap[day].clicks++; }
+      }
+      result.push({
+        adId: ad.id,
+        adTitle: ad.title.slice(0, 20) + (ad.title.length > 20 ? '…' : ''),
+        days: last7Dates.map(d => ({ date: d.slice(5), impressions: dayMap[d].impressions, clicks: dayMap[d].clicks })),
+      });
+    }
+    setHeatmapData(result);
+    setLoadingHeatmap(false);
+  };
 
   const pauseAd = async (adId: string) => {
     await supabase.from('user_ads').update({ status: 'paused' }).eq('id', adId);
@@ -259,7 +298,24 @@ export default function MyAdsPage() {
                               Created {formatDistanceToNow(new Date(ad.created_at), { addSuffix: true })}
                             </p>
                           </div>
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                            {/* AI Score Badge */}
+                            {ad.ai_verification_score !== null && ad.ai_verification_score !== undefined && (
+                              <span className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-bold ${
+                                Number(ad.ai_verification_score) >= 60
+                                  ? 'bg-red-500/10 text-red-600 border-red-500/20'
+                                  : Number(ad.ai_verification_score) >= 30
+                                  ? 'bg-orange-500/10 text-orange-600 border-orange-500/20'
+                                  : 'bg-green-500/10 text-green-600 border-green-500/20'
+                              }`}>
+                                {Number(ad.ai_verification_score) >= 60
+                                  ? <ShieldX className="w-2.5 h-2.5" />
+                                  : Number(ad.ai_verification_score) >= 30
+                                  ? <ShieldAlert className="w-2.5 h-2.5" />
+                                  : <ShieldCheck className="w-2.5 h-2.5" />}
+                                AI {ad.ai_verification_score}/100
+                              </span>
+                            )}
                             <span className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full border font-medium ${statusInfo.cls}`}>
                               <StatusIcon className="w-3 h-3" />
                               {statusInfo.label}
@@ -395,6 +451,63 @@ export default function MyAdsPage() {
                   ) : (
                     <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
                       No impression data in the last 7 days
+                    </div>
+                  )}
+                </div>
+
+                {/* Ad Performance Heatmap */}
+                <div className="bg-card border border-border rounded-2xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <BarChart3 className="w-5 h-5 text-primary" />
+                    <h3 className="font-bold">7-Day Ad Activity Heatmap</h3>
+                    <span className="text-xs text-muted-foreground">(top 5 ads)</span>
+                  </div>
+                  {loadingHeatmap ? (
+                    <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+                  ) : heatmapData.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-4">No impression data yet</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-24 shrink-0" />
+                        <div className="flex gap-1 flex-1">
+                          {heatmapData[0]?.days.map(d => (
+                            <span key={d.date} className="flex-1 text-[9px] text-muted-foreground text-center font-mono">{d.date}</span>
+                          ))}
+                        </div>
+                      </div>
+                      {heatmapData.map(adRow => {
+                        const maxImpr = Math.max(...adRow.days.map(d => d.impressions), 1);
+                        return (
+                          <div key={adRow.adId} className="flex items-center gap-2">
+                            <span className="w-24 shrink-0 text-[10px] font-semibold text-muted-foreground truncate">{adRow.adTitle}</span>
+                            <div className="flex gap-1 flex-1">
+                              {adRow.days.map(d => {
+                                const intensity = d.impressions === 0 ? 0 : Math.max(0.12, d.impressions / maxImpr);
+                                return (
+                                  <div key={d.date}
+                                    title={d.date + ': ' + d.impressions + ' impr, ' + d.clicks + ' clicks'}
+                                    className="flex-1 h-8 rounded-md transition-all cursor-default flex items-center justify-center"
+                                    style={{ backgroundColor: d.impressions === 0 ? 'hsl(var(--muted))' : 'rgba(99,102,241,' + intensity + ')' }}>
+                                    {d.clicks > 0 && (
+                                      <span className="text-[8px] font-bold text-white drop-shadow">{d.clicks}</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="flex items-center gap-2 justify-end">
+                        <span className="text-[9px] text-muted-foreground">Low</span>
+                        <div className="flex gap-0.5">
+                          {[0.12, 0.3, 0.5, 0.7, 1.0].map(op => (
+                            <div key={op} className="w-4 h-3 rounded-sm" style={{ backgroundColor: 'rgba(99,102,241,' + op + ')' }} />
+                          ))}
+                        </div>
+                        <span className="text-[9px] text-muted-foreground">High · numbers = clicks</span>
+                      </div>
                     </div>
                   )}
                 </div>

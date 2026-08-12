@@ -4,12 +4,41 @@ import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, AlertTriangle, Shield, Ban, TrendingDown } from 'lucide-react';
+import { Loader2, AlertTriangle, Shield, Ban, TrendingDown, RefreshCw, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend,
+} from 'recharts';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 function FraudAdBanner() { return <PageAdBanner />; }
+
+// Pure module-level helper — esbuild guard
+function buildChartSeries(rows: any[]): { date: string; low: number; medium: number; high: number; critical: number }[] {
+  const map: { [d: string]: { low: number; medium: number; high: number; critical: number } } = {};
+  const result: { date: string; low: number; medium: number; high: number; critical: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const iso = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    map[iso] = { low: 0, medium: 0, high: 0, critical: 0 };
+  }
+  for (const row of rows) {
+    const d = String(row.created_at ?? '').slice(0, 10);
+    const sev = String(row.severity ?? 'low');
+    if (map[d]) {
+      if (sev === 'low') map[d].low++;
+      else if (sev === 'medium') map[d].medium++;
+      else if (sev === 'high') map[d].high++;
+      else if (sev === 'critical') map[d].critical++;
+    }
+  }
+  const keys = Object.keys(map).sort();
+  for (const k of keys) {
+    result.push({ date: k.slice(5), ...map[k] });
+  }
+  return result;
+}
 
 interface FraudAlert {
   user_id: string;
@@ -29,6 +58,8 @@ export default function FraudDetection() {
   const [loading, setLoading] = useState(true);
   const [alerts, setAlerts] = useState<FraudAlert[]>([]);
   const [blockedUsers, setBlockedUsers] = useState<Set<string>>(new Set());
+  const [chartData, setChartData] = useState<{ date: string; low: number; medium: number; high: number; critical: number }[]>([]);
+  const [loadingChart, setLoadingChart] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -50,6 +81,21 @@ export default function FraudDetection() {
       return;
     }
     analyzeFraud();
+    fetchChartData();
+  };
+
+  const fetchChartData = async () => {
+    setLoadingChart(true);
+    try {
+      const since = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data } = await supabase
+        .from('fraud_alerts')
+        .select('severity, created_at')
+        .gte('created_at', since)
+        .order('created_at', { ascending: true });
+      setChartData(buildChartSeries(data ?? []));
+    } catch (_) { /* non-critical */ }
+    setLoadingChart(false);
   };
 
   const analyzeFraud = async () => {
@@ -188,7 +234,39 @@ export default function FraudDetection() {
       <FraudAdBanner />
 
       <div className="max-w-6xl mx-auto p-6">
-        {/* Stats Overview */}
+        {/* 30-Day Fraud Alert Chart */}
+        <div className="bg-card border border-border rounded-xl p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-primary" />
+              <h2 className="font-bold">30-Day Fraud Alert Trend</h2>
+            </div>
+            <button onClick={fetchChartData} disabled={loadingChart} className="text-muted-foreground hover:text-foreground">
+              <RefreshCw className={`w-4 h-4 ${loadingChart ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          {chartData.some(d => d.low > 0 || d.medium > 0 || d.high > 0 || d.critical > 0) ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} interval={6} stroke="hsl(var(--muted-foreground))" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid hsl(var(--border))' }} />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                <Line type="monotone" dataKey="low" name="Low" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="medium" name="Medium" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="high" name="High" stroke="#f97316" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="critical" name="Critical" stroke="#ef4444" strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-28 text-muted-foreground text-sm">
+              {loadingChart ? <Loader2 className="w-6 h-6 animate-spin text-primary" /> : 'No fraud alerts in the last 30 days'}
+            </div>
+          )}
+        </div>
+
+      {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <div className="border border-border rounded-xl p-6">
             <div className="flex items-center gap-2 mb-2">

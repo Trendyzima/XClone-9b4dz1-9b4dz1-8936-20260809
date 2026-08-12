@@ -15,6 +15,15 @@ import { formatNumber } from '@/lib/utils';
 
 // Module-level constants — esbuild-safe
 const TEAM_CHAT_EMOJIS = ['👍', '❤️', '🔥', '🎉', '💯', '👏'] as const;
+// Pure helper — replaces Object.entries in render scope (esbuild guard)
+function getReactionEntries(reacts: any): { emoji: string; count: number }[] {
+  const result: { emoji: string; count: number }[] = [];
+  const keys = Object.keys(reacts ?? {});
+  for (let i = 0; i < keys.length; i++) {
+    result.push({ emoji: keys[i], count: Number(reacts[keys[i]] ?? 0) });
+  }
+  return result;
+}
 
 // Pure function replaces index-signature object (esbuild guard)
 function getDeptColor(dept: string): string {
@@ -270,10 +279,10 @@ export default function TeamChatPage() {
                   {/* Reactions */}
                   {Object.keys(msgReactions).length > 0 && (
                     <div className="flex gap-1 flex-wrap px-1">
-                      {Object.entries(msgReactions).map(([emoji, count]) => (
-                        <button key={emoji} onClick={() => handleReaction(msg.id, emoji)}
+                      {getReactionEntries(msgReactions).map(re => (
+                        <button key={re.emoji} onClick={() => handleReaction(msg.id, re.emoji)}
                           className="flex items-center gap-0.5 text-[11px] bg-muted/80 hover:bg-muted border border-border rounded-full px-1.5 py-0.5">
-                          {emoji}<span className="text-[10px] font-bold text-muted-foreground">{count as number}</span>
+                          {re.emoji}<span className="text-[10px] font-bold text-muted-foreground">{re.count}</span>
                         </button>
                       ))}
                     </div>

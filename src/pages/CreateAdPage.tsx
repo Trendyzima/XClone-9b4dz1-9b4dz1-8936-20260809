@@ -112,6 +112,15 @@ export default function CreateAdPage() {
       if (adError) throw adError;
       setAdId(adData.id);
 
+      // ── Background AI content moderation — fire and forget ──────────────────
+      // Do NOT await — runs in background without blocking user flow
+      supabase.functions.invoke('ai-moderation', {
+        body: { ad_id: adData.id, ad_title: title.trim(), ad_description: description.trim(), ad_image_url: imageUrl ?? null },
+      }).then(({ data: aiData }) => {
+        // AI result processed server-side — just log for debugging
+        console.log('Ad AI check:', aiData?.action, 'score:', aiData?.overall_score);
+      }).catch(() => { /* non-critical — regulator still sees the ad */ });
+
       // Notify all admins of the new pending ad (supplement DB trigger)
       try {
         const { data: adminRows } = await supabase.from('admin_users').select('user_id');

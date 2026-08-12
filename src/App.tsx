@@ -87,6 +87,8 @@ const PodcastAnalyticsPage = lazy(() => import('@/pages/PodcastAnalyticsPage'));
 const TeamChatPage = lazy(() => import('@/pages/TeamChatPage'));
 const AppealsPage = lazy(() => import('@/pages/AppealsPage'));
 
+const ContentPolicyPage = lazy(() => import('@/pages/ContentPolicyPage'));
+
 function PageLoader() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
@@ -199,6 +201,7 @@ function AppInner() {
               <Route path="/podcasts/analytics" element={<PodcastAnalyticsPage />} />
               <Route path="/team-chat" element={<TeamChatPage />} />
               <Route path="/appeals" element={<AppealsPage />} />
+              <Route path="/policy" element={<ContentPolicyPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
