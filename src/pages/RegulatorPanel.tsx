@@ -4,13 +4,13 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { TopBar } from '@/components/layout/TopBar';
 import { useIsRegulator, FEATURE_KEYS, FEATURE_LABELS, type FeatureKey } from '@/hooks/useFeatureUnlock';
-import {
-  Shield, Users, Unlock, Lock, Check, X, Loader2, Search,
+import { Shield, Users, Unlock, Lock, Check, X, Loader2, Search,
   UserPlus, Briefcase, Trash2, Crown, Settings, ChevronRight,
   BarChart3, Bell, Star, Eye, TrendingUp, AlertTriangle,
   DollarSign, Wallet, Send, Megaphone, RefreshCw, Activity,
   ArrowUpRight, ArrowDownRight, Ban, AlertCircle, CheckCircle,
   XCircle, Zap, ShieldAlert, Flag, MessageSquare, BadgeCheck,
+  Download, FileText, BadgeX,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
@@ -108,10 +108,12 @@ export default function RegulatorPanel() {
   // ── Moderation ────────────────────────────────────────────────────────────
   const [modLogs, setModLogs] = useState<any[]>([]);
   const [bannedUsers, setBannedUsers] = useState<any[]>([]);
+  const [pendingAppeals, setPendingAppeals] = useState<any[]>([]);
   const [loadingMod, setLoadingMod] = useState(false);
   const [scanningPosts, setScanningPosts] = useState(false);
   const [scanResult, setScanResult] = useState<{ scanned: number; flagged: number; banned: number } | null>(null);
   const [modFilter, setModFilter] = useState<'all' | 'flag' | 'auto_ban' | 'unreviewed'>('unreviewed');
+  const [appealNote, setAppealNote] = useState<{ [id: string]: string }>({});
 
   useEffect(() => {
     if (!isReg) { navigate('/'); return; }
@@ -209,6 +211,43 @@ export default function RegulatorPanel() {
     toast.success(`@${username} removed from employees`);
     fetchEmployees();
   }, [fetchEmployees]);
+
+  // Grant verified badge
+  const handleGrantVerified = useCallback(async (empUserId: string, username: string, isVerified: boolean) => {
+    await supabase.from('user_profiles').update({ verified: !isVerified }).eq('id', empUserId);
+    if (!isVerified) {
+      await supabase.from('platform_inbox').insert({
+        user_id: empUserId,
+        subject: '✅ You are now verified on Testagram!',
+        body: 'The platform regulator has granted you a verified badge. Your profile now shows the blue checkmark ✓',
+        type: 'update', icon_emoji: '✅',
+      }).catch(() => {});
+      toast.success(`@${username} verified!`);
+    } else {
+      toast.success(`@${username} unverified`);
+    }
+    fetchEmployees();
+  }, [fetchEmployees]);
+
+  // Export payroll CSV
+  const handleExportPayroll = useCallback(() => {
+    if (employees.length === 0) { toast.error('No employees to export'); return; }
+    const rows = ['Username,Job Title,Department,Revenue Share %,Est. Dollar Amount'];
+    for (const emp of employees) {
+      const pct = emp.permissions?.revenue_share_pct ?? 0;
+      const amt = (platformRevenue * pct / 100).toFixed(2);
+      rows.push(`"${emp.user_profiles?.username ?? ''}","${emp.job_title}","${emp.department}",${pct},$${amt}`);
+    }
+    const csv = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payroll_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Payroll CSV downloaded!');
+  }, [employees, platformRevenue]);
 
   // ── Revenue share ──────────────────────────────────────────────────────────
   const handleSaveRevShare = useCallback(async (empId: string, empUserId: string, username: string) => {
@@ -341,7 +380,7 @@ export default function RegulatorPanel() {
   // ── Moderation ────────────────────────────────────────────────────────────
   const fetchModeration = useCallback(async () => {
     setLoadingMod(true);
-    const [logsRes, bansRes] = await Promise.all([
+    const [logsRes, bansRes, appealsRes] = await Promise.all([
       supabase.from('content_moderation_logs')
         .select('*, user_profiles:user_id(id, username, avatar_url), posts(content)')
         .neq('action', 'pass')
@@ -352,9 +391,15 @@ export default function RegulatorPanel() {
         .eq('is_active', true)
         .order('banned_at', { ascending: false })
         .limit(20),
+      supabase.from('moderation_appeals')
+        .select('*, user_profiles:user_id(id, username, avatar_url)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(20),
     ]);
     setModLogs(logsRes.data ?? []);
     setBannedUsers(bansRes.data ?? []);
+    setPendingAppeals(appealsRes.data ?? []);
     setLoadingMod(false);
   }, []);
 
@@ -405,6 +450,47 @@ export default function RegulatorPanel() {
     toast.success(`@${username}'s ban lifted`);
     fetchModeration();
   }, [user, fetchModeration]);
+
+  // Reset strikes
+  const handleResetStrikes = useCallback(async (userId: string, username: string) => {
+    await supabase.from('user_profiles').update({ strike_count: 0 }).eq('id', userId);
+    await supabase.from('platform_inbox').insert({
+      user_id: userId,
+      subject: '🔄 Strike count reset',
+      body: 'The platform regulator has reset your strike count to 0, giving you a clean slate. Please ensure future content complies with community guidelines.',
+      type: 'update', icon_emoji: '🔄',
+    }).catch(() => {});
+    toast.success(`Strikes reset for @${username}`);
+    fetchModeration();
+  }, [fetchModeration]);
+
+  // Appeal review
+  const handleReviewAppeal = useCallback(async (appealId: string, decision: 'approved' | 'denied', appeal: any) => {
+    if (!user) return;
+    const note = appealNote[appealId]?.trim() ?? '';
+    await supabase.from('moderation_appeals').update({
+      status: decision,
+      reviewed_by: user.id,
+      reviewed_at: new Date().toISOString(),
+      regulator_note: note || null,
+    }).eq('id', appealId);
+    if (decision === 'approved' && appeal.ban_id) {
+      await supabase.from('user_bans').update({ is_active: false, lifted_at: new Date().toISOString(), lifted_by: user.id }).eq('id', appeal.ban_id);
+      await supabase.from('user_profiles').update({ is_blocked: false }).eq('id', appeal.user_id);
+    }
+    const msgBody = decision === 'approved'
+      ? `Great news! Your appeal has been approved. Your account restriction has been lifted.${note ? '\n\nNote: ' + note : ''}`
+      : `Your appeal has been reviewed and unfortunately could not be approved at this time.${note ? '\n\nNote: ' + note : ''}\n\nYou may submit a new appeal if your circumstances change.`;
+    await supabase.from('platform_inbox').insert({
+      user_id: appeal.user_id,
+      subject: decision === 'approved' ? '✅ Appeal Approved' : '❌ Appeal Denied',
+      body: msgBody,
+      type: 'update', icon_emoji: decision === 'approved' ? '✅' : '❌',
+    }).catch(() => {});
+    toast.success(`Appeal ${decision}`);
+    setAppealNote(prev => { const n = { ...prev }; delete n[appealId]; return n; });
+    fetchModeration();
+  }, [user, appealNote, fetchModeration]);
 
   const handleReviewLog = useCallback(async (logId: string, decision: 'confirm' | 'dismiss') => {
     if (!user) return;
@@ -565,6 +651,10 @@ export default function RegulatorPanel() {
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl text-xs font-bold hover:bg-primary/15 transition-colors">
                   <MessageSquare className="w-3 h-3" />Chat
                 </button>
+                <button onClick={handleExportPayroll}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-muted border border-border rounded-xl text-xs font-bold hover:bg-muted/80 transition-colors">
+                  <Download className="w-3 h-3" />CSV
+                </button>
                 <button onClick={() => setShowHireDialog(true)}
                   className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:opacity-90">
                   <UserPlus className="w-3.5 h-3.5" />Hire
@@ -643,8 +733,8 @@ export default function RegulatorPanel() {
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 flex-1">
-                            <span className="text-[11px] text-muted-foreground">Revenue share:</span>
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="text-[11px] text-muted-foreground">Revenue share:</span>
                             <span className={`text-[11px] font-black ${revPct > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
                               {revPct > 0 ? `${revPct}% = $${revAmount.toFixed(2)}` : 'Not set'}
                             </span>
@@ -654,6 +744,25 @@ export default function RegulatorPanel() {
                             </button>
                           </div>
                         )}
+                      </div>
+                    </div>
+                      {/* Grant Verified button */}
+                      <div className="mt-2 pt-2 border-t border-border flex items-center gap-2">
+                        <BadgeCheck className={`w-3 h-3 shrink-0 ${emp.user_profiles?.verified ? 'text-primary' : 'text-muted-foreground'}`} />
+                        <span className="text-[11px] text-muted-foreground flex-1">
+                          {emp.user_profiles?.verified ? 'Verified badge granted' : 'Not verified'}
+                        </span>
+                        <button
+                          onClick={() => handleGrantVerified(emp.user_profiles?.id, emp.user_profiles?.username, emp.user_profiles?.verified ?? false)}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all ${
+                            emp.user_profiles?.verified
+                              ? 'border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive/10'
+                              : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
+                          }`}>
+                          {emp.user_profiles?.verified
+                            ? <><BadgeX className="w-3 h-3" />Remove ✓</>
+                            : <><BadgeCheck className="w-3 h-3" />Grant ✓</>}
+                        </button>
                       </div>
                     </div>
                   );
@@ -1026,8 +1135,7 @@ export default function RegulatorPanel() {
               </div>
             </div>
 
-            {/* Active bans */}
-            {bannedUsers.length > 0 && (
+              {bannedUsers.length > 0 && (
               <div className="bg-card border border-red-500/20 rounded-2xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-red-500/15 flex items-center gap-2 bg-red-500/5">
                   <Ban className="w-4 h-4 text-red-500" />
@@ -1047,10 +1155,56 @@ export default function RegulatorPanel() {
                           Strike {ban.strike_count ?? 1}/3 · {ban.ban_type === 'permanent' ? '🚫 Permanent' : `Expires ${ban.expires_at ? formatDistanceToNow(new Date(ban.expires_at), { addSuffix: true }) : '—'}`}
                         </p>
                       </div>
-                      <button onClick={() => handleLiftBan(ban.id, ban.user_profiles?.id, ban.user_profiles?.username)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/10 text-green-600 border border-green-500/20 rounded-xl text-[10px] font-bold hover:bg-green-500/20">
-                        <CheckCircle className="w-3 h-3" />Lift
-                      </button>
+                      <div className="flex flex-col gap-1 shrink-0">
+                        <button onClick={() => handleLiftBan(ban.id, ban.user_profiles?.id, ban.user_profiles?.username)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/10 text-green-600 border border-green-500/20 rounded-xl text-[10px] font-bold hover:bg-green-500/20">
+                          <CheckCircle className="w-3 h-3" />Lift
+                        </button>
+                        <button onClick={() => handleResetStrikes(ban.user_profiles?.id, ban.user_profiles?.username)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/10 text-blue-600 border border-blue-500/20 rounded-xl text-[10px] font-bold hover:bg-blue-500/20">
+                          <RefreshCw className="w-3 h-3" />Reset
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pending Appeals */}
+            {pendingAppeals.length > 0 && (
+              <div className="bg-card border border-blue-500/20 rounded-2xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-blue-500/15 flex items-center gap-2 bg-blue-500/5">
+                  <FileText className="w-4 h-4 text-blue-500" />
+                  <h3 className="font-bold text-sm text-blue-600">Pending Appeals ({pendingAppeals.length})</h3>
+                </div>
+                <div className="divide-y divide-border">
+                  {pendingAppeals.map((appeal: any) => (
+                    <div key={appeal.id} className="p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0">
+                          {appeal.user_profiles?.avatar_url ? <img src={appeal.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-[9px] font-bold">{appeal.user_profiles?.username?.[0]?.toUpperCase()}</div>}
+                        </div>
+                        <span className="text-sm font-bold">@{appeal.user_profiles?.username}</span>
+                        <span className="text-[10px] text-muted-foreground ml-auto">{formatDistanceToNow(new Date(appeal.created_at), { addSuffix: true })}</span>
+                      </div>
+                      <div className="bg-muted/40 rounded-xl px-3 py-2">
+                        <p className="text-xs text-foreground leading-relaxed line-clamp-4">"{appeal.reason}"</p>
+                      </div>
+                      <input type="text" value={appealNote[appeal.id] ?? ''}
+                        onChange={e => setAppealNote(prev => ({ ...prev, [appeal.id]: e.target.value }))}
+                        placeholder="Add a note (optional)"
+                        className="w-full h-9 px-3 bg-background border border-border rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                      <div className="flex gap-2">
+                        <button onClick={() => handleReviewAppeal(appeal.id, 'approved', appeal)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-500/10 text-green-600 border border-green-500/20 rounded-xl text-xs font-bold hover:bg-green-500/15">
+                          <CheckCircle className="w-3.5 h-3.5" />Approve & Lift Ban
+                        </button>
+                        <button onClick={() => handleReviewAppeal(appeal.id, 'denied', appeal)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-500/10 text-red-600 border border-red-500/20 rounded-xl text-xs font-bold hover:bg-red-500/15">
+                          <XCircle className="w-3.5 h-3.5" />Deny
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

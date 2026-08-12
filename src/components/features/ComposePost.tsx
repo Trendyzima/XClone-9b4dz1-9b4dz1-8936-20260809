@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { pingGoogleSitemap } from '@/lib/pingGoogle';
 import { Button } from '@/components/ui/button';
@@ -55,6 +56,13 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   // Embed dialog
   const [showEmbedDialog, setShowEmbedDialog] = useState(false);
   const [embedUrl, setEmbedUrl] = useState('');
+
+  // ── Real-time violation alert ──────────────────────────────────────────────
+  const [showViolationWarning, setShowViolationWarning] = useState(false);
+  const [violationScore, setViolationScore] = useState(0);
+  const [violationReason, setViolationReason] = useState('');
+  const [checkingContent, setCheckingContent] = useState(false);
+  const violationCheckedRef = useRef(false);
   const [embedPlatform, setEmbedPlatform] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -222,9 +230,44 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const handleSchedule = (date: Date) => { setScheduledDate(date); setShowScheduleDialog(false); sonnerToast.success('Post scheduled'); };
   const handleProductsSelected = (products: any[]) => { setTaggedProducts(products); sonnerToast.success(`${products.length} product(s) tagged`); };
 
+  // ── Check content for policy violations before posting ────────────────────
+  const checkContentViolation = async (postContent: string): Promise<boolean> => {
+    if (!postContent.trim() || postContent.trim().length < 10) return true;
+    if (violationCheckedRef.current) return true;
+    setCheckingContent(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-moderation', {
+        body: { content: postContent.trim() },
+      });
+      if (error) {
+        // On error, allow posting — don't block user
+        return true;
+      }
+      const score = data?.overall_score ?? 0;
+      const action = data?.action ?? 'pass';
+      if (action === 'flag' || (action === 'auto_ban' && score >= 50)) {
+        setViolationScore(score);
+        setViolationReason(data?.reason ?? 'Potential policy violation detected');
+        setShowViolationWarning(true);
+        setCheckingContent(false);
+        return false; // block posting — show warning
+      }
+    } catch {
+      // Silently allow on error
+    }
+    setCheckingContent(false);
+    return true;
+  };
+
   // ── Post handler ──────────────────────────────────────────────────────────
   const handlePost = async () => {
     if (!content.trim() && images.length === 0 && !video && !gifUrl && !pollData) return;
+    // Real-time violation check before posting
+    if (content.trim() && !violationCheckedRef.current) {
+      const canPost = await checkContentViolation(content);
+      if (!canPost) return; // show warning dialog instead
+    }
+    violationCheckedRef.current = false; // reset for next post
     setLoading(true);
     try {
       let imageUrls: string[] = [];
@@ -731,7 +774,40 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
             </div>
           )}
 
-          {showGifDialog && (
+              {/* Real-time Violation Warning Dialog */}
+          {showViolationWarning && (
+            <div className="fixed inset-0 z-[400] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowViolationWarning(false)}>
+              <div className="bg-background border border-orange-500/30 rounded-2xl p-5 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center shrink-0">
+                    <span className="text-xl">⚠️</span>
+                  </div>
+                  <div>
+                    <h3 className="font-black text-base">Policy Warning</h3>
+                    <p className="text-xs text-muted-foreground">Score: {violationScore}/100</p>
+                  </div>
+                  <button onClick={() => setShowViolationWarning(false)} className="ml-auto text-muted-foreground"><X className="w-4 h-4" /></button>
+                </div>
+                <p className="text-sm text-muted-foreground mb-1">AI detected potential policy violation:</p>
+                <p className="text-sm font-semibold text-orange-600 mb-4">{violationReason}</p>
+                <p className="text-xs text-muted-foreground mb-4">You can edit your post or post anyway. Repeated violations may result in account restrictions.</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowViolationWarning(false)}
+                    className="flex-1 py-2.5 border border-border rounded-xl text-sm font-bold hover:bg-muted">Edit Post</button>
+                  <button
+                    onClick={() => {
+                      setShowViolationWarning(false);
+                      violationCheckedRef.current = true; // skip next check
+                      setTimeout(handlePost, 50);
+                    }}
+                    className="flex-1 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-bold hover:opacity-90">
+                    Post Anyway
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+      {showGifDialog && (
             <GifPicker
               onSelect={url => { setGifUrl(url); setImages([]); setVideo(null); setShowGifDialog(false); }}
               onClose={() => setShowGifDialog(false)}

@@ -8,11 +8,13 @@ import {
   ShoppingBag, Calendar, Crown, Briefcase, Settings, HelpCircle,
   History, ChevronDown, ChevronUp, FileText, Wallet, Megaphone,
   Shield, LineChart, Globe, Flame, Trophy, UserSearch, Gift, BookOpen, Inbox,
+  MessageSquare,
 } from 'lucide-react';
 import { authService } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { formatNumber } from '@/lib/utils';
 import { useFediversePolling } from '@/hooks/useFediversePolling';
+import { useIsRegulator } from '@/hooks/useFeatureUnlock';
 
 interface Community {
   id: string;
@@ -26,11 +28,20 @@ export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const isReg = useIsRegulator();
   const [communities, setCommunities] = useState<Community[]>([]);
   const [trendingCommunities, setTrendingCommunities] = useState<Community[]>([]);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showCommunities, setShowCommunities] = useState(true);
   const [showTrending, setShowTrending] = useState(true);
+  const [isEmployee, setIsEmployee] = useState(false);
+
+  // Check employee status for team-chat link visibility
+  useEffect(() => {
+    if (!user || isReg) { setIsEmployee(isReg); return; }
+    supabase.from('employee_assignments').select('id').eq('user_id', user.id).eq('is_active', true).maybeSingle()
+      .then(({ data }) => setIsEmployee(!!data));
+  }, [user?.id, isReg]);
 
   // ── Unread counts ────────────────────────────────────────────────────────
   const [unreadNotifs, setUnreadNotifs] = useState(0);
@@ -178,6 +189,17 @@ export function Sidebar() {
     { icon: BookOpen, label: 'Series', path: '/series', requireAuth: false },
     { icon: Inbox, label: 'Wise Brain', path: '/platform-inbox', requireAuth: true },
   ];
+
+  // Team chat — employees & regulator only
+  const teamItems = isEmployee ? [
+    { icon: MessageSquare, label: 'Team Chat', path: '/team-chat', requireAuth: true },
+  ] : [];
+
+  // Regulator-only items
+  const regulatorItems = isReg ? [
+    { icon: Crown, label: 'Regulator Panel', path: '/regulator', requireAuth: true },
+    { icon: Shield, label: 'Appeals', path: '/appeals', requireAuth: true },
+  ] : [];
   // The error was here: an extra closing bracket `]` which caused "Parsing error: Declaration or statement expected."
   // Removing it fixes the syntax.
 
@@ -252,6 +274,38 @@ export function Sidebar() {
                   >
                     <Icon className="w-4 h-4" />
                     <span>{item.label}</span>
+                  </button>
+                );
+              })}
+
+              {/* Team Chat — employees only */}
+              {teamItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = location.pathname === item.path;
+                return (
+                  <button key={item.path} onClick={() => handleNavClick(item.path, item.requireAuth)}
+                    className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
+                      isActive ? 'bg-violet-500/15 text-violet-600 font-medium' : 'hover:bg-muted text-foreground'
+                    }`}>
+                    <Icon className="w-4 h-4 text-violet-500" />
+                    <span>{item.label}</span>
+                    <span className="ml-auto text-[9px] bg-violet-500/10 text-violet-600 font-bold px-1.5 py-0.5 rounded-full">Staff</span>
+                  </button>
+                );
+              })}
+
+              {/* Regulator items */}
+              {regulatorItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = location.pathname === item.path;
+                return (
+                  <button key={item.path} onClick={() => handleNavClick(item.path, item.requireAuth)}
+                    className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
+                      isActive ? 'bg-amber-500/15 text-amber-600 font-medium' : 'hover:bg-muted text-foreground'
+                    }`}>
+                    <Icon className="w-4 h-4 text-amber-500" />
+                    <span>{item.label}</span>
+                    <span className="ml-auto text-[9px] bg-amber-500/10 text-amber-600 font-bold px-1.5 py-0.5 rounded-full">👑</span>
                   </button>
                 );
               })}
