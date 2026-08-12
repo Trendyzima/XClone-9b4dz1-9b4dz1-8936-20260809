@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
@@ -14,16 +14,31 @@ import {
   Crown, Settings, UserPlus, MessageSquare, Image,
   BookOpen, Plus, Trash2, X,
   ShieldCheck, ShieldOff, MoreVertical, Pin, PinOff,
-  Camera, Check, Send, MessageCircle, Mail, Calendar
+  Camera, Check, Send, MessageCircle, Mail, Calendar,
+  Trophy, Flame, Heart, Radio, BadgeCheck,
+  CalendarDays, Clock, ChevronRight, BarChart3,
 } from 'lucide-react';
 import { SchedulePostDialog } from '@/components/features/SchedulePostDialog';
+import { CreatePollDialog } from '@/components/features/CreatePollDialog';
+import { GifPicker } from '@/components/features/GifPicker';
 import { useSEO, buildCommunityLD, buildOgImageUrl } from '@/hooks/useSEO';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
 import { toast as sonnerToast } from 'sonner';
+import { formatDistanceToNow, isPast } from 'date-fns';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 function CommunityAdBanner() { return <PageAdBanner />; }
+
+// ── Module-level constants (esbuild-safe) ────────────────────────────────────
+const CHAT_EMOJIS = ['❤️', '🔥', '😂', '👏', '🎉', '💯'] as const;
+const COMM_TAB_LIST = ['posts', 'members', 'chat', 'events'] as const;
+type CommPageTab = typeof COMM_TAB_LIST[number];
+
+// GIF URL pattern — detect Tenor/Giphy URLs in chat messages
+const GIF_URL_RE = /^https:\/\/(media\.tenor|c\.tenor|media1\.tenor|media\.giphy|i\.giphy)\.com\//;
+
+interface FloatingReaction { id: string; emoji: string; x: number; }
 
 interface Community {
   id: string;
@@ -36,6 +51,7 @@ interface Community {
   post_count: number;
   created_by: string;
   is_private: boolean;
+  rules?: any[];
 }
 
 interface CommunityMember {
@@ -69,21 +85,20 @@ export default function CommunityPage() {
     keywords: community ? `${community.display_name}, ${community.name}, community, testagram` : undefined,
     structuredData: community ? buildCommunityLD(community) : undefined,
   });
+
   const [posts, setPosts] = useState<Post[]>([]);
   const [isMember, setIsMember] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
   const [members, setMembers] = useState<CommunityMember[]>([]);
-  const [activeTab, setActiveTab] = useState<'posts' | 'members' | 'chat'>('posts');
+  const [activeTab, setActiveTab] = useState<CommPageTab>('posts');
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [editingRules, setEditingRules] = useState(false);
   const [rules, setRules] = useState<string[]>([]);
   const [newRuleText, setNewRuleText] = useState('');
   const [savingRules, setSavingRules] = useState(false);
-  // Role management
   const [promotingMemberId, setPromotingMemberId] = useState<string | null>(null);
   const [showRoleMenu, setShowRoleMenu] = useState<string | null>(null);
-  // Edit community state (owner/admin)
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editForm, setEditForm] = useState({ display_name: '', description: '' });
   const [editIconFile, setEditIconFile] = useState<File | null>(null);
@@ -92,64 +107,268 @@ export default function CommunityPage() {
   const [editBannerPreview, setEditBannerPreview] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  const openEditDialog = () => {
-    if (!community) return;
-    setEditForm({ display_name: community.display_name, description: community.description ?? '' });
-    setEditIconPreview(community.icon_url ?? null);
-    setEditBannerPreview(community.banner_url ?? null);
-    setEditIconFile(null);
-    setEditBannerFile(null);
-    setShowEditDialog(true);
-  };
+  // ── Weekly Digest ──────────────────────────────────────────────────────────
+  const [digestPosts, setDigestPosts] = useState<any[]>([]);
+  const [showDigest, setShowDigest] = useState(true);
 
-  const handleSaveEdit = async () => {
-    if (!community) return;
-    setSavingEdit(true);
-    try {
-      let iconUrl = community.icon_url ?? null;
-      let bannerUrl = community.banner_url ?? null;
+  const fetchWeeklyDigest = useCallback(async (communityId: string) => {
+    const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
+    const { data } = await supabase
+      .from('posts')
+      .select('id, content, image_url, likes_count, replies_count, views_count, created_at, user_profiles(username, avatar_url, verified)')
+      .eq('community_id', communityId)
+      .gte('created_at', since7d)
+      .order('likes_count', { ascending: false })
+      .limit(3);
+    setDigestPosts(data ?? []);
+  }, []);
 
-      const uploadImage = async (file: File, path: string) => {
-        const ext = file.name.split('.').pop();
-        const fileName = `${path}/${Date.now()}.${ext}`;
-        const { error } = await supabase.storage.from('posts').upload(fileName, file, { upsert: true });
-        if (error) throw error;
-        const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(fileName);
-        return publicUrl;
-      };
+  // ── Related live spaces ────────────────────────────────────────────────────
+  const [relatedSpaces, setRelatedSpaces] = useState<any[]>([]);
 
-      if (editIconFile) iconUrl = await uploadImage(editIconFile, `communities/icons/${user!.id}`);
-      if (editBannerFile) bannerUrl = await uploadImage(editBannerFile, `communities/banners/${user!.id}`);
-
-      const { error } = await supabase
-        .from('communities')
-        .update({
-          display_name: editForm.display_name.trim() || community.display_name,
-          description: editForm.description.trim(),
-          icon_url: iconUrl,
-          banner_url: bannerUrl,
-        })
-        .eq('id', community.id);
-
-      if (error) throw error;
-
-      setCommunity(prev => prev ? {
-        ...prev,
-        display_name: editForm.display_name.trim() || prev.display_name,
-        description: editForm.description.trim(),
-        icon_url: iconUrl ?? prev.icon_url,
-        banner_url: bannerUrl ?? prev.banner_url,
-      } : null);
-      setShowEditDialog(false);
-      sonnerToast.success('Community updated!');
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
-    } finally {
-      setSavingEdit(false);
+  const fetchRelatedSpaces = useCallback(async (communityName: string, communityDisplayName: string) => {
+    const keyword = communityDisplayName.split(' ')[0];
+    const { data } = await supabase
+      .from('spaces')
+      .select('id, title, listener_count, host:user_profiles!spaces_host_id_fkey(username, avatar_url, verified), category')
+      .eq('is_live', true)
+      .ilike('title', `%${keyword}%`)
+      .limit(3);
+    if (!data || data.length === 0) {
+      const { data: fallback } = await supabase
+        .from('spaces')
+        .select('id, title, listener_count, host:user_profiles!spaces_host_id_fkey(username, avatar_url, verified), category')
+        .eq('is_live', true)
+        .order('listener_count', { ascending: false })
+        .limit(3);
+      setRelatedSpaces(fallback ?? []);
+    } else {
+      setRelatedSpaces(data);
     }
+  }, []);
+
+  // ── Chat + reactions ───────────────────────────────────────────────────────
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; username: string } | null>(null);
+  const [showEmojiPickerFor, setShowEmojiPickerFor] = useState<string | null>(null);
+  const [messageReactions, setMessageReactions] = useState<{ [msgId: string]: { [emoji: string]: number } }>({});
+  const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
+  const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
+  const chatPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const reactionsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Chat GIF picker ────────────────────────────────────────────────────────
+  const [showChatGifPicker, setShowChatGifPicker] = useState(false);
+
+  const handleSendGif = useCallback(async (gifUrl: string) => {
+    if (!user || !community || chatSending) return;
+    setShowChatGifPicker(false);
+    setChatSending(true);
+    await supabase.from('community_chat').insert({
+      community_id: community.id,
+      user_id: user.id,
+      message: gifUrl,
+    });
+    // fetchChat is defined below; call it via ref to avoid circular dependency
+    const rawData = await supabase
+      .from('community_chat')
+      .select('*, user_profiles(id, username, avatar_url, verified)')
+      .eq('community_id', community.id)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (rawData.data) setChatMessages(rawData.data);
+    setChatSending(false);
+  }, [user, community, chatSending]);
+
+  // ── Community Poll ─────────────────────────────────────────────────────────
+  const [showCommunityPollDialog, setShowCommunityPollDialog] = useState(false);
+
+  const handleCommunityPollCreated = useCallback(async (pollData: {
+    question: string; options: string[]; duration: number;
+  }) => {
+    if (!user || !community) return;
+    setShowCommunityPollDialog(false);
+    const { data: pollPost, error: ppErr } = await supabase
+      .from('posts')
+      .insert({ user_id: user.id, content: pollData.question, community_id: community.id })
+      .select().single();
+    if (ppErr || !pollPost) { sonnerToast.error('Failed to create poll post'); return; }
+    const pollExpAt = new Date(Date.now() + pollData.duration * 60 * 1000);
+    const { data: pollRow, error: prErr } = await supabase
+      .from('polls')
+      .insert({ post_id: pollPost.id, question: pollData.question, expires_at: pollExpAt.toISOString() })
+      .select().single();
+    if (prErr || !pollRow) { sonnerToast.error('Failed to create poll'); return; }
+    await supabase.from('poll_options').insert(
+      pollData.options.map((opt: string) => ({ poll_id: pollRow.id, option_text: opt }))
+    );
+    sonnerToast.success('Community poll created! 📊');
+    fetchPosts();
+  }, [user, community]);
+
+  const triggerFloat = useCallback((emoji: string) => {
+    const fr: FloatingReaction = { id: `${Date.now()}-${Math.random()}`, emoji, x: 20 + Math.random() * 60 };
+    setFloatingReactions(prev => [...prev, fr]);
+    if (reactionsTimerRef.current) clearTimeout(reactionsTimerRef.current);
+    reactionsTimerRef.current = setTimeout(() => {
+      setFloatingReactions(prev => prev.filter(r => r.id !== fr.id));
+    }, 2000);
+  }, []);
+
+  const fetchChat = useCallback(async () => {
+    if (!community) return;
+    const { data } = await supabase
+      .from('community_chat')
+      .select('*, user_profiles(id, username, avatar_url, verified)')
+      .eq('community_id', community.id)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (data) {
+      setChatMessages(data);
+      try {
+        const raw = localStorage.getItem(`chat_reactions_${community.id}`);
+        if (raw) setMessageReactions(JSON.parse(raw));
+      } catch { /* ignore */ }
+      const raw = localStorage.getItem(`chat_pinned_${community.id}`);
+      if (raw) setPinnedChatIds(JSON.parse(raw));
+    }
+  }, [community]);
+
+  const handleAddReaction = useCallback((msgId: string, emoji: string) => {
+    if (!community) return;
+    setMessageReactions(prev => {
+      const updated = { ...prev };
+      if (!updated[msgId]) updated[msgId] = {};
+      updated[msgId][emoji] = (updated[msgId][emoji] ?? 0) + 1;
+      localStorage.setItem(`chat_reactions_${community.id}`, JSON.stringify(updated));
+      return updated;
+    });
+    triggerFloat(emoji);
+    setShowEmojiPickerFor(null);
+  }, [community, triggerFloat]);
+
+  const handlePinChatMessage = useCallback((msgId: string) => {
+    if (!community) return;
+    setPinnedChatIds(prev => {
+      const updated = prev.includes(msgId) ? prev.filter(id => id !== msgId) : [...prev, msgId];
+      localStorage.setItem(`chat_pinned_${community.id}`, JSON.stringify(updated));
+      return updated;
+    });
+    setShowRoleMenu(null);
+  }, [community]);
+
+  useEffect(() => {
+    if (activeTab === 'chat' && community) {
+      fetchChat();
+      chatPollingRef.current = setInterval(fetchChat, 5000);
+    } else {
+      if (chatPollingRef.current) clearInterval(chatPollingRef.current);
+    }
+    return () => { if (chatPollingRef.current) clearInterval(chatPollingRef.current); };
+  }, [activeTab, community?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'chat') chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, activeTab]);
+
+  const handleSendChat = async () => {
+    if (!user || !community || !chatInput.trim() || chatSending) return;
+    const text = chatInput.trim();
+    const replyInfo = replyingTo;
+    setChatInput('');
+    setReplyingTo(null);
+    setChatSending(true);
+    const msgContent = replyInfo
+      ? `[↩ @${replyInfo.username}: "${replyInfo.text.slice(0, 40)}…"] ${text}`
+      : text;
+    await supabase.from('community_chat').insert({
+      community_id: community.id,
+      user_id: user.id,
+      message: msgContent,
+    });
+    await fetchChat();
+    setChatSending(false);
   };
 
-  // Community post scheduling
+  // ── Community Events ───────────────────────────────────────────────────────
+  const [events, setEvents] = useState<any[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [rsvpSet, setRsvpSet] = useState<Set<string>>(() => new Set<string>());
+  const [showCreateEvent, setShowCreateEvent] = useState(false);
+  const [eventForm, setEventForm] = useState({ title: '', description: '', scheduled_for: '' });
+  const [creatingEvent, setCreatingEvent] = useState(false);
+
+  const fetchEvents = useCallback(async (communityId: string) => {
+    setLoadingEvents(true);
+    const { data } = await supabase
+      .from('scheduled_posts')
+      .select('id, content, scheduled_for, created_at, user_profiles:user_id(username, avatar_url)')
+      .eq('user_id', community?.created_by ?? '')
+      .order('scheduled_for', { ascending: true })
+      .limit(20);
+    const commKey = `community_events_${communityId}`;
+    try {
+      const raw = localStorage.getItem(commKey);
+      const localEvents: any[] = raw ? JSON.parse(raw) : [];
+      const combined = [...localEvents, ...(data ?? [])];
+      const unique = combined.filter((e, i, arr) => arr.findIndex(x => x.id === e.id) === i);
+      setEvents(unique.sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()));
+    } catch {
+      setEvents(data ?? []);
+    }
+    try {
+      const rsvpRaw = localStorage.getItem(`rsvp_${communityId}`);
+      if (rsvpRaw) setRsvpSet(new Set(JSON.parse(rsvpRaw)));
+    } catch { /* ignore */ }
+    setLoadingEvents(false);
+  }, [community?.created_by]);
+
+  const handleRsvp = useCallback((eventId: string) => {
+    if (!community) return;
+    setRsvpSet(prev => {
+      const next = new Set(prev);
+      if (next.has(eventId)) next.delete(eventId); else next.add(eventId);
+      localStorage.setItem(`rsvp_${community.id}`, JSON.stringify([...next]));
+      sonnerToast.success(next.has(eventId) ? "You're going! 🎉" : 'RSVP cancelled');
+      return next;
+    });
+  }, [community]);
+
+  const handleCreateEvent = async () => {
+    if (!user || !community || !eventForm.title.trim() || !eventForm.scheduled_for) return;
+    setCreatingEvent(true);
+    const newEvent = {
+      id: `local_${Date.now()}`,
+      content: eventForm.title.trim() + (eventForm.description ? `\n\n${eventForm.description}` : ''),
+      scheduled_for: new Date(eventForm.scheduled_for).toISOString(),
+      created_at: new Date().toISOString(),
+      user_profiles: { username: user.username ?? 'you', avatar_url: null },
+    };
+    const commKey = `community_events_${community.id}`;
+    try {
+      const raw = localStorage.getItem(commKey);
+      const existing: any[] = raw ? JSON.parse(raw) : [];
+      existing.push(newEvent);
+      localStorage.setItem(commKey, JSON.stringify(existing));
+    } catch { /* ignore */ }
+    setEvents(prev => [...prev, newEvent].sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()));
+    setShowCreateEvent(false);
+    setEventForm({ title: '', description: '', scheduled_for: '' });
+    setCreatingEvent(false);
+    sonnerToast.success('Event added!');
+  };
+
+  useEffect(() => {
+    if (activeTab === 'events' && community) fetchEvents(community.id);
+  }, [activeTab, community?.id]);
+
+  // ── Pinned posts ───────────────────────────────────────────────────────────
+  const [pinnedPostIds, setPinnedPostIds] = useState<Set<string>>(() => new Set<string>());
+
+  // Schedule dialog
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [scheduleContent, setScheduleContent] = useState('');
 
@@ -171,84 +390,165 @@ export default function CommunityPage() {
     }
   };
 
-  // Chat room
-  const [chatMessages, setChatMessages] = useState<any[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [chatSending, setChatSending] = useState(false);
-  const chatPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
-
-  // Pinned posts
-  const [pinnedPostIds, setPinnedPostIds] = useState<Set<string>>(new Set());
-
-  const fetchChat = async () => {
+  const openEditDialog = () => {
     if (!community) return;
-    const { data } = await supabase
-      .from('community_chat')
-      .select('*, user_profiles(id, username, avatar_url, verified)')
-      .eq('community_id', community.id)
-      .order('created_at', { ascending: true })
-      .limit(80);
-    if (data) setChatMessages(data);
+    setEditForm({ display_name: community.display_name, description: community.description ?? '' });
+    setEditIconPreview(community.icon_url ?? null);
+    setEditBannerPreview(community.banner_url ?? null);
+    setEditIconFile(null);
+    setEditBannerFile(null);
+    setShowEditDialog(true);
   };
 
-  // Start/stop polling when chat tab is active
-  useEffect(() => {
-    if (activeTab === 'chat' && community) {
-      fetchChat();
-      chatPollingRef.current = setInterval(fetchChat, 5000);
-    } else {
-      if (chatPollingRef.current) clearInterval(chatPollingRef.current);
+  const handleSaveEdit = async () => {
+    if (!community) return;
+    setSavingEdit(true);
+    try {
+      let iconUrl = community.icon_url ?? null;
+      let bannerUrl = community.banner_url ?? null;
+      const uploadImage = async (file: File, path: string) => {
+        const ext = file.name.split('.').pop();
+        const fileName = `${path}/${Date.now()}.${ext}`;
+        const { error } = await supabase.storage.from('posts').upload(fileName, file, { upsert: true });
+        if (error) throw error;
+        const { data: { publicUrl } } = supabase.storage.from('posts').getPublicUrl(fileName);
+        return publicUrl;
+      };
+      if (editIconFile) iconUrl = await uploadImage(editIconFile, `communities/icons/${user!.id}`);
+      if (editBannerFile) bannerUrl = await uploadImage(editBannerFile, `communities/banners/${user!.id}`);
+      const { error } = await supabase.from('communities').update({
+        display_name: editForm.display_name.trim() || community.display_name,
+        description: editForm.description.trim(),
+        icon_url: iconUrl,
+        banner_url: bannerUrl,
+      }).eq('id', community.id);
+      if (error) throw error;
+      setCommunity(prev => prev ? {
+        ...prev,
+        display_name: editForm.display_name.trim() || prev.display_name,
+        description: editForm.description.trim(),
+        icon_url: iconUrl ?? prev.icon_url,
+        banner_url: bannerUrl ?? prev.banner_url,
+      } : null);
+      setShowEditDialog(false);
+      sonnerToast.success('Community updated!');
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSavingEdit(false);
     }
-    return () => { if (chatPollingRef.current) clearInterval(chatPollingRef.current); };
-  }, [activeTab, community?.id]);
-
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    if (activeTab === 'chat') chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, activeTab]);
-
-  const handleSendChat = async () => {
-    if (!user || !community || !chatInput.trim() || chatSending) return;
-    const text = chatInput.trim();
-    setChatInput('');
-    setChatSending(true);
-    await supabase.from('community_chat').insert({
-      community_id: community.id,
-      user_id: user.id,
-      message: text,
-    });
-    await fetchChat();
-    setChatSending(false);
   };
 
   useEffect(() => {
     if (name) fetchCommunity();
   }, [name, user]);
 
-  // Load pinned posts from community settings
   useEffect(() => {
     if (!community?.id) return;
-    supabase
-      .from('platform_settings')
-      .select('setting_value')
-      .eq('setting_key', `community_pinned_${community.id}`)
-      .maybeSingle()
+    supabase.from('platform_settings').select('setting_value')
+      .eq('setting_key', `community_pinned_${community.id}`).maybeSingle()
       .then(({ data }) => {
-        if (data?.setting_value?.pinned) {
-          setPinnedPostIds(new Set(data.setting_value.pinned));
-        }
+        if (data?.setting_value?.pinned) setPinnedPostIds(new Set(data.setting_value.pinned));
       });
   }, [community?.id]);
+
+  useEffect(() => {
+    if (community?.rules) {
+      setRules(Array.isArray(community.rules) ? community.rules.map((r: any) => typeof r === 'string' ? r : r.text ?? r.rule ?? String(r)) : []);
+    }
+  }, [community?.rules]);
+
+  useEffect(() => {
+    if (community && isMember) fetchPosts();
+    else if (community && !community.is_private) fetchPosts();
+  }, [community, isMember]);
+
+  useEffect(() => {
+    if (!community) return;
+    const sub = supabase
+      .channel(`community-posts-${community.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `community_id=eq.${community.id}` }, () => { fetchPosts(); })
+      .subscribe();
+    return () => { supabase.removeChannel(sub); };
+  }, [community?.id]);
+
+  useEffect(() => {
+    if (community?.id) {
+      fetchWeeklyDigest(community.id);
+      fetchRelatedSpaces(community.name, community.display_name);
+    }
+  }, [community?.id]);
+
+  const fetchCommunity = async () => {
+    if (!name) return;
+    try {
+      const { data, error } = await supabase.from('communities').select('*').eq('name', name).single();
+      if (error) throw error;
+      setCommunity(data);
+      if (user) {
+        const { data: memberData } = await supabase
+          .from('community_members').select('id, role')
+          .eq('community_id', data.id).eq('user_id', user.id).maybeSingle();
+        setIsMember(!!memberData);
+        if (memberData) setUserRole(memberData.role);
+      }
+      const { data: membersData } = await supabase
+        .from('community_members')
+        .select('*, user_profiles(username, avatar_url, verified)')
+        .eq('community_id', data.id)
+        .order('role', { ascending: true })
+        .limit(20);
+      if (membersData) setMembers(membersData);
+    } catch {
+      toast({ title: 'Community not found', variant: 'destructive' });
+      navigate('/communities');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchPosts = async () => {
+    if (!community) return;
+    setLoadingPosts(true);
+    try {
+      const { data } = await supabase.from('posts').select('*, user_profiles(*)')
+        .eq('community_id', community.id).order('created_at', { ascending: false });
+      if (data) setPosts(data);
+    } catch (err) {
+      console.error('fetchPosts error:', err);
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
+
+  const handleJoinToggle = async () => {
+    if (!user) { navigate('/auth'); return; }
+    if (!community) return;
+    try {
+      if (isMember) {
+        if (userRole === 'owner') {
+          toast({ title: 'Error', description: 'Owners cannot leave. Transfer ownership first.', variant: 'destructive' });
+          return;
+        }
+        await supabase.from('community_members').delete().match({ community_id: community.id, user_id: user.id });
+        setIsMember(false);
+        toast({ title: 'Left community' });
+      } else {
+        await supabase.from('community_members').insert({ community_id: community.id, user_id: user.id });
+        setIsMember(true);
+        toast({ title: '✅ Joined community!' });
+      }
+      fetchCommunity();
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
 
   const handlePromoteRole = async (memberId: string, userId: string, newRole: 'member' | 'moderator') => {
     if (!community || !isOwner) return;
     setPromotingMemberId(memberId);
-    const { error } = await supabase
-      .from('community_members')
-      .update({ role: newRole })
-      .eq('id', memberId)
-      .eq('community_id', community.id);
+    const { error } = await supabase.from('community_members').update({ role: newRole })
+      .eq('id', memberId).eq('community_id', community.id);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     } else {
@@ -262,8 +562,7 @@ export default function CommunityPage() {
   const handlePinPost = async (postId: string) => {
     if (!community || !isAdmin) return;
     const updated = new Set(pinnedPostIds);
-    if (updated.has(postId)) updated.delete(postId);
-    else updated.add(postId);
+    if (updated.has(postId)) updated.delete(postId); else updated.add(postId);
     setPinnedPostIds(updated);
     await supabase.from('platform_settings').upsert(
       { setting_key: `community_pinned_${community.id}`, setting_value: { pinned: [...updated] } },
@@ -281,119 +580,6 @@ export default function CommunityPage() {
     toast({ title: 'Post deleted by moderator' });
   };
 
-  // Sync rules from community data
-  useEffect(() => {
-    if (community?.rules) {
-      setRules(Array.isArray(community.rules) ? community.rules.map((r: any) => typeof r === 'string' ? r : r.text ?? String(r)) : []);
-    }
-  }, [community?.rules]);
-
-  useEffect(() => {
-    if (community && isMember) fetchPosts();
-    else if (community && !community.is_private) fetchPosts(); // public: show posts to everyone
-  }, [community, isMember]);
-
-  // Real-time subscription for new community posts
-  useEffect(() => {
-    if (!community) return;
-    const sub = supabase
-      .channel(`community-posts-${community.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'posts',
-        filter: `community_id=eq.${community.id}`,
-      }, () => { fetchPosts(); })
-      .subscribe();
-    return () => { supabase.removeChannel(sub); };
-  }, [community?.id]);
-
-  const fetchCommunity = async () => {
-    if (!name) return;
-    try {
-      const { data, error } = await supabase
-        .from('communities')
-        .select('*')
-        .eq('name', name)
-        .single();
-
-      if (error) throw error;
-      setCommunity(data);
-
-      if (user) {
-        const { data: memberData } = await supabase
-          .from('community_members')
-          .select('id, role')
-          .eq('community_id', data.id)
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        const joined = !!memberData;
-        setIsMember(joined);
-        if (memberData) setUserRole(memberData.role);
-      }
-
-      // Fetch members for display
-      const { data: membersData } = await supabase
-        .from('community_members')
-        .select('*, user_profiles(username, avatar_url, verified)')
-        .eq('community_id', data.id)
-        .order('role', { ascending: true })
-        .limit(20);
-
-      if (membersData) setMembers(membersData);
-    } catch {
-      toast({ title: 'Community not found', variant: 'destructive' });
-      navigate('/communities');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchPosts = async () => {
-    if (!community) return;
-    setLoadingPosts(true);
-    try {
-      const { data } = await supabase
-        .from('posts')
-        .select('*, user_profiles(*)')
-        .eq('community_id', community.id)
-        .order('created_at', { ascending: false });
-      if (data) setPosts(data);
-    } catch (err) {
-      console.error('fetchPosts error:', err);
-    } finally {
-      setLoadingPosts(false);
-    }
-  };
-
-  const handleJoinToggle = async () => {
-    if (!user) { navigate('/auth'); return; }
-    if (!community) return;
-
-    try {
-      if (isMember) {
-        if (userRole === 'owner') {
-          toast({ title: 'Error', description: 'Owners cannot leave. Transfer ownership first.', variant: 'destructive' });
-          return;
-        }
-        await supabase.from('community_members')
-          .delete()
-          .match({ community_id: community.id, user_id: user.id });
-        setIsMember(false);
-        toast({ title: 'Left community' });
-      } else {
-        await supabase.from('community_members')
-          .insert({ community_id: community.id, user_id: user.id });
-        setIsMember(true);
-        toast({ title: '✅ Joined community!' });
-      }
-      fetchCommunity();
-    } catch (error: any) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-    }
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -407,6 +593,7 @@ export default function CommunityPage() {
   const isOwner = userRole === 'owner';
   const isAdmin = ['owner', 'moderator'].includes(userRole);
   const canSeeContent = !community.is_private || isMember;
+  const onlineMembersEstimate = Math.max(1, Math.floor(community.member_count * 0.04));
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -414,12 +601,11 @@ export default function CommunityPage() {
       <CommunityAdBanner />
 
       {/* Banner */}
-      {community.banner_url && (
+      {community.banner_url ? (
         <div className="h-36 bg-muted overflow-hidden">
           <img src={community.banner_url} alt={community.display_name} className="w-full h-full object-cover" />
         </div>
-      )}
-      {!community.banner_url && (
+      ) : (
         <div className="h-20 bg-gradient-to-r from-primary/20 to-purple-500/20" />
       )}
 
@@ -427,93 +613,62 @@ export default function CommunityPage() {
       <div className="p-4 border-b border-border">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            {/* Icon */}
             <div className="w-16 h-16 rounded-2xl bg-primary/10 border-4 border-background flex items-center justify-center -mt-8 overflow-hidden flex-shrink-0">
-              {community.icon_url ? (
-                <img src={community.icon_url} alt={community.display_name} className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-2xl font-bold text-primary">{community.display_name[0]}</span>
-              )}
+              {community.icon_url
+                ? <img src={community.icon_url} alt={community.display_name} className="w-full h-full object-cover" />
+                : <span className="text-2xl font-bold text-primary">{community.display_name[0]}</span>}
             </div>
-
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold">{community.display_name}</h1>
-                {community.is_private ? (
-                  <span className="flex items-center gap-1 text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-600 px-2 py-0.5 rounded-full">
-                    <Lock className="w-3 h-3" /> Private
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                    <Globe className="w-3 h-3" /> Public
-                  </span>
-                )}
+                {community.is_private
+                  ? <span className="flex items-center gap-1 text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-600 px-2 py-0.5 rounded-full"><Lock className="w-3 h-3" /> Private</span>
+                  : <span className="flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full"><Globe className="w-3 h-3" /> Public</span>}
                 {isMember && (
                   <span className="flex items-center gap-1 text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
                     {isOwner ? <Crown className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
                     {isOwner ? 'Owner' : isAdmin ? 'Mod' : 'Member'}
                   </span>
                 )}
+                <span className="flex items-center gap-1 text-[10px] text-green-600 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/20 font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  ~{onlineMembersEstimate} online
+                </span>
               </div>
               <p className="text-sm text-muted-foreground">c/{community.name}</p>
             </div>
           </div>
-
           {user && (
-            <Button
-              onClick={handleJoinToggle}
-              variant={isMember ? 'outline' : 'default'}
-              className="rounded-full flex-shrink-0"
-              size="sm"
-            >
-              {isMember ? 'Joined' : (
-                <>
-                  <UserPlus className="w-4 h-4 mr-1" />
-                  Join
-                </>
-              )}
+            <Button onClick={handleJoinToggle} variant={isMember ? 'outline' : 'default'} className="rounded-full flex-shrink-0" size="sm">
+              {isMember ? 'Joined' : (<><UserPlus className="w-4 h-4 mr-1" />Join</>)}
             </Button>
           )}
         </div>
 
-        {community.description && (
-          <p className="mt-3 text-sm text-muted-foreground">{community.description}</p>
-        )}
+        {community.description && <p className="mt-3 text-sm text-muted-foreground">{community.description}</p>}
 
-        {/* Edit Community button — owner/admin only */}
         {isAdmin && (
           <button onClick={openEditDialog}
             className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border hover:bg-muted transition-colors text-xs font-semibold text-muted-foreground hover:text-foreground">
-            <Settings className="w-3.5 h-3.5" />
-            Edit Community
+            <Settings className="w-3.5 h-3.5" />Edit Community
           </button>
         )}
 
-        {/* Rules button */}
         {rules.length > 0 && (
-          <button
-            onClick={() => setShowRulesModal(true)}
-            className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-full border border-border hover:bg-muted transition-colors text-xs font-semibold text-muted-foreground hover:text-foreground"
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            {rules.length} Community Rule{rules.length !== 1 ? 's' : ''}
+          <button onClick={() => setShowRulesModal(true)}
+            className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-full border border-border hover:bg-muted transition-colors text-xs font-semibold text-muted-foreground hover:text-foreground">
+            <BookOpen className="w-3.5 h-3.5" />{rules.length} Community Rule{rules.length !== 1 ? 's' : ''}
           </button>
         )}
         {isAdmin && rules.length === 0 && (
-          <button
-            onClick={() => { setShowRulesModal(true); setEditingRules(true); }}
-            className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-full border border-dashed border-border hover:bg-muted transition-colors text-xs font-semibold text-muted-foreground"
-          >
+          <button onClick={() => { setShowRulesModal(true); setEditingRules(true); }}
+            className="mt-3 flex items-center gap-2 px-3 py-1.5 rounded-full border border-dashed border-border hover:bg-muted transition-colors text-xs font-semibold text-muted-foreground">
             <Plus className="w-3.5 h-3.5" /> Add Community Rules
           </button>
         )}
 
-        {/* Stats */}
         <div className="flex items-center gap-6 mt-3 text-sm">
-          <button
-            onClick={() => setActiveTab('members')}
-            className="flex items-center gap-1.5 hover:text-primary transition-colors"
-          >
+          <button onClick={() => setActiveTab('members')} className="flex items-center gap-1.5 hover:text-primary transition-colors">
             <Users className="w-4 h-4 text-muted-foreground" />
             <span className="font-bold">{formatNumber(community.member_count)}</span>
             <span className="text-muted-foreground">members</span>
@@ -524,24 +679,54 @@ export default function CommunityPage() {
             <span className="text-muted-foreground">posts</span>
           </div>
         </div>
+
+        {/* ── Related Live Spaces strip ── */}
+        {relatedSpaces.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-border">
+            <div className="flex items-center gap-2 mb-2">
+              <Radio className="w-3.5 h-3.5 text-red-500" />
+              <span className="text-xs font-bold text-red-500">Live Spaces</span>
+              <span className="text-[10px] text-muted-foreground ml-auto">related to this community</span>
+            </div>
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+              {relatedSpaces.map(space => (
+                <button key={space.id} onClick={() => navigate('/spaces')}
+                  className="flex items-center gap-2 px-3 py-2 bg-red-500/5 border border-red-500/20 rounded-xl hover:bg-red-500/10 transition-colors shrink-0 max-w-[180px]">
+                  <div className="w-6 h-6 rounded-full overflow-hidden bg-muted shrink-0">
+                    {space.host?.avatar_url
+                      ? <img src={space.host.avatar_url} className="w-full h-full object-cover" alt="" />
+                      : <div className="w-full h-full flex items-center justify-center text-[9px] font-bold">{space.host?.username?.[0]?.toUpperCase()}</div>}
+                  </div>
+                  <div className="min-w-0 text-left">
+                    <p className="text-xs font-bold truncate leading-tight">{space.title}</p>
+                    <p className="text-[9px] text-red-500 flex items-center gap-0.5">
+                      <span className="w-1 h-1 rounded-full bg-red-500 animate-pulse inline-block" />
+                      {space.listener_count ?? 0} listening
+                    </p>
+                  </div>
+                </button>
+              ))}
+              <button onClick={() => navigate('/spaces')}
+                className="flex items-center gap-1 px-3 py-2 border border-border rounded-xl text-xs text-muted-foreground hover:bg-muted transition-colors shrink-0">
+                All Spaces <ChevronRight className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ── Edit Community Modal ── */}
+      {/* ── Edit Modal ── */}
       {showEditDialog && isAdmin && (
         <div className="fixed inset-0 z-[300] bg-black/60 flex items-end" onClick={() => setShowEditDialog(false)}>
           <div className="w-full bg-background rounded-t-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-primary" />
-                <h2 className="font-bold text-lg">Edit Community</h2>
-              </div>
+              <div className="flex items-center gap-2"><Settings className="w-5 h-5 text-primary" /><h2 className="font-bold text-lg">Edit Community</h2></div>
               <button onClick={() => setShowEditDialog(false)} className="p-2 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
             </div>
             <div className="px-5 py-4 space-y-5">
-              {/* Banner upload */}
               <div>
                 <p className="text-sm font-semibold mb-2">Banner Image</p>
-                <div className="relative h-28 rounded-xl overflow-hidden border-2 border-dashed border-border cursor-pointer hover:border-primary/50 transition-colors bg-gradient-to-r from-primary/10 to-purple-500/10">
+                <div className="relative h-28 rounded-xl overflow-hidden border-2 border-dashed border-border cursor-pointer bg-gradient-to-r from-primary/10 to-purple-500/10">
                   {editBannerPreview && <img src={editBannerPreview} className="w-full h-full object-cover" alt="" />}
                   <label className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer gap-1">
                     <Camera className="w-6 h-6 text-muted-foreground" />
@@ -550,56 +735,39 @@ export default function CommunityPage() {
                   </label>
                   {editBannerPreview && (
                     <button onClick={e => { e.preventDefault(); setEditBannerFile(null); setEditBannerPreview(null); }}
-                      className="absolute top-2 right-2 w-7 h-7 bg-black/70 rounded-full flex items-center justify-center text-white z-10">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                      className="absolute top-2 right-2 w-7 h-7 bg-black/70 rounded-full flex items-center justify-center text-white z-10"><X className="w-3.5 h-3.5" /></button>
                   )}
                 </div>
               </div>
-
-              {/* Icon upload */}
               <div className="flex items-center gap-4">
                 <div className="relative">
                   <div className="w-16 h-16 rounded-2xl bg-primary/10 border-2 border-dashed border-border overflow-hidden flex items-center justify-center">
-                    {editIconPreview
-                      ? <img src={editIconPreview} className="w-full h-full object-cover" alt="" />
-                      : <span className="text-2xl font-bold text-primary">{community.display_name[0]}</span>}
+                    {editIconPreview ? <img src={editIconPreview} className="w-full h-full object-cover" alt="" /> : <span className="text-2xl font-bold text-primary">{community.display_name[0]}</span>}
                   </div>
                   <label className="absolute inset-0 cursor-pointer rounded-2xl">
                     <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setEditIconFile(f); setEditIconPreview(URL.createObjectURL(f)); } }} />
                   </label>
-                  <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center shadow">
-                    <Camera className="w-3 h-3 text-white" />
-                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center shadow"><Camera className="w-3 h-3 text-white" /></div>
                 </div>
                 <div>
                   <p className="text-sm font-semibold">Community Icon</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Tap icon to change</p>
-                  {editIconPreview && editIconPreview !== community.icon_url && (
-                    <button onClick={() => { setEditIconFile(null); setEditIconPreview(community.icon_url ?? null); }} className="text-xs text-destructive mt-1">Revert</button>
-                  )}
                 </div>
               </div>
-
-              {/* Display name */}
               <div>
                 <label className="text-sm font-semibold block mb-1.5">Display Name</label>
                 <Input value={editForm.display_name} onChange={e => setEditForm(p => ({ ...p, display_name: e.target.value }))} placeholder="Community Display Name" maxLength={60} />
               </div>
-
-              {/* Description */}
               <div>
                 <label className="text-sm font-semibold block mb-1.5">Description</label>
                 <Textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} placeholder="What is this community about?" rows={3} maxLength={300} />
                 <p className="text-xs text-muted-foreground text-right mt-1">{editForm.description.length}/300</p>
               </div>
-
               <div className="flex gap-3">
                 <button onClick={() => setShowEditDialog(false)} className="flex-1 py-3 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors">Cancel</button>
                 <button onClick={handleSaveEdit} disabled={savingEdit || !editForm.display_name.trim()}
-                  className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 transition-colors hover:opacity-90">
-                  {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  Save Changes
+                  className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+                  {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}Save Changes
                 </button>
               </div>
             </div>
@@ -607,39 +775,40 @@ export default function CommunityPage() {
         </div>
       )}
 
-      {/* ── Rules Modal ── */}
-      {showScheduleDialog && (
-        <SchedulePostDialog
-          onClose={() => setShowScheduleDialog(false)}
-          onSchedule={handleScheduleCommunityPost}
+      {/* ── Modals ── */}
+      {showCommunityPollDialog && (
+        <CreatePollDialog
+          onClose={() => setShowCommunityPollDialog(false)}
+          onPollCreated={handleCommunityPollCreated}
         />
       )}
+
+      {showChatGifPicker && (
+        <GifPicker onSelect={handleSendGif} onClose={() => setShowChatGifPicker(false)} />
+      )}
+
+      {showScheduleDialog && (
+        <SchedulePostDialog onClose={() => setShowScheduleDialog(false)} onSchedule={handleScheduleCommunityPost} />
+      )}
+
       {showRulesModal && (
         <div className="fixed inset-0 z-[200] bg-black/60 flex items-end" onClick={() => { setShowRulesModal(false); setEditingRules(false); setNewRuleText(''); }}>
           <div className="w-full bg-background rounded-t-3xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            {/* Header */}
             <div className="sticky top-0 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-primary" />
-                <h2 className="font-bold text-lg">Community Rules</h2>
-                <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{community.display_name}</span>
-              </div>
+              <div className="flex items-center gap-2"><BookOpen className="w-5 h-5 text-primary" /><h2 className="font-bold text-lg">Community Rules</h2></div>
               <div className="flex items-center gap-2">
                 {isAdmin && (
                   <button onClick={() => setEditingRules(e => !e)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${ editingRules ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70' }`}>
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${editingRules ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
                     {editingRules ? 'Done' : 'Edit'}
                   </button>
                 )}
-                <button onClick={() => { setShowRulesModal(false); setEditingRules(false); }} className="p-2 rounded-full hover:bg-muted">
-                  <X className="w-4 h-4" />
-                </button>
+                <button onClick={() => { setShowRulesModal(false); setEditingRules(false); }} className="p-2 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
               </div>
             </div>
-            {/* Rules list */}
             <div className="px-5 py-4 space-y-3">
               {rules.length === 0 && !editingRules && (
-                <p className="text-sm text-muted-foreground text-center py-6">No rules have been set for this community.</p>
+                <p className="text-sm text-muted-foreground text-center py-6">No rules set for this community.</p>
               )}
               {rules.map((rule, idx) => (
                 <div key={idx} className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/20">
@@ -652,24 +821,15 @@ export default function CommunityPage() {
                       await supabase.from('communities').update({ rules: updated }).eq('id', community.id);
                       setRules(updated);
                       setSavingRules(false);
-                    }} className="p-1 text-muted-foreground hover:text-destructive transition-colors">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                   )}
                 </div>
               ))}
-              {/* Add new rule (edit mode, owner only) */}
               {editingRules && isAdmin && (
                 <div className="mt-2 space-y-2">
-                  <textarea
-                    value={newRuleText}
-                    onChange={e => setNewRuleText(e.target.value)}
-                    placeholder="Describe the rule clearly…"
-                    rows={2}
-                    className="w-full px-4 py-3 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  <button
-                    disabled={!newRuleText.trim() || savingRules}
+                  <textarea value={newRuleText} onChange={e => setNewRuleText(e.target.value)} placeholder="Describe the rule clearly…" rows={2}
+                    className="w-full px-4 py-3 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary" />
+                  <button disabled={!newRuleText.trim() || savingRules}
                     onClick={async () => {
                       if (!newRuleText.trim()) return;
                       const updated = [...rules, newRuleText.trim()];
@@ -680,10 +840,8 @@ export default function CommunityPage() {
                       setSavingRules(false);
                       toast({ title: 'Rule added' });
                     }}
-                    className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {savingRules ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    Add Rule
+                    className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
+                    {savingRules ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}Add Rule
                   </button>
                 </div>
               )}
@@ -692,211 +850,272 @@ export default function CommunityPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* ── Tabs ── */}
       <div className="sticky top-14 z-20 bg-background border-b border-border">
-        <div className="flex">
-          <button
-            onClick={() => setActiveTab('posts')}
-            className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-colors ${
-              activeTab === 'posts' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
-            }`}
-          >
+        <div className="flex overflow-x-auto scrollbar-hide">
+          <button onClick={() => setActiveTab('posts')}
+            className={`flex-shrink-0 flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-1.5 border-b-2 transition-colors min-w-0 ${activeTab === 'posts' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}>
             <MessageSquare className="w-4 h-4" /> Posts
-            {posts.length > 0 && (
-              <span className="ml-1 text-[10px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded-full">{posts.length}</span>
-            )}
+            {posts.length > 0 && <span className="ml-0.5 text-[10px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded-full">{posts.length}</span>}
           </button>
-          <button
-            onClick={() => setActiveTab('members')}
-            className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-colors ${
-              activeTab === 'members' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
-            }`}
-          >
+          <button onClick={() => setActiveTab('members')}
+            className={`flex-shrink-0 flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-1.5 border-b-2 transition-colors min-w-0 ${activeTab === 'members' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}>
             <Users className="w-4 h-4" /> Members
           </button>
-          <button
-            onClick={() => setActiveTab('chat')}
-            className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-colors ${
-              activeTab === 'chat' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
-            }`}
-          >
+          <button onClick={() => setActiveTab('chat')}
+            className={`flex-shrink-0 flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-1.5 border-b-2 transition-colors min-w-0 ${activeTab === 'chat' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}>
             <MessageCircle className="w-4 h-4" /> Chat
+          </button>
+          <button onClick={() => setActiveTab('events')}
+            className={`flex-shrink-0 flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-1.5 border-b-2 transition-colors min-w-0 ${activeTab === 'events' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}>
+            <CalendarDays className="w-4 h-4" /> Events
           </button>
         </div>
       </div>
 
-      {/* Content */}
-      {activeTab === 'posts' ? (
+      {/* ── POSTS TAB ── */}
+      {activeTab === 'posts' && (
         !canSeeContent ? (
-          /* Gated content for private communities */
           <div className="flex flex-col items-center justify-center text-center py-16 px-6">
             <div className="w-20 h-20 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center mb-4">
               <Lock className="w-10 h-10 text-orange-500" />
             </div>
             <h3 className="text-xl font-bold mb-2">Private Community</h3>
-            <p className="text-muted-foreground text-sm mb-6 max-w-sm">
-              This community is private. Join to see posts and connect with members.
-            </p>
-            {user ? (
-              <Button onClick={handleJoinToggle} className="rounded-full px-8">
-                <UserPlus className="w-4 h-4 mr-2" />
-                Request to Join
-              </Button>
-            ) : (
-              <Button onClick={() => navigate('/auth')} className="rounded-full px-8">
-                Sign in to Join
-              </Button>
-            )}
-
-            {/* Show member avatars as social proof */}
+            <p className="text-muted-foreground text-sm mb-6 max-w-sm">Join to see posts and connect with members.</p>
+            {user
+              ? <Button onClick={handleJoinToggle} className="rounded-full px-8"><UserPlus className="w-4 h-4 mr-2" />Request to Join</Button>
+              : <Button onClick={() => navigate('/auth')} className="rounded-full px-8">Sign in to Join</Button>}
             {members.length > 0 && (
               <div className="mt-8">
                 <div className="flex -space-x-2 justify-center mb-2">
                   {members.slice(0, 5).map(m => (
-                    <div
-                      key={m.id}
-                      className="w-8 h-8 rounded-full bg-muted border-2 border-background overflow-hidden"
-                    >
-                      {m.user_profiles?.avatar_url ? (
-                        <img src={m.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs font-bold">
-                          {m.user_profiles?.username?.[0]?.toUpperCase()}
-                        </div>
-                      )}
+                    <div key={m.id} className="w-8 h-8 rounded-full bg-muted border-2 border-background overflow-hidden">
+                      {m.user_profiles?.avatar_url
+                        ? <img src={m.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
+                        : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{m.user_profiles?.username?.[0]?.toUpperCase()}</div>}
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {formatNumber(community.member_count)} members inside
-                </p>
+                <p className="text-xs text-muted-foreground">{formatNumber(community.member_count)} members inside</p>
               </div>
             )}
           </div>
         ) : (
-          /* Members can see posts */
           <div>
+            {isMember && <div className="border-b border-border"><ComposePost onSuccess={fetchPosts} communityId={community.id} /></div>}
+
+            {/* ── Community Poll shortcut ── */}
             {isMember && (
-              <div className="border-b border-border">
-                <ComposePost onSuccess={fetchPosts} communityId={community.id} />
+              <div className="px-4 py-2 flex items-center gap-2 border-b border-border bg-muted/20">
+                <button
+                  onClick={() => setShowCommunityPollDialog(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-background text-xs font-semibold text-muted-foreground hover:border-primary/30 hover:text-primary transition-colors"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />Create Poll
+                </button>
+                <span className="text-[10px] text-muted-foreground">Ask the community a question</span>
               </div>
             )}
-            {loadingPosts ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+
+            {/* ── Weekly Digest ── */}
+            {digestPosts.length > 0 && showDigest && (
+              <div className="mx-4 mt-4 mb-2 border border-amber-500/20 bg-amber-500/5 rounded-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-amber-500/15">
+                  <div className="flex items-center gap-2">
+                    <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                    <span className="text-xs font-bold text-amber-700 dark:text-amber-400">Weekly Top Posts</span>
+                  </div>
+                  <button onClick={() => setShowDigest(false)} className="text-[10px] text-muted-foreground hover:text-foreground px-1">✕</button>
+                </div>
+                <div className="divide-y divide-amber-500/10">
+                  {digestPosts.map((dp: any, i: number) => (
+                    <button key={dp.id} onClick={() => navigate(`/post/${dp.id}`)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-amber-500/5 transition-colors text-left">
+                      <span className="text-base shrink-0">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold truncate">{dp.content?.slice(0, 60)}</p>
+                        <p className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                          <Heart className="w-2.5 h-2.5 text-pink-500" />{dp.likes_count ?? 0} likes
+                          <span className="text-muted-foreground/50">·</span>
+                          @{dp.user_profiles?.username}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
+            )}
+
+            {loadingPosts ? (
+              <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
             ) : posts.length === 0 ? (
               <div className="flex flex-col items-center text-center py-12 text-muted-foreground">
                 <Image className="w-12 h-12 mb-3 opacity-40" />
                 <p className="font-semibold">No posts yet</p>
-                {isMember && <p className="text-sm mt-1">Be the first to post in this community!</p>}
+                {isMember && <p className="text-sm mt-1">Be the first to post!</p>}
               </div>
             ) : (
               [...posts]
-              .sort((a, b) => {
-                const aPinned = pinnedPostIds.has(a.id) ? 1 : 0;
-                const bPinned = pinnedPostIds.has(b.id) ? 1 : 0;
-                return bPinned - aPinned;
-              })
-              .map(post => (
-                <div key={post.id} className="relative">
-                  {/* Pinned indicator */}
-                  {pinnedPostIds.has(post.id) && (
-                    <div className="flex items-center gap-1.5 px-4 pt-2 pb-0 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                      <Pin className="w-3 h-3" /> Pinned
-                    </div>
-                  )}
-                  <PostCard post={post} onUpdate={fetchPosts} />
-                  {/* Mod actions overlay */}
-                  {isAdmin && (
-                    <div className="absolute top-2 right-12 z-10">
-                      <button
-                        onClick={e => { e.stopPropagation(); setShowRoleMenu(p => p === post.id ? null : post.id); }}
-                        className="p-1.5 rounded-full bg-background/80 backdrop-blur-sm border border-border text-muted-foreground hover:text-foreground transition-colors"
-                        title="Moderator actions"
-                      >
-                        <MoreVertical className="w-3.5 h-3.5" />
-                      </button>
-                      {showRoleMenu === post.id && (
-                        <>
-                          <div className="fixed inset-0 z-40" onClick={() => setShowRoleMenu(null)} />
-                          <div className="absolute right-0 mt-1 w-44 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden">
-                            <button
-                              onClick={e => { e.stopPropagation(); handlePinPost(post.id); setShowRoleMenu(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-muted transition-colors"
-                            >
-                              {pinnedPostIds.has(post.id)
-                                ? <><PinOff className="w-4 h-4 text-amber-500" />Unpin post</>
-                                : <><Pin className="w-4 h-4 text-amber-500" />Pin post</>}
-                            </button>
-                            <button
-                              onClick={e => { e.stopPropagation(); handleModDeletePost(post.id); setShowRoleMenu(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-destructive/10 text-destructive transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />Delete (mod)
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))
+                .sort((a, b) => {
+                  const aPinned = pinnedPostIds.has(a.id) ? 1 : 0;
+                  const bPinned = pinnedPostIds.has(b.id) ? 1 : 0;
+                  return bPinned - aPinned;
+                })
+                .map(post => (
+                  <div key={post.id} className="relative">
+                    {pinnedPostIds.has(post.id) && (
+                      <div className="flex items-center gap-1.5 px-4 pt-2 pb-0 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                        <Pin className="w-3 h-3" /> Pinned
+                      </div>
+                    )}
+                    <PostCard post={post} onUpdate={fetchPosts} />
+                    {isAdmin && (
+                      <div className="absolute top-2 right-12 z-10">
+                        <button onClick={e => { e.stopPropagation(); setShowRoleMenu(p => p === post.id ? null : post.id); }}
+                          className="p-1.5 rounded-full bg-background/80 backdrop-blur-sm border border-border text-muted-foreground hover:text-foreground transition-colors">
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+                        {showRoleMenu === post.id && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setShowRoleMenu(null)} />
+                            <div className="absolute right-0 mt-1 w-44 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+                              <button onClick={e => { e.stopPropagation(); handlePinPost(post.id); setShowRoleMenu(null); }}
+                                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-muted transition-colors">
+                                {pinnedPostIds.has(post.id) ? <><PinOff className="w-4 h-4 text-amber-500" />Unpin post</> : <><Pin className="w-4 h-4 text-amber-500" />Pin post</>}
+                              </button>
+                              <button onClick={e => { e.stopPropagation(); handleModDeletePost(post.id); setShowRoleMenu(null); }}
+                                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-destructive/10 text-destructive transition-colors">
+                                <Trash2 className="w-4 h-4" />Delete (mod)
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))
             )}
           </div>
         )
-      ) : activeTab === 'chat' ? (
-        /* ── Live Chat Room ── */
-        <div className="flex flex-col" style={{ height: 'calc(100vh - 280px)', minHeight: 400 }}>
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      )}
+
+      {/* ── CHAT TAB ── */}
+      {activeTab === 'chat' && (
+        <div className="flex flex-col relative" style={{ height: 'calc(100vh - 300px)', minHeight: 420 }}>
+          {/* Floating reactions layer */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden z-20">
+            {floatingReactions.map(fr => (
+              <div key={fr.id}
+                className="absolute bottom-16 text-2xl animate-bounce"
+                style={{ left: `${fr.x}%`, animationDuration: '0.8s', animationIterationCount: 3 }}>
+                {fr.emoji}
+              </div>
+            ))}
+          </div>
+
+          {/* Pinned messages */}
+          {pinnedChatIds.length > 0 && (
+            <div className="px-4 py-2 bg-primary/5 border-b border-primary/15">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Pin className="w-3 h-3 text-primary" />
+                <span className="text-[10px] font-bold text-primary">Pinned Messages</span>
+              </div>
+              {chatMessages.filter(m => pinnedChatIds.includes(m.id)).slice(0, 2).map(m => (
+                <p key={m.id} className="text-[11px] text-foreground truncate">
+                  <span className="font-semibold text-primary">@{m.user_profiles?.username}:</span>{' '}
+                  {GIF_URL_RE.test(m.message) ? '🖼 GIF' : m.message}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Messages area */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
             {chatMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center py-10 text-muted-foreground">
                 <MessageCircle className="w-12 h-12 mb-3 opacity-30" />
                 <p className="font-semibold">No messages yet</p>
-                {isMember
-                  ? <p className="text-sm mt-1">Start the conversation!</p>
-                  : <p className="text-sm mt-1">Join to participate in live chat</p>}
+                {isMember ? <p className="text-sm mt-1">Start the conversation!</p> : <p className="text-sm mt-1">Join to chat</p>}
               </div>
             ) : (
               chatMessages.map((msg: any, i: number) => {
                 const isOwn = msg.user_id === user?.id;
                 const prev = chatMessages[i - 1];
                 const showHeader = !prev || prev.user_id !== msg.user_id;
+                const reactions = messageReactions[msg.id] ?? {};
+                const isPinned = pinnedChatIds.includes(msg.id);
+                const isGif = GIF_URL_RE.test(msg.message);
                 return (
-                  <div key={msg.id} className={`flex items-end gap-2 ${ isOwn ? 'flex-row-reverse' : 'flex-row' }`}>
-                    <div className={`w-7 h-7 rounded-full overflow-hidden bg-muted flex-shrink-0 ${ showHeader ? '' : 'invisible' }`}>
+                  <div key={msg.id} className={`group flex items-end gap-2 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className={`w-7 h-7 rounded-full overflow-hidden bg-muted flex-shrink-0 ${showHeader ? '' : 'invisible'}`}>
                       {msg.user_profiles?.avatar_url
                         ? <img src={msg.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
                         : <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">{msg.user_profiles?.username?.[0]?.toUpperCase()}</div>}
                     </div>
-                    <div className={`max-w-[75%] flex flex-col gap-0.5 ${ isOwn ? 'items-end' : 'items-start' }`}>
+                    <div className={`max-w-[78%] flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}>
                       {showHeader && !isOwn && (
                         <div className="flex items-center gap-1.5 px-1">
-                          <span className="text-[11px] font-bold text-foreground">{msg.user_profiles?.username}</span>
-                          {msg.user_id !== user?.id && (
-                            <button
-                              onClick={() => navigate(`/messages?to=${msg.user_profiles?.username}`)}
-                              className="text-muted-foreground hover:text-primary transition-colors"
-                              title={`DM @${msg.user_profiles?.username}`}
-                            >
-                              <Mail className="w-3 h-3" />
-                            </button>
-                          )}
+                          <span className="text-[11px] font-bold">{msg.user_profiles?.username}</span>
+                          <button onClick={() => navigate(`/messages?to=${msg.user_profiles?.username}`)} className="text-muted-foreground hover:text-primary" title="DM">
+                            <Mail className="w-3 h-3" />
+                          </button>
                         </div>
                       )}
-                      <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
-                        isOwn
-                          ? 'bg-primary text-primary-foreground rounded-br-sm'
-                          : 'bg-muted text-foreground rounded-bl-sm'
-                      }`}>
-                        {msg.message}
+                      <div className={`relative ${isPinned ? 'ring-1 ring-primary/30 rounded-2xl' : ''}`}>
+                        {isPinned && (
+                          <div className="absolute -top-1.5 left-1 flex items-center gap-0.5">
+                            <Pin className="w-2.5 h-2.5 text-primary" />
+                          </div>
+                        )}
+                        {isGif ? (
+                          <img
+                            src={msg.message}
+                            alt="GIF"
+                            className="max-w-[200px] max-h-[150px] rounded-xl object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
+                            isOwn ? 'bg-primary text-primary-foreground rounded-br-sm' : 'bg-muted text-foreground rounded-bl-sm'
+                          }`}>
+                            {msg.message}
+                          </div>
+                        )}
                       </div>
-                      {showHeader && (
-                        <span className="text-[9px] text-muted-foreground px-1">
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                      {/* Reactions display */}
+                      {Object.keys(reactions).length > 0 && (
+                        <div className="flex gap-1 flex-wrap px-1">
+                          {Object.keys(reactions).map(emoji => (
+                            <button key={emoji} onClick={() => handleAddReaction(msg.id, emoji)}
+                              className="flex items-center gap-0.5 text-[11px] bg-muted/80 hover:bg-muted border border-border rounded-full px-1.5 py-0.5 transition-colors">
+                              {emoji} <span className="text-[10px] font-bold text-muted-foreground">{reactions[emoji]}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
+                      {/* Action row */}
+                      <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-1 ${isOwn ? 'flex-row-reverse' : ''}`}>
+                        <button onClick={() => setShowEmojiPickerFor(p => p === msg.id ? null : msg.id)}
+                          className="text-[14px] hover:scale-110 transition-transform" title="React">😊</button>
+                        <button onClick={() => setReplyingTo({ id: msg.id, text: isGif ? '📸 GIF' : msg.message, username: msg.user_profiles?.username ?? 'user' })}
+                          className="text-[10px] text-muted-foreground hover:text-primary transition-colors font-semibold px-1">↩</button>
+                        {isAdmin && (
+                          <button onClick={() => handlePinChatMessage(msg.id)}
+                            className="text-[10px] text-muted-foreground hover:text-primary transition-colors">
+                            <Pin className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      {/* Emoji picker */}
+                      {showEmojiPickerFor === msg.id && (
+                        <div className="flex gap-1 bg-background border border-border rounded-2xl px-2 py-1.5 shadow-lg z-30">
+                          {CHAT_EMOJIS.map(e => (
+                            <button key={e} onClick={() => handleAddReaction(msg.id, e)}
+                              className="text-xl hover:scale-125 transition-transform">{e}</button>
+                          ))}
+                        </div>
+                      )}
+                      {showHeader && <span className="text-[9px] text-muted-foreground px-1">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                     </div>
                   </div>
                 );
@@ -905,84 +1124,174 @@ export default function CommunityPage() {
             <div ref={chatEndRef} />
           </div>
 
-          {/* Input */}
+          {/* Input area */}
           {isMember ? (
             <div className="border-t border-border bg-background shrink-0">
-              {isMember && (
-                <div className="px-3 pt-2 pb-0 flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={scheduleContent}
-                    onChange={e => setScheduleContent(e.target.value)}
-                    placeholder="Write to schedule a community post…"
-                    maxLength={280}
-                    className="flex-1 text-xs bg-muted/40 border border-border/60 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30 placeholder:text-muted-foreground/50"
-                  />
-                  <button
-                    onClick={() => { if (scheduleContent.trim()) setShowScheduleDialog(true); else sonnerToast.info('Write something to schedule first'); }}
-                    className="flex items-center gap-1 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl text-xs font-semibold hover:bg-primary/20 transition-colors shrink-0"
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                  </button>
+              {replyingTo && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-primary/5 border-b border-primary/15">
+                  <span className="text-[10px] text-primary font-semibold flex-1 truncate">↩ @{replyingTo.username}: "{replyingTo.text.slice(0, 40)}…"</span>
+                  <button onClick={() => setReplyingTo(null)} className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
                 </div>
               )}
-            <div className="p-3 flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-2 bg-muted/60 border border-border rounded-2xl px-3 py-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
-                  placeholder="Message the community…"
-                  maxLength={280}
-                  className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60"
-                />
-                <span className="text-[10px] text-muted-foreground/50 shrink-0">{chatInput.length}/280</span>
+              <div className="px-3 pt-2 pb-0 flex items-center gap-2">
+                <input type="text" value={scheduleContent} onChange={e => setScheduleContent(e.target.value)}
+                  placeholder="Write to schedule a community post…" maxLength={280}
+                  className="flex-1 text-xs bg-muted/40 border border-border/60 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                <button onClick={() => { if (scheduleContent.trim()) setShowScheduleDialog(true); else sonnerToast.info('Write something to schedule first'); }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl text-xs font-semibold hover:bg-primary/20 shrink-0">
+                  <Calendar className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <button
-                onClick={handleSendChat}
-                disabled={!chatInput.trim() || chatSending}
-                className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:opacity-90 transition-opacity shrink-0"
-              >
-                {chatSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              </button>
-            </div>
+              <div className="p-3 flex items-center gap-2">
+                <div className="flex-1 flex items-center gap-2 bg-muted/60 border border-border rounded-2xl px-3 py-2">
+                  <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                    placeholder="Message the community…" maxLength={280}
+                    className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60" />
+                  <span className="text-[10px] text-muted-foreground/50 shrink-0">{chatInput.length}/280</span>
+                </div>
+                {/* GIF button */}
+                <button onClick={() => setShowChatGifPicker(true)}
+                  className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-colors shrink-0"
+                  title="Send a GIF">
+                  <span className="text-[10px] font-black leading-none">GIF</span>
+                </button>
+                <button onClick={handleSendChat} disabled={!chatInput.trim() || chatSending}
+                  className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:opacity-90 transition-opacity shrink-0">
+                  {chatSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
           ) : (
             <div className="border-t border-border p-4 text-center shrink-0">
-              <p className="text-sm text-muted-foreground">Join this community to participate in live chat</p>
-              {user && (
-                <button onClick={handleJoinToggle}
-                  className="mt-2 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-semibold hover:opacity-90">
-                  Join &amp; Chat
-                </button>
-              )}
+              <p className="text-sm text-muted-foreground">Join to participate in live chat</p>
+              {user && <button onClick={handleJoinToggle} className="mt-2 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-semibold hover:opacity-90">Join &amp; Chat</button>}
             </div>
           )}
         </div>
-      ) : (
-        /* Members tab */
-        <div className="p-4 space-y-3">
-          <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">
-            {formatNumber(community.member_count)} Members
-          </h3>
-          {members.map(member => (
-            <div
-              key={member.id}
-              className="flex items-center justify-between p-3 bg-card rounded-xl border border-border hover:border-primary/30 transition-colors"
-            >
-              <div
-                className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
-                onClick={() => navigate(`/profile/${member.user_profiles?.username}`)}
-              >
-                <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
-                  {member.user_profiles?.avatar_url ? (
-                    <img src={member.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center font-bold">
-                      {member.user_profiles?.username?.[0]?.toUpperCase()}
+      )}
+
+      {/* ── EVENTS TAB ── */}
+      {activeTab === 'events' && (
+        <div className="p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-base">Community Events</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Scheduled posts, AMAs, and announcements</p>
+            </div>
+            {isMember && (
+              <button onClick={() => setShowCreateEvent(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:opacity-90">
+                <Plus className="w-3.5 h-3.5" />Add Event
+              </button>
+            )}
+          </div>
+
+          {loadingEvents ? (
+            <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : events.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <CalendarDays className="w-14 h-14 mx-auto mb-3 opacity-20" />
+              <p className="font-semibold">No events yet</p>
+              {isMember && <p className="text-sm mt-1">Add upcoming events, AMAs, or announcements</p>}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {events.map((ev: any) => {
+                const evDate = new Date(ev.scheduled_for);
+                const passed = isPast(evDate);
+                const timeLeft = !passed ? formatDistanceToNow(evDate, { addSuffix: false }) : null;
+                const isRsvp = rsvpSet.has(ev.id);
+                const lines = (ev.content ?? '').split('\n');
+                const evTitle = lines[0] ?? '';
+                const evDesc = lines.slice(1).join('\n').trim();
+                return (
+                  <div key={ev.id} className={`border rounded-2xl overflow-hidden transition-all ${passed ? 'border-border bg-muted/20 opacity-70' : 'border-primary/20 bg-primary/5 hover:border-primary/40'}`}>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            {!passed ? (
+                              <span className="flex items-center gap-1 text-[10px] font-black text-green-600 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />Upcoming
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Past</span>
+                            )}
+                            {timeLeft && (
+                              <span className="flex items-center gap-1 text-[10px] text-primary font-bold">
+                                <Clock className="w-2.5 h-2.5" />{timeLeft} away
+                              </span>
+                            )}
+                          </div>
+                          <p className="font-bold text-sm leading-snug">{evTitle}</p>
+                          {evDesc && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{evDesc}</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3">
+                        <span className="flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5" />{evDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                        <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{evDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      {!passed && isMember && (
+                        <button onClick={() => handleRsvp(ev.id)}
+                          className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                            isRsvp
+                              ? 'border-green-500/30 bg-green-500/10 text-green-600'
+                              : 'border-primary/30 bg-background text-primary hover:bg-primary/5'
+                          }`}>
+                          {isRsvp ? <><Check className="w-3.5 h-3.5" />You're going!</> : <><CalendarDays className="w-3.5 h-3.5" />RSVP</>}
+                        </button>
+                      )}
                     </div>
-                  )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {showCreateEvent && (
+            <div className="fixed inset-0 z-[200] bg-black/60 flex items-end" onClick={() => setShowCreateEvent(false)}>
+              <div className="w-full bg-background rounded-t-3xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-lg">Add Community Event</h3>
+                  <button onClick={() => setShowCreateEvent(false)} className="p-2 rounded-full hover:bg-muted"><X className="w-5 h-5" /></button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-semibold mb-1 block">Event Title *</label>
+                    <Input value={eventForm.title} onChange={e => setEventForm(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Weekly AMA, Community Meetup" maxLength={80} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-1 block">Description (optional)</label>
+                    <Textarea value={eventForm.description} onChange={e => setEventForm(p => ({ ...p, description: e.target.value }))} placeholder="What to expect…" rows={2} maxLength={300} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold mb-1 block">Date & Time *</label>
+                    <input type="datetime-local" value={eventForm.scheduled_for} onChange={e => setEventForm(p => ({ ...p, scheduled_for: e.target.value }))}
+                      className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/40" />
+                  </div>
+                </div>
+                <button onClick={handleCreateEvent} disabled={creatingEvent || !eventForm.title.trim() || !eventForm.scheduled_for}
+                  className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90">
+                  {creatingEvent ? <Loader2 className="w-4 h-4 animate-spin" /> : <CalendarDays className="w-4 h-4" />}Add Event
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── MEMBERS TAB ── */}
+      {activeTab === 'members' && (
+        <div className="p-4 space-y-3">
+          <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">{formatNumber(community.member_count)} Members</h3>
+          {members.map(member => (
+            <div key={member.id} className="flex items-center justify-between p-3 bg-card rounded-xl border border-border hover:border-primary/30 transition-colors">
+              <div className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/profile/${member.user_profiles?.username}`)}>
+                <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
+                  {member.user_profiles?.avatar_url
+                    ? <img src={member.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
+                    : <div className="w-full h-full flex items-center justify-center font-bold">{member.user_profiles?.username?.[0]?.toUpperCase()}</div>}
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
@@ -993,14 +1302,10 @@ export default function CommunityPage() {
                   <p className="text-xs text-muted-foreground capitalize">{member.role}</p>
                 </div>
               </div>
-              {/* Owner can promote/demote members */}
               {isOwner && member.role !== 'owner' && (
                 <div className="relative ml-2 shrink-0">
-                  <button
-                    onClick={() => setShowRoleMenu(p => p === member.id ? null : member.id)}
-                    className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                    title="Manage role"
-                  >
+                  <button onClick={() => setShowRoleMenu(p => p === member.id ? null : member.id)}
+                    className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
                     <MoreVertical className="w-4 h-4" />
                   </button>
                   {showRoleMenu === member.id && (
@@ -1008,41 +1313,24 @@ export default function CommunityPage() {
                       <div className="fixed inset-0 z-40" onClick={() => setShowRoleMenu(null)} />
                       <div className="absolute right-0 mt-1 w-48 bg-background border border-border rounded-xl shadow-xl z-50 overflow-hidden">
                         {member.role === 'member' && (
-                          <button
-                            onClick={() => handlePromoteRole(member.id, member.user_id, 'moderator')}
-                            disabled={promotingMemberId === member.id}
-                            className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-muted transition-colors text-blue-600"
-                          >
-                            {promotingMemberId === member.id
-                              ? <Loader2 className="w-4 h-4 animate-spin" />
-                              : <ShieldCheck className="w-4 h-4" />
-                            }
-                            Promote to Moderator
+                          <button onClick={() => handlePromoteRole(member.id, member.user_id, 'moderator')} disabled={promotingMemberId === member.id}
+                            className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-muted transition-colors text-blue-600">
+                            {promotingMemberId === member.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}Promote to Moderator
                           </button>
                         )}
                         {member.role === 'moderator' && (
-                          <button
-                            onClick={() => handlePromoteRole(member.id, member.user_id, 'member')}
-                            disabled={promotingMemberId === member.id}
-                            className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-muted transition-colors text-orange-600"
-                          >
-                            {promotingMemberId === member.id
-                              ? <Loader2 className="w-4 h-4 animate-spin" />
-                              : <ShieldOff className="w-4 h-4" />
-                            }
-                            Remove Moderator
+                          <button onClick={() => handlePromoteRole(member.id, member.user_id, 'member')} disabled={promotingMemberId === member.id}
+                            className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-muted transition-colors text-orange-600">
+                            {promotingMemberId === member.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldOff className="w-4 h-4" />}Remove Moderator
                           </button>
                         )}
-                        <button
-                          onClick={async () => {
-                            if (!window.confirm(`Remove @${member.user_profiles?.username} from community?`)) return;
-                            await supabase.from('community_members').delete().eq('id', member.id);
-                            setMembers(prev => prev.filter(m => m.id !== member.id));
-                            setShowRoleMenu(null);
-                            toast({ title: 'Member removed' });
-                          }}
-                          className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-destructive/10 text-destructive transition-colors border-t border-border"
-                        >
+                        <button onClick={async () => {
+                          if (!window.confirm(`Remove @${member.user_profiles?.username}?`)) return;
+                          await supabase.from('community_members').delete().eq('id', member.id);
+                          setMembers(prev => prev.filter(m => m.id !== member.id));
+                          setShowRoleMenu(null);
+                          toast({ title: 'Member removed' });
+                        }} className="w-full flex items-center gap-2 px-3 py-3 text-sm hover:bg-destructive/10 text-destructive transition-colors border-t border-border">
                           <Trash2 className="w-4 h-4" />Remove from community
                         </button>
                       </div>
@@ -1053,9 +1341,7 @@ export default function CommunityPage() {
             </div>
           ))}
           {community.member_count > 20 && (
-            <p className="text-center text-sm text-muted-foreground py-4">
-              +{formatNumber(community.member_count - 20)} more members
-            </p>
+            <p className="text-center text-sm text-muted-foreground py-4">+{formatNumber(community.member_count - 20)} more members</p>
           )}
         </div>
       )}

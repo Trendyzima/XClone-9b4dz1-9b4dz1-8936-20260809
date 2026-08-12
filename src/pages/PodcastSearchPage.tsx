@@ -281,7 +281,7 @@ export default function PodcastSearchPage() {
       ) : (
         <div className="divide-y divide-border">
           {results.map((rec: any) => {
-            const dur       = formatDur(rec.duration);
+            const recDur    = formatDur(rec.duration);
             const isVideo   = rec.has_video && rec.video_url;
             const isSub     = rec.spaces?.subscriber_only;
             const epNum     = rec.spaces?.episode_number ?? null;
@@ -327,9 +327,9 @@ export default function PodcastSearchPage() {
                       <span className="text-[10px] text-muted-foreground">@{hostName}</span>
                       {verified && <span className="text-[8px] text-primary font-bold">✓</span>}
                     </div>
-                    {dur && (
+                    {recDur && (
                       <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                        <Clock className="w-2.5 h-2.5" />{dur}
+                        <Clock className="w-2.5 h-2.5" />{recDur}
                       </span>
                     )}
                     {(rec.listener_count ?? 0) > 0 && (
