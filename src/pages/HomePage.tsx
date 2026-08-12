@@ -11,6 +11,7 @@ import {
   Loader2, Sparkles, Globe, Users, Rss, RefreshCw,
   MessageCircle, Repeat2, Heart, Languages, ChevronUp,
   TrendingUp, Hash, BookOpen, Flame, Eye, Play, ShoppingBag,
+  SlidersHorizontal, X as XIcon,
 } from 'lucide-react';
 import { TrendingVideosSection } from '@/components/features/TrendingVideosSection';
 import { CommunitySpotlightStrip } from '@/components/features/CommunitySpotlightStrip';
@@ -90,6 +91,24 @@ export default function HomePage() {
   const [hasNewPosts, setHasNewPosts] = useState(false);
   const [newPostCount, setNewPostCount] = useState(0);
   const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // ── Feed Diversity Slider ─────────────────────────────────────────────────
+  const [showDiversityPanel, setShowDiversityPanel] = useState(false);
+  // sliders persisted in localStorage — plain numbers (esbuild guard)
+  const [discoverMix, setDiscoverMix] = useState<number>(() => {
+    try { return Number(localStorage.getItem('ts-feed-discover-mix') ?? '30'); } catch { return 30; }
+  });
+  const [videoWeight, setVideoWeight] = useState<number>(() => {
+    try { return Number(localStorage.getItem('ts-feed-video-weight') ?? '50'); } catch { return 50; }
+  });
+  const [minEngagement, setMinEngagement] = useState<number>(() => {
+    try { return Number(localStorage.getItem('ts-feed-min-engagement') ?? '0'); } catch { return 0; }
+  });
+
+  // Persist slider values on change
+  useEffect(() => { try { localStorage.setItem('ts-feed-discover-mix', String(discoverMix)); } catch {} }, [discoverMix]);
+  useEffect(() => { try { localStorage.setItem('ts-feed-video-weight', String(videoWeight)); } catch {} }, [videoWeight]);
+  useEffect(() => { try { localStorage.setItem('ts-feed-min-engagement', String(minEngagement)); } catch {} }, [minEngagement]);
 
   const abortRef = useRef<AbortController | null>(null);
   // Keep ref for latest reco/product state so fetchFeed closure can read them
@@ -504,7 +523,7 @@ export default function HomePage() {
         const i = boostedIds.indexOf(pid); return i >= 0 ? boostedTypes[i] : null;
       };
 
-      // Enhanced scoring: engagement + recency + boost bonus
+      // Enhanced scoring: engagement + recency + boost bonus + diversity weights
       const scorePost = (p: any) => {
         const ageHours = (Date.now() - new Date(p.created_at).getTime()) / 3_600_000;
         const boostBonus = getBoostedType(p.id) ? 50 : 0;
@@ -516,17 +535,25 @@ export default function HomePage() {
           (p.views_count ?? 0) * 0.05;
         // Recency decay: score halves every 12h (Twitter-like freshness bias)
         const decayFactor = Math.pow(0.5, ageHours / 12);
-        const typeBonus = p.is_video ? 8 : (p.image_url || (p.media_urls?.length > 0)) ? 4 : 0;
+        // Apply video weight from diversity slider (0–100 → 0–16 bonus range)
+        const videoBonus = p.is_video ? (videoWeight / 100) * 16 : (p.image_url || (p.media_urls?.length > 0)) ? 4 : 0;
+        const typeBonus = videoBonus;
         const verifiedBonus = p.user_profiles?.verified ? 5 : 0;
         return (engagementScore * decayFactor) + typeBonus + verifiedBonus + boostBonus;
       };
 
+      // Filter by min engagement threshold from diversity slider
+      const minEngScore = (minEngagement / 100) * 20; // 0–20 raw engagement score floor
       const posts = (postsRes.data ?? []).map((p: any) => ({
         type: 'post' as const,
         data: { ...p, is_boosted: !!getBoostedType(p.id), boost_type: getBoostedType(p.id) ?? undefined },
         _score: scorePost(p),
         _ts: new Date(p.created_at).getTime(),
-      }));
+      })).filter((p: any) => {
+        if (activeTab !== 'foryou' || minEngScore === 0) return true;
+        const raw = ((p.data.likes_count ?? 0) * 2) + ((p.data.reposts_count ?? 0) * 3) + ((p.data.views_count ?? 0) * 0.05);
+        return raw >= minEngScore;
+      });
 
       const threads = (threadsRes.data ?? []).map((t: any) => ({
         type: 'thread' as const,
@@ -564,8 +591,10 @@ export default function HomePage() {
           suggestionInserted = true;
         }
 
-        // Personalized recommendation injection every RECO_INJECT_INTERVAL items
-        if (pageNum === 0 && (i + 1) % RECO_INJECT_INTERVAL === 0 && recoIdx < currentRecos.length) {
+        // Personalized recommendation injection (frequency modulated by discoverMix slider)
+        // discoverMix 0 = inject rarely (every 12), 100 = inject often (every 4)
+        const recoInterval = Math.round(12 - (discoverMix / 100) * 8);
+        if (pageNum === 0 && (i + 1) % recoInterval === 0 && recoIdx < currentRecos.length) {
           withExtras.push({ type: 'recommended', data: currentRecos[recoIdx++] });
         }
 
@@ -820,7 +849,91 @@ export default function HomePage() {
             );
           })}
         </div>
+        {/* Feed Diversity Slider button — For You tab only */}
+        {activeTab === 'foryou' && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+            <button
+              onClick={() => setShowDiversityPanel(p => !p)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold transition-colors border ${
+                showDiversityPanel
+                  ? 'bg-primary/10 border-primary/30 text-primary'
+                  : 'border-border text-muted-foreground hover:text-primary hover:border-primary/30'
+              }`}
+              title="Tune your feed"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Tune</span>
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* ── Feed Diversity Panel ── */}
+      {showDiversityPanel && activeTab === 'foryou' && (
+        <div className="border-b border-border bg-muted/10 px-4 py-4 space-y-4 animate-in slide-in-from-top duration-200">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-4 h-4 text-primary" />
+              <span className="font-bold text-sm">Tune Your Feed</span>
+            </div>
+            <button onClick={() => setShowDiversityPanel(false)} className="p-1 rounded-full hover:bg-muted text-muted-foreground">
+              <XIcon className="w-4 h-4" />
+            </button>
+          </div>
+          {/* Discovery vs Following mix */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-semibold text-foreground">Discovery Mix</span>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Following</span>
+                <span className="font-bold text-primary">{discoverMix}%</span>
+                <span>Explore</span>
+              </div>
+            </div>
+            <input type="range" min={0} max={100} step={5}
+              value={discoverMix}
+              onChange={e => setDiscoverMix(Number(e.target.value))}
+              className="w-full h-2 rounded-full appearance-none bg-muted accent-primary cursor-pointer" />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {discoverMix < 20 ? 'Mostly people you follow' : discoverMix > 70 ? 'Heavy discovery mode' : 'Balanced mix'}
+            </p>
+          </div>
+          {/* Video weight */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-semibold text-foreground">Video Preference</span>
+              <span className="text-xs font-bold text-primary">{videoWeight}%</span>
+            </div>
+            <input type="range" min={0} max={100} step={10}
+              value={videoWeight}
+              onChange={e => setVideoWeight(Number(e.target.value))}
+              className="w-full h-2 rounded-full appearance-none bg-muted accent-primary cursor-pointer" />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {videoWeight < 30 ? 'Prefer text posts' : videoWeight > 70 ? 'Video-first feed' : 'Mixed media'}
+            </p>
+          </div>
+          {/* Min engagement */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-semibold text-foreground">Minimum Engagement</span>
+              <span className="text-xs font-bold text-primary">{minEngagement > 0 ? `Top ${100 - minEngagement}%` : 'All posts'}</span>
+            </div>
+            <input type="range" min={0} max={80} step={10}
+              value={minEngagement}
+              onChange={e => setMinEngagement(Number(e.target.value))}
+              className="w-full h-2 rounded-full appearance-none bg-muted accent-primary cursor-pointer" />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {minEngagement === 0 ? 'Show all posts including new ones' : `Only posts with meaningful engagement`}
+            </p>
+          </div>
+          <button
+            onClick={() => { setDiscoverMix(30); setVideoWeight(50); setMinEngagement(0); }}
+            className="text-xs text-muted-foreground hover:text-primary transition-colors underline-offset-2 hover:underline"
+          >
+            Reset to defaults
+          </button>
+        </div>
+      )}
 
       {/* ── Real-time New Posts Banner ── */}
       {hasNewPosts && activeTab === 'foryou' && !loading && (

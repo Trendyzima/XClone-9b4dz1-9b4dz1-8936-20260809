@@ -3,6 +3,7 @@ import { Bookmark } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { updateInterestSignal } from '@/services/recommendations';
 
 interface BookmarkButtonProps {
   postId: string;
@@ -62,6 +63,8 @@ export function BookmarkButton({ postId }: BookmarkButtonProps) {
         if (error) throw error;
         setIsBookmarked(true);
         toast.success('Added to bookmarks');
+        // Update interest signal — fire-and-forget
+        updateInterestSignal(user.id, postId, 'bookmark').catch(() => {});
       }
     } catch (error: any) {
       toast.error(error.message);
