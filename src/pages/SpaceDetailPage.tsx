@@ -16,14 +16,15 @@ import { JoinSpaceDialog } from '@/components/features/JoinSpaceDialog';
 function SpaceDetailAdBanner() { return <PageAdBanner />; }
 // SuperChat tip amounts — module scope (esbuild guard)
 const SUPERCHAT_AMTS = [1, 2, 5, 10, 20, 50] as const;
-const SUPERCHAT_COLORS: { [k: number]: string } = {
-  1: 'bg-blue-500/10 border-blue-500/40 text-blue-600',
-  2: 'bg-teal-500/10 border-teal-500/40 text-teal-600',
-  5: 'bg-green-500/10 border-green-500/40 text-green-600',
-  10: 'bg-yellow-500/10 border-yellow-500/40 text-yellow-600',
-  20: 'bg-orange-500/10 border-orange-500/40 text-orange-600',
-  50: 'bg-red-500/10 border-red-500/40 text-red-600',
-};
+// Module-level helper — avoids index-signature object literal at module scope (esbuild guard)
+function getSuperChatColor(amt: number): string {
+  if (amt >= 50) return 'bg-red-500/10 border-red-500/40 text-red-600';
+  if (amt >= 20) return 'bg-orange-500/10 border-orange-500/40 text-orange-600';
+  if (amt >= 10) return 'bg-yellow-500/10 border-yellow-500/40 text-yellow-600';
+  if (amt >= 5)  return 'bg-green-500/10 border-green-500/40 text-green-600';
+  if (amt >= 2)  return 'bg-teal-500/10 border-teal-500/40 text-teal-600';
+  return 'bg-blue-500/10 border-blue-500/40 text-blue-600';
+}
 
 export default function SpaceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -450,7 +451,7 @@ export default function SpaceDetailPage() {
             <div className="grid grid-cols-3 gap-2">
               {SUPERCHAT_AMTS.map(amt => (
                 <button key={amt} onClick={() => setSuperChatAmt(amt)}
-                  className={`py-2.5 rounded-xl font-black text-base border-2 transition-all ${superChatAmt === amt ? (SUPERCHAT_COLORS[amt] ?? 'border-yellow-500 bg-yellow-500/10 text-yellow-600') : 'border-border hover:border-yellow-500/30'}`}>
+                  className={`py-2.5 rounded-xl font-black text-base border-2 transition-all ${superChatAmt === amt ? getSuperChatColor(amt) : 'border-border hover:border-yellow-500/30'}`}>
                   ${amt}
                 </button>
               ))}
