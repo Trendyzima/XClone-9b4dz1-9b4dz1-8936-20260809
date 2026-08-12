@@ -18,22 +18,31 @@ function fmtAmt(usd: number, cur: CurrencyCode): string {
 const SAVINGS_GOAL_EMOJIS = ['🎯','🏠','✈️','🎓','💻','🚗','💍','🌴','🎸','👶','🏋️','📱'] as const;
 const SAVINGS_COLORS     = ['blue','green','purple','amber','red','pink'] as const;
 const SAVINGS_AUTO_FREQ  = ['weekly','monthly'] as const;
-const SAVINGS_GOAL_BG: Record<string, string> = {
-  blue:   'from-blue-500/10 to-blue-400/5 border-blue-500/20',
-  green:  'from-green-500/10 to-green-400/5 border-green-500/20',
-  purple: 'from-purple-500/10 to-purple-400/5 border-purple-500/20',
-  amber:  'from-amber-500/10 to-amber-400/5 border-amber-500/20',
-  red:    'from-red-500/10 to-red-400/5 border-red-500/20',
-  pink:   'from-pink-500/10 to-pink-400/5 border-pink-500/20',
-};
-const SAVINGS_GOAL_BAR: Record<string, string> = {
-  blue: 'bg-blue-500', green: 'bg-green-500', purple: 'bg-purple-500',
-  amber: 'bg-amber-500', red: 'bg-red-500', pink: 'bg-pink-500',
-};
-const SAVINGS_GOAL_TEXT: Record<string, string> = {
-  blue: 'text-blue-600', green: 'text-green-600', purple: 'text-purple-600',
-  amber: 'text-amber-600', red: 'text-red-500', pink: 'text-pink-600',
-};
+// Pure helpers replace Record<string,string> module-scope objects (esbuild guard)
+function getGoalBg(c: string): string {
+  if (c === 'green')  return 'from-green-500/10 to-green-400/5 border-green-500/20';
+  if (c === 'purple') return 'from-purple-500/10 to-purple-400/5 border-purple-500/20';
+  if (c === 'amber')  return 'from-amber-500/10 to-amber-400/5 border-amber-500/20';
+  if (c === 'red')    return 'from-red-500/10 to-red-400/5 border-red-500/20';
+  if (c === 'pink')   return 'from-pink-500/10 to-pink-400/5 border-pink-500/20';
+  return 'from-blue-500/10 to-blue-400/5 border-blue-500/20';
+}
+function getGoalBar(c: string): string {
+  if (c === 'green')  return 'bg-green-500';
+  if (c === 'purple') return 'bg-purple-500';
+  if (c === 'amber')  return 'bg-amber-500';
+  if (c === 'red')    return 'bg-red-500';
+  if (c === 'pink')   return 'bg-pink-500';
+  return 'bg-blue-500';
+}
+function getGoalText(c: string): string {
+  if (c === 'green')  return 'text-green-600';
+  if (c === 'purple') return 'text-purple-600';
+  if (c === 'amber')  return 'text-amber-600';
+  if (c === 'red')    return 'text-red-500';
+  if (c === 'pink')   return 'text-pink-600';
+  return 'text-blue-600';
+}
 
 interface Props {
   userId: string;
@@ -52,12 +61,34 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
   const [color,       setColor]      = useState('blue');
   const [saving,      setSaving]     = useState(false);
   const [depositing,    setDepositing]    = useState<string | null>(null);
-  const [depositAmt,    setDepositAmt]    = useState<Record<string, string>>({});
+  // depositAmt: parallel arrays (esbuild guard: no Record<string,string> in state)
+  const [depositAmtIds, setDepositAmtIds] = useState<string[]>([]);
+  const [depositAmtVals, setDepositAmtVals] = useState<string[]>([]);
+  const getDepositAmt = (id: string) => { const i = depositAmtIds.indexOf(id); return i >= 0 ? depositAmtVals[i] : ''; };
+  const setDepositAmtFor = (id: string, val: string) => {
+    setDepositAmtIds(prev => {
+      const i = prev.indexOf(id);
+      if (i >= 0) { setDepositAmtVals(pv => { const n = [...pv]; n[i] = val; return n; }); return prev; }
+      setDepositAmtVals(pv => [...pv, val]);
+      return [...prev, id];
+    });
+  };
   const [autoFundGoal,  setAutoFundGoal]  = useState<string | null>(null);
   const [autoFundFreq,  setAutoFundFreq]  = useState<'weekly' | 'monthly'>('weekly');
   const [autoFundAmt,   setAutoFundAmt]   = useState('');
   const [savingAuto,    setSavingAuto]    = useState(false);
-  const [existingAuto,  setExistingAuto]  = useState<Record<string, any>>({});
+  // existingAuto: parallel arrays (esbuild guard)
+  const [autoFundGoalIds, setAutoFundGoalIds] = useState<string[]>([]);
+  const [autoFundGoalData, setAutoFundGoalData] = useState<any[]>([]);
+  const getExistingAuto = (id: string) => { const i = autoFundGoalIds.indexOf(id); return i >= 0 ? autoFundGoalData[i] : null; };
+  const setExistingAutoFor = (id: string, data: any) => {
+    setAutoFundGoalIds(prev => {
+      const i = prev.indexOf(id);
+      if (i >= 0) { setAutoFundGoalData(pd => { const n = [...pd]; n[i] = data; return n; }); return prev; }
+      setAutoFundGoalData(pd => [...pd, data]);
+      return [...prev, id];
+    });
+  };
 
   const minDateTime = useMemo(() => {
     const d = new Date(Date.now() + 60000);
@@ -70,12 +101,15 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
     const { data } = await supabase.from('transaction_reminders')
       .select('*').eq('user_id', userId).eq('is_active', true)
       .ilike('label', 'Auto-fund:%');
-    const map: Record<string, any> = {};
+    // Use parallel arrays instead of map object (esbuild guard)
+    const newIds: string[] = [];
+    const newData: any[] = [];
     (data ?? []).forEach((r: any) => {
       const match = (r.label as string).match(/Auto-fund:([\w-]+)/);
-      if (match) map[match[1]] = r;
+      if (match) { newIds.push(match[1]); newData.push(r); }
     });
-    setExistingAuto(map);
+    setAutoFundGoalIds(newIds);
+    setAutoFundGoalData(newData);
   };
 
   const loadGoals = async () => {
@@ -101,7 +135,7 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
   };
 
   const depositToGoal = async (goal: any) => {
-    const amt = parseFloat(depositAmt[goal.id] || '0');
+    const amt = parseFloat(getDepositAmt(goal.id) || '0');
     if (!amt || amt <= 0) { toast.error('Enter an amount to add'); return; }
     if (amt > walletBalance) { toast.error('Insufficient wallet balance'); return; }
     setDepositing(goal.id);
@@ -121,7 +155,7 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
     setDepositing(null);
     if (error) { toast.error('Failed to update goal'); return; }
     toast.success(isComplete ? '🎉 Goal reached!' : `Added ${fmtAmt(amt, currency)} to goal!`);
-    setDepositAmt(prev => ({ ...prev, [goal.id]: '' }));
+    setDepositAmtFor(goal.id, '');
     loadGoals();
   };
 
@@ -136,8 +170,9 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
     if (!amt || amt <= 0) { toast.error('Enter a valid auto-fund amount'); return; }
     setSavingAuto(true);
     // Remove any existing auto-fund for this goal
-    if (existingAuto[goalId]) {
-      await supabase.from('transaction_reminders').update({ is_active: false }).eq('id', existingAuto[goalId].id);
+    const existingAutoEntry = getExistingAuto(goalId);
+    if (existingAutoEntry) {
+      await supabase.from('transaction_reminders').update({ is_active: false }).eq('id', existingAutoEntry.id);
     }
     const nextDate = new Date(Date.now() + (autoFundFreq === 'weekly' ? 7 : 30) * 86400000);
     nextDate.setHours(9, 0, 0, 0);
@@ -154,7 +189,7 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
   };
 
   const removeAutoFund = async (goalId: string) => {
-    const r = existingAuto[goalId];
+    const r = getExistingAuto(goalId);
     if (!r) return;
     await supabase.from('transaction_reminders').update({ is_active: false }).eq('id', r.id);
     toast.success('Auto-fund removed');
@@ -233,9 +268,9 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
           {goals.map(g => {
             const pct       = Math.min((Number(g.current_amount) / Number(g.target_amount)) * 100, 100);
             const remaining = Math.max(Number(g.target_amount) - Number(g.current_amount), 0);
-            const bg   = SAVINGS_GOAL_BG[g.color]   ?? SAVINGS_GOAL_BG.blue;
-            const bar  = SAVINGS_GOAL_BAR[g.color]  ?? SAVINGS_GOAL_BAR.blue;
-            const txt  = SAVINGS_GOAL_TEXT[g.color] ?? SAVINGS_GOAL_TEXT.blue;
+            const bg   = getGoalBg(g.color);
+            const bar  = getGoalBar(g.color);
+            const txt  = getGoalText(g.color);
             return (
               <div key={g.id} className={`p-4 rounded-2xl bg-gradient-to-br border ${bg}`}>
                 <div className="flex items-start justify-between mb-3">
@@ -270,7 +305,7 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
                   <div className="space-y-2">
                     <div className="flex gap-2">
                       <input type="number" min="0.01" step="0.01" placeholder="Add funds (USD)…"
-                        value={depositAmt[g.id] ?? ''} onChange={e => setDepositAmt(prev => ({ ...prev, [g.id]: e.target.value }))}
+                        value={getDepositAmt(g.id)} onChange={e => setDepositAmtFor(g.id, e.target.value)}
                         className="flex-1 h-9 px-3 rounded-xl border border-border/60 bg-background/80 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                       <button onClick={() => depositToGoal(g)} disabled={depositing === g.id}
                         className={`px-4 h-9 rounded-xl font-bold text-xs text-white disabled:opacity-50 flex items-center gap-1 ${bar} hover:opacity-90 transition-opacity`}>
@@ -279,11 +314,11 @@ export default function SavingsGoalsTab({ userId, walletBalance, currency }: Pro
                       </button>
                     </div>
                     {/* Auto-Fund */}
-                    {existingAuto[g.id] ? (
+                    {getExistingAuto(g.id) ? (
                       <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border border-primary/20 rounded-xl text-xs">
                         <RefreshCw className="w-3 h-3 text-primary shrink-0" />
                         <span className="flex-1 text-primary font-semibold">
-                          Auto-fund ${Number(existingAuto[g.id].amount).toFixed(2)} {existingAuto[g.id].frequency}
+                          Auto-fund ${Number(getExistingAuto(g.id).amount).toFixed(2)} {getExistingAuto(g.id).frequency}
                         </span>
                         <button onClick={() => removeAutoFund(g.id)} className="text-muted-foreground hover:text-destructive">
                           <X className="w-3 h-3" />

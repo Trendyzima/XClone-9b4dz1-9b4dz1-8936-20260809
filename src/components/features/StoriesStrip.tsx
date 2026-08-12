@@ -214,7 +214,29 @@ export function StoriesStrip() {
   const [pollOptions, setPollOptions] = useState(['Yes', 'No']);
   const [showPollPicker, setShowPollPicker] = useState(false);
   const [pollAdded, setPollAdded] = useState(false);
-  const [storyPollVotes, setStoryPollVotes] = useState<Record<string, { counts: number[]; userVote: number | null }>>({});
+  // Poll votes — parallel arrays (esbuild guard: no Record<string,T> in state)
+  const [pollVoteIds, setPollVoteIds] = useState<string[]>([]);
+  const [pollVoteCounts, setPollVoteCounts] = useState<number[][]>([]);
+  const [pollVoteUser, setPollVoteUser] = useState<(number | null)[]>([]);
+  // Compat helper — reads poll vote data for a story
+  const getPollVote = (sid: string) => {
+    const i = pollVoteIds.indexOf(sid);
+    if (i < 0) return undefined;
+    return { counts: pollVoteCounts[i] ?? [0, 0], userVote: pollVoteUser[i] ?? null };
+  };
+  const setPollVote = (sid: string, data: { counts: number[]; userVote: number | null }) => {
+    setPollVoteIds(prev => {
+      const i = prev.indexOf(sid);
+      if (i >= 0) {
+        setPollVoteCounts(pc => { const n = [...pc]; n[i] = data.counts; return n; });
+        setPollVoteUser(pu => { const n = [...pu]; n[i] = data.userVote; return n; });
+        return prev;
+      }
+      setPollVoteCounts(pc => [...pc, data.counts]);
+      setPollVoteUser(pu => [...pu, data.userVote]);
+      return [...prev, sid];
+    });
+  };;
 
   const addPollSticker = () => {
     if (!pollQuestion.trim()) return;
@@ -223,7 +245,7 @@ export function StoriesStrip() {
   };
 
   const fetchPollVotes = async (storyId: string) => {
-    if (storyPollVotes[storyId]) return;
+    if (getPollVote(storyId)) return;
     const { data } = await supabase
       .from('story_poll_votes')
       .select('option_index, voter_id')
@@ -234,16 +256,16 @@ export function StoriesStrip() {
       counts[v.option_index] = (counts[v.option_index] ?? 0) + 1;
       if (v.voter_id === user?.id) userVote = v.option_index;
     });
-    setStoryPollVotes(prev => ({ ...prev, [storyId]: { counts, userVote } }));
+    setPollVote(storyId, { counts, userVote });
   };
 
   const voteOnStoryPoll = async (storyId: string, optionIdx: number) => {
     if (!user) return;
-    const current = storyPollVotes[storyId];
+    const current = getPollVote(storyId);
     if (current?.userVote !== null && current?.userVote !== undefined) return;
     const newCounts = [...(current?.counts ?? [0, 0])];
     newCounts[optionIdx] = (newCounts[optionIdx] ?? 0) + 1;
-    setStoryPollVotes(prev => ({ ...prev, [storyId]: { counts: newCounts, userVote: optionIdx } }));
+    setPollVote(storyId, { counts: newCounts, userVote: optionIdx });
     await supabase.from('story_poll_votes').upsert(
       { story_id: storyId, voter_id: user.id, option_index: optionIdx },
       { onConflict: 'story_id,voter_id' }
@@ -324,7 +346,8 @@ export function StoriesStrip() {
       setViewedIds(viewedSet);
     }
 
-    const map: Record<string, StoryGroup> = {};
+    // Use plain object (no Record<string,T> type annotation) — esbuild guard
+    const map: { [key: string]: StoryGroup } = {};
     for (const story of rawStories) {
       if (!map[story.user_id]) {
         map[story.user_id] = {
@@ -1310,10 +1333,10 @@ export function StoriesStrip() {
             {/* Story Poll Sticker Viewer */}
             {(() => {
               const meta = (story as any).metadata;
-              if (meta?.poll && !storyPollVotes[story.id]) fetchPollVotes(story.id);
+              if (meta?.poll && !getPollVote(story.id)) fetchPollVotes(story.id);
               if (!meta?.poll) return null;
               const poll = meta.poll as { question: string; options: string[] };
-              const voteData = storyPollVotes[story.id];
+              const voteData = getPollVote(story.id);
               const totalVotes = (voteData?.counts ?? [0, 0]).reduce((a: number, b: number) => a + b, 0);
               const hasVoted = voteData !== undefined && voteData.userVote !== null && voteData.userVote !== undefined;
               return (

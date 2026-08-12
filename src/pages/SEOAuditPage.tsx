@@ -44,13 +44,28 @@ function scoreRoute(route: Omit<RouteAudit, 'status'>): RouteAudit['status'] {
   return scoreSEORoute(route as SEORoute);
 }
 
-const STATUS_CFG: Record<RouteAudit['status'], { color: string; bg: string; label: string }> = {
-  good:    { color: 'text-green-600',  bg: 'bg-green-500/10 border-green-500/20',  label: 'Good'    },
-  warn:    { color: 'text-amber-600',  bg: 'bg-amber-500/10 border-amber-500/20',  label: 'Warn'    },
-  missing: { color: 'text-red-600',    bg: 'bg-red-500/10 border-red-500/20',      label: 'Missing' },
-  noindex: { color: 'text-slate-500',  bg: 'bg-slate-500/10 border-slate-500/20',  label: 'Noindex' },
-  loading: { color: 'text-primary',    bg: 'bg-primary/10 border-primary/20',      label: '...'     },
-};
+// Pure helpers — replace Record<status,T> module-scope object (esbuild guard)
+function getStatusColor(s: RouteAudit['status']): string {
+  if (s === 'good')    return 'text-green-600';
+  if (s === 'warn')    return 'text-amber-600';
+  if (s === 'missing') return 'text-red-600';
+  if (s === 'noindex') return 'text-slate-500';
+  return 'text-primary';
+}
+function getStatusBg(s: RouteAudit['status']): string {
+  if (s === 'good')    return 'bg-green-500/10 border-green-500/20';
+  if (s === 'warn')    return 'bg-amber-500/10 border-amber-500/20';
+  if (s === 'missing') return 'bg-red-500/10 border-red-500/20';
+  if (s === 'noindex') return 'bg-slate-500/10 border-slate-500/20';
+  return 'bg-primary/10 border-primary/20';
+}
+function getStatusLabel(s: RouteAudit['status']): string {
+  if (s === 'good')    return 'Good';
+  if (s === 'warn')    return 'Warn';
+  if (s === 'missing') return 'Missing';
+  if (s === 'noindex') return 'Noindex';
+  return '...';
+}
 
 function StatusIcon({ status, className }: { status: RouteAudit['status']; className?: string }) {
   if (status === 'good')    return <CheckCircle className={className} />;
@@ -145,10 +160,10 @@ export default function SEOAuditPage() {
     ? routes
     : routes.filter(r => r.status === filterStatus);
 
-  const groupedRoutes = GROUPS.reduce((acc, g) => {
+  const groupedRoutes: { [g: string]: RouteAudit[] } = GROUPS.reduce((acc, g) => {
     acc[g] = filteredRoutes.filter(r => r.group === g);
     return acc;
-  }, {} as Record<string, RouteAudit[]>);
+  }, {} as { [g: string]: RouteAudit[] });
 
   if (checkingAdmin) {
     return (
@@ -373,7 +388,7 @@ export default function SEOAuditPage() {
               {isExpanded && (
                 <div className="divide-y divide-border">
                   {groupRoutes.map(route => {
-                    const cfg = STATUS_CFG[route.status];
+                    const cfg = { color: getStatusColor(route.status), bg: getStatusBg(route.status), label: getStatusLabel(route.status) };
                     return (
                       <div key={route.path} className="px-4 py-3 hover:bg-muted/20 transition-colors">
                         <div className="flex items-start justify-between gap-3">

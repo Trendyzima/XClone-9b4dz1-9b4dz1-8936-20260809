@@ -1249,21 +1249,29 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 <div className="flex justify-center py-8"><TransLoader className="w-7 h-7 animate-spin text-primary" /></div>
               ) : (
                 <>
-                  {/* KPI grid */}
+                  {/* KPI grid — explicit render (esbuild guard: no icon obj in .map()) */}
                   {fullAnalyticsMeta && (
                     <div className="grid grid-cols-2 gap-3">
-                      {[
-                        { label: 'Total Views',   val: (fullAnalyticsMeta.views).toLocaleString(),               icon: Eye,         color: 'text-blue-500',   bg: 'from-blue-500/15' },
-                        { label: 'Unique Viewers',val: (fullAnalyticsMeta.unique).toLocaleString(),              icon: Users,       color: 'text-purple-500', bg: 'from-purple-500/15' },
-                        { label: 'Engagement',    val: fullAnalyticsMeta.engagement.toFixed(1) + '%',            icon: TrendingUp,  color: 'text-green-500',  bg: 'from-green-500/15' },
-                        { label: 'Shares',        val: (fullAnalyticsMeta.shares).toLocaleString(),              icon: Share,       color: 'text-orange-500', bg: 'from-orange-500/15' },
-                      ].map(s => (
-                        <div key={s.label} className={`p-3.5 rounded-2xl bg-gradient-to-br ${s.bg} to-transparent border border-border`}>
-                          <s.icon className={`w-4 h-4 mb-2 ${s.color}`} />
-                          <p className="font-black text-xl leading-none">{s.val}</p>
-                          <p className="text-[10px] text-muted-foreground mt-1">{s.label}</p>
-                        </div>
-                      ))}
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-500/15 to-transparent border border-border">
+                        <Eye className="w-4 h-4 mb-2 text-blue-500" />
+                        <p className="font-black text-xl leading-none">{fullAnalyticsMeta.views.toLocaleString()}</p>
+                        <p className="text-[10px] text-muted-foreground mt-1">Total Views</p>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-purple-500/15 to-transparent border border-border">
+                        <Users className="w-4 h-4 mb-2 text-purple-500" />
+                        <p className="font-black text-xl leading-none">{fullAnalyticsMeta.unique.toLocaleString()}</p>
+                        <p className="text-[10px] text-muted-foreground mt-1">Unique Viewers</p>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-green-500/15 to-transparent border border-border">
+                        <TrendingUp className="w-4 h-4 mb-2 text-green-500" />
+                        <p className="font-black text-xl leading-none">{fullAnalyticsMeta.engagement.toFixed(1)}%</p>
+                        <p className="text-[10px] text-muted-foreground mt-1">Engagement</p>
+                      </div>
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-orange-500/15 to-transparent border border-border">
+                        <Share className="w-4 h-4 mb-2 text-orange-500" />
+                        <p className="font-black text-xl leading-none">{fullAnalyticsMeta.shares.toLocaleString()}</p>
+                        <p className="text-[10px] text-muted-foreground mt-1">Shares</p>
+                      </div>
                     </div>
                   )}
                   {/* 7-day views chart */}
@@ -1299,38 +1307,31 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                       )}
                     </div>
                   )}
-                  {/* Reactions Summary */}
-                  {reactionSummaryEmojis.length > 0 && (() => {
-                    const maxCount = reactionSummaryCounts[0] ?? 1;
-                    return (
-                      <div className="bg-card border border-border rounded-2xl p-4">
-                        <p className="text-sm font-bold mb-3 flex items-center gap-2">
-                          <span className="text-base">❤️</span>Reactions Breakdown
-                        </p>
-                        <div className="space-y-2">
-                          {reactionSummaryEmojis.map((emoji, idx) => {
-                            const count = reactionSummaryCounts[idx];
-                            const pct = Math.max(6, Math.round((count / maxCount) * 100));
-                            return (
-                              <div key={emoji} className="flex items-center gap-2.5">
-                                <span className="text-lg w-7 shrink-0 text-center leading-none">{emoji}</span>
-                                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full bg-gradient-to-r from-primary/80 to-primary transition-all duration-500"
-                                    style={{ width: pct + '%' }}
-                                  />
-                                </div>
-                                <span className="text-xs font-bold tabular-nums text-muted-foreground w-8 text-right shrink-0">{count}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground mt-2.5">
-                          {reactionSummaryCounts.reduce((a, b) => a + b, 0)} total reactions
-                        </p>
+                  {/* Reactions Summary — no IIFE (esbuild guard) */}
+                  {reactionSummaryEmojis.length > 0 && (
+                    <div className="bg-card border border-border rounded-2xl p-4">
+                      <p className="text-sm font-bold mb-3 flex items-center gap-2">
+                        <span className="text-base">❤️</span>Reactions Breakdown
+                      </p>
+                      <div className="space-y-2">
+                        {reactionSummaryEmojis.map((emoji, idx) => (
+                          <div key={emoji} className="flex items-center gap-2.5">
+                            <span className="text-lg w-7 shrink-0 text-center leading-none">{emoji}</span>
+                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-primary/80 to-primary transition-all duration-500"
+                                style={{ width: Math.max(6, Math.round((reactionSummaryCounts[idx] / (reactionSummaryCounts[0] ?? 1)) * 100)) + '%' }}
+                              />
+                            </div>
+                            <span className="text-xs font-bold tabular-nums text-muted-foreground w-8 text-right shrink-0">{reactionSummaryCounts[idx]}</span>
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })()}
+                      <p className="text-[10px] text-muted-foreground mt-2.5">
+                        {reactionSummaryCounts.reduce((a, b) => a + b, 0)} total reactions
+                      </p>
+                    </div>
+                  )}
                   <button onClick={() => { setShowFullAnalytics(false); navigate(`/post-analytics/${post.id}`); }}
                     className="w-full py-2.5 border border-border rounded-xl text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
                     <BarChart3 className="w-4 h-4" />Full Analytics Dashboard

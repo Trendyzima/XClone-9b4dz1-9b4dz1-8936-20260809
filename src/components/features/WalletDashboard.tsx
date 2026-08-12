@@ -73,8 +73,21 @@ export function WalletDashboard() {
   const [filterDateTo, setFilterDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
-  // Live M-Pesa status per transaction
-  const [mpesaStatuses, setMpesaStatuses] = useState<Record<string, 'pending' | 'completed' | 'failed'>>({});
+  // Live M-Pesa status per transaction — parallel arrays (esbuild guard: no Record<string,T> in state)
+  const [mpesaStatusIds, setMpesaStatusIds] = useState<string[]>([]);
+  const [mpesaStatusVals, setMpesaStatusVals] = useState<Array<'pending' | 'completed' | 'failed'>>([]);
+  const getMpesaStatus = (id: string): 'pending' | 'completed' | 'failed' => {
+    const i = mpesaStatusIds.indexOf(id);
+    return i >= 0 ? mpesaStatusVals[i] : 'pending';
+  };
+  const setMpesaStatusFor = (id: string, val: 'pending' | 'completed' | 'failed') => {
+    setMpesaStatusIds(prev => {
+      const i = prev.indexOf(id);
+      if (i >= 0) { setMpesaStatusVals(pv => { const n = [...pv]; n[i] = val; return n; }); return prev; }
+      setMpesaStatusVals(pv => [...pv, val]);
+      return [...prev, id];
+    });
+  };
 
   useEffect(() => {
     if (user) fetchTransactions();
@@ -102,24 +115,21 @@ export function WalletDashboard() {
     );
     if (pending.length === 0) return;
 
-    const updates: Record<string, 'pending' | 'completed' | 'failed'> = {};
+    // Use individual setMpesaStatusFor calls (esbuild guard: no Object.keys on index-sig object)
     await Promise.allSettled(
       pending.map(async (tx) => {
         try {
           const { data } = await supabase.functions.invoke('mpesa-stk-status', {
             body: { checkout_request_id: tx.reference },
           });
-          if (data?.status === 'completed') updates[tx.id] = 'completed';
-          else if (data?.status === 'failed' || data?.status === 'cancelled') updates[tx.id] = 'failed';
-          else updates[tx.id] = 'pending';
+          if (data?.status === 'completed') setMpesaStatusFor(tx.id, 'completed');
+          else if (data?.status === 'failed' || data?.status === 'cancelled') setMpesaStatusFor(tx.id, 'failed');
+          else setMpesaStatusFor(tx.id, 'pending');
         } catch {
-          updates[tx.id] = 'pending';
+          setMpesaStatusFor(tx.id, 'pending');
         }
       })
     );
-    if (Object.keys(updates).length > 0) {
-      setMpesaStatuses(prev => ({ ...prev, ...updates }));
-    }
   };
 
   const fetchTransactions = async () => {
@@ -562,7 +572,7 @@ export function WalletDashboard() {
                   </p>
                   {/* Live M-Pesa status badge for pending M-Pesa txns */}
                   {tx.payment_method === 'mpesa' && tx.status === 'pending' ? (
-                    <MpesaStatusBadge liveStatus={mpesaStatuses[tx.id] || 'pending'} />
+                    <MpesaStatusBadge liveStatus={getMpesaStatus(tx.id)} />
                   ) : (
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       tx.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' :
