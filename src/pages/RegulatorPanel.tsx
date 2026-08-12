@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { TopBar } from '@/components/layout/TopBar';
 import { useIsRegulator, FEATURE_KEYS, FEATURE_LABELS, type FeatureKey } from '@/hooks/useFeatureUnlock';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Shield, Users, Unlock, Lock, Check, X, Loader2, Search,
   UserPlus, Briefcase, Trash2, Crown, Settings, ChevronRight,
   BarChart3, Bell, Star, Eye, TrendingUp, AlertTriangle,
@@ -20,7 +20,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 
 // Module-level constants — esbuild guard
 const DEPT_OPTIONS = ['Engineering', 'Content', 'Marketing', 'Moderation', 'Finance', 'Design', 'Operations'] as const;
-const REG_PANEL_TABS = ['employees', 'features', 'wallets', 'moderation', 'platform', 'announce', 'reports', 'audit'] as const;
+const REG_PANEL_TABS = ['employees', 'features', 'wallets', 'moderation', 'platform', 'announce', 'reports', 'audit', 'analytics'] as const;
 type RegTab = typeof REG_PANEL_TABS[number];
 
 const REG_TAB_DEFS = [
@@ -32,6 +32,7 @@ const REG_TAB_DEFS = [
   { key: 'announce',   label: 'Announce',   Icon: Megaphone   },
   { key: 'reports',    label: 'Reports',    Icon: TrendingUp  },
   { key: 'audit',      label: 'Audit Log',  Icon: FileText    },
+  { key: 'analytics', label: 'Analytics',  Icon: TrendingUp  },
 ] as const;
 
 function getScoreColor(score: number): string {
@@ -49,6 +50,31 @@ function getActionLabel(action: string): string {
   if (action === 'flag') return '🚩 Flagged';
   return '✅ Passed';
 }
+// Module-level helpers for analytics — esbuild guard (no index-sig objects)
+function buildAnalyticsDayKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 29; i >= 0; i--) keys.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
+  return keys;
+}
+function buildCountArr(rows: any[], dateKeys: string[], field: string): number[] {
+  const arr = new Array<number>(dateKeys.length).fill(0);
+  for (const row of rows) {
+    const d = String(row[field] ?? '').slice(0, 10);
+    const idx = dateKeys.indexOf(d);
+    if (idx >= 0) arr[idx]++;
+  }
+  return arr;
+}
+function buildRevArr(rows: any[], dateKeys: string[]): number[] {
+  const arr = new Array<number>(dateKeys.length).fill(0);
+  for (const row of rows) {
+    const d = String(row.created_at ?? '').slice(0, 10);
+    const idx = dateKeys.indexOf(d);
+    if (idx >= 0) arr[idx] += Number(row.amount ?? 0);
+  }
+  return arr;
+}
+
 // Pure helper — replaces Object.entries in render scope (esbuild guard)
 function getTopCategory(cats: any): { key: string; score: number } | null {
   let bestKey = '';
@@ -137,6 +163,16 @@ export default function RegulatorPanel() {
   const [platformSelectedUser, setPlatformSelectedUser] = useState<any | null>(null);
   const [platformUserBan, setPlatformUserBan] = useState<any | null>(null);
 
+  // Analytics tab
+  const [analyticsData, setAnalyticsData] = useState<{
+    days: string[];
+    signups: number[];
+    posts: number[];
+    revenue: number[];
+    topHashtags: { tag: string; count: number }[];
+  } | null>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+
   // Ad review queue
   const [adQueue, setAdQueue] = useState<any[]>([]);
   const [loadingAdQueue, setLoadingAdQueue] = useState(false);
@@ -156,6 +192,7 @@ export default function RegulatorPanel() {
     if (activeTab === 'announce') fetchAnnArchive();
     if (activeTab === 'reports') fetchAdQueue();
     if (activeTab === 'audit') fetchAuditLogs();
+    if (activeTab === 'analytics' && !analyticsData) fetchAnalytics();
   }, [activeTab]);
 
   const fetchAuditLogs = useCallback(async () => {
@@ -626,6 +663,24 @@ export default function RegulatorPanel() {
     await logAudit('manual_ban', userId, 'Manual 24h ban applied to @' + username);
     fetchModeration();
   }, [user, fetchModeration]);
+
+  const fetchAnalytics = useCallback(async () => {
+    setLoadingAnalytics(true);
+    const dayKeys = buildAnalyticsDayKeys();
+    const since = dayKeys[0];
+    const [usersRes, postsRes, earningsRes, hashtagsRes] = await Promise.all([
+      supabase.from('user_profiles').select('created_at').gte('created_at', since + 'T00:00:00Z'),
+      supabase.from('posts').select('created_at').gte('created_at', since + 'T00:00:00Z'),
+      supabase.from('creator_earnings').select('amount, created_at').eq('status', 'paid').gte('created_at', since + 'T00:00:00Z'),
+      supabase.from('hashtags').select('tag, usage_count').order('usage_count', { ascending: false }).limit(10),
+    ]);
+    const signups = buildCountArr(usersRes.data ?? [], dayKeys, 'created_at');
+    const postCounts = buildCountArr(postsRes.data ?? [], dayKeys, 'created_at');
+    const revenue = buildRevArr(earningsRes.data ?? [], dayKeys);
+    const topHashtags = (hashtagsRes.data ?? []).map((h: any) => ({ tag: h.tag, count: h.usage_count ?? 0 }));
+    setAnalyticsData({ days: dayKeys, signups, posts: postCounts, revenue, topHashtags });
+    setLoadingAnalytics(false);
+  }, []);
 
   const handleBroadcast = useCallback(async () => {
     if (!annSubject.trim() || !annBody.trim()) return;

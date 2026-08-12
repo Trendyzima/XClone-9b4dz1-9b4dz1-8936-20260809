@@ -8,7 +8,7 @@ import {
   ShoppingBag, Calendar, Crown, Briefcase, Settings, HelpCircle,
   History, ChevronDown, ChevronUp, FileText, Wallet, Megaphone,
   Shield, LineChart, Globe, Flame, Trophy, UserSearch, Gift, BookOpen, Inbox,
-  MessageSquare,
+  MessageSquare, ShieldCheck,
 } from 'lucide-react';
 import { authService } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -457,8 +457,18 @@ export function Sidebar() {
           </div>
         )}
 
+        {/* Content Policy link */}
+        <div className="mt-4 mx-2">
+          <button
+            onClick={() => navigate('/policy')}
+            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Content Policy</span>
+          </button>
+        </div>
+
         {/* Premium Banner */}
-        <div className="mt-6 mx-2">
+        <div className="mt-2 mx-2">
           <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl p-4 border border-purple-500/20">
             <Crown className="w-8 h-8 text-purple-500 mb-2" />
             <h3 className="font-bold text-sm mb-1">Upgrade to Premium</h3>

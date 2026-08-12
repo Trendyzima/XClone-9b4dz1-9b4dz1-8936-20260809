@@ -16,26 +16,33 @@ import { PageAdBanner } from '@/components/features/AdSenseAd';
 function FraudAdBanner() { return <PageAdBanner />; }
 
 // Pure module-level helper — esbuild guard
+// Avoids index-signature type annotations and Object.keys spread in function body
 function buildChartSeries(rows: any[]): { date: string; low: number; medium: number; high: number; critical: number }[] {
-  const map: { [d: string]: { low: number; medium: number; high: number; critical: number } } = {};
-  const result: { date: string; low: number; medium: number; high: number; critical: number }[] = [];
+  const dateKeys: string[] = [];
+  // Pre-build 30-day array of ISO date strings
   for (let i = 29; i >= 0; i--) {
-    const iso = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-    map[iso] = { low: 0, medium: 0, high: 0, critical: 0 };
+    dateKeys.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
   }
+  // Count per date/severity using parallel arrays
+  const lowArr = new Array<number>(30).fill(0);
+  const medArr = new Array<number>(30).fill(0);
+  const highArr = new Array<number>(30).fill(0);
+  const critArr = new Array<number>(30).fill(0);
+
   for (const row of rows) {
     const d = String(row.created_at ?? '').slice(0, 10);
+    const idx = dateKeys.indexOf(d);
+    if (idx < 0) continue;
     const sev = String(row.severity ?? 'low');
-    if (map[d]) {
-      if (sev === 'low') map[d].low++;
-      else if (sev === 'medium') map[d].medium++;
-      else if (sev === 'high') map[d].high++;
-      else if (sev === 'critical') map[d].critical++;
-    }
+    if (sev === 'low') lowArr[idx]++;
+    else if (sev === 'medium') medArr[idx]++;
+    else if (sev === 'high') highArr[idx]++;
+    else if (sev === 'critical') critArr[idx]++;
   }
-  const keys = Object.keys(map).sort();
-  for (const k of keys) {
-    result.push({ date: k.slice(5), ...map[k] });
+
+  const result: { date: string; low: number; medium: number; high: number; critical: number }[] = [];
+  for (let i = 0; i < 30; i++) {
+    result.push({ date: dateKeys[i].slice(5), low: lowArr[i], medium: medArr[i], high: highArr[i], critical: critArr[i] });
   }
   return result;
 }

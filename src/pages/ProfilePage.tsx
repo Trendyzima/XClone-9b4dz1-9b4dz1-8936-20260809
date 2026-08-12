@@ -1094,6 +1094,44 @@ export default function ProfilePage() {
             )}
           </div>
 
+          {/* Account Standing — own profile only */}
+          {isOwnProfile && (() => {
+            const strikes = profile.strike_count ?? 0;
+            const strikeColor = strikes === 0 ? 'text-green-600' : strikes === 1 ? 'text-orange-500' : strikes === 2 ? 'text-red-500' : 'text-red-700 dark:text-red-400';
+            const strikeBg = strikes === 0 ? 'bg-green-500/5 border-green-500/20' : strikes === 1 ? 'bg-orange-500/5 border-orange-500/20' : 'bg-red-500/5 border-red-500/20';
+            return (
+              <div className={`mt-3 rounded-2xl border p-3 ${strikeBg}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className={`w-4 h-4 shrink-0 ${strikeColor}`} />
+                  <span className="text-xs font-black text-foreground">Account Standing</span>
+                  {strikes === 0 && <span className="ml-auto text-[10px] font-bold text-green-600 bg-green-500/10 px-1.5 py-0.5 rounded-full">Good Standing</span>}
+                  {strikes > 0 && <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${strikeColor}`}>{strikes}/3 Strike{strikes !== 1 ? 's' : ''}</span>}
+                </div>
+                <div className="flex gap-1 mb-2">
+                  {[1,2,3].map(n => (
+                    <div key={n} className={`flex-1 h-2 rounded-full ${n <= strikes ? (strikes >= 3 ? 'bg-red-600' : strikes >= 2 ? 'bg-red-500' : 'bg-orange-400') : 'bg-muted'}`} />
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  {strikes === 0 ? 'No violations detected. Keep creating great content!' :
+                   strikes === 1 ? '1 policy violation recorded. Avoid further violations.' :
+                   strikes === 2 ? '2 strikes — next violation may result in suspension.' :
+                   '3 strikes — account may be permanently suspended.'}
+                </p>
+                <div className="flex gap-2">
+                  <button onClick={() => navigate('/policy')} className="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded-xl text-[10px] font-bold hover:bg-muted transition-colors">
+                    <Shield className="w-2.5 h-2.5" />View Policy
+                  </button>
+                  {strikes > 0 && (
+                    <button onClick={() => navigate('/appeals')} className="flex items-center gap-1 px-2.5 py-1 bg-primary/5 border border-primary/20 rounded-xl text-[10px] font-bold text-primary hover:bg-primary/10 transition-colors">
+                      <AlertTriangle className="w-2.5 h-2.5" />File Appeal
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Post Impressions Sparkline — own profile only */}
           {isOwnProfile && postImpressionsChart.some(d => d.views > 0) && (
             <div className="mt-3 border border-blue-500/20 bg-blue-500/5 rounded-2xl overflow-hidden">
