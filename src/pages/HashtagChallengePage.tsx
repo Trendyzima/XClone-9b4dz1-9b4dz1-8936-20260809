@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -6,7 +7,8 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import {
   Trophy, Hash, Flame, Loader2, Clock, Users, Plus,
-  CalendarDays, Gift, CheckCircle, AlertCircle
+  CalendarDays, Gift, CheckCircle, AlertCircle, Heart, MessageCircle,
+  TrendingUp, Pencil, ChevronDown,
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { formatDistanceToNow, isPast, format } from 'date-fns';
@@ -15,6 +17,10 @@ import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 function HashtagChallengeAdBanner() { return <PageAdBanner />; }
+
+// Module-level medal array — esbuild-safe
+const CHALLENGE_MEDALS = ['🥇', '🥈', '🥉'] as const;
+const FEED_PAGE_SIZE = 10;
 
 export default function HashtagChallengePage() {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +34,12 @@ export default function HashtagChallengePage() {
   const [hasEntered, setHasEntered] = useState(false);
   const [entering, setEntering] = useState(false);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  // Feed pagination + sort
+  const [feedSort, setFeedSort] = useState<'engagement' | 'newest'>('engagement');
+  const [feedPage, setFeedPage] = useState(0);
+  const [likedIds, setLikedIds] = useState<Set<string>>(() => new Set<string>());
+  const [likingId, setLikingId] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // ── SEO — dynamic challenge hash as OG image + Event JSON-LD ──────────────────────
   const challengeHashtag = challenge?.hashtags?.tag ?? '';
@@ -72,6 +84,40 @@ export default function HashtagChallengePage() {
     } : undefined,
   });
 
+  const fetchChallengePosts = async (tag: string, sort: 'engagement' | 'newest' = 'engagement', page = 0) => {
+    if (!tag) return;
+    if (page === 0) setLoadingPosts(true); else setLoadingMore(true);
+    const orderCol = sort === 'engagement' ? 'likes_count' : 'created_at';
+    const { data } = await supabase
+      .from('posts')
+      .select('*, user_profiles(*)')
+      .ilike('content', `%#${tag}%`)
+      .order(orderCol, { ascending: false })
+      .range(page * FEED_PAGE_SIZE, (page + 1) * FEED_PAGE_SIZE - 1);
+    if (data) {
+      if (page === 0) {
+        setPosts(data);
+        // Build mini leaderboard from top 3 by likes
+        const sorted = [...data].sort((a, b) => (b.likes_count ?? 0) - (a.likes_count ?? 0));
+        setLeaderboard(sorted.slice(0, 3));
+        // Check if current user has entered
+        if (user) setHasEntered(data.some((p: any) => p.user_id === user.id));
+        // Fetch liked IDs
+        if (user) {
+          const ids = data.map((p: any) => p.id);
+          const { data: liked } = await supabase
+            .from('likes').select('post_id')
+            .eq('user_id', user.id).in('post_id', ids);
+          setLikedIds(new Set((liked ?? []).map((l: any) => l.post_id)));
+        }
+      } else {
+        setPosts(prev => [...prev, ...data]);
+      }
+      setFeedPage(page);
+    }
+    if (page === 0) setLoadingPosts(false); else setLoadingMore(false);
+  };
+
   const fetchChallenge = useCallback(async () => {
     if (!id) return;
     const { data, error } = await supabase
@@ -83,31 +129,36 @@ export default function HashtagChallengePage() {
     setChallenge(data);
     setLoading(false);
     fetchChallengePosts(data.hashtags?.tag);
-  }, [id]);
+  }, [id, navigate]); // Added navigate to dependency array
 
-  const fetchChallengePosts = async (tag: string) => {
-    if (!tag) return;
-    setLoadingPosts(true);
-    const { data } = await supabase
-      .from('posts')
-      .select('*, user_profiles(*)')
-      .ilike('content', `%#${tag}%`)
-      .order('likes_count', { ascending: false })
-      .limit(50);
-    if (data) {
-      setPosts(data);
-      // Build mini leaderboard from top 3
-      setLeaderboard(data.slice(0, 3));
-      // Check if current user has entered
-      if (user) {
-        const entered = data.some((p: any) => p.user_id === user.id);
-        setHasEntered(entered);
-      }
+  const handleLike = async (postId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) { navigate('/auth'); return; }
+    if (likingId === postId) return;
+    setLikingId(postId);
+    const isLiked = likedIds.has(postId);
+    if (isLiked) {
+      await supabase.from('likes').delete().eq('user_id', user.id).eq('post_id', postId);
+      setLikedIds(prev => { const s = new Set(prev); s.delete(postId); return s; });
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: Math.max(0, (p.likes_count ?? 0) - 1) } : p));
+    } else {
+      await supabase.from('likes').insert({ user_id: user.id, post_id: postId });
+      setLikedIds(prev => new Set([...prev, postId]));
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: (p.likes_count ?? 0) + 1 } : p));
     }
-    setLoadingPosts(false);
+    setLikingId(null);
+  };
+
+  const changeSortAndFetch = (sort: 'engagement' | 'newest', tag: string) => {
+    setFeedSort(sort);
+    setFeedPage(0);
+    fetchChallengePosts(tag, sort, 0);
   };
 
   useEffect(() => { fetchChallenge(); }, [fetchChallenge]);
+  useEffect(() => {
+    if (challenge?.hashtags?.tag) fetchChallengePosts(challenge.hashtags.tag, feedSort, 0);
+  }, [challenge?.hashtags?.tag, feedSort, user]); // Added user to dependencies
 
   const handleEnter = async () => {
     if (!user) { navigate('/auth'); return; }
@@ -227,31 +278,40 @@ export default function HashtagChallengePage() {
           </span>
         </div>
 
-        {/* Enter button */}
-        {!isExpired && (
+        {/* Enter / Join button */}
+        <div className="flex gap-2">
+          {!isExpired && (
+            <button
+              onClick={handleEnter}
+              disabled={entering || hasEntered}
+              className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                hasEntered
+                  ? 'bg-green-500/10 text-green-600 border border-green-500/20'
+                  : 'bg-primary text-primary-foreground hover:opacity-90'
+              }`}
+            >
+              {entering
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : hasEntered
+                  ? <><CheckCircle className="w-4 h-4" />You're In!</>
+                  : <><Plus className="w-4 h-4" />Join Challenge</>}
+            </button>
+          )}
+          {/* Quick compose button — pre-fills hashtag */}
           <button
-            onClick={handleEnter}
-            disabled={entering || hasEntered}
-            className={`w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-              hasEntered
-                ? 'bg-green-500/10 text-green-600 border border-green-500/20'
-                : 'bg-primary text-primary-foreground hover:opacity-90'
-            }`}
+            onClick={() => navigate(`/?compose=true&hashtag=${hashtag}`)}
+            className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-primary/30 text-primary font-bold text-sm hover:bg-primary/5 transition-colors"
           >
-            {entering
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : hasEntered
-                ? <><CheckCircle className="w-4 h-4" />You're In!</>
-                : <><Plus className="w-4 h-4" />Join Challenge</>}
+            <Pencil className="w-4 h-4" /> Post
           </button>
-        )}
+        </div>
       </div>
 
       {/* Top 3 leaderboard */}
       {leaderboard.length > 0 && (
         <div className="px-4 py-4 border-b border-border">
           <h2 className="font-bold text-base mb-3 flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-yellow-500" /> Top Posts
+            <Trophy className="w-4 h-4 text-yellow-500" /> Leaderboard
           </h2>
           <div className="space-y-2">
             {leaderboard.map((post, i) => (
@@ -260,7 +320,7 @@ export default function HashtagChallengePage() {
                 className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 border border-border cursor-pointer hover:bg-muted/50 transition-colors"
                 onClick={() => navigate(`/post/${post.id}`)}
               >
-                <span className="text-2xl leading-none">{['🥇', '🥈', '🥉'][i]}</span>
+                <span className="text-2xl leading-none">{CHALLENGE_MEDALS[i]}</span>
                 <div className="w-9 h-9 rounded-full bg-muted overflow-hidden shrink-0">
                   {post.user_profiles?.avatar_url
                     ? <img src={post.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
@@ -271,7 +331,10 @@ export default function HashtagChallengePage() {
                   <p className="text-xs text-muted-foreground line-clamp-1">{post.content}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-sm font-bold text-pink-600">❤️ {formatNumber(post.likes_count)}</p>
+                  <p className="text-sm font-bold text-pink-600 flex items-center gap-1">
+                    <Heart className="w-3.5 h-3.5 fill-pink-600" />{formatNumber(post.likes_count ?? 0)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{post.replies_count ?? 0} replies</p>
                 </div>
               </div>
             ))}
@@ -279,13 +342,25 @@ export default function HashtagChallengePage() {
         </div>
       )}
 
-      {/* All posts */}
+      {/* ── Entry Feed ── */}
       <div className="border-t border-border">
-        <div className="px-4 py-3 bg-muted/20">
+        {/* Feed header with sort controls */}
+        <div className="flex items-center justify-between px-4 py-3 bg-muted/20 border-b border-border">
           <p className="text-sm font-semibold text-muted-foreground">
-            All {posts.length} entries — sorted by likes
+            {posts.length > 0 ? `${posts.length}+ entries` : 'Entries'}
           </p>
+          <div className="flex items-center gap-1 bg-muted rounded-xl p-0.5">
+            {(['engagement', 'newest'] as const).map(s => (
+              <button key={s} onClick={() => changeSortAndFetch(s, hashtag)}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                  feedSort === s ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}>
+                {s === 'engagement' ? '🔥 Top' : '🕐 New'}
+              </button>
+            ))}
+          </div>
         </div>
+
         {loadingPosts ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-7 h-7 animate-spin text-primary" />
@@ -295,9 +370,54 @@ export default function HashtagChallengePage() {
             <Hash className="w-14 h-14 opacity-20 mb-3" />
             <p className="font-semibold">No entries yet</p>
             <p className="text-sm mt-1">Be the first to post with #{hashtag}!</p>
+            <button onClick={() => navigate(`/?compose=true&hashtag=${hashtag}`)}
+              className="mt-4 flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90">
+              <Pencil className="w-3.5 h-3.5" /> Enter Challenge
+            </button>
           </div>
         ) : (
-          posts.map(post => <PostCard key={post.id} post={post} onUpdate={() => fetchChallengePosts(hashtag)} />)
+          <>
+            {posts.map(post => (
+              <div key={post.id} className="border-b border-border">
+                {/* Engagement stats bar above the card */}
+                <div className="flex items-center gap-4 px-4 pt-3 pb-1">
+                  <button onClick={e => handleLike(post.id, e)}
+                    disabled={likingId === post.id}
+                    className={`flex items-center gap-1.5 text-xs font-bold transition-colors ${
+                      likedIds.has(post.id) ? 'text-pink-600' : 'text-muted-foreground hover:text-pink-600'
+                    }`}>
+                    {likingId === post.id
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Heart className={`w-4 h-4 ${likedIds.has(post.id) ? 'fill-pink-600' : ''}`} />}
+                    {formatNumber(post.likes_count ?? 0)}
+                  </button>
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <MessageCircle className="w-4 h-4" />{formatNumber(post.replies_count ?? 0)}
+                  </span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
+                  </span>
+                  {post.user_id === user?.id && (
+                    <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">Your entry</span>
+                  )}
+                </div>
+                <PostCard post={post} onUpdate={() => fetchChallengePosts(hashtag, feedSort, 0)} />
+              </div>
+            ))}
+            {/* Load more button */}
+            {posts.length >= FEED_PAGE_SIZE && (
+              <div className="flex justify-center py-6">
+                <button
+                  onClick={() => fetchChallengePosts(hashtag, feedSort, feedPage + 1)}
+                  disabled={loadingMore}
+                  className="flex items-center gap-2 px-5 py-2.5 border border-border rounded-full text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  {loadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronDown className="w-4 h-4" />}
+                  {loadingMore ? 'Loading…' : 'Load more entries'}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

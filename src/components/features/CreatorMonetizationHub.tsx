@@ -130,6 +130,92 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
         </div>
       </div>
 
+      {/* ── Creator Tier Progress Bar ── */}
+      {(() => {
+        // 4-step stepper: standard → rising → premium → top_creator
+        const TIER_STEPS = [
+          { tier: 'standard',    views: 0,       label: 'Standard',    emoji: '\ud83c\udf31', cpm: 1.50, milestone: 'Start here' },
+          { tier: 'rising',      views: 10_000,  label: 'Rising',      emoji: '\ud83d\udcc8', cpm: 2.00, milestone: '10k views' },
+          { tier: 'premium',     views: 0,       label: 'Premium',     emoji: '\u2b50', cpm: 2.50, milestone: 'Get verified' },
+          { tier: 'top_creator', views: 100_000, label: 'Top Creator', emoji: '\ud83d\udc51', cpm: 3.50, milestone: 'Verified + 100k views' },
+        ] as const;
+        const currentIdx = TIER_STEPS.findIndex(s => s.tier === (rate?.tier ?? 'standard'));
+        const safeIdx = currentIdx < 0 ? 0 : currentIdx;
+        const totalViews = Number(rate?.period_views ?? 0);
+        // Progress to next tier (view-based tiers only)
+        const nextStep = TIER_STEPS[safeIdx + 1];
+        const prevMilestone = TIER_STEPS[safeIdx]?.views ?? 0;
+        const nextMilestone = nextStep?.views ?? 0;
+        const barPct = nextMilestone > 0
+          ? Math.min(100, Math.round(((totalViews - prevMilestone) / (nextMilestone - prevMilestone)) * 100))
+          : 100;
+        const monthlyProjection = rate?.cpm_usd && totalViews >= 1000
+          ? ((Number(rate.cpm_usd) / 1000) * totalViews).toFixed(2)
+          : null;
+        return (
+          <div className="border border-border rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" />
+              <p className="font-bold text-sm">Tier Progression</p>
+              {monthlyProjection && (
+                <span className="ml-auto text-xs font-bold text-green-600">${monthlyProjection} projected</span>
+              )}
+            </div>
+            <div className="px-4 py-4">
+              {/* Step indicators */}
+              <div className="relative flex items-center justify-between mb-3">
+                {/* connector bar */}
+                <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1 bg-muted rounded-full" />
+                <div
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-primary rounded-full transition-all duration-500"
+                  style={{ width: `${(safeIdx / (TIER_STEPS.length - 1)) * 100}%` }}
+                />
+                {TIER_STEPS.map((step, i) => {
+                  const isDone   = i < safeIdx;
+                  const isCurrent = i === safeIdx;
+                  return (
+                    <div key={step.tier} className="relative flex flex-col items-center z-10">
+                      <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center text-base font-black transition-all ${
+                        isDone    ? 'bg-primary border-primary text-primary-foreground' :
+                        isCurrent ? 'bg-background border-primary shadow-md shadow-primary/20' :
+                                    'bg-muted border-border text-muted-foreground'
+                      }`}>
+                        {step.emoji}
+                      </div>
+                      <p className={`mt-1.5 text-[10px] font-bold leading-tight text-center max-w-[52px] ${
+                        isCurrent ? 'text-primary' : isDone ? 'text-foreground' : 'text-muted-foreground'
+                      }`}>{step.label}</p>
+                      <p className={`text-[9px] font-black leading-none ${
+                        isCurrent ? 'text-primary' : isDone ? 'text-green-600' : 'text-muted-foreground'
+                      }`}>${step.cpm.toFixed(2)}/k</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Progress bar to next tier */}
+              {nextStep && nextStep.views > 0 && (
+                <div className="mt-4">
+                  <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                    <span>{totalViews.toLocaleString()} views</span>
+                    <span>{nextStep.views.toLocaleString()} needed for {nextStep.label}</span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-primary to-green-500 rounded-full transition-all duration-700" style={{ width: `${barPct}%` }} />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {barPct}% to {nextStep.label} · +${(nextStep.cpm - (TIER_STEPS[safeIdx]?.cpm ?? 1.50)).toFixed(2)}/1k views when you upgrade
+                  </p>
+                </div>
+              )}
+              {safeIdx === TIER_STEPS.length - 1 && (
+                <p className="text-center text-xs font-bold text-primary mt-3">👑 You've reached the highest tier!</p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* All tiers reference table */}
       <div className="border border-border rounded-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center gap-2">
@@ -616,7 +702,7 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
     const totalEarnings = earnings.reduce((s, e) => s + Number(e.amount), 0);
     const totalTips     = tips.reduce((s, t) => s + Number(t.amount), 0);
     const totalSubs     = subs.reduce((s, sub) => s + Number(sub.price ?? 0), 0);
-    const bySource: Record<string, number> = {};
+    const bySource: { [k: string]: number } = {};
     earnings.forEach(e => { bySource[e.source] = (bySource[e.source] ?? 0) + Number(e.amount); });
     const monthlyData = Object.entries(bySource).map(([name, value], i) => ({
       name: name.replace(/_/g, ' '),

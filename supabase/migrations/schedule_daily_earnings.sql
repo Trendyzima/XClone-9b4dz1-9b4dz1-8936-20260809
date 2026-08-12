@@ -50,6 +50,26 @@
 -- );
 
 -- =============================================================================
+-- Job C: Trending Hashtag Alert — hourly
+-- Scans trending_hashtags for tags with trend_score > 75,
+-- finds posts from the last 24h using those tags, and sends
+-- a platform_inbox notification once per (user, hashtag) pair per day.
+-- =============================================================================
+-- select cron.schedule(
+--   'trending-hashtag-alert-hourly',
+--   '0 * * * *',
+--   $$
+--   select
+--     net.http_post(
+--       url        := 'YOUR_SUPABASE_URL/functions/v1/trending-hashtag-alert',
+--       headers    := '{"Content-Type":"application/json","Authorization":"Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb,
+--       body       := '{}'::jsonb,
+--       timeout_milliseconds := 20000
+--     ) as request_id;
+--   $$
+-- );
+
+-- =============================================================================
 -- Management queries
 -- =============================================================================
 -- View all scheduled jobs:
