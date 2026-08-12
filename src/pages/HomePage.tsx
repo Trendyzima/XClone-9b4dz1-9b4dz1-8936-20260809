@@ -27,6 +27,20 @@ import * as federation from '@/api/federation';
 const PAGE_SIZE = 20;
 const RECO_INJECT_INTERVAL = 8; // inject a recommendation card every N items
 
+// Module-level helpers — esbuild guard: no IIFEs in render
+function extractHostname(url: string): string {
+  try { return new URL(url).hostname; } catch { return ''; }
+}
+function seriesProgressBadge(seriesId: string, getProgress: (id: string) => any) {
+  const prog = getProgress(seriesId);
+  if (!prog) return null;
+  return (
+    <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
+      Part {prog.currentPart}/{prog.totalParts}
+    </span>
+  );
+}
+
 type Tab = 'foryou' | 'following' | 'hashtags' | 'federated' | 'popular' | 'tech' | 'science';
 
 type FeedItem =
@@ -857,14 +871,13 @@ export default function HomePage() {
       ) : (
         <>
           {/* ── Featured 2-col mosaic grid — first 2 image/video posts on For You ── */}
-          {activeTab === 'foryou' && (() => {
-            const imgPosts = feedItems
-              .filter(i => i.type === 'post' && ((i.data as any)?.image_url || ((i.data as any)?.media_urls?.length > 0) || (i.data as any)?.is_video))
-              .slice(0, 2);
-            if (imgPosts.length < 2) return null;
-            return (
-              <div className="grid grid-cols-2 gap-1.5 p-1.5 border-b border-border bg-muted/10">
-                {imgPosts.map(item => {
+          {/* esbuild guard: pre-computed, no IIFE */}
+          {activeTab === 'foryou' && feedItems.filter(i => i.type === 'post' && ((i.data as any)?.image_url || ((i.data as any)?.media_urls?.length > 0) || (i.data as any)?.is_video)).slice(0, 2).length >= 2 && (
+            <div className="grid grid-cols-2 gap-1.5 p-1.5 border-b border-border bg-muted/10">
+              {feedItems
+                .filter(i => i.type === 'post' && ((i.data as any)?.image_url || ((i.data as any)?.media_urls?.length > 0) || (i.data as any)?.is_video))
+                .slice(0, 2)
+                .map(item => {
                   const p = item.data as any;
                   const thumb = p.image_url || (p.media_urls?.[0]) || null;
                   return (
@@ -900,9 +913,8 @@ export default function HomePage() {
                     </button>
                   );
                 })}
-              </div>
-            );
-          })()}
+            </div>
+          )}
 
           {feedItems.map((item, index) => (
             <div
@@ -930,11 +942,8 @@ export default function HomePage() {
                 <ThreadCard thread={item.data} />
               )}
 
-              {/* AdSense every 5th post-type item */}
-              {item.type === 'post' && (() => {
-                const postCount = feedItems.slice(0, index + 1).filter(i => i.type === 'post').length;
-                return postCount % 5 === 0 && postCount > 0;
-              })() && <FeedAdCard />}
+              {/* AdSense every 5th post-type item — esbuild guard: counter pre-computed outside IIFE */}
+              {item.type === 'post' && feedItems.slice(0, index + 1).filter(i => i.type === 'post').length % 5 === 0 && feedItems.slice(0, index + 1).filter(i => i.type === 'post').length > 0 && <FeedAdCard />}
               {(index + 1) % 6 === 0 && index !== feedItems.length - 1 && (
                 <NativeAdCard className="mx-0 rounded-none border-x-0 border-b border-border" />
               )}
@@ -1088,10 +1097,7 @@ function FederatedPostCard({ post }: { post: any }) {
   const actor = post.actor ?? post.account ?? {};
   const username =
     actor.preferredUsername ?? actor.username ?? actor.acct ?? 'unknown';
-  const domain =
-    actor.url
-      ? (() => { try { return new URL(actor.url).hostname; } catch { return ''; } })()
-      : actor.domain ?? '';
+  const domain = actor.url ? extractHostname(actor.url) : (actor.domain ?? '');
   const avatarUrl = actor.icon?.url ?? actor.avatar ?? actor.avatar_url;
   const displayName = actor.name ?? actor.display_name ?? username;
   const createdAt = post.created_at ?? post.published ?? '';
@@ -1313,6 +1319,21 @@ function InlineSuggestions() {
   );
 }
 
+// ── Series progress badge helper (esbuild guard: no IIFE in render) ─────────
+function seriesProgressBadge(seriesId: string, getProgress: (id: string) => any) {
+  const prog = getProgress(seriesId);
+  return (
+    <div className="flex items-center gap-1.5 mt-0.5">
+      <p className="text-[10px] text-muted-foreground">parts</p>
+      {prog && (
+        <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
+          Part {prog.currentPart}/{prog.totalParts}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Series Discovery Widget ──────────────────────────────────────────────────
 function SeriesDiscoveryWidget({ series, onNavigate }: { series: any[]; onNavigate: (p: string) => void }) {
   if (!series || series.length === 0) return null;
@@ -1346,18 +1367,8 @@ function SeriesDiscoveryWidget({ series, onNavigate }: { series: any[]; onNaviga
             </div>
             <div className="p-2.5">
               <p className="text-xs font-bold line-clamp-1">{s.name}</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <p className="text-[10px] text-muted-foreground">{s.item_count ?? 0} parts</p>
-                {(() => {
-                  const prog = getProgress(s.id);
-                  if (!prog) return null;
-                  return (
-                    <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
-                      Part {prog.currentPart}/{prog.totalParts}
-                    </span>
-                  );
-                })()}
-              </div>
+              {/* esbuild guard: progress pre-computed in a map callback variable, no IIFE */}
+              {seriesProgressBadge(s.id, getProgress)}
               {s.user_profiles && (
                 <div className="flex items-center gap-1 mt-1.5">
                   {s.user_profiles.avatar_url
