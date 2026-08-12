@@ -2147,7 +2147,7 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
           {filtered.map(tx => {
             const isIn = tx.type === 'deposit' || tx.type === 'earnings';
             const isMpesaDeposit = tx.type === 'deposit' && (tx.payment_method === 'mpesa' || tx.reference);
-            const txTag = tags[tx.id];
+            const txTag = getTag(tx.id);
             return (
               <div key={tx.id}
                 className={`p-3.5 bg-card border border-border rounded-2xl transition-colors ${

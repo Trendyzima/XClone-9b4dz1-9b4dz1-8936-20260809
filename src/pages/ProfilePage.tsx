@@ -726,12 +726,38 @@ export default function ProfilePage() {
     navigate(`/messages?to=${profile.username}`);
   };
 
+  useEffect(() => { if (activeTab === 'Podcasts' && profile?.id && !podcastsFetched) fetchProfilePodcasts(profile.id); }, [activeTab, profile?.id, podcastsFetched]);
+  useEffect(() => { if (activeTab === 'Series' && profile?.id && !profileSeriesFetched) fetchProfileSeries(profile.id); }, [activeTab, profile?.id, profileSeriesFetched]);
+
   if (loading) return <ProfileSkeleton />;
 
   if (!profile) return null;
   const videoPosts = posts.filter(p => p.is_video && p.video_url);
   // ── goalAchieved: MUST be declared before JSX — was missing, causing blank screen ──
   const goalAchieved = tipGoal !== null && tipGoal > 0 && currentMonthTips >= tipGoal;
+  // ── Pre-computed values — esbuild guard: no IIFEs in render ──────────────
+  const profileStrikes = profile?.strike_count ?? 0;
+  const profileStrikesColor = profileStrikes === 0 ? 'text-green-600' : profileStrikes === 1 ? 'text-orange-500' : 'text-red-600';
+  const profileStrikesBorderBg = profileStrikes === 0 ? 'border-green-500/20 bg-green-500/5' : profileStrikes === 1 ? 'border-orange-500/20 bg-orange-500/5' : 'border-red-500/20 bg-red-500/5';
+  const profileVideoPosts = posts.filter(p => p.is_video);
+  const profileTipsReceived = tipHistory.filter(t => t.to_user_id === profile?.id);
+  const profileAchievementsAll = [
+    { id: 'first_post',    emoji: '✍️', label: 'First Post',    unlocked: posts.length >= 1 },
+    { id: 'verified',      emoji: '✅', label: 'Verified',       unlocked: !!profile?.verified },
+    { id: 'video_creator', emoji: '🎬', label: 'Video Creator',  unlocked: profileVideoPosts.length >= 1 },
+    { id: 'followers_100', emoji: '👥', label: '100 Followers',  unlocked: (profile?.followers_count ?? 0) >= 100 },
+    { id: 'followers_1k',  emoji: '⭐', label: '1K Followers',   unlocked: (profile?.followers_count ?? 0) >= 1000 },
+    { id: 'first_dollar',  emoji: '💰', label: 'First Dollar',   unlocked: Number(profile?.total_earnings ?? 0) >= 1 },
+    { id: 'streak_7',      emoji: '🔥', label: '7-Day Streak',   unlocked: streakDay >= 7 },
+    { id: 'tip_received',  emoji: '💝', label: 'Tip Received',   unlocked: profileTipsReceived.length >= 1 },
+    { id: 'posts_10',      emoji: '📝', label: '10 Posts',       unlocked: posts.length >= 10 },
+    { id: 'followers_10k', emoji: '🌟', label: '10K Followers',  unlocked: (profile?.followers_count ?? 0) >= 10000 },
+  ];
+  const profileAchievementsUnlocked = profileAchievementsAll.filter(a => a.unlocked);
+  // Pre-computed podcast/series stats (no IIFE in render)
+  const podTotalEps = profilePodcasts.length;
+  const podTotalListeners = profilePodcasts.reduce((s: number, p: any) => s + (p.listener_count ?? 0), 0);
+  const podTotalSecs = profilePodcasts.reduce((s: number, p: any) => s + (p.duration ?? 0), 0);
   const tabs = isOwnProfile
     ? ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following', 'Analytics']
     : ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
@@ -861,16 +887,11 @@ export default function ProfilePage() {
                 </button>
               )}
               {(isOwnProfile ? isPremiumUser : false) && <Crown className="w-4 h-4 text-amber-500" fill="currentColor" title="Premium Member" />}
-              {(() => {
-                const tier = profile.creator_tier;
-                const label = getCreatorTierLabel(tier);
-                if (!label) return null;
-                return (
-                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r ${getCreatorTierBg(tier)} border ${getCreatorTierBorder(tier)} text-xs font-bold ${getCreatorTierText(tier)}`}>
-                    <span>{getCreatorTierIcon(tier)}</span>{label} Creator
-                  </span>
-                );
-              })()}
+              {getCreatorTierLabel(profile.creator_tier) && (
+                <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r ${getCreatorTierBg(profile.creator_tier)} border ${getCreatorTierBorder(profile.creator_tier)} text-xs font-bold ${getCreatorTierText(profile.creator_tier)}`}>
+                  <span>{getCreatorTierIcon(profile.creator_tier)}</span>{getCreatorTierLabel(profile.creator_tier)} Creator
+                </span>
+              )}
             </div>
             <p className="text-muted-foreground">@{profile.username}</p>
           </div>
@@ -878,40 +899,22 @@ export default function ProfilePage() {
           {profile.bio && <p className="mb-3 break-words">{profile.bio}</p>}
 
           {/* Achievements */}
-          {(() => {
-            const vp = posts.filter(p => p.is_video).length;
-            const tr = tipHistory.filter(t => t.to_user_id === profile.id).length;
-            const ACHIEVEMENTS = [
-              { id: 'first_post',    emoji: '✍️', label: 'First Post',    unlocked: posts.length >= 1 },
-              { id: 'verified',      emoji: '✅', label: 'Verified',       unlocked: !!profile.verified },
-              { id: 'video_creator', emoji: '🎬', label: 'Video Creator',  unlocked: vp >= 1 },
-              { id: 'followers_100', emoji: '👥', label: '100 Followers',  unlocked: (profile.followers_count ?? 0) >= 100 },
-              { id: 'followers_1k',  emoji: '⭐', label: '1K Followers',   unlocked: (profile.followers_count ?? 0) >= 1000 },
-              { id: 'first_dollar',  emoji: '💰', label: 'First Dollar',   unlocked: Number(profile.total_earnings ?? 0) >= 1 },
-              { id: 'streak_7',      emoji: '🔥', label: '7-Day Streak',   unlocked: streakDay >= 7 },
-              { id: 'tip_received',  emoji: '💝', label: 'Tip Received',   unlocked: tr >= 1 },
-              { id: 'posts_10',      emoji: '📝', label: '10 Posts',       unlocked: posts.length >= 10 },
-              { id: 'followers_10k', emoji: '🌟', label: '10K Followers',  unlocked: (profile.followers_count ?? 0) >= 10000 },
-            ];
-            const unlocked = ACHIEVEMENTS.filter(a => a.unlocked);
-            if (unlocked.length === 0) return null;
-            return (
-              <div className="mb-3">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Achievements</span>
-                  <span className="text-[10px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded-full">{unlocked.length}/{ACHIEVEMENTS.length}</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {ACHIEVEMENTS.map(a => (
-                    <div key={a.id} title={a.label} className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${a.unlocked ? 'bg-primary/8 border-primary/20 text-foreground shadow-sm' : 'bg-muted/30 border-border text-muted-foreground/40 grayscale opacity-40'}`}>
-                      <span>{a.emoji}</span>
-                      <span className="hidden sm:inline">{a.label}</span>
-                    </div>
-                  ))}
-                </div>
+          {profileAchievementsUnlocked.length > 0 && (
+            <div className="mb-3">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Achievements</span>
+                <span className="text-[10px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded-full">{profileAchievementsUnlocked.length}/{profileAchievementsAll.length}</span>
               </div>
-            );
-          })()}
+              <div className="flex flex-wrap gap-1.5">
+                {profileAchievementsAll.map(a => (
+                  <div key={a.id} title={a.label} className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${a.unlocked ? 'bg-primary/8 border-primary/20 text-foreground shadow-sm' : 'bg-muted/30 border-border text-muted-foreground/40 grayscale opacity-40'}`}>
+                    <span>{a.emoji}</span>
+                    <span className="hidden sm:inline">{a.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Tip Goal */}
           {(tipGoal !== null || isOwnProfile) && (
@@ -1118,43 +1121,38 @@ export default function ProfilePage() {
           </div>
 
           {/* Account Standing — own profile only */}
-          {isOwnProfile && (() => {
-            const strikes = profile.strike_count ?? 0;
-            const sc = strikes === 0 ? 'text-green-600' : strikes === 1 ? 'text-orange-500' : 'text-red-600';
-            const sb = strikes === 0 ? 'border-green-500/20 bg-green-500/5' : strikes === 1 ? 'border-orange-500/20 bg-orange-500/5' : 'border-red-500/20 bg-red-500/5';
-            return (
-              <div className={`mt-3 rounded-2xl border p-3 ${sb}`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <ShieldCheck className={`w-4 h-4 shrink-0 ${sc}`} />
-                  <span className="text-xs font-black text-foreground">Account Standing</span>
-                  {strikes === 0
-                    ? <span className="ml-auto text-[10px] font-bold text-green-600 bg-green-500/10 px-1.5 py-0.5 rounded-full">Good ✓</span>
-                    : <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${sc}`}>{strikes}/3 Strike{strikes !== 1 ? 's' : ''}</span>}
-                </div>
-                <div className="flex gap-1 mb-2">
-                  {[1,2,3].map(n => (
-                    <div key={n} className={`flex-1 h-2 rounded-full ${n <= strikes ? (strikes >= 3 ? 'bg-red-600' : strikes >= 2 ? 'bg-red-500' : 'bg-orange-400') : 'bg-muted'}`} />
-                  ))}
-                </div>
-                <p className="text-[10px] text-muted-foreground mb-2">
-                  {strikes === 0 ? 'No violations. Keep creating great content!' :
-                   strikes === 1 ? '1 policy strike. Avoid further violations.' :
-                   strikes === 2 ? '2 strikes — next may result in suspension.' :
-                   '3 strikes — account may be permanently suspended.'}
-                </p>
-                <div className="flex gap-2">
-                  <button onClick={() => navigate('/policy')} className="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded-xl text-[10px] font-bold hover:bg-muted transition-colors">
-                    <ShieldCheck className="w-2.5 h-2.5" />View Policy
-                  </button>
-                  {strikes > 0 && (
-                    <button onClick={() => navigate('/appeals')} className="flex items-center gap-1 px-2.5 py-1 bg-primary/5 border border-primary/20 rounded-xl text-[10px] font-bold text-primary hover:bg-primary/10 transition-colors">
-                      <Flag className="w-2.5 h-2.5" />File Appeal
-                    </button>
-                  )}
-                </div>
+          {isOwnProfile && (
+            <div className={`mt-3 rounded-2xl border p-3 ${profileStrikesBorderBg}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <ShieldCheck className={`w-4 h-4 shrink-0 ${profileStrikesColor}`} />
+                <span className="text-xs font-black text-foreground">Account Standing</span>
+                {profileStrikes === 0
+                  ? <span className="ml-auto text-[10px] font-bold text-green-600 bg-green-500/10 px-1.5 py-0.5 rounded-full">Good ✓</span>
+                  : <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${profileStrikesColor}`}>{profileStrikes}/3 Strike{profileStrikes !== 1 ? 's' : ''}</span>}
               </div>
-            );
-          })()}
+              <div className="flex gap-1 mb-2">
+                {[1,2,3].map(n => (
+                  <div key={n} className={`flex-1 h-2 rounded-full ${n <= profileStrikes ? (profileStrikes >= 3 ? 'bg-red-600' : profileStrikes >= 2 ? 'bg-red-500' : 'bg-orange-400') : 'bg-muted'}`} />
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground mb-2">
+                {profileStrikes === 0 ? 'No violations. Keep creating great content!' :
+                 profileStrikes === 1 ? '1 policy strike. Avoid further violations.' :
+                 profileStrikes === 2 ? '2 strikes — next may result in suspension.' :
+                 '3 strikes — account may be permanently suspended.'}
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => navigate('/policy')} className="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded-xl text-[10px] font-bold hover:bg-muted transition-colors">
+                  <ShieldCheck className="w-2.5 h-2.5" />View Policy
+                </button>
+                {profileStrikes > 0 && (
+                  <button onClick={() => navigate('/appeals')} className="flex items-center gap-1 px-2.5 py-1 bg-primary/5 border border-primary/20 rounded-xl text-[10px] font-bold text-primary hover:bg-primary/10 transition-colors">
+                    <Flag className="w-2.5 h-2.5" />File Appeal
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Post Impressions Sparkline — own profile only */}
           {isOwnProfile && postImpressionsChart.some(d => d.views > 0) && (
@@ -1348,12 +1346,8 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {activeTab === 'Podcasts' && (() => {
-          if (!podcastsFetched && profile?.id) fetchProfilePodcasts(profile.id);
-          const podTotalEps = profilePodcasts.length;
-          const podTotalListeners = profilePodcasts.reduce((s: number, p: any) => s + (p.listener_count ?? 0), 0);
-          const podTotalSecs = profilePodcasts.reduce((s: number, p: any) => s + (p.duration ?? 0), 0);
-          return loadingPodcasts ? (
+        {activeTab === 'Podcasts' && (
+          loadingPodcasts ? (
             <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
           ) : (
             <div>
@@ -1427,8 +1421,8 @@ export default function ProfilePage() {
                 </div>
               )}
             </div>
-          );
-        })()}
+          )
+        )}
 
         {activeTab === 'Gifts' && (
           loadingGifts ? <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
@@ -1517,9 +1511,8 @@ export default function ProfilePage() {
           )
         )}
 
-        {activeTab === 'Series' && (() => {
-          if (!profileSeriesFetched && profile?.id) fetchProfileSeries(profile.id);
-          return loadingProfileSeries ? (
+        {activeTab === 'Series' && (
+          loadingProfileSeries ? (
             <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
           ) : profileSeries.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
@@ -1530,9 +1523,8 @@ export default function ProfilePage() {
           ) : (
             <div className="divide-y divide-border">
               {profileSeries.map((s: any) => {
-                const sProg = (() => {
-                  try { const raw = localStorage.getItem('series_progress'); return raw ? (JSON.parse(raw)[s.id] ?? null) : null; } catch { return null; }
-                })();
+                let sProg: any = null;
+                try { const raw = localStorage.getItem('series_progress'); sProg = raw ? (JSON.parse(raw)[s.id] ?? null) : null; } catch { sProg = null; }
                 const sTotal = s.item_count ?? 0;
                 const sPct = sProg && sTotal > 0 ? Math.round((sProg.currentPart / sTotal) * 100) : 0;
                 return (
@@ -1563,8 +1555,8 @@ export default function ProfilePage() {
                 );
               })}
             </div>
-          );
-        })()}
+          )
+        )}
 
         {activeTab === 'Likes' && (
           likedPosts.length > 0 ? likedPosts.map(post => <PostCard key={post.id} post={post} onUpdate={fetchProfile} />) : <div className="text-center py-12 text-muted-foreground"><p>No liked posts yet</p></div>

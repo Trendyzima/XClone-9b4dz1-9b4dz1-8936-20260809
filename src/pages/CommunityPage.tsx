@@ -420,9 +420,29 @@ export default function CommunityPage() {
       const next = wasIn ? prev.filter(id => id !== eventId) : [...prev, eventId];
       localStorage.setItem(`rsvp_${community.id}`, JSON.stringify(next));
       sonnerToast.success(!wasIn ? "You're going! 🎉" : 'RSVP cancelled');
+      // Schedule 1-hour-before reminder notification when RSVPing
+      if (!wasIn && user) {
+        const ev = events.find((e: any) => e.id === eventId);
+        if (ev) {
+          const evMs = new Date(ev.scheduled_for).getTime();
+          const now  = Date.now();
+          const reminderMs = evMs - 60 * 60 * 1000; // 1 hour before
+          const evTitle = (ev.content ?? '').split('\n')[0] ?? 'Event';
+          if (reminderMs > now) {
+            // Store pending reminder in localStorage for polling
+            try {
+              const rKey = `event_reminders_${user.id}`;
+              const existing: any[] = JSON.parse(localStorage.getItem(rKey) ?? '[]');
+              const deduped = existing.filter((r: any) => r.eventId !== eventId);
+              deduped.push({ eventId, communityId: community.id, communityName: community.name, title: evTitle, reminderAt: reminderMs });
+              localStorage.setItem(rKey, JSON.stringify(deduped));
+            } catch { /* ignore */ }
+          }
+        }
+      }
       return next;
     });
-  }, [community]);
+  }, [community, user, events]);
 
   const handleCreateEvent = async () => {
     if (!user || !community || !eventForm.title.trim() || !eventForm.scheduled_for) return;
@@ -503,6 +523,45 @@ export default function CommunityPage() {
     return () => { supabase.removeChannel(sub); };
   }, [community?.id]);
   useEffect(() => { if (community?.id) { fetchWeeklyDigest(community.id); fetchRelatedSpaces(community.name, community.display_name); } }, [community?.id]);
+
+  // ── Event reminder polling — fires 1 hour before RSVPed events ──
+  useEffect(() => {
+    if (!user) return;
+    const rKey = `event_reminders_${user.id}`;
+    const sentKey = `event_reminders_sent_${user.id}`;
+    const check = async () => {
+      try {
+        const raw = localStorage.getItem(rKey);
+        if (!raw) return;
+        const reminders: any[] = JSON.parse(raw);
+        if (reminders.length === 0) return;
+        const sentRaw = localStorage.getItem(sentKey);
+        const sent: string[] = sentRaw ? JSON.parse(sentRaw) : [];
+        const now = Date.now();
+        const toFire = reminders.filter((r: any) => r.reminderAt <= now && !sent.includes(r.eventId));
+        for (const r of toFire) {
+          await supabase.from('platform_inbox').insert({
+            user_id: user.id,
+            subject: `⏰ Reminder: "${r.title}" starts in 1 hour!`,
+            body: `You RSVPed to "${r.title}" in c/${r.communityName}. It starts in about 1 hour!`,
+            type: 'update',
+            icon_emoji: '📅',
+            cta_label: `View c/${r.communityName}`,
+            cta_url: `/c/${r.communityName}`,
+          }).catch(() => {});
+          sent.push(r.eventId);
+          sonnerToast(`⏰ "${r.title}" starts in 1 hour!`, { duration: 6000 });
+        }
+        if (toFire.length > 0) localStorage.setItem(sentKey, JSON.stringify(sent));
+        // Clean up past reminders
+        const future = reminders.filter((r: any) => r.reminderAt > now - 2 * 3600 * 1000);
+        if (future.length !== reminders.length) localStorage.setItem(rKey, JSON.stringify(future));
+      } catch { /* ignore */ }
+    };
+    check();
+    const iv = setInterval(check, 60_000); // check every minute
+    return () => clearInterval(iv);
+  }, [user?.id]);
 
   const fetchCommunity = async () => {
     if (!name) return;

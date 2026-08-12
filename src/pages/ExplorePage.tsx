@@ -14,6 +14,17 @@ import { toast } from 'sonner';
 import { useSEO } from '@/hooks/useSEO';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
+// ── Module-level trending filter categories (esbuild guard: no as-const in render)
+const TRENDING_FILTER_CATS = ['All', 'Tech', 'Sports', 'Entertainment', 'Music', 'Politics'] as const;
+// Plain object — no index-sig type annotation (esbuild guard)
+const TRENDING_FILTER_KEYWORDS = {
+  Tech:          ['tech', 'ai', 'code', 'dev', 'app', 'crypto', 'web', 'data', 'software', 'digital', 'robot', 'cloud'],
+  Sports:        ['sport', 'football', 'soccer', 'basketball', 'tennis', 'cricket', 'nba', 'epl', 'run', 'athlete', 'game', 'champion'],
+  Entertainment: ['movie', 'music', 'film', 'actor', 'show', 'drama', 'celebr', 'netflix', 'concert', 'dance', 'art', 'vibe'],
+  Music:         ['music', 'song', 'artist', 'album', 'rap', 'pop', 'hiphop', 'afro', 'rnb', 'bongo', 'gengetone'],
+  Politics:      ['politic', 'election', 'vote', 'govern', 'president', 'parliament', 'policy', 'law', 'kenya', 'nairobi'],
+};
+
 type ExploreTab = 'Explore' | 'Trending' | 'News' | 'Sports' | 'Entertainment';
 
 function ExploreAdBanner() { return <PageAdBanner />; }
@@ -42,6 +53,8 @@ export default function ExplorePage() {
   const [showCreateChallenge, setShowCreateChallenge] = useState(false);
   const [challengeForm, setChallengeForm] = useState({ title: '', description: '', prize: '', end_date: '', hashtag: '' });
   const [creatingChallenge, setCreatingChallenge] = useState(false);
+  // Trending tab — category filter (esbuild guard: module-level array constant)
+  const [trendingTagFilter, setTrendingTagFilter] = useState('All');
 
   // SEO — dynamic title from top 3 trending hashtags (placed after ALL state declarations)
   const topHashtagNames = trendingHashtags.slice(0, 3).map((h: any) => `#${h.tag}`);
@@ -224,6 +237,13 @@ export default function ExplorePage() {
     return trending.filter(t => t.category?.toLowerCase() === activeTab.toLowerCase());
   };
 
+  // Pre-compute trending tag filter results (esbuild guard: no IIFE in render)
+  const trendingKws = TRENDING_FILTER_KEYWORDS[trendingTagFilter] ?? [];
+  const filteredTrendingHashtags = trendingTagFilter === 'All'
+    ? trendingHashtags.slice(0, 20)
+    : trendingHashtags.filter((h: any) => trendingKws.some((k: string) => (h.tag ?? '').toLowerCase().includes(k))).slice(0, 20);
+  const filteredTrendingCount = trendingTagFilter === 'All' ? 0 : filteredTrendingHashtags.length;
+
   const newsItems = trending
     .filter(t => ['news', 'entertainment', 'sports', 'politics'].includes((t.category ?? '').toLowerCase()))
     .slice(0, 5);
@@ -377,6 +397,33 @@ export default function ExplorePage() {
                     {activeStoryIdx > 0 && <button className="pointer-events-auto w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full" onClick={() => setActiveStoryIdx(i => (i !== null && i > 0) ? i - 1 : null)}><ChevronLeft className="w-4 h-4 text-white" /></button>}
                     <div className="flex-1" />
                     {activeStoryIdx < exploreStories.length - 1 && <button className="pointer-events-auto w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full" onClick={() => setActiveStoryIdx(i => (i !== null && i + 1 < exploreStories.length) ? i + 1 : null)}><ChevronRightIcon className="w-4 h-4 text-white" /></button>}
+                  </div>
+                  {/* Quick emoji reactions for explore stories */}
+                  <div className="absolute bottom-16 left-0 right-0 flex justify-center gap-2 z-10 px-4">
+                    {['❤️', '🔥', '😮', '👏', '😍'].map(emoji => (
+                      <button
+                        key={emoji}
+                        onClick={async () => {
+                          if (!user) return;
+                          const s = exploreStories[activeStoryIdx];
+                          if (!s || s.user_id === user.id) return;
+                          const { data: existing } = await supabase.from('conversations').select('id')
+                            .or(`and(participant_1.eq.${user.id},participant_2.eq.${s.user_id}),and(participant_1.eq.${s.user_id},participant_2.eq.${user.id})`)
+                            .maybeSingle();
+                          let convId = existing?.id;
+                          if (!convId) {
+                            const { data: nc } = await supabase.from('conversations')
+                              .insert({ participant_1: user.id, participant_2: s.user_id }).select('id').single();
+                            convId = nc?.id;
+                          }
+                          if (convId) {
+                            await supabase.from('direct_messages').insert({ conversation_id: convId, sender_id: user.id, content: `${emoji} Reacted to your story` });
+                            toast.success(`${emoji} Sent!`, { duration: 1500 });
+                          }
+                        }}
+                        className="w-11 h-11 text-2xl rounded-full bg-black/40 backdrop-blur-sm border border-white/20 flex items-center justify-center hover:bg-black/60 active:scale-125 transition-all duration-150"
+                      >{emoji}</button>
+                    ))}
                   </div>
                   <div className="absolute bottom-4 left-0 right-0 flex justify-center z-10">
                     <button onClick={() => { setActiveStoryIdx(null); navigate(`/profile/${profile?.username}`); }} className="px-5 py-2 bg-white/20 backdrop-blur-sm border border-white/30 text-white text-sm font-semibold rounded-full hover:bg-white/30 transition-colors">View @{profile?.username}'s profile</button>
@@ -571,13 +618,39 @@ export default function ExplorePage() {
 
           {/* Trending hashtag chips grid */}
           <div className="px-4 mb-4">
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">Top 20 Trending</p>
+            {/* Category filter chips */}
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-3">
+              {TRENDING_FILTER_CATS.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setTrendingTagFilter(cat)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border-2 transition-all ${
+                    trendingTagFilter === cat
+                      ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                      : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                  }`}
+                >
+                  {cat === 'All' ? '🌐 All' : cat === 'Tech' ? '💻 Tech' : cat === 'Sports' ? '⚽ Sports' : cat === 'Entertainment' ? '🎥 Entertainment' : cat === 'Music' ? '🎵 Music' : '🗳️ Politics'}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">
+              {trendingTagFilter === 'All' ? 'Top 20 Trending' : `${trendingTagFilter} Hashtags`}
+              {trendingTagFilter !== 'All' && filteredTrendingCount > 0 && (
+                <span className="ml-2 text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">{filteredTrendingCount} found</span>
+              )}
+            </p>
             <div className="grid grid-cols-2 gap-2">
-              {trendingHashtags.slice(0, 20).map((tag: any, i: number) => (
+              {filteredTrendingHashtags.length === 0 ? (
+                <div className="col-span-2 py-8 text-center text-muted-foreground">
+                  <p className="font-semibold text-sm">No {trendingTagFilter} hashtags trending</p>
+                  <p className="text-xs mt-1">Try a different category or check back later</p>
+                </div>
+              ) : filteredTrendingHashtags.map((tag: any, i: number) => (
                 <button
                   key={tag.id}
                   onClick={() => navigate(`/hashtag/${tag.tag}`)}
-                  className="flex items-center gap-2 p-3 border border-border rounded-xl hover:bg-muted/50 transition-colors text-left group"
+                  className="flex items-center gap-2 p-3 border border-border rounded-xl hover:bg-muted/50 transition-all text-left group active:scale-95"
                 >
                   <span className={`text-xs font-black w-5 shrink-0 ${
                     i === 0 ? 'text-orange-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-amber-600' : 'text-muted-foreground'
