@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Bell, User, Flame, UserSearch, Inbox } from 'lucide-react';
+import { Home, Bell, User, Flame, UserSearch, Inbox, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useIsRegulator } from '@/hooks/useFeatureUnlock';
@@ -236,7 +236,15 @@ export function BottomNav() {
         visible ? 'translate-y-0' : 'translate-y-full'
       }`}
     >
-      <div className="flex justify-around items-center h-16 safe-area-bottom">
+      {/* Policy footer link — tiny, always visible above nav */}
+      <div className="border-t border-border/50 flex justify-center pt-1 pb-0.5">
+        <button onClick={() => navigate('/policy')}
+          className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors px-3 py-0.5 rounded-full hover:bg-muted">
+          <ShieldCheck className="w-2.5 h-2.5 shrink-0" />
+          <span>Content Policy</span>
+        </button>
+      </div>
+      <div className="flex justify-around items-center h-14 safe-area-bottom">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path ||

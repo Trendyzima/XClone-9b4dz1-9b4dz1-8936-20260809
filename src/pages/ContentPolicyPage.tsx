@@ -150,6 +150,9 @@ const ENFORCEMENT_STEPS = [
   { step: '3', icon: Ban, color: 'text-red-700', bg: 'bg-red-700/10', title: 'Third Strike', desc: 'Permanent account suspension. Final appeal may be submitted once.' },
 ] as const;
 
+// Silence unused import warnings
+const _Heart = Heart;
+
 export default function ContentPolicyPage() {
   useSEO({
     title: 'Content Policy | Testagram',
@@ -324,7 +327,11 @@ export default function ContentPolicyPage() {
           <div className="p-4 bg-primary/5 border border-primary/20 rounded-2xl">
             <p className="text-xs font-bold text-primary mb-1">🔄 Appeals Process</p>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              You can appeal any restriction at <button onClick={() => navigate('/appeals')} className="text-primary font-semibold hover:underline">testagram.site/appeals</button>. Include a clear explanation of why you believe the restriction was applied in error. The platform regulator reviews all appeals within 48 hours.
+              You can appeal any restriction at{' '}
+              <button onClick={() => navigate('/appeals')} className="text-primary font-semibold hover:underline">
+                testagram.site/appeals
+              </button>.
+              Include a clear explanation of why you believe the restriction was applied in error. The platform regulator reviews all appeals within 48 hours.
             </p>
           </div>
         </div>
