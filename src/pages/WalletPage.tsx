@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import SavingsGoalsTab from '@/components/features/SavingsGoalsTab';
 import TransactionRemindersTab from '@/components/features/TransactionRemindersTab';
 import FriendActivityFeed from '@/components/features/FriendActivityFeed';
+import { TwoFAModal, TwoFASetupCard, MpesaPaymentHistory, WalletBudgetPlanner, FriendBalanceComparison, WALLET_EXTRAS_OTP_EXPIRY_MS } from '@/components/features/WalletExtras';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useSEO } from '@/hooks/useSEO';
 import { useSearchParams } from 'react-router-dom';
@@ -35,11 +36,12 @@ const PIN_PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','del'];
 const PIN_MAX_ATTEMPTS    = 3;
 const PIN_LOCK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 const FAVORITES_MAX = 5;
+// TWO_FA_DEFAULT_THRESHOLD, BUDGET_CATEGORIES_LIST, SAVINGS_TIERS defined in WalletExtras.tsx
 
 type TopUpStep    = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type CurrencyCode = 'USD' | 'KES' | 'EUR';
-type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled' | 'savings' | 'reminders' | 'security' | 'converter' | 'pocket';
+type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled' | 'savings' | 'reminders' | 'security' | 'converter' | 'pocket' | 'mpesa';
 
 const CURRENCIES: { code: CurrencyCode; symbol: string; rate: number }[] = [
   { code: 'USD', symbol: '$',    rate: 1    },
@@ -2387,6 +2389,7 @@ const SEARCH_COMMANDS: { label: string; hint: string; emoji: string; tab: Active
   { label: 'Reminders',          hint: 'Set payment reminders',           emoji: '🔔', tab: 'reminders', keywords: ['reminders','remind','alert','notify']                           },
   { label: 'Security',           hint: 'PIN, biometric & lock',           emoji: '🔒', tab: 'security',  keywords: ['security','pin','biometric','lock','fingerprint','password']    },
   { label: 'Currency Converter', hint: 'Convert between currencies',      emoji: '💱', tab: 'converter', keywords: ['convert','currency','exchange','forex','rate']                  },
+  { label: 'M-Pesa History',     hint: 'View M-Pesa deposit receipts',     emoji: '📱', tab: 'mpesa',     keywords: ['mpesa','safaricom','receipt','mobile money','kenya']            },
 ];
 // ── Module-level frequency / filter arrays (esbuild-safe) ─────────────
 const FREQ_WEEKLY_MONTHLY = ['weekly','monthly'] as const;
@@ -3243,7 +3246,10 @@ function SavingsPocketTab({ userId, mainBalance, savingsBalance, pinHash, curren
   const [showPin,   setShowPin]   = useState(false);
   const [pendingOp, setPendingOp] = useState<'in' | 'out' | null>(null);
   const [history,   setHistory]   = useState<{ type: 'in' | 'out'; amount: number; date: string }[]>([]);
-  const historyKey = useMemo(() => `ts-pocket-hist-${userId}`, [userId]);
+  const historyKey  = useMemo(() => `ts-pocket-hist-${userId}`, [userId]);
+  const goalLinkKey  = useMemo(() => `ts-pocket-goal-${userId}`, [userId]);
+  const [goals,        setGoals]        = useState<any[]>([]);
+  const [linkedGoalId, setLinkedGoalId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -3251,6 +3257,20 @@ function SavingsPocketTab({ userId, mainBalance, savingsBalance, pinHash, curren
       if (raw) setHistory(JSON.parse(raw));
     } catch { /* ignore */ }
   }, [historyKey]);
+
+  useEffect(() => {
+    supabase.from('savings_goals').select('id,name,emoji,current_amount,target_amount')
+      .eq('user_id', userId).eq('is_completed', false)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setGoals(data ?? []));
+  }, [userId]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(goalLinkKey);
+      if (raw) setLinkedGoalId(raw);
+    } catch { /* ignore */ }
+  }, [goalLinkKey]);
 
   const addHistory = (type: 'in' | 'out', amt: number) => {
     const next = [{ type, amount: amt, date: new Date().toISOString() }, ...history].slice(0, 50);
@@ -3271,6 +3291,18 @@ function SavingsPocketTab({ userId, mainBalance, savingsBalance, pinHash, curren
     setSaving(false);
     if (error) { toast.error('Transfer failed'); return; }
     addHistory(type, amt);
+    if (type === 'in' && linkedGoalId) {
+      const { data: goal } = await supabase.from('savings_goals')
+        .select('current_amount,target_amount,name').eq('id', linkedGoalId).eq('user_id', userId).maybeSingle();
+      if (goal) {
+        const newGoalAmt = Math.min(Number(goal.current_amount) + amt, Number(goal.target_amount));
+        const completed  = newGoalAmt >= Number(goal.target_amount);
+        await supabase.from('savings_goals')
+          .update({ current_amount: newGoalAmt, is_completed: completed }).eq('id', linkedGoalId);
+        if (completed) toast.success(`🎉 Goal "${goal.name}" completed!`);
+        else toast.info(`Goal progress: ${fmtAmt(newGoalAmt, currency)} / ${fmtAmt(Number(goal.target_amount), currency)}`);
+      }
+    }
     toast.success(type === 'in' ? `${fmtAmt(amt, currency)} moved to Savings Pocket` : `${fmtAmt(amt, currency)} returned to wallet`);
     setAmount(''); setMode('idle'); onRefresh();
   };
@@ -3330,6 +3362,27 @@ function SavingsPocketTab({ userId, mainBalance, savingsBalance, pinHash, curren
           </button>
         </div>
       </div>
+      {goals.length > 0 && (
+        <div className="flex items-center gap-3 p-3.5 bg-muted/30 border border-border rounded-2xl">
+          <Star className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold">Link to Savings Goal</p>
+            <select value={linkedGoalId ?? ''}
+              onChange={e => {
+                const val = e.target.value;
+                setLinkedGoalId(val || null);
+                if (val) localStorage.setItem(goalLinkKey, val);
+                else localStorage.removeItem(goalLinkKey);
+              }}
+              className="w-full text-xs bg-transparent text-muted-foreground focus:outline-none mt-0.5">
+              <option value="">None — pocket only</option>
+              {goals.map(g => (
+                <option key={g.id} value={g.id}>{g.emoji} {g.name} ({fmtAmt(Number(g.current_amount), currency)}/{fmtAmt(Number(g.target_amount), currency)})</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
       {mode !== 'idle' && (
         <div className="p-4 border border-border rounded-2xl bg-card space-y-4">
           <h4 className="font-bold text-sm">{mode === 'deposit' ? 'Move to Savings Pocket' : 'Withdraw from Savings Pocket'}</h4>
@@ -3547,6 +3600,7 @@ const WALLET_TABS: { key: ActiveTab; label: string }[] = [
   { key: 'pocket',    label: '💰 Savings'   },
   { key: 'send',      label: '💸 Send'      },
   { key: 'receive',   label: '📥 Receive'   },
+  { key: 'mpesa',     label: '📱 M-Pesa'    },
   { key: 'history',   label: '📋 History'   },
   { key: 'analytics', label: '📊 Analytics' },
   { key: 'referrals', label: '👥 Referrals' },
@@ -3588,6 +3642,7 @@ export default function WalletPage() {
     if (t === 'security')  return 'security';
     if (t === 'converter') return 'converter';
     if (t === 'pocket')    return 'pocket';
+    if (t === 'mpesa')     return 'mpesa';
     return 'wallet';
   });
   const prefillTo = searchParams.get('to') ?? '';
@@ -3620,6 +3675,34 @@ export default function WalletPage() {
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [user]);
+
+  const twoFaActionRef = useRef<(() => void) | null>(null);
+  const [twoFaModal, setTwoFaModal] = useState<{ code: string; expiry: number } | null>(null);
+
+  const checkAndExecuteWithdraw = async () => {
+    if (!user) return;
+    try {
+      const raw2fa = localStorage.getItem(`ts-2fa-${user.id}`);
+      if (raw2fa) {
+        const settings = JSON.parse(raw2fa);
+        const usdAmt = parseFloat(wKes) / USD_TO_KES;
+        if (settings.enabled && usdAmt >= settings.threshold) {
+          const otp    = String(Math.floor(100000 + Math.random() * 900000));
+          const expiry = Date.now() + WALLET_EXTRAS_OTP_EXPIRY_MS;
+          await supabase.from('platform_inbox').insert({
+            user_id: user.id,
+            subject: `Wallet Verification Code: ${otp}`,
+            body: `Your one-time withdrawal code is: ${otp}. Valid for 5 minutes. Confirms KES ${parseInt(wKes).toLocaleString()} withdrawal.`,
+            type: 'system', icon_emoji: '🔐',
+          });
+          twoFaActionRef.current = executeWithdraw;
+          setTwoFaModal({ code: otp, expiry });
+          return;
+        }
+      }
+    } catch { /* proceed without 2FA */ }
+    executeWithdraw();
+  };
 
   const [showSplit,       setShowSplit]       = useState(false);
   const [showInstallment, setShowInstallment] = useState(false);
@@ -3810,15 +3893,15 @@ export default function WalletPage() {
   const handleWithdrawClick = () => {
     if (biometricCredentialId) {
       verifyBiometric(biometricCredentialId).then(ok => {
-        if (ok) { executeWithdraw(); } else if (pinHash) { setShowPinModal(true); } else { executeWithdraw(); }
+        if (ok) { checkAndExecuteWithdraw(); } else if (pinHash) { setShowPinModal(true); } else { checkAndExecuteWithdraw(); }
       });
-    } else if (pinHash) { setShowPinModal(true); } else { executeWithdraw(); }
+    } else if (pinHash) { setShowPinModal(true); } else { checkAndExecuteWithdraw(); }
   };
 
   const handleWithdrawPinConfirm = async (pin: string) => {
     const entered = await hashPin(pin); setShowPinModal(false);
     if (entered !== pinHash) { toast.error('Incorrect PIN'); return; }
-    executeWithdraw();
+    checkAndExecuteWithdraw();
   };
 
   const [sendMode, setSendMode] = useState<'send' | 'request'>('send');
@@ -3833,6 +3916,14 @@ export default function WalletPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       {showPinModal && <PinEntryModal title="Confirm Withdrawal" onConfirm={handleWithdrawPinConfirm} onCancel={() => setShowPinModal(false)} userId={user?.id} />}
+      {twoFaModal && (
+        <TwoFAModal
+          code={twoFaModal.code}
+          expiry={twoFaModal.expiry}
+          onVerified={() => { setTwoFaModal(null); if (twoFaActionRef.current) twoFaActionRef.current(); }}
+          onCancel={() => setTwoFaModal(null)}
+        />
+      )}
       {showDepositPin && <PinEntryModal title="Confirm Deposit" onConfirm={async (pin) => { const h = await hashPin(pin); setShowDepositPin(false); if (h !== pinHash) { toast.error('Incorrect PIN'); return; } handleTopUp(); }} onCancel={() => setShowDepositPin(false)} userId={user?.id} />}
       {showSplit && user && (
         <SplitPaymentPanel userId={user.id} senderUsername={username} walletBalance={walletBalance} pinHash={pinHash} currency={currency} onClose={() => setShowSplit(false)} />
@@ -3866,6 +3957,7 @@ export default function WalletPage() {
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-5">
+        {activeTab === 'mpesa'     && user && <MpesaPaymentHistory userId={user.id} currency={currency} />}
         {activeTab === 'history'   && user && <TransactionHistoryTab userId={user.id} currency={currency} />}
         {activeTab === 'pocket' && user && (
           <SavingsPocketTab userId={user.id} mainBalance={walletBalance} savingsBalance={savingsBalance}
@@ -3893,6 +3985,8 @@ export default function WalletPage() {
         {activeTab === 'receive'   && user && <ReceiveMoneyTab username={username} walletBalance={walletBalance} currency={currency} />}
         {activeTab === 'analytics' && user && (
           <>
+            <FriendBalanceComparison savingsBalance={savingsBalance} totalDeposited={totalDeposited} currency={currency} />
+            <WalletBudgetPlanner userId={user.id} currency={currency} />
             <P2PBalanceChart userId={user.id} currency={currency} />
             <MonthlyHeatmapCalendar userId={user.id} currency={currency} />
             <ActivityHeatmap userId={user.id} />
@@ -3912,6 +4006,7 @@ export default function WalletPage() {
         {activeTab === 'security'  && user && (
           <>
             <PinSecurityDashboard userId={user.id} pinHash={pinHash} credentialId={biometricCredentialId} onRefresh={fetchWallet} />
+            <TwoFASetupCard userId={user.id} />
             <InactivityLockCard userId={user.id} />
           </>
         )}
