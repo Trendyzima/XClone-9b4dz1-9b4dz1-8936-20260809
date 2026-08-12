@@ -80,7 +80,8 @@ export default function HomePage() {
   const [feedHasMore, setFeedHasMore] = useState(true);
   const [sponsoredPosts, setSponsoredPosts] = useState<any[]>([]);
   const [userAds, setUserAds] = useState<any[]>([]);
-  const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+  // blocked user ids — plain array (esbuild guard: no Set<string> state)
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [trendingHashtags, setTrendingHashtags] = useState<any[]>([]);
   const [recommendedPosts, setRecommendedPosts] = useState<any[]>([]);
   const [spotlightProducts, setSpotlightProducts] = useState<any[]>([]);
@@ -110,6 +111,23 @@ export default function HomePage() {
   useEffect(() => { try { localStorage.setItem('ts-feed-video-weight', String(videoWeight)); } catch {} }, [videoWeight]);
   useEffect(() => { try { localStorage.setItem('ts-feed-min-engagement', String(minEngagement)); } catch {} }, [minEngagement]);
 
+  // ── Debounced feed refresh on slider change (500ms) ───────────────────────
+  const sliderMountedRef = useRef(false);
+  const sliderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sliderRefreshing, setSliderRefreshing] = useState(false);
+  useEffect(() => {
+    if (!sliderMountedRef.current) { sliderMountedRef.current = true; return; }
+    if (activeTab !== 'foryou') return;
+    if (sliderDebounceRef.current) clearTimeout(sliderDebounceRef.current);
+    setSliderRefreshing(true);
+    sliderDebounceRef.current = setTimeout(async () => {
+      await fetchInitialFeed();
+      setSliderRefreshing(false);
+    }, 500);
+    return () => { if (sliderDebounceRef.current) clearTimeout(sliderDebounceRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discoverMix, videoWeight, minEngagement]);
+
   const abortRef = useRef<AbortController | null>(null);
   // Keep ref for latest reco/product state so fetchFeed closure can read them
   const recoRef = useRef<any[]>([]);
@@ -121,10 +139,10 @@ export default function HomePage() {
 
   // Fetch blocked user IDs to filter from feed
   useEffect(() => {
-    if (!user) { setBlockedUserIds(new Set()); return; }
+    if (!user) { setBlockedUserIds([]); return; }
     supabase.from('user_blocks').select('blocked_id').eq('blocker_id', user.id)
       .then(({ data }) => {
-        setBlockedUserIds(new Set((data ?? []).map((r: any) => r.blocked_id)));
+        setBlockedUserIds((data ?? []).map((r: any) => r.blocked_id));
       });
   }, [user?.id]);
 
@@ -668,7 +686,7 @@ export default function HomePage() {
       });
       const filtered = merged.filter((item: any) => {
         const uid = item.data?.user_id ?? item.data?.user_profiles?.id;
-        return !uid || !blockedUserIds.has(uid);
+        return !uid || !blockedUserIds.includes(uid);
       });
       setFeedItems(filtered);
       // Set cursor from last local post
@@ -855,14 +873,15 @@ export default function HomePage() {
             <button
               onClick={() => setShowDiversityPanel(p => !p)}
               className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold transition-colors border ${
+                sliderRefreshing ? 'bg-primary/10 border-primary/60 text-primary animate-pulse' :
                 showDiversityPanel
                   ? 'bg-primary/10 border-primary/30 text-primary'
                   : 'border-border text-muted-foreground hover:text-primary hover:border-primary/30'
               }`}
               title="Tune your feed"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Tune</span>
+              <SlidersHorizontal className={`w-3.5 h-3.5 ${sliderRefreshing ? 'animate-spin' : ''}`} />
+              {sliderRefreshing ? <span className="hidden sm:inline">Applying…</span> : <span className="hidden sm:inline">Tune</span>}
             </button>
           </div>
         )}
@@ -1398,7 +1417,8 @@ function FederatedPostCard({ post }: { post: any }) {
 // ── Inline Suggestions ────────────────────────────────────────────────────────
 function InlineSuggestions() {
   const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
+  // following ids — plain array (esbuild guard: no Set<string> state)
+  const [followingIds, setFollowingIds] = useState<string[]>([]);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -1410,7 +1430,7 @@ function InlineSuggestions() {
         .select('following_id')
         .eq('follower_id', user.id);
 
-      const followed = new Set(followData?.map((f: any) => f.following_id) ?? []);
+      const followed = followData?.map((f: any) => f.following_id) ?? [];
       setFollowingIds(followed);
 
       // Try user_suggestions table first
@@ -1424,7 +1444,7 @@ function InlineSuggestions() {
       if (sugData && sugData.length > 0) {
         const sugProfiles = sugData
           .map((s: any) => s.user_profiles)
-          .filter((p: any) => p && !followed.has(p.id));
+          .filter((p: any) => p && !followed.includes(p.id));
         if (sugProfiles.length > 0) {
           setSuggestions(sugProfiles.slice(0, 3));
           return;
@@ -1439,14 +1459,14 @@ function InlineSuggestions() {
         .order('followers_count', { ascending: false })
         .limit(10);
 
-      if (data) setSuggestions(data.filter((u: any) => !followed.has(u.id)).slice(0, 3));
+      if (data) setSuggestions(data.filter((u: any) => !followed.includes(u.id)).slice(0, 3));
     })();
   }, [user]);
 
   const handleFollow = async (targetId: string) => {
     if (!user) return;
     await supabase.from('follows').insert({ follower_id: user.id, following_id: targetId });
-    setFollowingIds(prev => new Set([...prev, targetId]));
+    setFollowingIds(prev => [...prev, targetId]);
   };
 
   if (suggestions.length === 0) return null;
@@ -1482,14 +1502,14 @@ function InlineSuggestions() {
             </button>
             <button
               onClick={() => handleFollow(sug.id)}
-              disabled={followingIds.has(sug.id)}
+              disabled={followingIds.includes(sug.id)}
               className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors flex-shrink-0 ${
-                followingIds.has(sug.id)
+                followingIds.includes(sug.id)
                   ? 'bg-muted text-muted-foreground border-border'
                   : 'border-foreground hover:bg-muted'
               }`}
             >
-              {followingIds.has(sug.id) ? 'Following' : 'Follow'}
+              {followingIds.includes(sug.id) ? 'Following' : 'Follow'}
             </button>
           </div>
         ))}
