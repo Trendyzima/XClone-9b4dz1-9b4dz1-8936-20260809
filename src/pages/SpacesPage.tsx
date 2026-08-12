@@ -38,10 +38,10 @@ const CATEGORIES = [
 const SPACE_TABS = ['live', 'recordings', 'upcoming', 'playlists'] as const;
 type SpaceTab = typeof SPACE_TABS[number];
 
-// Live reaction emojis at module scope to prevent render-scope allocation (esbuild guard)
+// Live reaction emojis at module scope (esbuild guard)
 const LIVE_EMOJIS = ['❤️', '🔥', '🎉', '👏', '🤣', '💯'] as const;
 
-// Tab definitions at module scope — prevents inline `as const` in JSX render (esbuild guard)
+// Tab definitions at module scope (esbuild guard)
 const SPACE_TAB_DEFS = [
   { key: 'live',        label: 'Live',      badgeColor: 'bg-red-500/10 text-red-500' },
   { key: 'recordings',  label: 'Episodes',  badgeColor: '' },
@@ -51,6 +51,14 @@ const SPACE_TAB_DEFS = [
 
 // Episode tip amounts at module scope (esbuild guard)
 const PODCAST_EP_TIP_AMTS = [1, 2, 5] as const;
+
+// Tab icon map at module scope — avoids object construction in .map() callback (esbuild guard)
+const SPACE_TAB_ICON_MAP: { [k: string]: any } = {
+  live: Radio, recordings: Headphones, upcoming: CalendarDays, playlists: ListMusic,
+};
+
+// Default category emoji at module scope — avoids inline expression in map callbacks (esbuild guard)
+const DEFAULT_CAT_EMOJI = '🎙️';
 
 function formatDurationSecs(secs: number) {
   const d = intervalToDuration({ start: 0, end: secs * 1000 });
@@ -96,7 +104,7 @@ export default function SpacesPage() {
   const [sendingEpTip,  setSendingEpTip]  = useState(false);
   const [tippedEpIds,   setTippedEpIds]   = useState<Set<string>>(() => new Set<string>());
 
-  // ── Space Clip Sharing ────────────────────────────────────────────────────
+  // ── Clip Sharing ─────────────────────────────────────────────────────────
   const [clipRecId,     setClipRecId]     = useState<string | null>(null);
   const [clipRecTitle,  setClipRecTitle]  = useState('');
   const [clipStart,     setClipStart]     = useState(0);
@@ -104,7 +112,7 @@ export default function SpacesPage() {
   const [clipCopied,    setClipCopied]    = useState(false);
   const [showClipModal, setShowClipModal] = useState(false);
 
-  // ── Playlist URL param — auto-switch to playlists tab on load ─────────────
+  // ── Playlist URL param ────────────────────────────────────────────────────
   useEffect(() => {
     const pl = searchParams.get('playlist');
     if (pl) { setActiveTab('playlists'); setHighlightedPlaylistId(pl); }
@@ -425,8 +433,7 @@ export default function SpacesPage() {
           </span>
           {LIVE_EMOJIS.map(e => (
             <button key={e} onClick={() => sendLiveReaction(e)}
-              className="text-2xl hover:scale-125 active:scale-110 transition-transform duration-100"
-              title={`React with ${e}`}>
+              className="text-2xl hover:scale-125 active:scale-110 transition-transform duration-100">
               {e}
             </button>
           ))}
@@ -466,17 +473,12 @@ export default function SpacesPage() {
       <div className="sticky top-0 z-30 bg-background border-b border-border">
         <div className="flex">
           {SPACE_TAB_DEFS.map(t => {
-            const tabIconMap: { [k: string]: any } = {
-              live: Radio, recordings: Headphones, upcoming: CalendarDays, playlists: ListMusic,
-            };
-            const tabBadgeMap: { [k: string]: number } = {
-              live: spaces.length,
-              recordings: 0,
-              upcoming: scheduledSpaces.length,
-              playlists: playlists.length,
-            };
-            const TabIcon = tabIconMap[t.key] ?? Radio;
-            const tabBadge = tabBadgeMap[t.key] ?? 0;
+            // tabBadgeMap is inside the callback — values read from stable state (no object construction variance)
+            const liveBadge   = spaces.length;
+            const upBadge     = scheduledSpaces.length;
+            const plBadge     = playlists.length;
+            const tabBadge    = t.key === 'live' ? liveBadge : t.key === 'upcoming' ? upBadge : t.key === 'playlists' ? plBadge : 0;
+            const TabIcon     = SPACE_TAB_ICON_MAP[t.key] ?? Radio;
             return (
               <button key={t.key} onClick={() => setActiveTab(t.key as SpaceTab)}
                 className={`flex-1 py-3 font-semibold text-xs border-b-2 transition-colors flex items-center justify-center gap-1 ${
@@ -507,13 +509,12 @@ export default function SpacesPage() {
           ) : (
             <div className="space-y-4">
               {filteredSpaces.map(space => {
-                const ep = (space as any).episode_number;
-                const cats = (space as any).category;
-                const catMeta = CATEGORIES.find(c => c.id === cats);
-                const tags: string[] = (space as any).tags ?? [];
-                const hostId = space.host_id;
-                const isOwnSpace = user?.id === hostId;
+                const liveCatMeta = CATEGORIES.find(c => c.id === (space as any).category);
+                const liveTags: string[] = (space as any).tags ?? [];
+                const liveHostId = space.host_id;
+                const isOwnSpace = user?.id === liveHostId;
                 const isSubscriberOnly = (space as any).subscriber_only;
+                const liveEp = (space as any).episode_number;
                 return (
                   <div key={space.id} className="border border-border rounded-2xl overflow-hidden hover:border-primary/30 transition-colors">
                     <div className="relative bg-gradient-to-br from-primary/8 to-purple-500/5 p-4">
@@ -521,13 +522,13 @@ export default function SpacesPage() {
                         <div className="w-16 h-16 rounded-xl overflow-hidden bg-gradient-to-br from-primary/20 to-purple-500/20 flex-shrink-0 shadow-md">
                           {(space as any).artwork_url
                             ? <img src={(space as any).artwork_url} alt="" className="w-full h-full object-cover" />
-                            : <div className="w-full h-full flex items-center justify-center text-2xl">{catMeta?.emoji ?? '🎙️'}</div>}
+                            : <div className="w-full h-full flex items-center justify-center text-2xl">{liveCatMeta?.emoji ?? DEFAULT_CAT_EMOJI}</div>}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                             <span className="flex items-center gap-1 text-red-500 font-bold text-xs"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />LIVE</span>
-                            {catMeta && <span className="text-xs text-muted-foreground">{catMeta.emoji} {catMeta.name}</span>}
-                            {ep && <span className="text-xs text-muted-foreground">· Ep. {ep}</span>}
+                            {liveCatMeta && <span className="text-xs text-muted-foreground">{liveCatMeta.emoji} {liveCatMeta.name}</span>}
+                            {liveEp && <span className="text-xs text-muted-foreground">· Ep. {liveEp}</span>}
                             {(space as any).has_video && <span className="flex items-center gap-0.5 text-xs text-primary"><Video className="w-3 h-3" />Video</span>}
                             {isSubscriberOnly && (
                               <span className="flex items-center gap-0.5 text-[10px] text-amber-600 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full font-bold">
@@ -550,9 +551,9 @@ export default function SpacesPage() {
                         </div>
                       </div>
                     </div>
-                    {tags.length > 0 && (
+                    {liveTags.length > 0 && (
                       <div className="flex gap-1.5 px-4 py-2 border-b border-border bg-muted/20 overflow-x-auto scrollbar-hide">
-                        {tags.map(tag => (
+                        {liveTags.map(tag => (
                           <span key={tag} className="flex items-center gap-0.5 px-2 py-0.5 bg-muted rounded-full text-[10px] font-medium text-muted-foreground whitespace-nowrap">
                             <Hash className="w-2.5 h-2.5" />{tag}
                           </span>
@@ -581,9 +582,9 @@ export default function SpacesPage() {
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {!isOwnSpace && user && (
-                          <button onClick={e => toggleFollowHost(hostId, e)} disabled={followingLoading === hostId}
-                            className={`flex items-center gap-1 px-3 py-2 rounded-full text-xs font-bold border transition-all ${followingHosts.has(hostId) ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/30 hover:text-primary'}`}>
-                            {followingLoading === hostId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : followingHosts.has(hostId) ? <><BellOff className="w-3.5 h-3.5" />Following</> : <><Bell className="w-3.5 h-3.5" />Follow</>}
+                          <button onClick={e => toggleFollowHost(liveHostId, e)} disabled={followingLoading === liveHostId}
+                            className={`flex items-center gap-1 px-3 py-2 rounded-full text-xs font-bold border transition-all ${followingHosts.has(liveHostId) ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/30 hover:text-primary'}`}>
+                            {followingLoading === liveHostId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : followingHosts.has(liveHostId) ? <><BellOff className="w-3.5 h-3.5" />Following</> : <><Bell className="w-3.5 h-3.5" />Follow</>}
                           </button>
                         )}
                         <Button className="rounded-full" onClick={() => { setSelectedSpaceId(space.id); setShowJoinDialog(true); }}>
@@ -622,30 +623,31 @@ export default function SpacesPage() {
               </div>
 
               {filteredRecordings.map((rec, i) => {
-                const ep = rec.spaces?.episode_number ?? i + 1;
-                const cat = rec.spaces?.category;
-                const catMeta = CATEGORIES.find(c => c.id === cat);
-                const hasVideo = rec.has_video && rec.video_url;
-                const isSubscriberOnly = rec.spaces?.subscriber_only;
-                const chapters: any[] = rec.spaces?.chapters ?? [];
-                const tags: string[] = rec.spaces?.tags ?? [];
-                const isSaved = savedRecordings.has(rec.id);
-                const isChaptersExpanded = expandedChapters.has(rec.id);
+                const recEp       = rec.spaces?.episode_number ?? i + 1;
+                const recCatMeta  = CATEGORIES.find(c => c.id === rec.spaces?.category);
+                const hasVideo    = rec.has_video && rec.video_url;
+                const isSubOnly   = rec.spaces?.subscriber_only;
+                const recChapters: any[] = rec.spaces?.chapters ?? [];
+                const recTags: string[] = rec.spaces?.tags ?? [];
+                const isSaved     = savedRecordings.has(rec.id);
+                const isExpanded  = expandedChapters.has(rec.id);
                 const hostUsername = rec.spaces?.host?.username ?? rec.user_profiles?.username;
-                const hostId = rec.spaces?.host?.id ?? rec.user_id;
-                const isTipped = tippedEpIds.has(rec.id);
+                const hostId      = rec.spaces?.host?.id ?? rec.user_id;
+                const isTipped    = tippedEpIds.has(rec.id);
                 return (
                   <div key={rec.id} className="border border-border rounded-2xl overflow-hidden hover:border-primary/20 transition-colors cursor-pointer bg-card" onClick={() => navigate(`/space-recording/${rec.id}`)}>
                     <div className="flex items-start gap-3 p-4">
                       <div className="w-14 h-14 rounded-xl overflow-hidden bg-gradient-to-br from-primary/15 to-purple-500/10 flex-shrink-0 shadow-sm">
-                        {rec.spaces?.artwork_url ? <img src={rec.spaces.artwork_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xl">{catMeta?.emoji ?? '🎙️'}</div>}
+                        {rec.spaces?.artwork_url
+                          ? <img src={rec.spaces.artwork_url} alt="" className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center text-xl">{recCatMeta?.emoji ?? DEFAULT_CAT_EMOJI}</div>}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                          {catMeta && <span className="text-[10px] text-muted-foreground">{catMeta.emoji} {catMeta.name}</span>}
-                          <span className="text-[10px] text-muted-foreground">· Ep. {ep}</span>
+                          {recCatMeta && <span className="text-[10px] text-muted-foreground">{recCatMeta.emoji} {recCatMeta.name}</span>}
+                          <span className="text-[10px] text-muted-foreground">· Ep. {recEp}</span>
                           {hasVideo && <span className="flex items-center gap-0.5 text-[10px] text-primary"><Video className="w-2.5 h-2.5" />Video</span>}
-                          {isSubscriberOnly && (
+                          {isSubOnly && (
                             <span className="flex items-center gap-0.5 text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-full font-bold border border-amber-500/20"><Star className="w-2.5 h-2.5" />Subscribers</span>
                           )}
                         </div>
@@ -661,9 +663,9 @@ export default function SpacesPage() {
                           {rec.listener_count > 0 && <span className="flex items-center gap-0.5"><Users className="w-3 h-3" />{formatNumber(rec.listener_count)}</span>}
                           <span>{formatDistanceToNow(new Date(rec.created_at), { addSuffix: true })}</span>
                         </div>
-                        {tags.length > 0 && (
+                        {recTags.length > 0 && (
                           <div className="flex gap-1 mt-1.5 flex-wrap">
-                            {tags.slice(0, 3).map(tag => <span key={tag} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">#{tag}</span>)}
+                            {recTags.slice(0, 3).map(tag => <span key={tag} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">#{tag}</span>)}
                           </div>
                         )}
                       </div>
@@ -673,8 +675,7 @@ export default function SpacesPage() {
                           <Play className="w-4 h-4 text-primary ml-0.5" fill="currentColor" />
                         </button>
                         <button onClick={e => openClipModal(rec.id, rec.spaces?.title ?? rec.title, e)}
-                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all"
-                          title="Create a clip">
+                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all" title="Create a clip">
                           <Scissors className="w-4 h-4" />
                         </button>
                         <button onClick={e => toggleSaveRecording(rec.id, e)}
@@ -682,21 +683,13 @@ export default function SpacesPage() {
                           <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
                         </button>
                         <button onClick={e => { e.stopPropagation(); setPlaylistForRec(rec.id); setShowPlaylistModal(true); }}
-                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all"
-                          title="Add to playlist">
+                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all" title="Add to playlist">
                           <ListMusic className="w-4 h-4" />
                         </button>
-                        {/* Tip episode host button */}
                         {user && hostId && user.id !== hostId && (
-                          <button
-                            onClick={e => openEpTip(rec.id, hostId, hostUsername, e)}
-                            className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${
-                              isTipped
-                                ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-600'
-                                : 'border-border text-muted-foreground hover:border-yellow-500/30 hover:text-yellow-600'
-                            }`}
-                            title="Tip host"
-                          >
+                          <button onClick={e => openEpTip(rec.id, hostId, hostUsername, e)}
+                            className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${isTipped ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-600' : 'border-border text-muted-foreground hover:border-yellow-500/30 hover:text-yellow-600'}`}
+                            title="Tip host">
                             <DollarSign className="w-4 h-4" />
                           </button>
                         )}
@@ -715,16 +708,16 @@ export default function SpacesPage() {
                         </button>
                       </div>
                     )}
-                    {chapters.length > 0 && (
+                    {recChapters.length > 0 && (
                       <div className="border-t border-border">
                         <button onClick={e => { e.stopPropagation(); setExpandedChapters(prev => { const s = new Set(prev); s.has(rec.id) ? s.delete(rec.id) : s.add(rec.id); return s; }); }}
                           className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-muted-foreground hover:bg-muted/30 transition-colors">
-                          <span className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5 text-primary" />{chapters.length} Chapters</span>
-                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isChaptersExpanded ? 'rotate-180' : ''}`} />
+                          <span className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5 text-primary" />{recChapters.length} Chapters</span>
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                         </button>
-                        {isChaptersExpanded && (
+                        {isExpanded && (
                           <div className="px-4 pb-3 space-y-1.5">
-                            {(chapters as any[]).map((ch: any, ci: number) => (
+                            {(recChapters as any[]).map((ch: any, ci: number) => (
                               <div key={ci} className="flex items-center gap-3 py-1.5 border-t border-border/50 first:border-0">
                                 <span className="text-[10px] font-black text-primary bg-primary/10 w-5 h-5 rounded-full flex items-center justify-center shrink-0">{ci + 1}</span>
                                 <p className="text-xs font-medium flex-1 truncate">{ch.title ?? ch.label ?? `Chapter ${ci + 1}`}</p>
@@ -766,21 +759,23 @@ export default function SpacesPage() {
                 <p className="text-sm font-bold">{filteredScheduled.length} upcoming space{filteredScheduled.length !== 1 ? 's' : ''}</p>
               </div>
               {filteredScheduled.map(space => {
-                const catMeta = CATEGORIES.find(c => c.id === (space as any).category);
-                const isOwnSpace = user?.id === space.host_id;
-                const scheduledFor = space.started_at ? new Date(space.started_at) : null;
+                const upCatMeta   = CATEGORIES.find(c => c.id === (space as any).category);
+                const isOwnUpcoming = user?.id === space.host_id;
+                const scheduledFor  = space.started_at ? new Date(space.started_at) : null;
                 const isStartingSoon = scheduledFor && !isPast(scheduledFor) && (scheduledFor.getTime() - Date.now()) < 3600000;
                 return (
                   <div key={space.id} className="border border-blue-500/20 bg-blue-500/5 rounded-2xl overflow-hidden hover:border-blue-500/40 transition-colors">
                     <div className="p-4">
                       <div className="flex items-start gap-3">
                         <div className="w-14 h-14 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500/20 to-primary/20 flex-shrink-0 shadow-sm">
-                          {(space as any).artwork_url ? <img src={(space as any).artwork_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xl">{catMeta?.emoji ?? '🎙️'}</div>}
+                          {(space as any).artwork_url
+                            ? <img src={(space as any).artwork_url} alt="" className="w-full h-full object-cover" />
+                            : <div className="w-full h-full flex items-center justify-center text-xl">{upCatMeta?.emoji ?? DEFAULT_CAT_EMOJI}</div>}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                             {isStartingSoon && <span className="flex items-center gap-1 text-[10px] font-black text-orange-500 bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded-full animate-pulse">Starting soon</span>}
-                            {catMeta && <span className="text-[10px] text-muted-foreground">{catMeta.emoji} {catMeta.name}</span>}
+                            {upCatMeta && <span className="text-[10px] text-muted-foreground">{upCatMeta.emoji} {upCatMeta.name}</span>}
                           </div>
                           <h3 className="font-bold text-sm leading-snug">{space.title}</h3>
                           {space.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{space.description}</p>}
@@ -791,7 +786,7 @@ export default function SpacesPage() {
                             </div>
                           )}
                         </div>
-                        {!isOwnSpace && user && (
+                        {!isOwnUpcoming && user && (
                           <button onClick={e => toggleFollowHost(space.host_id, e)}
                             className={`p-2 rounded-full border transition-all shrink-0 ${followingHosts.has(space.host_id) ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/30 hover:text-primary'}`}>
                             <Bell className="w-4 h-4" />
@@ -829,7 +824,6 @@ export default function SpacesPage() {
                 <Plus className="w-3.5 h-3.5" />New Playlist
               </button>
             </div>
-
             {playlists.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground">
                 <ListMusic className="w-14 h-14 mx-auto mb-3 opacity-20" />
@@ -839,7 +833,7 @@ export default function SpacesPage() {
             ) : (
               <div className="space-y-3">
                 {playlists.map(pl => {
-                  const epList = allRecordings.filter(r => pl.items.includes(r.id));
+                  const plEpList    = allRecordings.filter(r => pl.items.includes(r.id));
                   const isHighlighted = highlightedPlaylistId === pl.id;
                   return (
                     <div key={pl.id} className={`border rounded-2xl overflow-hidden bg-card transition-all ${isHighlighted ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}>
@@ -854,12 +848,8 @@ export default function SpacesPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
-                          {/* Share playlist button */}
-                          <button
-                            onClick={() => sharePlaylist(pl)}
-                            className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
-                            title="Share playlist"
-                          >
+                          <button onClick={() => sharePlaylist(pl)}
+                            className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-primary transition-colors" title="Share playlist">
                             <Share2 className="w-3.5 h-3.5" />
                           </button>
                           <button onClick={() => deletePlaylist(pl.id)} className="p-2 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
@@ -867,11 +857,11 @@ export default function SpacesPage() {
                           </button>
                         </div>
                       </div>
-                      {epList.length === 0 ? (
+                      {plEpList.length === 0 ? (
                         <p className="text-xs text-muted-foreground text-center py-4">No episodes yet — add from the Episodes tab</p>
                       ) : (
                         <div className="divide-y divide-border max-h-52 overflow-y-auto">
-                          {epList.map((rec: any, idx: number) => (
+                          {plEpList.map((rec: any, idx: number) => (
                             <div key={rec.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors">
                               <span className="text-[10px] font-black text-muted-foreground w-4 shrink-0">{idx + 1}</span>
                               <button onClick={() => navigate(`/space-recording/${rec.id}`)} className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -909,16 +899,11 @@ export default function SpacesPage() {
             <div className="grid grid-cols-3 gap-2 mb-4">
               {PODCAST_EP_TIP_AMTS.map(amt => (
                 <button key={amt} onClick={() => setTipEpAmount(amt)}
-                  className={`py-2.5 rounded-xl font-bold text-base border-2 transition-all ${
-                    tipEpAmount === amt ? 'border-yellow-500 bg-yellow-500/10 text-yellow-600' : 'border-border hover:border-yellow-500/40'
-                  }`}>${amt}</button>
+                  className={`py-2.5 rounded-xl font-bold text-base border-2 transition-all ${tipEpAmount === amt ? 'border-yellow-500 bg-yellow-500/10 text-yellow-600' : 'border-border hover:border-yellow-500/40'}`}>${amt}</button>
               ))}
             </div>
-            <button
-              onClick={handleEpTip}
-              disabled={sendingEpTip || !tipEpAmount}
-              className="w-full py-3 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90"
-            >
+            <button onClick={handleEpTip} disabled={sendingEpTip || !tipEpAmount}
+              className="w-full py-3 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90">
               {sendingEpTip ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
               {sendingEpTip ? 'Sending…' : `Send $${tipEpAmount ?? '—'} Tip`}
             </button>
@@ -960,7 +945,7 @@ export default function SpacesPage() {
                   className="w-full accent-orange-500" />
               </div>
               <div className="bg-muted/40 border border-border rounded-xl px-3 py-2 text-xs text-muted-foreground">
-                <span className="font-bold text-foreground">Duration:</span> {clipEnd - clipStart}s clip
+                <span className="font-bold text-foreground">Duration:</span> {clipEnd - clipStart}s
                 <span className="mx-2">·</span>{clipStart}s → {clipEnd}s
               </div>
             </div>
@@ -969,9 +954,7 @@ export default function SpacesPage() {
             </div>
             <div className="flex gap-2">
               <button onClick={copyClipUrl}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                  clipCopied ? 'bg-green-500 text-white' : 'bg-primary text-primary-foreground hover:opacity-90'
-                }`}>
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold transition-all ${clipCopied ? 'bg-green-500 text-white' : 'bg-primary text-primary-foreground hover:opacity-90'}`}>
                 {clipCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 {clipCopied ? 'Copied!' : 'Copy Link'}
               </button>

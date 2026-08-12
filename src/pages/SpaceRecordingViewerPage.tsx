@@ -6,7 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 import {
   Play, Pause, Volume2, VolumeX, Download, Share2,
   Loader2, Users, Clock, ChevronRight, Radio, Bookmark,
-  BookmarkCheck, Scissors, X
+  BookmarkCheck, Scissors, X, Edit2, Save, DollarSign,
+  Plus, Trash2, Check,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -15,6 +16,9 @@ import { useSEO } from '@/hooks/useSEO';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 function SpaceRecordingAdBanner() { return <PageAdBanner />; }
+
+// Module-level constants — esbuild-safe
+const PODCAST_TIP_AMTS = [1, 5, 10] as const;
 
 interface Chapter {
   time: number;   // seconds
@@ -50,6 +54,18 @@ export default function SpaceRecordingViewerPage() {
   const [activeChapter, setActiveChapter] = useState<number>(-1);
   const [clipDismissed, setClipDismissed] = useState(false);
   const clipAutoStarted = useRef(false);
+
+  // ── Chapters editor ────────────────────────────────────────────────────────
+  const [showChaptersEditor, setShowChaptersEditor] = useState(false);
+  const [editChapters, setEditChapters] = useState<{ time: number; label: string }[]>([]);
+  const [savingChapters, setSavingChapters] = useState(false);
+  const [overrideChapters, setOverrideChapters] = useState<Chapter[]>([]);
+
+  // ── Tip host ───────────────────────────────────────────────────────────────
+  const [showTipHostDialog, setShowTipHostDialog] = useState(false);
+  const [tipHostAmount, setTipHostAmount] = useState<number | null>(null);
+  const [sendingHostTip, setSendingHostTip] = useState(false);
+  const [tipHostSent, setTipHostSent] = useState(false);
 
   // ── SEO — PodcastEpisode JSON-LD ────────────────────────────────────────
   useSEO({
@@ -237,6 +253,38 @@ export default function SpaceRecordingViewerPage() {
     else setMuted(false);
   };
 
+  const openChaptersEditor = () => {
+    const src = overrideChapters.length > 0 ? overrideChapters : chapters;
+    setEditChapters(src.length > 0 ? src.map(c => ({ time: c.time, label: c.label })) : [{ time: 0, label: '' }]);
+    setShowChaptersEditor(true);
+  };
+
+  const saveChapters = async () => {
+    if (!recording) return;
+    const valid = editChapters.filter(c => c.label.trim());
+    setSavingChapters(true);
+    await supabase.from('spaces').update({ chapters: valid }).eq('id', recording.space_id).catch(() => {});
+    setOverrideChapters(valid);
+    setSavingChapters(false);
+    setShowChaptersEditor(false);
+    toast.success('Chapters saved!');
+  };
+
+  const handleTipHost = async () => {
+    if (!user || !recording || !tipHostAmount) return;
+    setSendingHostTip(true);
+    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: tipHostAmount });
+    if (deductErr) { toast.error('Insufficient wallet balance'); setSendingHostTip(false); return; }
+    await supabase.rpc('add_to_wallet', { p_user_id: recording.user_id, p_amount: tipHostAmount }).catch(() => {});
+    await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: recording.user_id, amount: tipHostAmount, message: `Tip for podcast: ${recording.title}` }).catch(() => {});
+    toast.success(`$${tipHostAmount} tip sent to @${host?.username}!`);
+    setTipHostSent(true);
+    setShowTipHostDialog(false);
+    setTipHostAmount(null);
+    setSendingHostTip(false);
+    setTimeout(() => setTipHostSent(false), 3000);
+  };
+
   const handleShare = async () => {
     const url = window.location.href;
     if (navigator.share) {
@@ -257,6 +305,9 @@ export default function SpaceRecordingViewerPage() {
     if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
     return `${m}:${String(sec).padStart(2, '0')}`;
   };
+
+  // Displayed chapters — prefer overrideChapters (from editor save) over transcript-parsed
+  const displayChapters = overrideChapters.length > 0 ? overrideChapters : chapters;
 
   // Generate waveform bars (deterministic from id seed)
   const waveformBars = Array.from({ length: 60 }, (_, i) => {
@@ -515,19 +566,43 @@ export default function SpaceRecordingViewerPage() {
             {bookmarked ? <BookmarkCheck className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}
             {bookmarked ? 'Saved' : 'Save'}
           </button>
+          {/* Tip Host button — only shown for non-host authenticated users */}
+          {user && recording && user.id !== recording.user_id && (
+            <button
+              onClick={() => setShowTipHostDialog(true)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-full border text-sm font-medium transition-colors ${
+                tipHostSent
+                  ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-600'
+                  : 'border-yellow-500/30 hover:bg-yellow-500/10 hover:border-yellow-500/50 text-muted-foreground hover:text-yellow-600'
+              }`}
+              title="Tip the host"
+            >
+              {tipHostSent ? <Check className="w-3.5 h-3.5 text-yellow-500" /> : <DollarSign className="w-3.5 h-3.5" />}
+              {tipHostSent ? 'Tipped!' : 'Tip Host'}
+            </button>
+          )}
         </div>
       </div>
 
       {/* ── Chapter markers ── */}
-      {chapters.length > 0 && (
+      {displayChapters.length > 0 && (
         <div className="mx-4 mt-4 bg-card border border-border rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-violet-500" />
             <h2 className="font-bold text-sm">Chapters</h2>
-            <span className="text-xs text-muted-foreground">{chapters.length} sections</span>
+            <span className="text-xs text-muted-foreground">{displayChapters.length} sections</span>
+            {/* Edit chapters button — host only */}
+            {user && recording && user.id === recording.user_id && (
+              <button
+                onClick={openChaptersEditor}
+                className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:border-primary/30 hover:text-primary transition-colors"
+              >
+                <Edit2 className="w-3 h-3" />Edit
+              </button>
+            )}
           </div>
           <div className="divide-y divide-border">
-            {chapters.map((ch, i) => {
+            {displayChapters.map((ch, i) => {
               const isActive = activeChapter === i;
               return (
                 <button
@@ -554,14 +629,112 @@ export default function SpaceRecordingViewerPage() {
         </div>
       )}
 
+      {/* ── Chapters Editor Modal ── */}
+      {showChaptersEditor && (
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-end" onClick={() => setShowChaptersEditor(false)}>
+          <div className="w-full bg-background rounded-t-3xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-background border-b border-border px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-primary" />
+                <h3 className="font-bold">Edit Chapters</h3>
+                <span className="text-xs text-muted-foreground">{editChapters.length} sections</span>
+              </div>
+              <button onClick={() => setShowChaptersEditor(false)} className="p-2 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              {editChapters.map((ch, ci) => (
+                <div key={ci} className="flex items-center gap-2">
+                  <span className="text-xs font-black text-muted-foreground w-5 shrink-0 text-center">{ci + 1}</span>
+                  <input
+                    type="number" min={0} max={86400} placeholder="Sec"
+                    value={ch.time}
+                    onChange={e => setEditChapters(prev => prev.map((c, j) => j === ci ? { ...c, time: Number(e.target.value) } : c))}
+                    className="w-20 h-9 px-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 shrink-0"
+                  />
+                  <input
+                    type="text" placeholder="Chapter label"
+                    value={ch.label}
+                    onChange={e => setEditChapters(prev => prev.map((c, j) => j === ci ? { ...c, label: e.target.value } : c))}
+                    maxLength={80}
+                    className="flex-1 h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                  <button
+                    onClick={() => setEditChapters(prev => prev.filter((_, j) => j !== ci))}
+                    className="p-2 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                  ><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+              <button
+                onClick={() => setEditChapters(prev => [...prev, { time: 0, label: '' }])}
+                className="flex items-center gap-1.5 text-sm text-primary font-semibold hover:opacity-80"
+              >
+                <Plus className="w-4 h-4" />Add chapter
+              </button>
+            </div>
+            <div className="sticky bottom-0 bg-background border-t border-border px-4 py-3 flex gap-2">
+              <button onClick={() => setShowChaptersEditor(false)} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors">Cancel</button>
+              <button
+                onClick={saveChapters}
+                disabled={savingChapters}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold disabled:opacity-50 hover:opacity-90"
+              >
+                {savingChapters ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Save Chapters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tip Host Dialog ── */}
+      {showTipHostDialog && user && recording && user.id !== recording.user_id && (
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowTipHostDialog(false)}>
+          <div className="bg-background border border-border rounded-2xl p-5 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center"><DollarSign className="w-5 h-5 text-yellow-600" /></div>
+              <div><h3 className="font-bold">Tip the Host</h3><p className="text-xs text-muted-foreground">@{host?.username}</p></div>
+              <button onClick={() => setShowTipHostDialog(false)} className="ml-auto p-1.5 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {PODCAST_TIP_AMTS.map(amt => (
+                <button key={amt} onClick={() => setTipHostAmount(amt)}
+                  className={`py-2.5 rounded-xl font-bold text-base border-2 transition-all ${
+                    tipHostAmount === amt ? 'border-yellow-500 bg-yellow-500/10 text-yellow-600' : 'border-border hover:border-yellow-500/40'
+                  }`}>${amt}</button>
+              ))}
+            </div>
+            <button
+              onClick={handleTipHost}
+              disabled={sendingHostTip || !tipHostAmount}
+              className="w-full py-3 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90"
+            >
+              {sendingHostTip ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+              {sendingHostTip ? 'Sending…' : `Send $${tipHostAmount ?? '—'} Tip`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Transcript (if no chapters) ── */}
-      {recording?.transcript && chapters.length === 0 && (
+      {recording?.transcript && displayChapters.length === 0 && (
         <div className="mx-4 mt-4 bg-card border border-border rounded-2xl p-4">
           <h2 className="font-bold text-sm mb-3 flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-cyan-500" />
             Transcript
           </h2>
           <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{recording.transcript}</p>
+        </div>
+      )}
+
+      {/* ── Add Chapters button — shown when no chapters exist yet and user is host ── */}
+      {displayChapters.length === 0 && user && recording && user.id === recording.user_id && (
+        <div className="mx-4 mt-4">
+          <button
+            onClick={openChaptersEditor}
+            className="w-full flex items-center justify-center gap-2 py-3 border border-dashed border-border rounded-2xl text-sm text-muted-foreground hover:border-violet-500/30 hover:text-violet-600 transition-colors"
+          >
+            <Plus className="w-4 h-4" />Add Chapters to this episode
+          </button>
         </div>
       )}
 

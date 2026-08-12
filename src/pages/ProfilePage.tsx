@@ -29,6 +29,14 @@ function fmtRecDuration(secs: number): string | null {
   return `${m}m`;
 }
 
+// Module-level helper — avoids IIFE in render scope (esbuild guard)
+function fmtPodTotalDur(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 function getPodcastRssUrl(username: string) {
   return `${import.meta.env.VITE_SUPABASE_URL?.replace('/v1', '')}/functions/v1/podcast-rss?username=${username}`;
 }
@@ -1330,12 +1338,7 @@ export default function ProfilePage() {
           const podTotalEps = profilePodcasts.length;
           const podTotalListeners = profilePodcasts.reduce((s: number, p: any) => s + (p.listener_count ?? 0), 0);
           const podTotalSecs = profilePodcasts.reduce((s: number, p: any) => s + (p.duration ?? 0), 0);
-          const podTotalDurLabel = (() => {
-            const h = Math.floor(podTotalSecs / 3600);
-            const m = Math.floor((podTotalSecs % 3600) / 60);
-            if (h > 0) return `${h}h ${m}m`;
-            return `${m}m`;
-          })();
+          const podTotalDurLabel = fmtPodTotalDur(podTotalSecs);
           return loadingPodcasts ? (
             <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
           ) : (

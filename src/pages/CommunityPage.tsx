@@ -30,6 +30,8 @@ import { formatDistanceToNow, isPast } from 'date-fns';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 const LEADERBOARD_MEDALS = ['🥇', '🥈', '🥉'] as const;
 const LEADERBOARD_PODIUM_H = ['h-16', 'h-20', 'h-14'] as const;
+// Community tip amounts at module scope (esbuild guard)
+const COMM_TIP_AMTS = [1, 5, 10] as const;
 
 // Module-level RSS URL helper — avoids duplicate closure bindings (esbuild guard)
 function getCommunityRssUrl(communityName: string) {
@@ -122,6 +124,42 @@ export default function CommunityPage() {
 
   // Community RSS copied state
   const [commRssCopied, setCommRssCopied] = useState(false);
+
+  // ── Community Monetization (Support / Tip) ─────────────────────────────────
+  const [showSupportDialog, setShowSupportDialog] = useState(false);
+  const [supportAmount, setSupportAmount] = useState<number | null>(null);
+  const [sendingSupport, setSendingSupport] = useState(false);
+  const [supportSent, setSupportSent] = useState(false);
+
+  const handleSupportCommunity = useCallback(async () => {
+    if (!user || !community || !supportAmount) return;
+    setSendingSupport(true);
+    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', {
+      p_user_id: user.id,
+      p_amount: supportAmount,
+    });
+    if (deductErr) { sonnerToast.error('Insufficient wallet balance'); setSendingSupport(false); return; }
+    await supabase.rpc('add_to_wallet', { p_user_id: community.created_by, p_amount: supportAmount }).catch(() => {});
+    await supabase.from('tips').insert({
+      from_user_id: user.id,
+      to_user_id: community.created_by,
+      amount: supportAmount,
+      message: `Support for c/${community.name}`,
+    }).catch(() => {});
+    await supabase.from('platform_inbox').insert({
+      user_id: community.created_by,
+      subject: `💰 Your community received a $${supportAmount} support tip!`,
+      body: `@${user.username ?? 'A member'} sent $${supportAmount} to support c/${community.name}. Keep up the great work!`,
+      type: 'update',
+      icon_emoji: '💰',
+    }).catch(() => {});
+    sonnerToast.success(`$${supportAmount} support sent to c/${community.name}!`);
+    setSupportSent(true);
+    setShowSupportDialog(false);
+    setSupportAmount(null);
+    setSendingSupport(false);
+    setTimeout(() => setSupportSent(false), 4000);
+  }, [user, community, supportAmount]);
 
   const fetchLeaderboard = useCallback(async (communityId: string) => {
     setLoadingLeaderboard(true);
@@ -722,6 +760,20 @@ export default function CommunityPage() {
             <span className="font-bold">{formatNumber(community.post_count)}</span>
             <span className="text-muted-foreground">posts</span>
           </div>
+          {/* Support Community tip button */}
+          {user && !isOwner && (
+            <button
+              onClick={() => setShowSupportDialog(true)}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full border text-[10px] font-bold transition-all ${
+                supportSent
+                  ? 'border-yellow-500/40 bg-yellow-500/15 text-yellow-600'
+                  : 'border-border text-muted-foreground hover:border-yellow-500/30 hover:text-yellow-600'
+              }`}
+              title="Support this community"
+            >
+              {supportSent ? '✓ Supported!' : '💰 Support'}
+            </button>
+          )}
           {/* Community RSS feed button */}
           <button
             onClick={() => {
@@ -834,6 +886,45 @@ export default function CommunityPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Support Dialog ── */}
+      {showSupportDialog && user && (
+        <div className="fixed inset-0 z-[250] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowSupportDialog(false)}>
+          <div className="bg-background border border-border rounded-2xl p-5 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center">
+                <span className="text-xl">💰</span>
+              </div>
+              <div>
+                <h3 className="font-bold">Support Community</h3>
+                <p className="text-xs text-muted-foreground">c/{community?.name}</p>
+              </div>
+              <button onClick={() => setShowSupportDialog(false)} className="ml-auto p-1.5 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+              Send a tip to the community creator to support their work. Deducted from your wallet.
+            </p>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {COMM_TIP_AMTS.map(amt => (
+                <button key={amt} onClick={() => setSupportAmount(amt)}
+                  className={`py-2.5 rounded-xl font-bold text-base border-2 transition-all ${
+                    supportAmount === amt
+                      ? 'border-yellow-500 bg-yellow-500/10 text-yellow-600'
+                      : 'border-border hover:border-yellow-500/40'
+                  }`}>${amt}</button>
+              ))}
+            </div>
+            <button
+              onClick={handleSupportCommunity}
+              disabled={sendingSupport || !supportAmount}
+              className="w-full py-3 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+            >
+              {sendingSupport ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>💰</span>}
+              {sendingSupport ? 'Sending…' : `Send $${supportAmount ?? '—'} Support`}
+            </button>
           </div>
         </div>
       )}
