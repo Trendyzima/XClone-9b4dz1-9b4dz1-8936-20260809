@@ -257,19 +257,20 @@ export default function SpaceDetailPage() {
 
         {/* CTA */}
         {space.is_live && (
-          <Button onClick={handleJoin} className="w-full mt-4 rounded-xl bg-gradient-to-r from-primary to-purple-600 text-white font-bold h-12">
-            <Headphones className="w-5 h-5 mr-2" /> Join Live Space
-          </Button>
-          {/* SuperChat button — locked unless unlocked by regulator */}
-          {superChatUnlocked && user && space.is_live && (
-            <button onClick={() => setShowSuperChat(true)}
-              className="w-full mt-2 py-3 rounded-xl border-2 border-yellow-500/30 bg-yellow-500/8 text-yellow-600 dark:text-yellow-400 font-bold text-sm flex items-center justify-center gap-2 hover:bg-yellow-500/12 transition-colors">
-              <DollarSign className="w-4 h-4" />Send SuperChat
-            </button>
-          )}
-          {!superChatUnlocked && user && space.is_live && (
-            <p className="text-center text-[10px] text-muted-foreground mt-1">• SuperChat locked — contact @Shee to unlock</p>
-          )}
+          <>
+            <Button onClick={handleJoin} className="w-full mt-4 rounded-xl bg-gradient-to-r from-primary to-purple-600 text-white font-bold h-12">
+              <Headphones className="w-5 h-5 mr-2" /> Join Live Space
+            </Button>
+            {superChatUnlocked && user && (
+              <button onClick={() => setShowSuperChat(true)}
+                className="w-full mt-2 py-3 rounded-xl border-2 border-yellow-500/30 bg-yellow-500/8 text-yellow-600 dark:text-yellow-400 font-bold text-sm flex items-center justify-center gap-2 hover:bg-yellow-500/12 transition-colors">
+                <DollarSign className="w-4 h-4" />Send SuperChat
+              </button>
+            )}
+            {!superChatUnlocked && user && (
+              <p className="text-center text-[10px] text-muted-foreground mt-1">• SuperChat locked — contact @Shee to unlock</p>
+            )}
+          </>
         )}
       </div>
 
