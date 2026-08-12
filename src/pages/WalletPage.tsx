@@ -24,7 +24,8 @@ import {
 import { Input } from '@/components/ui/input';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  AreaChart, Area,
 } from 'recharts';
 
 // ── Module-level constants ────────────────────────────────────────────────
@@ -35,7 +36,7 @@ const PIN_PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','del'];
 type TopUpStep    = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type CurrencyCode = 'USD' | 'KES' | 'EUR';
-type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled' | 'savings' | 'reminders' | 'security';
+type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled' | 'savings' | 'reminders' | 'security' | 'converter';
 
 const CURRENCIES: { code: CurrencyCode; symbol: string; rate: number }[] = [
   { code: 'USD', symbol: '$',    rate: 1    },
@@ -2307,6 +2308,297 @@ function SpendingAlertsCard({ userId }: { userId: string }) {
   );
 }
 
+// ── Wallet Notifications Hub ─────────────────────────────────────────────
+function WalletNotificationsHub({ userId }: { userId: string }) {
+  const [msgs,    setMsgs]    = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [marking, setMarking] = useState(false);
+  const [open,    setOpen]    = useState(false);
+
+  useEffect(() => { load(); }, [userId]);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('platform_inbox')
+      .select('*').eq('user_id', userId)
+      .in('type', ['payment','warning','system'])
+      .order('sent_at', { ascending: false }).limit(20);
+    setMsgs(data ?? []); setLoading(false);
+  };
+
+  const markAllRead = async () => {
+    const unreadIds = msgs.filter(m => !m.read).map(m => m.id);
+    if (!unreadIds.length) return;
+    setMarking(true);
+    await supabase.from('platform_inbox').update({ read: true }).in('id', unreadIds);
+    setMarking(false);
+    load();
+  };
+
+  const unreadCount = msgs.filter(m => !m.read).length;
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden">
+      <button onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left">
+        <div className="relative">
+          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+            <Bell className="w-4 h-4 text-primary" />
+          </div>
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{unreadCount}</span>
+          )}
+        </div>
+        <div className="flex-1">
+          <p className="font-bold text-sm">Wallet Notifications</p>
+          <p className="text-xs text-muted-foreground">{unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}</p>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="border-t border-border">
+          {loading ? (
+            <div className="flex justify-center p-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+          ) : msgs.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-5">No wallet notifications yet</p>
+          ) : (
+            <>
+              {unreadCount > 0 && (
+                <div className="flex justify-end px-4 py-2 border-b border-border">
+                  <button onClick={markAllRead} disabled={marking}
+                    className="flex items-center gap-1.5 text-xs text-primary font-semibold hover:underline disabled:opacity-50">
+                    {marking ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                    Mark all read
+                  </button>
+                </div>
+              )}
+              <div className="divide-y divide-border max-h-72 overflow-y-auto">
+                {msgs.map(m => (
+                  <div key={m.id} className={`px-4 py-3 flex gap-3 ${!m.read ? 'bg-primary/3' : ''}`}>
+                    <span className="text-xl shrink-0 mt-0.5">{m.icon_emoji ?? '🔔'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-semibold ${!m.read ? 'text-foreground' : 'text-muted-foreground'}`}>{m.subject}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{new Date(m.sent_at).toLocaleString()}</p>
+                    </div>
+                    {!m.read && <div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Currency Converter Widget ─────────────────────────────────────────────
+const CONVERTER_RATES: Record<string, number> = { USD: 1, KES: 130, EUR: 0.92, GBP: 0.79, NGN: 1580, TZS: 2600, UGX: 3700, ZAR: 18.7 };
+const CONVERTER_SYMBOLS: Record<string, string> = { USD: '$', KES: 'KSh', EUR: '€', GBP: '£', NGN: '₦', TZS: 'TSh', UGX: 'USh', ZAR: 'R' };
+const CONVERTER_CURRENCY_KEYS = Object.keys(CONVERTER_RATES);
+
+function CurrencyConverterWidget() {
+  const [fromCur, setFromCur] = useState('KES');
+  const [toCur,   setToCur]   = useState('USD');
+  const [input,   setInput]   = useState('');
+
+  const { result, pairs } = useMemo(() => {
+    const val = parseFloat(input || '0');
+    const inUsd = val / (CONVERTER_RATES[fromCur] ?? 1);
+    const result = inUsd * (CONVERTER_RATES[toCur] ?? 1);
+    const pairs = CONVERTER_CURRENCY_KEYS.filter(k => k !== fromCur).map(k => ({
+      code: k, symbol: CONVERTER_SYMBOLS[k] ?? k,
+      value: (inUsd * CONVERTER_RATES[k]).toFixed(k === 'KES' || k === 'NGN' || k === 'TZS' || k === 'UGX' ? 0 : 2),
+    }));
+    return { result, pairs };
+  }, [input, fromCur, toCur]);
+
+  const swap = () => { setFromCur(toCur); setToCur(fromCur); };
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden">
+      <div className="px-4 py-3 flex items-center gap-2 border-b border-border">
+        <Globe className="w-4 h-4 text-primary" />
+        <h3 className="font-bold text-sm">Currency Converter</h3>
+        <span className="text-[10px] text-muted-foreground ml-auto">Static rates</span>
+      </div>
+      <div className="p-4 space-y-3">
+        <div className="flex gap-2 items-center">
+          <div className="flex-1">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide block mb-1">From</label>
+            <select value={fromCur} onChange={e => setFromCur(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              {CONVERTER_CURRENCY_KEYS.map(c => <option key={c} value={c}>{CONVERTER_SYMBOLS[c]} {c}</option>)}
+            </select>
+          </div>
+          <button onClick={swap} className="mt-5 p-2.5 rounded-full border border-border hover:bg-muted transition-colors shrink-0">
+            <RefreshCw className="w-4 h-4 text-muted-foreground" />
+          </button>
+          <div className="flex-1">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide block mb-1">To</label>
+            <select value={toCur} onChange={e => setToCur(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+              {CONVERTER_CURRENCY_KEYS.map(c => <option key={c} value={c}>{CONVERTER_SYMBOLS[c]} {c}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide block mb-1">Amount ({fromCur})</label>
+          <input type="number" min="0" step="any" placeholder="Enter amount…" value={input} onChange={e => setInput(e.target.value)}
+            className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+        </div>
+        {parseFloat(input) > 0 && (
+          <div className="p-3 bg-primary/5 border border-primary/15 rounded-xl">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">{input} {fromCur} =</p>
+            <p className="text-2xl font-black text-primary">{CONVERTER_SYMBOLS[toCur]}{result.toFixed(toCur === 'KES' || toCur === 'NGN' || toCur === 'TZS' || toCur === 'UGX' ? 0 : 2)} {toCur}</p>
+          </div>
+        )}
+        {parseFloat(input) > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            {pairs.slice(0,4).map(p => (
+              <div key={p.code} className="p-2.5 bg-muted/30 border border-border rounded-xl">
+                <p className="text-[10px] text-muted-foreground font-semibold">{p.code}</p>
+                <p className="text-sm font-black">{p.symbol}{p.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── P2P Transfer History Chart ────────────────────────────────────────────
+const LINE_CHART_STROKE = '#7c3aed';
+const LINE_CHART_FILL   = 'rgba(124,58,237,0.08)';
+
+function P2PBalanceChart({ userId, currency }: { userId: string; currency: CurrencyCode }) {
+  const [txns,    setTxns]    = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    supabase.from('wallet_transactions').select('created_at,amount,type')
+      .eq('user_id', userId).gte('created_at', since)
+      .order('created_at', { ascending: true }).limit(500)
+      .then(({ data }) => { setTxns(data ?? []); setLoading(false); });
+  }, [userId]);
+
+  const { chartData, minBal, maxBal } = useMemo(() => {
+    const dayMap: Record<string, number> = {};
+    const now = Date.now();
+    for (let i = 29; i >= 0; i--) {
+      const key = new Date(now - i * 86400000).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+      dayMap[key] = 0;
+    }
+    let running = 0;
+    txns.forEach(t => {
+      const key = new Date(t.created_at).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+      const isIn = t.type === 'deposit' || t.type === 'earnings';
+      running += isIn ? Number(t.amount) : -Number(t.amount);
+      if (dayMap[key] !== undefined) dayMap[key] = running;
+    });
+    // forward-fill
+    let last = 0;
+    const chartData = Object.entries(dayMap).map(([date, bal]) => {
+      if (bal !== 0) last = bal;
+      else if (last !== 0) bal = last;
+      return { date, bal: parseFloat(bal.toFixed(2)) };
+    });
+    const vals = chartData.map(d => d.bal);
+    return { chartData, minBal: Math.min(...vals, 0), maxBal: Math.max(...vals, 1) };
+  }, [txns]);
+
+  if (loading) return <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>;
+  if (txns.length === 0) return null;
+
+  return (
+    <div className="border border-border rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-4">
+        <TrendingUp className="w-4 h-4 text-primary" />
+        <h3 className="font-bold text-sm">Balance Over 30 Days</h3>
+      </div>
+      <ResponsiveContainer width="100%" height={160}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 0, left: -28, bottom: 0 }}>
+          <defs>
+            <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={LINE_CHART_STROKE} stopOpacity={0.18} />
+              <stop offset="95%" stopColor={LINE_CHART_STROKE} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} interval={4} />
+          <YAxis tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} domain={[minBal, maxBal]} />
+          <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 11 }}
+            formatter={(v: any) => [`$${v}`, 'Balance']} />
+          <Area type="monotone" dataKey="bal" stroke={LINE_CHART_STROKE} strokeWidth={2} fill="url(#balGrad)" dot={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── Inactivity Lock Card ────────────────────────────────────────────────
+function InactivityLockCard({ userId }: { userId: string }) {
+  const STORAGE_KEY = `ts-inactivity-mins-${userId}`;
+  const [enabled, setEnabled] = useState(false);
+  const [minutes, setMinutes] = useState(10);
+  const [saved,   setSaved]   = useState(false);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) { setEnabled(true); setMinutes(parseInt(raw, 10) || 10); }
+  }, [userId]);
+
+  const save = () => {
+    if (enabled) { localStorage.setItem(STORAGE_KEY, String(minutes)); }
+    else          { localStorage.removeItem(STORAGE_KEY); }
+    setSaved(true);
+    toast.success(enabled ? `Wallet locks after ${minutes}m inactivity` : 'Auto-lock disabled');
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden">
+      <div className="px-5 py-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" />
+            <h3 className="font-bold text-sm">Auto-Lock on Inactivity</h3>
+          </div>
+          <button onClick={() => setEnabled(v => !v)}
+            className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}>
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+          </button>
+        </div>
+        {enabled ? (
+          <>
+            <p className="text-xs text-muted-foreground mb-3">Lock wallet after this many minutes with no interaction.</p>
+            <div className="flex gap-2 mb-3">
+              {INACTIVITY_MINUTES.map(m => (
+                <button key={m} onClick={() => setMinutes(m)}
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${minutes === m ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30'}`}>
+                  {m}m
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground mb-3">Automatically lock your wallet after a period of inactivity to prevent unauthorized access.</p>
+        )}
+        <button onClick={save}
+          className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl font-semibold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+          {saved ? <CheckCircle2 className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+          {saved ? 'Saved!' : enabled ? `Save (${minutes}m timeout)` : 'Save (disabled)'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Inactivity lock minutes options ──────────────────────────────────────
+const INACTIVITY_MINUTES = [5, 10, 30, 60] as const;
+
 // ── Module-level tab config ───────────────────────────────────────────────
 const WALLET_TABS: { key: ActiveTab; label: string }[] = [
   { key: 'wallet',    label: '💳 Wallet'    },
@@ -2319,6 +2611,7 @@ const WALLET_TABS: { key: ActiveTab; label: string }[] = [
   { key: 'savings',   label: '🎯 Goals'     },
   { key: 'reminders', label: '🔔 Reminders' },
   { key: 'security',  label: '🔒 Security'  },
+  { key: 'converter', label: '💱 Convert'   },
 ];
 
 function WalletAdBanner() { return <PageAdBanner />; }
@@ -2340,9 +2633,39 @@ export default function WalletPage() {
     if (t === 'savings')   return 'savings';
     if (t === 'reminders') return 'reminders';
     if (t === 'security')  return 'security';
+    if (t === 'converter') return 'converter';
     return 'wallet';
   });
   const prefillTo = searchParams.get('to') ?? '';
+
+  // ── Inactivity auto-lock ────────────────────────────────────────────
+  const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    const lockMins = parseInt(localStorage.getItem(`ts-inactivity-mins-${user.id}`) ?? '0', 10);
+    if (!lockMins) return;
+    const resetTimer = () => {
+      if (inactivityRef.current) clearTimeout(inactivityRef.current);
+      inactivityRef.current = setTimeout(() => {
+        localStorage.setItem(`ts-wallet-locked-${user.id}`, '1');
+        toast.warning('Wallet locked due to inactivity');
+      }, lockMins * 60000);
+    };
+    const onActivity = () => resetTimer();
+    window.addEventListener('mousemove', onActivity);
+    window.addEventListener('keydown',   onActivity);
+    window.addEventListener('touchstart', onActivity);
+    const onVisible = () => { if (!document.hidden) resetTimer(); };
+    document.addEventListener('visibilitychange', onVisible);
+    resetTimer();
+    return () => {
+      if (inactivityRef.current) clearTimeout(inactivityRef.current);
+      window.removeEventListener('mousemove', onActivity);
+      window.removeEventListener('keydown',   onActivity);
+      window.removeEventListener('touchstart', onActivity);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user]);
 
   const [showSplit,       setShowSplit]       = useState(false);
   const [showInstallment, setShowInstallment] = useState(false);
@@ -2427,14 +2750,8 @@ export default function WalletPage() {
       try {
         const { data } = await supabase.functions.invoke('mpesa-stk-status', { body: { checkout_request_id: checkoutId } });
         if (data?.status === 'completed') {
+          // Wallet already credited by mpesa-callback edge function — just refresh balance
           clearInterval(pollRef.current!); stopBalancePoll();
-          await supabase.rpc('add_to_wallet', { p_user_id: user!.id, p_amount: depositUsd });
-          const { data: w } = await supabase.from('user_wallets').select('id').eq('user_id', user!.id).single();
-          await supabase.from('wallet_transactions').insert({
-            wallet_id: w?.id ?? null, user_id: user!.id, type: 'deposit', amount: depositUsd,
-            payment_method: 'mpesa', status: 'completed',
-            description: `M-Pesa top-up — KES ${Math.ceil(depositUsd * USD_TO_KES).toLocaleString()}`,
-          });
           await fetchWallet(); setLastTopUpAmount(depositUsd); setStep('success');
           setPollMsg(`KES ${Math.ceil(depositUsd * USD_TO_KES).toLocaleString()} received! Wallet topped up.`);
           toast.success(`+${fmtAmt(depositUsd, currency)} added to wallet`); setAmount('');
@@ -2598,6 +2915,7 @@ export default function WalletPage() {
         {activeTab === 'receive'   && user && <ReceiveMoneyTab username={username} walletBalance={walletBalance} currency={currency} />}
         {activeTab === 'analytics' && user && (
           <>
+            <P2PBalanceChart userId={user.id} currency={currency} />
             <ActivityHeatmap userId={user.id} />
             <WalletAnalyticsExportButton userId={user.id} currency={currency} />
             <SpendingAnalyticsTab userId={user.id} currency={currency} />
@@ -2613,8 +2931,12 @@ export default function WalletPage() {
         {activeTab === 'savings'   && user && <SavingsGoalsTab userId={user.id} walletBalance={walletBalance} currency={currency} />}
         {activeTab === 'reminders' && user && <TransactionRemindersTab userId={user.id} currency={currency} />}
         {activeTab === 'security'  && user && (
-          <PinSecurityDashboard userId={user.id} pinHash={pinHash} credentialId={biometricCredentialId} onRefresh={fetchWallet} />
+          <>
+            <PinSecurityDashboard userId={user.id} pinHash={pinHash} credentialId={biometricCredentialId} onRefresh={fetchWallet} />
+            <InactivityLockCard userId={user.id} />
+          </>
         )}
+        {activeTab === 'converter' && <CurrencyConverterWidget />}
       </div>
 
       {activeTab === 'wallet' && (
@@ -2825,6 +3147,7 @@ export default function WalletPage() {
           {user && wallet && <PinSetupCard userId={user.id} pinHash={(wallet as any)?.wallet_pin_hash ?? null} onSaved={fetchWallet} />}
           {user && wallet && <BiometricCard userId={user.id} credentialId={(wallet as any)?.biometric_credential_id ?? null} onSaved={fetchWallet} />}
           {user && <PayoutScheduleCard userId={user.id} defaultPhone={wallet?.mpesa_phone ?? null} />}
+          <WalletNotificationsHub userId={user.id} />
           <CryptoWidget />
           <MpesaSecretsGuide />
           <div className="flex items-start gap-3 p-4 bg-muted/40 border border-border rounded-2xl">
