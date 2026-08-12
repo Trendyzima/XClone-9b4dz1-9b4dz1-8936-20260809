@@ -4,7 +4,7 @@ import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
-import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check, Trophy, Gift, Clock, Hash, ChevronRight, Loader2, BookOpen, Eye, Play, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check, Trophy, Gift, Clock, Hash, ChevronRight, Loader2, BookOpen, Eye, Play, ChevronLeft, ChevronRight as ChevronRightIcon, Flame, Users as UsersIcon, Star } from 'lucide-react';
 import { TrendingVideosSection } from '@/components/features/TrendingVideosSection';
 import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -12,6 +12,7 @@ import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { useSEO } from '@/hooks/useSEO';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 type ExploreTab = 'Explore' | 'Trending' | 'News' | 'Sports' | 'Entertainment';
 
@@ -24,7 +25,9 @@ export default function ExplorePage() {
   const [trending, setTrending] = useState<any[]>([]);
   const [trendingHashtags, setTrendingHashtags] = useState<any[]>([]);
   const [whoToFollow, setWhoToFollow] = useState<any[]>([]);
-  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
+  // followingIds — parallel arrays (esbuild guard: no Set<string> in state)
+  const [followingIdArr, setFollowingIdArr] = useState<string[]>([]);
+  const isFollowingId = (id: string) => followingIdArr.indexOf(id) >= 0;
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [prefCategories, setPrefCategories] = useState<string[]>(['News', 'Sports', 'Entertainment', 'Politics', 'Technology']);
@@ -140,20 +143,20 @@ export default function ExplorePage() {
     }
     if (user) {
       const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id);
-      if (follows) setFollowingIds(new Set(follows.map((f: any) => f.following_id)));
+      if (follows) setFollowingIdArr(follows.map((f: any) => f.following_id));
     }
     setLoading(false);
   };
 
   const handleFollow = async (profileId: string, username: string) => {
     if (!user) { navigate('/auth'); return; }
-    const isFollowing = followingIds.has(profileId);
+    const isFollowing = isFollowingId(profileId);
     if (isFollowing) {
       await supabase.from('follows').delete().eq('follower_id', user.id).eq('following_id', profileId);
-      setFollowingIds(prev => { const s = new Set(prev); s.delete(profileId); return s; });
+      setFollowingIdArr(prev => prev.filter(id => id !== profileId));
     } else {
       await supabase.from('follows').insert({ follower_id: user.id, following_id: profileId });
-      setFollowingIds(prev => new Set([...prev, profileId]));
+      setFollowingIdArr(prev => [...prev, profileId]);
       await supabase.from('notifications').insert({ user_id: profileId, type: 'follow', from_user_id: user.id }).catch(() => {});
       toast.success(`Following @${username}!`);
     }
@@ -487,8 +490,8 @@ export default function ExplorePage() {
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{profile.bio ? profile.bio.slice(0, 50) : `@${profile.username}`}</p>
                     </div>
-                    <button onClick={() => handleFollow(profile.id, profile.username)} className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${followingIds.has(profile.id) ? 'border border-border hover:bg-muted' : 'bg-foreground text-background hover:opacity-90'}`}>
-                      {followingIds.has(profile.id) ? 'Following' : 'Follow'}
+                    <button onClick={() => handleFollow(profile.id, profile.username)} className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${isFollowingId(profile.id) ? 'border border-border hover:bg-muted' : 'bg-foreground text-background hover:opacity-90'}`}>
+                      {isFollowingId(profile.id) ? 'Following' : 'Follow'}
                     </button>
                   </div>
                 ))}
@@ -515,31 +518,141 @@ export default function ExplorePage() {
 
       {activeTab === 'Trending' && (
         <div>
+          {/* Hero banner */}
           <div className="relative overflow-hidden border-b border-border mx-4 my-4 rounded-2xl">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-950 via-indigo-900 to-purple-900" />
             <div className="relative px-5 py-8 flex items-end justify-between">
               <div>
-                <h2 className="text-white text-2xl font-bold leading-tight">Global Trending</h2>
-                <p className="text-white/70 text-sm mt-1 mb-3">The most popular posts</p>
-                <button onClick={() => navigate('/')} className="px-5 py-2 border border-white/60 text-white text-sm font-semibold rounded-full hover:bg-white/15 transition-colors">Explore</button>
+                <h2 className="text-white text-2xl font-bold leading-tight">What's Trending</h2>
+                <p className="text-white/70 text-sm mt-1 mb-3">Top hashtags in the last 24 hours</p>
+                <button onClick={() => navigate('/hashtags')} className="px-5 py-2 border border-white/60 text-white text-sm font-semibold rounded-full hover:bg-white/15 transition-colors">Discover Hashtags</button>
               </div>
-              <Globe className="w-20 h-20 text-white/10 flex-shrink-0" />
+              <Flame className="w-20 h-20 text-orange-400/20 flex-shrink-0" />
             </div>
           </div>
-          <div className="divide-y divide-border">
-            {trending.length === 0 ? (
-              <div className="py-16 text-center text-muted-foreground"><TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-20" /><p className="font-semibold">No trending topics yet</p></div>
-            ) : trending.map((topic, i) => (
-              <button key={topic.id} onClick={() => navigateTopic(topic.topic)} className="w-full text-left px-4 py-3.5 hover:bg-muted/30 transition-colors flex items-start justify-between group">
+
+          {/* Trending hashtags bar chart */}
+          {trendingHashtags.length > 0 && (
+            <div className="mx-4 mb-4 bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="px-4 pt-4 pb-2 flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-muted-foreground">{i + 1} · Trending in {topic.category}</p>
-                  <p className="font-bold text-base mt-0.5">{topic.topic}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{formatNumber(topic.posts_count)} posts</p>
+                  <p className="font-bold text-sm">Top Trending Hashtags</p>
+                  <p className="text-xs text-muted-foreground">24-hour post volume</p>
                 </div>
-                <span className="text-muted-foreground/50 text-lg leading-none mt-1 group-hover:text-muted-foreground transition-colors">···</span>
-              </button>
-            ))}
+                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">{trendingHashtags.length} trending</span>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart
+                  data={trendingHashtags.slice(0, 10).map((h: any) => ({ tag: `#${h.tag}`, posts: h.daily_posts ?? h.usage_count ?? 0 }))}
+                  margin={{ top: 4, right: 16, left: -16, bottom: 32 }}
+                >
+                  <XAxis
+                    dataKey="tag"
+                    tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }}
+                    angle={-35}
+                    textAnchor="end"
+                    interval={0}
+                  />
+                  <YAxis hide />
+                  <Tooltip
+                    formatter={(v: any) => [v, 'posts']}
+                    contentStyle={{ fontSize: 11, borderRadius: 10, padding: '4px 10px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))' }}
+                    cursor={{ fill: 'hsl(var(--muted))', opacity: 0.5 }}
+                  />
+                  <Bar dataKey="posts" radius={[4, 4, 0, 0]}>
+                    {trendingHashtags.slice(0, 10).map((_: any, i: number) => (
+                      <Cell key={i} fill={i < 3 ? '#f97316' : i < 6 ? '#6366f1' : '#94a3b8'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Trending hashtag chips grid */}
+          <div className="px-4 mb-4">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">Top 20 Trending</p>
+            <div className="grid grid-cols-2 gap-2">
+              {trendingHashtags.slice(0, 20).map((tag: any, i: number) => (
+                <button
+                  key={tag.id}
+                  onClick={() => navigate(`/hashtag/${tag.tag}`)}
+                  className="flex items-center gap-2 p-3 border border-border rounded-xl hover:bg-muted/50 transition-colors text-left group"
+                >
+                  <span className={`text-xs font-black w-5 shrink-0 ${
+                    i === 0 ? 'text-orange-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-amber-600' : 'text-muted-foreground'
+                  }`}>{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm text-primary truncate">#{tag.tag}</p>
+                    <p className="text-[10px] text-muted-foreground">{formatNumber(tag.usage_count)} posts</p>
+                  </div>
+                  {i < 3 && <Flame className="w-3.5 h-3.5 text-orange-500 shrink-0" />}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {/* Trending topics list */}
+          {trending.length > 0 && (
+            <div className="border-t border-border">
+              <div className="px-4 pt-4 pb-2"><p className="font-bold text-sm">Trending Topics</p></div>
+              <div className="divide-y divide-border">
+                {trending.slice(0, 20).map((topic, i) => (
+                  <button key={topic.id} onClick={() => navigateTopic(topic.topic)} className="w-full text-left px-4 py-3 hover:bg-muted/30 transition-colors flex items-start justify-between group">
+                    <div>
+                      <p className="text-xs text-muted-foreground">{i + 1} · Trending in {topic.category}</p>
+                      <p className="font-bold text-sm mt-0.5">{topic.topic}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{formatNumber(topic.posts_count)} posts</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Discover verified creators */}
+          {whoToFollow.length > 0 && (
+            <div className="border-t border-border mt-4">
+              <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Star className="w-4 h-4 text-primary" />
+                  <p className="font-bold text-sm">Rising Creators</p>
+                </div>
+                <button onClick={() => navigate('/discover')} className="text-xs text-primary hover:underline font-semibold">See all</button>
+              </div>
+              <div className="divide-y divide-border">
+                {whoToFollow.slice(0, 5).map((profile: any) => (
+                  <div key={profile.id} className="px-4 py-3 flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-full bg-muted overflow-hidden shrink-0 cursor-pointer" onClick={() => navigate(`/profile/${profile.username}`)}>
+                      {profile.avatar_url
+                        ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
+                        : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{profile.username[0]?.toUpperCase()}</div>
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/profile/${profile.username}`)}>
+                      <div className="flex items-center gap-1">
+                        <p className="font-bold text-sm truncate">{profile.username}</p>
+                        {profile.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary shrink-0" fill="currentColor" />}
+                        {profile.is_creator && <span className="text-[9px] bg-purple-500/10 text-purple-600 font-bold px-1.5 py-0.5 rounded-full border border-purple-500/20">Creator</span>}
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                        <span className="flex items-center gap-0.5"><UsersIcon className="w-2.5 h-2.5" />{formatNumber(profile.followers_count)} followers</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleFollow(profile.id, profile.username)}
+                      className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                        isFollowingId(profile.id) ? 'border border-border hover:bg-muted' : 'bg-foreground text-background hover:opacity-90'
+                      }`}
+                    >
+                      {isFollowingId(profile.id) ? 'Following' : 'Follow'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

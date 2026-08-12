@@ -92,11 +92,9 @@ export function ContentSuggestionsWidget() {
     }
   };
 
-  const TABS = [
-    { key: 'trending' as const, label: 'Trending', icon: Flame },
-    { key: 'new' as const,      label: 'New',      icon: Clock },
-    { key: 'creators' as const, label: 'Creators', icon: Sparkles },
-  ];
+  // Tab keys — no icon components in data array (esbuild guard)
+  const TAB_KEYS: Array<'trending' | 'new' | 'creators'> = ['trending', 'new', 'creators'];
+  const TAB_LABELS = ['Trending', 'New', 'Creators'];
 
   return (
     <div className="bg-muted/20 rounded-xl p-4">
@@ -106,9 +104,9 @@ export function ContentSuggestionsWidget() {
         Suggested for you
       </h2>
 
-      {/* Tabs */}
+      {/* Tabs — explicit render to avoid icon-in-data esbuild trigger */}
       <div className="flex gap-1 mb-3 bg-muted rounded-lg p-1">
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {TAB_KEYS.map((key, i) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
@@ -118,8 +116,10 @@ export function ContentSuggestionsWidget() {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Icon className="w-3 h-3" />
-            {label}
+            {key === 'trending' && <Flame className="w-3 h-3" />}
+            {key === 'new' && <Clock className="w-3 h-3" />}
+            {key === 'creators' && <Sparkles className="w-3 h-3" />}
+            {TAB_LABELS[i]}
           </button>
         ))}
       </div>

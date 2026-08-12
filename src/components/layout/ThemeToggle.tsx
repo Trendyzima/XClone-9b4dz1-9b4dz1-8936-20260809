@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Moon, Sun, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -44,9 +45,10 @@ export function ThemeToggle() {
     return () => mq.removeEventListener('change', handler);
   }, [choice]);
 
+  // Module-level theme cycle — no typed array in function body (esbuild guard)
   const toggle = () => {
-    const cycle: ThemeChoice[] = ['light', 'dark', 'system'];
-    const next = cycle[(cycle.indexOf(choice) + 1) % cycle.length];
+    const next: ThemeChoice =
+      choice === 'light' ? 'dark' : choice === 'dark' ? 'system' : 'light';
     setChoice(next);
     applyTheme(next);
   };
