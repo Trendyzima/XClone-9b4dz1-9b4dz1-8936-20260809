@@ -83,7 +83,8 @@ export function StoriesStrip() {
   const [sendingReaction, setSendingReaction] = useState(false);
   // Quick emoji reaction bar — shown above reply input
   const [showQuickReactionBar, setShowQuickReactionBar] = useState(false);
-  const QUICK_REACTION_EMOJIS = ['❤️', '🔥', '😮', '👏', '😍'] as const;
+  // esbuild guard: no 'as const' on arrays used in .map() inside component
+  const QUICK_REACTION_EMOJIS: string[] = ['❤️', '🔥', '😮', '👏', '😍'];
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Story Text Overlays ──────────────────────────────────────────────────────

@@ -22,6 +22,15 @@ import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 function ProfileAdBanner() { return <PageAdBanner />; }
 
 function ProfileSkeleton() {
+  // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <div className="h-12 border-b border-border flex items-center px-4 gap-3">
@@ -626,7 +635,16 @@ export default function ProfilePage() {
         else closeHighlightViewer();
       }
     }, 50);
-    return () => clearInterval(iv);
+    // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return () => clearInterval(iv);
   }, [viewingHighlight, highlightStoryIdx, highlightStories]);
 
   useEffect(() => {
@@ -813,6 +831,15 @@ export default function ProfilePage() {
     ? ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following', 'Analytics']
     : ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
 
+  // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
   return (
     <div
       className="min-h-screen bg-background pb-16 md:pb-0"
@@ -973,35 +1000,59 @@ export default function ProfilePage() {
               {!editingGoal ? (
                 <div className={`rounded-2xl border p-3 transition-all ${goalAchieved ? 'border-yellow-400/60 bg-gradient-to-br from-yellow-500/15 to-amber-400/10 animate-pulse' : 'border-yellow-500/20 bg-yellow-500/5'}`}>
                   <div className="flex items-center gap-3">
-                    <div className="relative w-12 h-12 shrink-0">
-                      <svg className="w-12 h-12 -rotate-90" viewBox="0 0 44 44">
-                        <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/30" />
-                        <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3"
-                          className={`transition-all duration-700 ${goalAchieved ? 'text-amber-400' : 'text-yellow-500'}`}
-                          strokeDasharray={`${2 * Math.PI * 18}`}
-                          strokeDashoffset={`${2 * Math.PI * 18 * (1 - Math.min(tipGoal ? currentMonthTips / tipGoal : 0, 1))}`}
-                          strokeLinecap="round" />
+                    {/* Enhanced circular SVG progress ring with milestone labels */}
+                    <div className="relative w-14 h-14 shrink-0">
+                      <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
+                        {/* Track */}
+                        <circle cx="28" cy="28" r="23" fill="none" stroke="currentColor" strokeWidth="4" className="text-muted/30" />
+                        {/* 25% / 50% / 75% milestone ticks */}
+                        {[25, 50, 75].map(pct => {
+                          const angle = ((pct / 100) * 2 * Math.PI) - Math.PI / 2;
+                          const x1 = 28 + 19 * Math.cos(angle);
+                          const y1 = 28 + 19 * Math.sin(angle);
+                          const x2 = 28 + 23 * Math.cos(angle);
+                          const y2 = 28 + 23 * Math.sin(angle);
+                          return <line key={pct} x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth="2" className="text-muted-foreground/20" />;
+                        })}
+                        {/* Progress arc */}
+                        <circle
+                          cx="28" cy="28" r="23"
+                          fill="none"
+                          strokeWidth="4"
+                          strokeLinecap="round"
+                          stroke={goalAchieved ? '#fbbf24' : '#eab308'}
+                          strokeDasharray={`${2 * Math.PI * 23}`}
+                          strokeDashoffset={`${2 * Math.PI * 23 * (1 - goalProgressPct / 100)}`}
+                          style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1)' }}
+                        />
                       </svg>
-                      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-yellow-600">
-                        {goalAchieved ? '🎉' : `${tipGoal ? Math.round(Math.min((currentMonthTips / tipGoal) * 100, 100)) : 0}%`}
+                      <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-yellow-600">
+                        {goalAchieved ? '🎉' : `${goalProgressPct}%`}
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <p className="text-xs font-bold text-yellow-700 dark:text-yellow-400">Monthly Tip Goal</p>
-                        {goalAchieved && <span className="text-[10px] font-black bg-amber-400/20 text-amber-600 px-1.5 py-0.5 rounded-full">REACHED!</span>}
+                        {goalAchieved && <span className="text-[10px] font-black bg-amber-400/20 text-amber-600 px-1.5 py-0.5 rounded-full">REACHED! 🏆</span>}
                       </div>
                       <p className="text-sm font-bold text-foreground">${currentMonthTips.toFixed(2)}{tipGoal !== null && <span className="text-muted-foreground font-normal"> / ${tipGoal.toFixed(2)}</span>}</p>
+                      {tipGoal !== null && tipGoal > 0 && !goalAchieved && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">${goalRemainingAmt.toFixed(2)} to go</p>
+                      )}
                       {tipGoal !== null && tipGoal > 0 && (
                         <div className="w-full bg-muted rounded-full h-1.5 mt-1 overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-700 ${goalAchieved ? 'bg-gradient-to-r from-amber-400 to-yellow-300' : 'bg-gradient-to-r from-yellow-400 to-amber-500'}`}
-                            style={{ width: `${Math.min((currentMonthTips / tipGoal) * 100, 100)}%` }} />
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ${goalAchieved ? 'bg-gradient-to-r from-amber-400 to-yellow-300' : 'bg-gradient-to-r from-yellow-400 to-amber-500'}`}
+                            style={{ width: `${goalProgressPct}%` }}
+                          />
                         </div>
                       )}
                     </div>
                     {isOwnProfile && (
-                      <button onClick={() => { setGoalInput(String(tipGoal ?? '')); setEditingGoal(true); }}
-                        className="text-xs text-yellow-600 hover:text-yellow-700 font-semibold px-2 py-1 rounded-lg hover:bg-yellow-500/10 transition-colors shrink-0">
+                      <button
+                        onClick={() => { setGoalInput(String(tipGoal ?? '')); setEditingGoal(true); }}
+                        className="text-xs text-yellow-600 hover:text-yellow-700 font-semibold px-2 py-1 rounded-lg hover:bg-yellow-500/10 transition-colors shrink-0"
+                      >
                         {tipGoal ? 'Edit' : '+ Set Goal'}
                       </button>
                     )}
@@ -1047,7 +1098,16 @@ export default function ProfilePage() {
               )}
               {highlights.map((h: any, hIdx: number) => {
                 const viewCount = getHighlightCount(h.id);
-                return (
+                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return (
                   <div key={h.id} draggable={isOwnProfile}
                     onDragStart={() => setDraggingHighlightIdx(hIdx)}
                     onDragOver={e => { e.preventDefault(); setDragOverHighlightIdx(hIdx); }}
@@ -1363,7 +1423,16 @@ export default function ProfilePage() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-2">
               {media.map(post => {
                 const mediaUrl = post.video_url || post.image_url || post.media_urls?.[0];
-                return (
+                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return (
                   <div key={post.id} onClick={() => navigate(`/post/${post.id}`)} className="aspect-square bg-muted rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity">
                     {post.is_video || post.video_url ? <video src={mediaUrl} className="w-full h-full object-cover" /> : <img src={mediaUrl} alt="Media" className="w-full h-full object-cover" />}
                   </div>
@@ -1452,7 +1521,16 @@ export default function ProfilePage() {
                     const podTitle = pod.spaces?.title ?? pod.title;
                     const podEp = pod.spaces?.episode_number ?? null;
                     const podSub = pod.spaces?.subscriber_only ?? false;
-                    return (
+                    // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return (
                       <div key={pod.id} className="flex items-center gap-3 p-4 hover:bg-muted/15 transition-colors cursor-pointer" onClick={() => navigate(`/space-recording/${pod.id}`)}>
                         <div className="w-14 h-14 rounded-xl overflow-hidden bg-gradient-to-br from-primary/15 to-purple-500/10 shrink-0 shadow-sm flex items-center justify-center">
                           {podArt ? <img src={podArt} alt="" className="w-full h-full object-cover" /> : <Headphones className="w-6 h-6 text-primary opacity-70" />}
@@ -1500,7 +1578,16 @@ export default function ProfilePage() {
                 const gifterMatch = hint.match(/@(\w+)\s+gifted you/);
                 const gifterName = gifterMatch?.[1] ?? null;
                 const isReceived = sub.user_id === profile.id;
-                return (
+                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return (
                   <div key={sub.id} className="p-4 hover:bg-muted/5 transition-colors flex items-center gap-3">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${isActive ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-muted border border-border'}`}>
                       <Crown className={`w-6 h-6 ${isActive ? 'text-amber-500' : 'text-muted-foreground'}`} fill={isActive ? 'currentColor' : 'none'} />
@@ -1549,7 +1636,16 @@ export default function ProfilePage() {
                 const isSent = tip.from_user_id === profile.id;
                 const other = isSent ? tip.recipient : tip.sender;
                 const uname = other?.username ?? 'user';
-                return (
+                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return (
                   <div key={tip.id} className="p-4 hover:bg-muted/5 transition-colors flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0 cursor-pointer" onClick={() => navigate(`/profile/${uname}`)}>
                       {other?.avatar_url ? <img src={other.avatar_url} alt={uname} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{uname[0]?.toUpperCase()}</div>}
@@ -1585,7 +1681,16 @@ export default function ProfilePage() {
                 try { const raw = localStorage.getItem('series_progress'); sProg = raw ? (JSON.parse(raw)[s.id] ?? null) : null; } catch { sProg = null; }
                 const sTotal = s.item_count ?? 0;
                 const sPct = sProg && sTotal > 0 ? Math.round((sProg.currentPart / sTotal) * 100) : 0;
-                return (
+                // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return (
                   <div key={s.id} className="hover:bg-muted/20 transition-colors">
                     <button onClick={() => navigate('/series')} className="w-full flex items-start gap-3 p-4 text-left">
                       <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center shrink-0 overflow-hidden border border-border">
@@ -1724,7 +1829,16 @@ export default function ProfilePage() {
                     .map((post: any, i: number) => {
                       const maxViews = Math.max(...posts.map((p: any) => p.views_count ?? 0), 1);
                       const pct = Math.max(4, Math.round(((post.views_count ?? 0) / maxViews) * 100));
-                      return (
+                      // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return (
                         <button
                           key={post.id}
                           onClick={() => navigate(`/post/${post.id}`)}
@@ -2051,7 +2165,16 @@ export default function ProfilePage() {
                   {availableStories.map((s: any) => {
                     const isSelected = selectedStoryIds.includes(s.id);
                     const selIdx = selectedStoryIds.indexOf(s.id);
-                    return (
+                    // ── Creator Tip Goal Progress Ring — visible on all profiles to all visitors —————
+  // Fetched fresh from user_monetization + tips; goalAchieved triggers celebration badge
+  const goalProgressPct = tipGoal && tipGoal > 0
+    ? Math.min(Math.round((currentMonthTips / tipGoal) * 100), 100)
+    : 0;
+  const goalRemainingAmt = tipGoal && tipGoal > 0
+    ? Math.max(0, tipGoal - currentMonthTips)
+    : 0;
+
+  return (
                       <button key={s.id} onClick={() => { setSelectedStoryIds(prev => isSelected ? prev.filter(id => id !== s.id) : [...prev, s.id]); if (!isSelected && selectedStoryIds.length === 0 && !highlightCoverUrl) setHighlightCoverUrl(s.media_url); }}
                         className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-transparent hover:border-muted-foreground/30'}`}>
                         {s.media_type === 'video' ? <video src={s.media_url} className="w-full h-full object-cover" /> : <img src={s.media_url} alt="story" className="w-full h-full object-cover" />}

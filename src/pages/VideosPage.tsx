@@ -12,7 +12,8 @@ import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
 
 // esbuild-safe module-level constants
-const VIDEO_SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+// esbuild guard: no 'as const' on module-level arrays used in .map() render
+const VIDEO_SPEED_OPTIONS: number[] = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const VIDEO_SEARCH_DEBOUNCE_MS = 400;
 
 const PRELOAD_AHEAD = 3;
