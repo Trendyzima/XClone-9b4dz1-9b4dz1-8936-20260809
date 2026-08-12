@@ -290,7 +290,7 @@ export default function SpaceRecordingViewerPage() {
 
       {/* ── Clip mode banner ── */}
       {isClipMode && !clipDismissed && (
-        <div className="mx-4 mt-3 flex items-center gap-3 px-4 py-2.5 bg-primary/10 border border-primary/25 rounded-2xl">
+        <div className="mx-4 mt-3 flex items-center gap-2 px-4 py-2.5 bg-primary/10 border border-primary/25 rounded-2xl flex-wrap">
           <Scissors className="w-4 h-4 text-primary shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-bold text-primary">Clip Preview</p>
@@ -299,6 +299,7 @@ export default function SpaceRecordingViewerPage() {
               <span className="ml-1 font-semibold text-primary">({(clipEnd ?? 0) - (clipStart ?? 0)}s clip)</span>
             </p>
           </div>
+          {/* Play clip at start time */}
           <button
             onClick={() => {
               if (audioRef.current && clipStart !== null) {
@@ -310,7 +311,18 @@ export default function SpaceRecordingViewerPage() {
           >
             <Play className="w-3 h-3 fill-current" />Play Clip
           </button>
-          <button onClick={() => setClipDismissed(true)} className="text-muted-foreground hover:text-foreground">
+          {/* Share clip as a feed post — pre-fills ComposePost via ?quote= URL param */}
+          <button
+            onClick={() => {
+              const clipUrl = `${window.location.origin}/space-recording/${id}?t=${clipStart ?? 0}&end=${clipEnd ?? 30}`;
+              const shareText = `\ud83c\udfa7 "${recording?.title ?? 'Space Recording'}" \u2014 ${fmtTime(clipStart ?? 0)}\u2013${fmtTime(clipEnd ?? 30)} clip\n\n${clipUrl}`;
+              navigate(`/?quote=${encodeURIComponent(shareText)}`);
+            }}
+            className="flex items-center gap-1 px-3 py-1.5 bg-background border border-border rounded-xl text-xs font-bold hover:bg-muted transition-colors"
+          >
+            <Share2 className="w-3 h-3" />Post
+          </button>
+          <button onClick={() => setClipDismissed(true)} className="text-muted-foreground hover:text-foreground shrink-0">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>

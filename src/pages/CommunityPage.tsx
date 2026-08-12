@@ -12,10 +12,10 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Loader2, Users, TrendingUp, Lock, Globe, Shield,
   Crown, Settings, UserPlus, MessageSquare, Image,
-  BookOpen, Plus, Trash2, X,
+  BookOpen, Plus, Trash2, X, Rss,
   ShieldCheck, ShieldOff, MoreVertical, Pin, PinOff,
   Camera, Check, Send, MessageCircle, Mail, Calendar,
-  Trophy, Flame, Heart, Radio, BadgeCheck,
+  Trophy, Flame, Heart, Radio, BadgeCheck, Copy,
   CalendarDays, Clock, ChevronRight, BarChart3,
 } from 'lucide-react';
 import { SchedulePostDialog } from '@/components/features/SchedulePostDialog';
@@ -28,6 +28,14 @@ import { toast as sonnerToast } from 'sonner';
 import { formatDistanceToNow, isPast } from 'date-fns';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
+const LEADERBOARD_MEDALS = ['🥇', '🥈', '🥉'] as const;
+const LEADERBOARD_PODIUM_H = ['h-16', 'h-20', 'h-14'] as const;
+
+// Module-level RSS URL helper — avoids duplicate closure bindings (esbuild guard)
+function getCommunityRssUrl(communityName: string) {
+  return `${import.meta.env.VITE_SUPABASE_URL?.replace('/v1', '')}/functions/v1/podcast-rss?community=${encodeURIComponent(communityName)}`;
+}
+
 function CommunityAdBanner() { return <PageAdBanner />; }
 
 // ── Module-level constants (esbuild-safe) ────────────────────────────────────
@@ -106,6 +114,38 @@ export default function CommunityPage() {
   const [editBannerFile, setEditBannerFile] = useState<File | null>(null);
   const [editBannerPreview, setEditBannerPreview] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // ── Community Leaderboard (top contributors by likes, last 30 days) ─────────
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [leaderboardFetched, setLeaderboardFetched] = useState(false);
+
+  // Community RSS copied state
+  const [commRssCopied, setCommRssCopied] = useState(false);
+
+  const fetchLeaderboard = useCallback(async (communityId: string) => {
+    setLoadingLeaderboard(true);
+    const since30d = new Date(Date.now() - 30 * 86400000).toISOString();
+    const { data } = await supabase
+      .from('posts')
+      .select('user_id, likes_count, user_profiles!posts_user_id_fkey(id, username, avatar_url, verified)')
+      .eq('community_id', communityId)
+      .gte('created_at', since30d);
+    if (data) {
+      // Aggregate by user
+      const agg: { [uid: string]: { profile: any; likes: number; posts: number } } = {};
+      for (const row of data) {
+        if (!row.user_id) continue;
+        if (!agg[row.user_id]) agg[row.user_id] = { profile: row.user_profiles, likes: 0, posts: 0 };
+        agg[row.user_id].likes += row.likes_count ?? 0;
+        agg[row.user_id].posts += 1;
+      }
+      const sorted = Object.values(agg).sort((a, b) => b.likes - a.likes).slice(0, 3);
+      setLeaderboard(sorted);
+    }
+    setLeaderboardFetched(true);
+    setLoadingLeaderboard(false);
+  }, []);
 
   // ── Weekly Digest ──────────────────────────────────────────────────────────
   const [digestPosts, setDigestPosts] = useState<any[]>([]);
@@ -364,6 +404,10 @@ export default function CommunityPage() {
   useEffect(() => {
     if (activeTab === 'events' && community) fetchEvents(community.id);
   }, [activeTab, community?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'members' && community && !leaderboardFetched) fetchLeaderboard(community.id);
+  }, [activeTab, community?.id, leaderboardFetched]);
 
   // ── Pinned posts ───────────────────────────────────────────────────────────
   const [pinnedPostIds, setPinnedPostIds] = useState<Set<string>>(() => new Set<string>());
@@ -678,6 +722,25 @@ export default function CommunityPage() {
             <span className="font-bold">{formatNumber(community.post_count)}</span>
             <span className="text-muted-foreground">posts</span>
           </div>
+          {/* Community RSS feed button */}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(getCommunityRssUrl(community.name)).then(() => {
+                setCommRssCopied(true);
+                setTimeout(() => setCommRssCopied(false), 2000);
+                sonnerToast.success('Community RSS feed URL copied!');
+              });
+            }}
+            className={`ml-auto flex items-center gap-1 px-2.5 py-1 rounded-full border text-[10px] font-bold transition-all ${
+              commRssCopied
+                ? 'border-orange-500/40 bg-orange-500/15 text-orange-600'
+                : 'border-border text-muted-foreground hover:border-orange-500/30 hover:text-orange-500'
+            }`}
+            title="Copy podcast RSS feed for this community"
+          >
+            {commRssCopied ? <Check className="w-3 h-3" /> : <Rss className="w-3 h-3" />}
+            {commRssCopied ? 'Copied!' : 'RSS'}
+          </button>
         </div>
 
         {/* ── Related Live Spaces strip ── */}
@@ -1284,6 +1347,49 @@ export default function CommunityPage() {
       {/* ── MEMBERS TAB ── */}
       {activeTab === 'members' && (
         <div className="p-4 space-y-3">
+
+          {/* ── Top Contributors Leaderboard ── */}
+          <div className="rounded-2xl border border-border overflow-hidden mb-1">
+            <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-amber-500/8 to-orange-500/5 border-b border-border">
+              <Trophy className="w-4 h-4 text-amber-500" />
+              <h3 className="font-bold text-sm">Top Contributors</h3>
+              <span className="text-[10px] text-muted-foreground ml-1">last 30 days</span>
+            </div>
+            {loadingLeaderboard ? (
+              <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+            ) : leaderboard.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-5">No activity in the last 30 days</p>
+            ) : (
+              <div className="flex items-end justify-center gap-3 px-4 pt-4 pb-5">
+                {[leaderboard[1], leaderboard[0], leaderboard[2]].map((entry, podiumIdx) => {
+                  if (!entry) return <div key={podiumIdx} className="w-20" />;
+                  const rank = podiumIdx === 0 ? 2 : podiumIdx === 1 ? 1 : 3;
+                  const medals = LEADERBOARD_MEDALS;
+                  const heights = LEADERBOARD_PODIUM_H;
+                  const medalEmoji = medals[rank - 1];
+                  const podiumH = heights[podiumIdx];
+                  return (
+                    <div key={entry.profile?.id ?? podiumIdx} className="flex flex-col items-center gap-1.5 flex-1 max-w-[80px]">
+                      <span className="text-xl">{medalEmoji}</span>
+                      <button
+                        onClick={() => navigate(`/profile/${entry.profile?.username}`)}
+                        className="w-12 h-12 rounded-full overflow-hidden bg-muted border-2 border-border hover:border-primary/40 transition-colors"
+                      >
+                        {entry.profile?.avatar_url
+                          ? <img src={entry.profile.avatar_url} className="w-full h-full object-cover" alt="" />
+                          : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{entry.profile?.username?.[0]?.toUpperCase()}</div>}
+                      </button>
+                      <p className="text-[10px] font-bold text-center truncate w-full text-center">{entry.profile?.username}</p>
+                      <p className="text-[9px] text-pink-500 font-semibold">{entry.likes} ♥</p>
+                      <p className="text-[9px] text-muted-foreground">{entry.posts} post{entry.posts !== 1 ? 's' : ''}</p>
+                      <div className={`w-full ${podiumH} ${rank === 1 ? 'bg-amber-500/20 border-amber-500/30' : rank === 2 ? 'bg-slate-400/15 border-slate-400/25' : 'bg-orange-400/15 border-orange-400/25'} border rounded-t-lg`} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">{formatNumber(community.member_count)} Members</h3>
           {members.map(member => (
             <div key={member.id} className="flex items-center justify-between p-3 bg-card rounded-xl border border-border hover:border-primary/30 transition-colors">
