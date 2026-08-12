@@ -151,16 +151,27 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
         const barPct = nextMilestone > 0
           ? Math.min(100, Math.round(((totalViews - prevMilestone) / (nextMilestone - prevMilestone)) * 100))
           : 100;
-        const monthlyProjection = rate?.cpm_usd && totalViews >= 1000
-          ? ((Number(rate.cpm_usd) / 1000) * totalViews).toFixed(2)
-          : null;
+        // ── Monthly Revenue Projection (trend-based) ──────────────────────
+        // Estimate days elapsed this month so far
+        const today = new Date();
+        const daysElapsed = Math.max(1, today.getDate());
+        const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+        // period_views accumulated so far this month (approximate with total tracked views)
+        const periodViews = Number(rate?.period_views ?? 0);
+        const cpmRate = Number(rate?.cpm_usd ?? 1.50);
+        // Projected views for full month if pace holds
+        const projectedViews = Math.round((periodViews / daysElapsed) * daysInMonth);
+        const projectedRevenue = projectedViews >= 1000 ? ((cpmRate / 1000) * projectedViews).toFixed(2) : null;
+        const earnedSoFar = periodViews >= 1000 ? ((cpmRate / 1000) * periodViews).toFixed(2) : '0.00';
+        const paceBar = Math.min(100, Math.round((daysElapsed / daysInMonth) * 100));
+        const monthlyProjection = projectedRevenue;
         return (
           <div className="border border-border rounded-2xl overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-primary" />
               <p className="font-bold text-sm">Tier Progression</p>
               {monthlyProjection && (
-                <span className="ml-auto text-xs font-bold text-green-600">${monthlyProjection} projected</span>
+                <span className="ml-auto text-xs font-bold text-green-600">${monthlyProjection}/mo projected</span>
               )}
             </div>
             <div className="px-4 py-4">
@@ -214,6 +225,43 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
                 <p className="text-center text-xs font-bold text-primary mt-3">👑 You've reached the highest tier!</p>
               )}
             </div>
+
+            {/* ── Monthly Revenue Projection card ── */}
+            {projectedRevenue && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Monthly Revenue Projection</p>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="bg-muted/40 rounded-xl p-2.5 text-center">
+                    <p className="text-xs font-black text-green-600">${earnedSoFar}</p>
+                    <p className="text-[9px] text-muted-foreground">earned so far</p>
+                  </div>
+                  <div className="bg-primary/8 border border-primary/20 rounded-xl p-2.5 text-center">
+                    <p className="text-xs font-black text-primary">${projectedRevenue}</p>
+                    <p className="text-[9px] text-muted-foreground">full month est.</p>
+                  </div>
+                  <div className="bg-muted/40 rounded-xl p-2.5 text-center">
+                    <p className="text-xs font-black">{projectedViews.toLocaleString()}</p>
+                    <p className="text-[9px] text-muted-foreground">proj. views</p>
+                  </div>
+                </div>
+                {/* Month progress bar */}
+                <div>
+                  <div className="flex justify-between text-[9px] text-muted-foreground mb-1">
+                    <span>Day {daysElapsed} of {daysInMonth}</span>
+                    <span>{paceBar}% through month</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-blue-500 to-primary rounded-full transition-all"
+                      style={{ width: `${paceBar}%` }}
+                    />
+                  </div>
+                  <p className="text-[9px] text-muted-foreground mt-1">
+                    Based on {periodViews.toLocaleString()} views tracked · pace: {Math.round(periodViews / daysElapsed).toLocaleString()} views/day
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}

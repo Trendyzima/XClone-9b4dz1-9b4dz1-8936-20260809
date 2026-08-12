@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -41,6 +41,8 @@ export default function SeriesPage() {
   const [showAddPost, setShowAddPost] = useState(false);
   const [editingTitle, setEditingTitle] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Completion challenge — hoisted to component scope (esbuild guard: no hooks in conditionals)
+  const [challengeSent, setChallengeSent] = useState(false);
 
   // ── Reading progress from localStorage ──────────────────────────────────
   const getSeriesProgress = (seriesId: string): { currentPart: number; totalParts: number } | null => {
@@ -98,6 +100,11 @@ export default function SeriesPage() {
   useEffect(() => {
     fetchAll();
   }, [user]);
+
+  // Reset challengeSent when a different series is opened
+  useEffect(() => {
+    setChallengeSent(false);
+  }, [selectedSeries?.id]);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -203,6 +210,37 @@ export default function SeriesPage() {
     toast.success('Name updated');
   };
 
+  // ── Series Completion Challenge ───────────────────────────────────────────
+  const sendCompletionChallenge = async () => {
+    if (!user || !selectedSeries || challengeSent) return;
+    setChallengeSent(true);
+    try {
+      const { data: follows } = await supabase
+        .from('follows')
+        .select('follower_id')
+        .eq('following_id', user.id)
+        .limit(50);
+      if (!follows || follows.length === 0) {
+        toast.success('Challenge sent! (No followers yet to notify)');
+        return;
+      }
+      const notifications = follows.map((f: any) => ({
+        user_id: f.follower_id,
+        subject: `\ud83d\udcda ${user.username} finished "${selectedSeries.name}" \u2014 Can you beat them?`,
+        body: `@${user.username} just completed the "${selectedSeries.name}" series (${seriesPosts.length} parts). Challenge yourself to read it all!`,
+        type: 'update',
+        icon_emoji: '\ud83c\udfc6',
+        cta_label: 'Start Reading',
+        cta_url: '/series',
+        read: false,
+      }));
+      for (let i = 0; i < notifications.length; i += 10) {
+        await supabase.from('platform_inbox').insert(notifications.slice(i, i + 10)).catch(() => {});
+      }
+      toast.success(`Challenge sent to ${follows.length} follower${follows.length !== 1 ? 's' : ''}! \ud83c\udfc6`);
+    } catch { setChallengeSent(false); }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -216,6 +254,7 @@ export default function SeriesPage() {
     const currentItem = seriesPosts[currentPostIdx];
     const currentPost = currentItem?.posts;
     const isOwn = user?.id === selectedSeries.user_id;
+    const isComplete = seriesPosts.length > 0 && currentPostIdx === seriesPosts.length - 1;
 
     // Save reading progress to localStorage
     const saveProgress = (partIdx: number) => {
@@ -228,40 +267,6 @@ export default function SeriesPage() {
     };
 
     if (seriesPosts.length > 0) saveProgress(currentPostIdx);
-
-    // ── Series Completion Challenge ──
-    const isComplete = seriesPosts.length > 0 && currentPostIdx === seriesPosts.length - 1;
-    const [challengeSent, setChallengeSent] = useState(false);
-
-    const sendCompletionChallenge = async () => {
-      if (!user || challengeSent) return;
-      setChallengeSent(true);
-      try {
-        const { data: follows } = await supabase
-          .from('follows')
-          .select('follower_id')
-          .eq('following_id', user.id)
-          .limit(50);
-        if (!follows || follows.length === 0) {
-          toast.success('Challenge sent! (No followers yet to notify)');
-          return;
-        }
-        const notifications = follows.map((f: any) => ({
-          user_id: f.follower_id,
-          subject: `📚 ${user.username} finished "${selectedSeries.name}" — Can you beat them?`,
-          body: `@${user.username} just completed the "${selectedSeries.name}" series (${seriesPosts.length} parts). Challenge yourself to read it all and see if you can finish it too!`,
-          type: 'update',
-          icon_emoji: '🏆',
-          cta_label: 'Start Reading',
-          cta_url: '/series',
-          read: false,
-        }));
-        for (let i = 0; i < notifications.length; i += 10) {
-          await supabase.from('platform_inbox').insert(notifications.slice(i, i + 10)).catch(() => {});
-        }
-        toast.success(`Challenge sent to ${follows.length} follower${follows.length !== 1 ? 's' : ''}! 🏆`);
-      } catch { setChallengeSent(false); }
-    };
 
     return (
       <div className="min-h-screen bg-background pb-20">
