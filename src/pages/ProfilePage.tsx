@@ -16,6 +16,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { Post } from '@/types/app-types';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
+import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 function ProfileAdBanner() { return <PageAdBanner />; }
 
@@ -366,6 +367,30 @@ export default function ProfilePage() {
   const [profileSeries, setProfileSeries] = useState<any[]>([]);
   const [loadingProfileSeries, setLoadingProfileSeries] = useState(false);
   const [profileSeriesFetched, setProfileSeriesFetched] = useState(false);
+  const [postImpressionsChart, setPostImpressionsChart] = useState<{ date: string; views: number }[]>([]);
+
+  const fetchPostImpressions = async (userId: string) => {
+    const { data: userPosts } = await supabase.from('posts').select('id').eq('user_id', userId).limit(50);
+    if (!userPosts || userPosts.length === 0) return;
+    const since = new Date(Date.now() - 29 * 86400000).toISOString();
+    const { data } = await supabase
+      .from('browsing_history')
+      .select('created_at')
+      .in('post_id', userPosts.map((p: any) => p.id))
+      .eq('view_type', 'post')
+      .gte('created_at', since);
+    const days: { date: string; views: number }[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      days.push({ date: d.toISOString().split('T')[0].slice(5), views: 0 });
+    }
+    (data ?? []).forEach((r: any) => {
+      const k = r.created_at?.split('T')[0]?.slice(5);
+      const entry = days.find(d => d.date === k);
+      if (entry) entry.views++;
+    });
+    setPostImpressionsChart(days);
+  };
 
   const fetchProfileSeries = async (userId: string) => {
     if (profileSeriesFetched) return;
@@ -548,6 +573,7 @@ export default function ProfilePage() {
         fetchSubscription(profileData.id),
         trackProfileView(profileData.id),
         fetchGiftHistory(profileData.id),
+        fetchPostImpressions(profileData.id),
       ]);
       if (currentUser && currentUser.id !== profileData.id) checkBlockMuteStatus(profileData.id);
     } catch (error) {
@@ -1017,6 +1043,36 @@ export default function ProfilePage() {
               </div>
             )}
           </div>
+
+          {/* Post Impressions Sparkline — own profile only */}
+          {isOwnProfile && postImpressionsChart.some(d => d.views > 0) && (
+            <div className="mt-3 border border-blue-500/20 bg-blue-500/5 rounded-2xl overflow-hidden">
+              <div className="px-3 pt-3 pb-1 flex items-center justify-between">
+                <p className="text-xs font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5" />Post Impressions (30d)
+                </p>
+                <span className="text-xs font-black text-blue-600">
+                  {postImpressionsChart.reduce((s, d) => s + d.views, 0).toLocaleString()} total
+                </span>
+              </div>
+              <ResponsiveContainer width="100%" height={72}>
+                <AreaChart data={postImpressionsChart} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="impGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" hide />
+                  <Tooltip
+                    formatter={(v: any) => [v, 'views']}
+                    contentStyle={{ fontSize: 10, borderRadius: 8, padding: '4px 8px' }}
+                  />
+                  <Area type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} fill="url(#impGrad)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1341,25 +1397,59 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {profileSeries.map((s: any) => (
-                <button key={s.id} onClick={() => navigate('/series')}
-                  className="w-full flex items-start gap-3 p-4 text-left hover:bg-muted/30 transition-colors">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center shrink-0 overflow-hidden border border-border">
-                    {s.cover_image
-                      ? <img src={s.cover_image} alt={s.name} className="w-full h-full object-cover" />
-                      : <BookOpen className="w-7 h-7 text-primary" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm truncate">{s.name}</p>
-                    {s.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.description}</p>}
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">{s.item_count ?? 0} parts</span>
-                      <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(s.updated_at ?? s.created_at), { addSuffix: true })}</span>
+              {profileSeries.map((s: any) => {
+                // Read reading progress from localStorage — inline, no hook
+                const prog = (() => {
+                  try {
+                    const raw = localStorage.getItem('series_progress');
+                    return raw ? (JSON.parse(raw)[s.id] ?? null) : null;
+                  } catch { return null; }
+                })();
+                const total = s.item_count ?? 0;
+                const pct = prog && total > 0 ? Math.round((prog.currentPart / total) * 100) : 0;
+                return (
+                  <div key={s.id} className="hover:bg-muted/20 transition-colors">
+                    <button onClick={() => navigate('/series')} className="w-full flex items-start gap-3 p-4 text-left">
+                      <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center shrink-0 overflow-hidden border border-border">
+                        {s.cover_image
+                          ? <img src={s.cover_image} alt={s.name} className="w-full h-full object-cover" />
+                          : <BookOpen className="w-7 h-7 text-primary" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm truncate">{s.name}</p>
+                        {s.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.description}</p>}
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">{total} parts</span>
+                          {prog && total > 0 && (
+                            <span className="text-[10px] font-bold text-purple-600 bg-purple-500/10 px-1.5 py-0.5 rounded-full border border-purple-500/20">
+                              {pct}% · Part {prog.currentPart}/{total}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(s.updated_at ?? s.created_at), { addSuffix: true })}</span>
+                        </div>
+                        {prog && total > 0 && (
+                          <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                          </div>
+                        )}
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground mt-1 shrink-0" />
+                    </button>
+                    <div className="px-4 pb-3">
+                      <button
+                        onClick={() => navigate('/series')}
+                        className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-colors ${
+                          prog && total > 0
+                            ? 'bg-primary text-primary-foreground hover:opacity-90'
+                            : 'bg-muted hover:bg-muted/80 text-foreground'
+                        }`}>
+                        <Play className="w-3.5 h-3.5" />
+                        {prog && total > 0 ? `Continue (Part ${prog.currentPart})` : 'Start Reading'}
+                      </button>
                     </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground mt-1 shrink-0" />
-                </button>
-              ))}
+                );
+              })}
             </div>
           );
         })()}
