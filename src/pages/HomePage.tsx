@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { buildFollowingFeed } from '@/services/recommendations';
 import { useNavigate } from 'react-router-dom';
 import { ComposePost } from '@/components/features/ComposePost';
 import { PostCard } from '@/components/features/PostCard';
@@ -85,6 +86,10 @@ export default function HomePage() {
   const [publicSeries, setPublicSeries] = useState<any[]>([]);
   const [hashtagFeedItems, setHashtagFeedItems] = useState<FeedItem[]>([]);
   const [hashtagFeedLoading, setHashtagFeedLoading] = useState(false);
+  // Real-time new posts banner
+  const [hasNewPosts, setHasNewPosts] = useState(false);
+  const [newPostCount, setNewPostCount] = useState(0);
+  const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   // Keep ref for latest reco/product state so fetchFeed closure can read them
@@ -604,18 +609,32 @@ export default function HomePage() {
       const fedPosts = await fetchFederatedPosts();
       setFeedItems(fedPosts.map(p => ({ type: 'fedpost' as const, data: p })));
     } else if (activeTab === 'following' && user) {
-      const [localResult, gatewayResult] = await Promise.allSettled([
-        fetchFeed(0),
+      // ── Twitter-style Following Feed: 80% following + 20% 2nd-degree viral ──
+      const { data: followingData } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', user.id);
+      const followIds = (followingData ?? []).map((f: any) => f.following_id);
+
+      const [scoredResult, gatewayResult] = await Promise.allSettled([
+        buildFollowingFeed(user.id, followIds, 0, PAGE_SIZE),
         fetchFederatedPosts(),
       ]);
-      const local = localResult.status === 'fulfilled' ? localResult.value : [];
+
+      const localScored = scoredResult.status === 'fulfilled' ? scoredResult.value : [];
+      const local: FeedItem[] = localScored.map((s: any) => (
+        s.source === 'viral'
+          ? { type: 'recommended' as const, data: { ...s.post, _reason: s.reason } }
+          : { type: 'post' as const, data: s.post }
+      ));
+
       const gateway =
         gatewayResult.status === 'fulfilled'
           ? gatewayResult.value.map((p: any) => ({ type: 'fedpost' as const, data: p }))
           : [];
       const merged: FeedItem[] = [...local];
-      gateway.slice(0, 6).forEach((item: FeedItem, i: number) => {
-        const insertAt = Math.min(merged.length, (i + 1) * 4);
+      gateway.slice(0, 4).forEach((item: FeedItem, i: number) => {
+        const insertAt = Math.min(merged.length, (i + 1) * 5);
         merged.splice(insertAt, 0, item);
       });
       const filtered = merged.filter((item: any) => {
@@ -694,6 +713,38 @@ export default function HomePage() {
     fetchUserAds();
   }, [activeTab, user?.id]);
 
+  // ── Realtime new-post subscription (For You tab only) ─────────────────────
+  useEffect(() => {
+    // Only subscribe on the foryou tab; clean up on tab switch or unmount
+    if (activeTab !== 'foryou') {
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+      return;
+    }
+    const ch = supabase
+      .channel('feed-new-posts-banner')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'posts' },
+        (payload: any) => {
+          const newPost = payload.new;
+          // Ignore own posts and community-only posts
+          if (newPost?.community_id) return;
+          if (user && newPost?.user_id === user.id) return;
+          setHasNewPosts(true);
+          setNewPostCount(prev => prev + 1);
+        }
+      )
+      .subscribe();
+    realtimeChannelRef.current = ch;
+    return () => {
+      supabase.removeChannel(ch);
+      realtimeChannelRef.current = null;
+    };
+  }, [activeTab, user?.id]);
+
   // Trending hashtags — refresh every 2 minutes
   useEffect(() => {
     const load = async () => {
@@ -711,6 +762,8 @@ export default function HomePage() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    setHasNewPosts(false);
+    setNewPostCount(0);
     await Promise.all([fetchRecommendations(), fetchProductSpotlight()]);
     await fetchInitialFeed();
     setRefreshing(false);
@@ -768,6 +821,19 @@ export default function HomePage() {
           })}
         </div>
       </div>
+
+      {/* ── Real-time New Posts Banner ── */}
+      {hasNewPosts && activeTab === 'foryou' && !loading && (
+        <div className="sticky top-[112px] z-40 flex justify-center pointer-events-none">
+          <button
+            onClick={() => { setHasNewPosts(false); setNewPostCount(0); handleRefresh(); }}
+            className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-full shadow-lg shadow-primary/30 text-sm font-bold hover:opacity-90 active:scale-95 transition-all animate-in slide-in-from-top duration-300"
+          >
+            <Sparkles className="w-4 h-4" />
+            {newPostCount > 0 ? `${newPostCount} new post${newPostCount !== 1 ? 's' : ''} — tap to refresh` : 'New posts available — tap to refresh'}
+          </button>
+        </div>
+      )}
 
       {/* Stories — only visible on the For You tab */}
       {activeTab === 'foryou' && <StoriesStrip />}
@@ -1315,21 +1381,6 @@ function InlineSuggestions() {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-// ── Series progress badge helper (esbuild guard: no IIFE in render) ─────────
-function seriesProgressBadge(seriesId: string, getProgress: (id: string) => any) {
-  const prog = getProgress(seriesId);
-  return (
-    <div className="flex items-center gap-1.5 mt-0.5">
-      <p className="text-[10px] text-muted-foreground">parts</p>
-      {prog && (
-        <span className="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
-          Part {prog.currentPart}/{prog.totalParts}
-        </span>
-      )}
     </div>
   );
 }
