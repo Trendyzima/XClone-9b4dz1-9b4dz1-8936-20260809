@@ -730,7 +730,11 @@ export default function ProfilePage() {
 
   if (!profile) return null;
   const videoPosts = posts.filter(p => p.is_video && p.video_url);
-  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
+  // ── goalAchieved: MUST be declared before JSX — was missing, causing blank screen ──
+  const goalAchieved = tipGoal !== null && tipGoal > 0 && currentMonthTips >= tipGoal;
+  const tabs = isOwnProfile
+    ? ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following', 'Analytics']
+    : ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
 
   return (
     <div
@@ -1587,6 +1591,176 @@ export default function ProfilePage() {
               ))}
             </div>
           ) : <div className="text-center py-12 text-muted-foreground"><p>No followers yet</p></div>
+        )}
+
+        {activeTab === 'Analytics' && isOwnProfile && (
+          <div className="p-4 space-y-5">
+            {/* Header */}
+            <div className="flex items-center gap-3 p-4 bg-gradient-to-br from-blue-500/10 to-violet-500/5 border border-blue-500/20 rounded-2xl">
+              <div className="w-11 h-11 rounded-2xl bg-blue-500/15 flex items-center justify-center shrink-0">
+                <Eye className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h2 className="font-bold text-base">Profile Analytics</h2>
+                <p className="text-xs text-muted-foreground">Your stats for the last 30 days</p>
+              </div>
+            </div>
+
+            {/* KPI row */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-card border border-border rounded-2xl p-4">
+                <p className="text-xs text-muted-foreground mb-1">Post Impressions</p>
+                <p className="text-2xl font-black text-blue-600">{postImpressionsChart.reduce((s, d) => s + d.views, 0).toLocaleString()}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">30-day total</p>
+              </div>
+              <div className="bg-card border border-border rounded-2xl p-4">
+                <p className="text-xs text-muted-foreground mb-1">Profile Views</p>
+                <p className="text-2xl font-black text-violet-600">{profileViews7d.toLocaleString()}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Last 7 days</p>
+              </div>
+              <div className="bg-card border border-border rounded-2xl p-4">
+                <p className="text-xs text-muted-foreground mb-1">Total Posts</p>
+                <p className="text-2xl font-black text-foreground">{posts.length}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Published</p>
+              </div>
+              <div className="bg-card border border-border rounded-2xl p-4">
+                <p className="text-xs text-muted-foreground mb-1">Total Tips</p>
+                <p className="text-2xl font-black text-yellow-600">${currentMonthTips.toFixed(2)}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">This month</p>
+              </div>
+            </div>
+
+            {/* Impressions area chart */}
+            {postImpressionsChart.some(d => d.views > 0) && (
+              <div className="bg-card border border-border rounded-2xl overflow-hidden">
+                <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-sm">Post Impressions</p>
+                    <p className="text-xs text-muted-foreground">30-day view trend</p>
+                  </div>
+                  <span className="text-xs font-bold text-blue-600 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                    {postImpressionsChart.filter(d => d.views > 0).length} active days
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={120}>
+                  <AreaChart data={postImpressionsChart} margin={{ top: 4, right: 16, left: 4, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="analyticsGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" hide />
+                    <Tooltip
+                      formatter={(v: any) => [v, 'impressions']}
+                      contentStyle={{ fontSize: 11, borderRadius: 10, padding: '4px 10px', border: '1px solid hsl(var(--border))' }}
+                    />
+                    <Area type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} fill="url(#analyticsGrad)" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Top posts by views */}
+            {posts.length > 0 && (
+              <div className="bg-card border border-border rounded-2xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-border">
+                  <p className="font-bold text-sm">Top Posts by Views</p>
+                </div>
+                <div className="divide-y divide-border">
+                  {[...posts]
+                    .sort((a, b) => (b.views_count ?? 0) - (a.views_count ?? 0))
+                    .slice(0, 5)
+                    .map((post: any, i: number) => {
+                      const maxViews = Math.max(...posts.map((p: any) => p.views_count ?? 0), 1);
+                      const pct = Math.max(4, Math.round(((post.views_count ?? 0) / maxViews) * 100));
+                      return (
+                        <button
+                          key={post.id}
+                          onClick={() => navigate(`/post/${post.id}`)}
+                          className="w-full text-left px-4 py-3 hover:bg-muted/20 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-[10px] font-black text-muted-foreground w-4">#{i + 1}</span>
+                            <p className="flex-1 text-sm font-medium line-clamp-1">{post.content?.slice(0, 80)}</p>
+                            <span className="text-xs font-bold text-foreground shrink-0">{(post.views_count ?? 0).toLocaleString()}</span>
+                          </div>
+                          <div className="ml-6 h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 ml-6 text-[10px] text-muted-foreground">
+                            <span>❤️ {post.likes_count ?? 0}</span>
+                            <span>🔁 {post.reposts_count ?? 0}</span>
+                            <span>💬 {post.replies_count ?? 0}</span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  }
+                </div>
+              </div>
+            )}
+
+            {/* Follower stats */}
+            <div className="bg-card border border-border rounded-2xl p-4">
+              <p className="font-bold text-sm mb-3">Audience</p>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-primary" />
+                    <span className="text-sm">Followers</span>
+                  </div>
+                  <span className="font-bold text-base">{(profile.followers_count ?? 0).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm">Following</span>
+                  </div>
+                  <span className="font-bold text-base">{(profile.following_count ?? 0).toLocaleString()}</span>
+                </div>
+                {followerRank !== null && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-yellow-500" />
+                      <span className="text-sm">Follower Rank</span>
+                    </div>
+                    <span className="font-bold text-base text-yellow-600">#{followerRank.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-orange-500" />
+                    <span className="text-sm">Daily Streak</span>
+                  </div>
+                  <span className="font-bold text-base text-orange-600">{streakDay} days</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Earnings summary */}
+            {Number(profile.total_earnings ?? 0) > 0 && (
+              <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/5 border border-green-500/20 rounded-2xl p-4">
+                <p className="font-bold text-sm mb-3 text-green-700 dark:text-green-400">Earnings</p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-green-600" />
+                    <span className="text-sm">Total Earned</span>
+                  </div>
+                  <span className="font-black text-lg text-green-600">${Number(profile.total_earnings).toFixed(2)}</span>
+                </div>
+                <button
+                  onClick={() => navigate('/monetization')}
+                  className="mt-3 w-full py-2 bg-green-600/10 border border-green-500/20 rounded-xl text-xs font-bold text-green-700 dark:text-green-400 hover:bg-green-600/20 transition-colors"
+                >
+                  View Full Earnings Report →
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'Following' && (
