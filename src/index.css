@@ -161,6 +161,15 @@ pre, code { white-space: pre-wrap; word-break: break-all; }
 .animate-live-pulse { animation: livePulse 1.4s ease-in-out infinite; }
 
 /* ======================== */
+/* Float-up reaction animation (live spaces, community chat) */
+/* ======================== */
+@keyframes floatUp {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  80%  { opacity: 0.7; transform: translateY(-120px) scale(1.2); }
+  100% { opacity: 0; transform: translateY(-160px) scale(0.8); }
+}
+
+/* ======================== */
 /* Light theme specific overrides */
 /* ======================== */
 :root:not(.dark) .border-border {
