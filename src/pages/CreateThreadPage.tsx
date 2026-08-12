@@ -8,13 +8,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import {
   Loader2, Image as ImageIcon, Video as VideoIcon, X, Wand2, Sparkles,
-  Bold, Italic, Heading2, Quote, List, Type, FileText, Clock, Save, LayoutList
+  Bold, Italic, Heading2, Quote, List, Type, FileText, Clock, Save, LayoutList, Code, Link2, Play, ExternalLink,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
 import { pingGoogleSitemap } from '@/lib/pingGoogle';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
+import { detectEmbed } from '@/components/features/EmbedRenderer';
 function CreateThreadAdBanner() { return <PageAdBanner />; }
 
 export default function CreateThreadPage() {
@@ -34,7 +35,7 @@ export default function CreateThreadPage() {
 
   // ── Rich Editor ──────────────────────────────────────────────────────────
   const contentRef = useRef<HTMLTextAreaElement>(null);
-  const DRAFT_KEY = 'thread_draft_v2';
+  const DRAFT_KEY = user ? `ts-thread-draft-${user.id}` : 'thread_draft_v2';
   const [wordCount, setWordCount] = useState(0);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,6 +92,7 @@ export default function CreateThreadPage() {
     { icon: <Quote className="w-3.5 h-3.5" />, label: 'Blockquote', action: () => insertFormatting('\n> ', '', 'quoted text') },
     { icon: <List className="w-3.5 h-3.5" />, label: 'List item', action: () => insertFormatting('\n• ', '', 'list item') },
     { icon: <Type className="w-3.5 h-3.5" />, label: 'Divider', action: () => setContent(c => c + '\n\n---\n\n') },
+    { icon: <Code className="w-3.5 h-3.5" />, label: 'Code block', action: () => insertFormatting('```\n', '\n```', 'code here') },
   ];
 
   // AI video caption
@@ -137,6 +139,38 @@ export default function CreateThreadPage() {
     if (raw.trim()) setContent(prev => prev ? prev + '\n\n' + raw.trim() : raw.trim());
     setAiVideoCaptionLoading(false);
   };
+
+  // ── Embed URL Dialog ───────────────────────────────────────────────────
+  const [showEmbedDialog, setShowEmbedDialog] = useState(false);
+  const [embedUrl, setEmbedUrl] = useState('');
+  const [embedPreview, setEmbedPreview] = useState<{ type: string; url: string } | null>(null);
+
+  const handleEmbedUrlChange = (url: string) => {
+    setEmbedUrl(url);
+    if (url.trim()) {
+      const info = detectEmbed(url.trim());
+      setEmbedPreview(info ? { type: info.type, url: url.trim() } : null);
+    } else {
+      setEmbedPreview(null);
+    }
+  };
+
+  const insertEmbed = () => {
+    if (!embedUrl.trim()) return;
+    setContent(prev => prev ? prev + '\n\n' + embedUrl.trim() : embedUrl.trim());
+    setEmbedUrl('');
+    setEmbedPreview(null);
+    setShowEmbedDialog(false);
+  };
+
+  const EMBED_EXAMPLES = [
+    { label: 'YouTube', icon: '▶', hint: 'https://youtube.com/watch?v=...' },
+    { label: 'Spotify', icon: '♫', hint: 'https://open.spotify.com/track/...' },
+    { label: 'SoundCloud', icon: '🎵', hint: 'https://soundcloud.com/...' },
+    { label: 'CodePen', icon: '</>', hint: 'https://codepen.io/.../pen/...' },
+    { label: 'Tweet / X', icon: '𝕏', hint: 'https://x.com/user/status/...' },
+    { label: 'Giphy GIF', icon: '🎞', hint: 'https://giphy.com/gifs/...' },
+  ] as const;
 
   // ── Video Chapters ──────────────────────────────────────────────────────
   const [chapters, setChapters] = useState<{ time: string; title: string }[]>([]);
@@ -543,11 +577,73 @@ Requirements:
                 {btn.icon}
               </button>
             ))}
+            {/* Embed button */}
+            <button
+              onClick={() => setShowEmbedDialog(v => !v)}
+              title="Embed media (YouTube, Spotify, CodePen…)"
+              className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95 ${
+                showEmbedDialog ? 'bg-primary/15 text-primary' : 'hover:bg-background hover:shadow-sm text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Link2 className="w-3.5 h-3.5" />
+            </button>
             <div className="ml-auto flex items-center gap-3 pr-1 text-[10px] text-muted-foreground">
               <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{wordCount} words</span>
               <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{Math.max(1, Math.ceil(wordCount / 200))} min read</span>
             </div>
           </div>
+
+          {/* Embed dialog — inline below toolbar */}
+          {showEmbedDialog && (
+            <div className="mb-3 rounded-2xl border-2 border-dashed border-primary/30 bg-primary/[0.03] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-bold">Embed Media</span>
+                  <span className="text-[10px] text-muted-foreground">YouTube · Spotify · SoundCloud · CodePen · X/Twitter · Giphy</span>
+                </div>
+                <button onClick={() => { setShowEmbedDialog(false); setEmbedUrl(''); setEmbedPreview(null); }}
+                  className="p-1 rounded-full hover:bg-muted text-muted-foreground"><X className="w-3.5 h-3.5" /></button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="url" value={embedUrl} onChange={e => handleEmbedUrlChange(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') insertEmbed(); }}
+                  placeholder="Paste a URL to embed…"
+                  className="flex-1 text-sm bg-background border border-border rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                <button onClick={insertEmbed} disabled={!embedUrl.trim()}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-opacity">
+                  Insert
+                </button>
+              </div>
+              {/* Live preview chip */}
+              {embedPreview && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-green-500/8 border border-green-500/20 rounded-xl">
+                  {embedPreview.type === 'youtube' && <Play className="w-4 h-4 text-red-500 shrink-0" />}
+                  {embedPreview.type === 'spotify' && <span className="text-green-600 text-sm shrink-0">♫</span>}
+                  {embedPreview.type === 'soundcloud' && <span className="text-orange-500 text-sm shrink-0">🎵</span>}
+                  {embedPreview.type === 'twitter' && <span className="text-sky-500 text-sm shrink-0">𝕏</span>}
+                  {embedPreview.type === 'codepen' && <Code className="w-4 h-4 text-foreground shrink-0" />}
+                  {embedPreview.type === 'giphy' && <span className="text-purple-500 text-sm shrink-0">🎞</span>}
+                  <span className="text-xs font-bold text-green-700 dark:text-green-400 capitalize">{embedPreview.type} embed detected</span>
+                  <span className="text-xs text-muted-foreground font-mono truncate">{embedUrl.length > 50 ? embedUrl.slice(0, 50) + '…' : embedUrl}</span>
+                  <ExternalLink className="w-3 h-3 text-green-600 shrink-0" />
+                </div>
+              )}
+              {embedUrl.trim() && !embedPreview && (
+                <p className="text-xs text-muted-foreground">URL not recognized as a supported embed — will be inserted as a link preview.</p>
+              )}
+              {/* Platform examples */}
+              <div className="flex flex-wrap gap-1.5">
+                {EMBED_EXAMPLES.map(ex => (
+                  <button key={ex.label}
+                    onClick={() => handleEmbedUrlChange(ex.hint)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted/60 border border-border text-xs font-medium text-muted-foreground hover:border-primary/30 hover:text-primary transition-colors">
+                    <span>{ex.icon}</span>{ex.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <textarea
             ref={contentRef}

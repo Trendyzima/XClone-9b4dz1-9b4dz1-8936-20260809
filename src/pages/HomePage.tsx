@@ -27,7 +27,7 @@ import * as federation from '@/api/federation';
 const PAGE_SIZE = 15;
 const RECO_INJECT_INTERVAL = 8; // inject a recommendation card every N items
 
-type Tab = 'foryou' | 'following' | 'federated' | 'popular' | 'tech' | 'science';
+type Tab = 'foryou' | 'following' | 'hashtags' | 'federated' | 'popular' | 'tech' | 'science';
 
 type FeedItem =
   | { type: 'post'; data: any }
@@ -43,6 +43,7 @@ type FeedItem =
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'foryou',    label: 'For you',   icon: Sparkles   },
   { id: 'following', label: 'Following', icon: Users      },
+  { id: 'hashtags',  label: 'Hashtags',  icon: Hash       },
   { id: 'popular',   label: 'Popular',   icon: TrendingUp },
   { id: 'tech',      label: 'Tech',      icon: Hash       },
   { id: 'science',   label: 'Science',   icon: BookOpen   },
@@ -65,6 +66,8 @@ export default function HomePage() {
   const [recommendedPosts, setRecommendedPosts] = useState<any[]>([]);
   const [spotlightProducts, setSpotlightProducts] = useState<any[]>([]);
   const [publicSeries, setPublicSeries] = useState<any[]>([]);
+  const [hashtagFeedItems, setHashtagFeedItems] = useState<FeedItem[]>([]);
+  const [hashtagFeedLoading, setHashtagFeedLoading] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   // Keep ref for latest reco/product state so fetchFeed closure can read them
@@ -599,7 +602,50 @@ export default function HomePage() {
     setLoading(false);
   };
 
+  // ── Fetch hashtag-followed posts ────────────────────────────────────────
+  const fetchHashtagFeed = useCallback(async () => {
+    if (!user) return;
+    setHashtagFeedLoading(true);
+    try {
+      const { data: follows } = await supabase
+        .from('hashtag_follows')
+        .select('hashtag_id, hashtags(id, tag)')
+        .eq('user_id', user.id)
+        .limit(30);
+      const tagIds = (follows ?? []).map((f: any) => f.hashtag_id).filter(Boolean);
+      if (tagIds.length === 0) { setHashtagFeedItems([]); setHashtagFeedLoading(false); return; }
+      const { data: phs } = await supabase
+        .from('post_hashtags')
+        .select('post_id, hashtag_id, hashtags(tag)')
+        .in('hashtag_id', tagIds)
+        .limit(200);
+      const postIds = [...new Set((phs ?? []).map((ph: any) => ph.post_id))] as string[];
+      if (postIds.length === 0) { setHashtagFeedItems([]); setHashtagFeedLoading(false); return; }
+      const { data: posts } = await supabase
+        .from('posts')
+        .select('*, user_profiles(*)')
+        .in('id', postIds.slice(0, 50))
+        .is('community_id', null)
+        .order('created_at', { ascending: false });
+      // Build tag map for badge display
+      const postTagMap: Record<string, string[]> = {};
+      (phs ?? []).forEach((ph: any) => {
+        if (!postTagMap[ph.post_id]) postTagMap[ph.post_id] = [];
+        if (ph.hashtags?.tag) postTagMap[ph.post_id].push(ph.hashtags.tag);
+      });
+      setHashtagFeedItems((posts ?? []).map((p: any) => ({
+        type: 'post' as const,
+        data: { ...p, _hashtag_tags: postTagMap[p.id] ?? [] },
+      })));
+    } catch (err) {
+      console.warn('[hashtagFeed]', err);
+    } finally {
+      setHashtagFeedLoading(false);
+    }
+  }, [user?.id]);
+
   useEffect(() => {
+    if (activeTab === 'hashtags') { fetchHashtagFeed(); return; }
     fetchInitialFeed();
     fetchSponsoredContent();
     fetchRecommendations();
@@ -674,6 +720,48 @@ export default function HomePage() {
 
       {/* Stories — only visible on the For You tab */}
       {activeTab === 'foryou' && <StoriesStrip />}
+
+      {/* ── Hashtag Feed ── */}
+      {activeTab === 'hashtags' && (
+        <div className="min-h-[60vh]">
+          {hashtagFeedLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : !user ? (
+            <div className="text-center py-16 text-muted-foreground px-6">
+              <Hash className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-semibold">Sign in to see your hashtag feed</p>
+              <button onClick={() => navigate('/auth')} className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-medium">Sign in</button>
+            </div>
+          ) : hashtagFeedItems.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground px-6">
+              <Hash className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-semibold mb-1">No hashtag posts yet</p>
+              <p className="text-sm mb-4">Follow hashtags from the Explore or trending section to populate this feed</p>
+              <button onClick={() => navigate('/explore')} className="px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-medium">Explore Hashtags</button>
+            </div>
+          ) : (
+            hashtagFeedItems.map((item, idx) => (
+              <div key={`ht-${(item.data as any)?.id ?? idx}`}>
+                {/* Tag badges above card */}
+                {(item.data as any)?._hashtag_tags?.length > 0 && (
+                  <div className="flex items-center gap-1.5 px-4 pt-2 pb-0 flex-wrap">
+                    {((item.data as any)._hashtag_tags as string[]).slice(0, 3).map((tag: string) => (
+                      <button key={tag} onClick={() => navigate(`/hashtag/${tag}`)}
+                        className="flex items-center gap-1 px-2 py-0.5 bg-primary/8 border border-primary/15 rounded-full text-[10px] font-bold text-primary hover:bg-primary/15 transition-colors">
+                        <Hash className="w-2.5 h-2.5" />#{tag}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <PostCard post={item.data as any} onUpdate={fetchHashtagFeed} />
+                {(idx + 1) % 5 === 0 && <FeedAdCard />}
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Trending Videos Rail */}
       {activeTab === 'foryou' && <TrendingVideosSection variant="compact" />}
