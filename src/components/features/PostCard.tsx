@@ -361,6 +361,9 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
   const [fullAnalyticsData, setFullAnalyticsData] = useState<{ date: string; views: number }[] | null>(null);
   const [fullAnalyticsLoading, setFullAnalyticsLoading] = useState(false);
   const [fullAnalyticsMeta, setFullAnalyticsMeta] = useState<{ views: number; unique: number; engagement: number; shares: number } | null>(null);
+  // Reactions summary — parallel arrays (esbuild guard: no Record<string,number> in state)
+  const [reactionSummaryEmojis, setReactionSummaryEmojis] = useState<string[]>([]);
+  const [reactionSummaryCounts, setReactionSummaryCounts] = useState<number[]>([]);
 
   const fetchFullAnalyticsData = useCallback(async () => {
     if (fullAnalyticsData) return;
@@ -391,6 +394,24 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
       engagement: Number(a?.engagement_rate ?? 0),
       shares: a?.shares ?? 0,
     });
+    // Fetch reactions summary
+    const { data: reactData } = await supabase
+      .from('post_reactions')
+      .select('emoji')
+      .eq('post_id', post.id);
+    const emojiList: string[] = [];
+    const countList: number[] = [];
+    for (const row of (reactData ?? [])) {
+      const idx = emojiList.indexOf(row.emoji);
+      if (idx >= 0) countList[idx]++;
+      else { emojiList.push(row.emoji); countList.push(1); }
+    }
+    // Sort descending by count
+    const sortOrder = countList
+      .map((c, i) => ({ c, i }))
+      .sort((a, b) => b.c - a.c);
+    setReactionSummaryEmojis(sortOrder.map(s => emojiList[s.i]));
+    setReactionSummaryCounts(sortOrder.map(s => s.c));
     setFullAnalyticsLoading(false);
   }, [post.id, post.views_count, fullAnalyticsData]);
 
@@ -1255,6 +1276,38 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                       )}
                     </div>
                   )}
+                  {/* Reactions Summary */}
+                  {reactionSummaryEmojis.length > 0 && (() => {
+                    const maxCount = reactionSummaryCounts[0] ?? 1;
+                    return (
+                      <div className="bg-card border border-border rounded-2xl p-4">
+                        <p className="text-sm font-bold mb-3 flex items-center gap-2">
+                          <span className="text-base">❤️</span>Reactions Breakdown
+                        </p>
+                        <div className="space-y-2">
+                          {reactionSummaryEmojis.map((emoji, idx) => {
+                            const count = reactionSummaryCounts[idx];
+                            const pct = Math.max(6, Math.round((count / maxCount) * 100));
+                            return (
+                              <div key={emoji} className="flex items-center gap-2.5">
+                                <span className="text-lg w-7 shrink-0 text-center leading-none">{emoji}</span>
+                                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-gradient-to-r from-primary/80 to-primary transition-all duration-500"
+                                    style={{ width: pct + '%' }}
+                                  />
+                                </div>
+                                <span className="text-xs font-bold tabular-nums text-muted-foreground w-8 text-right shrink-0">{count}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-2.5">
+                          {reactionSummaryCounts.reduce((a, b) => a + b, 0)} total reactions
+                        </p>
+                      </div>
+                    );
+                  })()}
                   <button onClick={() => { setShowFullAnalytics(false); navigate(`/post-analytics/${post.id}`); }}
                     className="w-full py-2.5 border border-border rounded-xl text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
                     <BarChart3 className="w-4 h-4" />Full Analytics Dashboard

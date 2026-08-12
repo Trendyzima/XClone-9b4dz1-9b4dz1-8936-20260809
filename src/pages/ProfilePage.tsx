@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -200,6 +200,39 @@ export default function ProfilePage() {
   const [profileSeriesFetched, setProfileSeriesFetched] = useState(false);
   const [postImpressionsChart, setPostImpressionsChart] = useState<{ date: string; views: number }[]>([]);
   const [pinnedPostId, setPinnedPostId] = useState<string | null>(null);
+
+  // ── Pull-to-Refresh ──────────────────────────────────────────────────────
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const touchStartYRef = useRef(0);
+  const PULL_THRESHOLD = 64;
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    if (scrollTop > 0) return;
+    touchStartYRef.current = e.touches[0].clientY;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    if (scrollTop > 0) { setPullDistance(0); setIsPulling(false); return; }
+    const delta = e.touches[0].clientY - touchStartYRef.current;
+    if (delta <= 0) { setPullDistance(0); setIsPulling(false); return; }
+    const clamped = Math.min(delta * 0.45, PULL_THRESHOLD + 20);
+    setPullDistance(clamped);
+    setIsPulling(clamped >= PULL_THRESHOLD);
+  }, []);
+
+  const handleTouchEnd = useCallback(async () => {
+    if (!isPulling || isRefreshing) { setPullDistance(0); setIsPulling(false); return; }
+    setIsRefreshing(true);
+    setPullDistance(PULL_THRESHOLD);
+    setIsPulling(false);
+    await fetchProfile();
+    setIsRefreshing(false);
+    setPullDistance(0);
+  }, [isPulling, isRefreshing]);
 
   // Pure helper to get highlight view count by id (avoids index-sig map) — esbuild guard
   const getHighlightCount = (id: string): number => {
@@ -682,7 +715,24 @@ export default function ProfilePage() {
   const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
 
   return (
-    <div className="min-h-screen bg-background pb-16 md:pb-0">
+    <div
+      className="min-h-screen bg-background pb-16 md:pb-0"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Pull-to-Refresh Indicator */}
+      <div
+        className="overflow-hidden transition-all duration-300 flex items-center justify-center bg-background border-b border-border"
+        style={{ height: pullDistance > 0 ? Math.min(pullDistance, PULL_THRESHOLD + 20) : isRefreshing ? PULL_THRESHOLD : 0 }}
+      >
+        <div className={`flex items-center gap-2 text-xs font-semibold text-primary transition-all ${
+          isRefreshing ? 'opacity-100' : isPulling ? 'opacity-100' : 'opacity-60'
+        }`}>
+          <Loader2 className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : isPulling ? 'rotate-180' : ''} transition-transform duration-200`} />
+          {isRefreshing ? 'Refreshing profile…' : isPulling ? 'Release to refresh' : 'Pull to refresh'}
+        </div>
+      </div>
       <TopBar title={profile.username} showBack />
       <ProfileAdBanner />
 
