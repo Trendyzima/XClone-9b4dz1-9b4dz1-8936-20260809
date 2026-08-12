@@ -182,7 +182,10 @@ export default function HomePage() {
   const fetchRecommendations = useCallback(async () => {
     if (!user) return;
     try {
-      // Try content_recommendations table first
+      // 1️⃣ Trigger server-side recommendation generation (Twitter-style interest graph)
+      supabase.rpc('generate_content_recommendations', { p_user_id: user.id }).catch(() => {});
+
+      // 2️⃣ Read freshly-generated recommendations
       const { data: recs } = await supabase
         .from('content_recommendations')
         .select('recommended_post_id, score, reason')
@@ -199,27 +202,20 @@ export default function HomePage() {
           .in('id', postIds)
           .is('community_id', null);
         if (posts && posts.length > 0) {
-            // Parallel arrays instead of Object.fromEntries (esbuild guard)
-            const pIds: string[] = posts.map((p: any) => p.id);
-            const enriched = recs
-              .map((r: any) => {
-                const pi = pIds.indexOf(r.recommended_post_id);
-                return pi >= 0 ? { ...(posts[pi] as any), _reason: r.reason, _score: r.score } : null;
-              })
-              .filter((p: any) => p?.id);
+          const pIds: string[] = posts.map((p: any) => p.id);
+          const enriched = recs
+            .map((r: any) => {
+              const pi = pIds.indexOf(r.recommended_post_id);
+              return pi >= 0 ? { ...(posts[pi] as any), _reason: r.reason, _score: r.score } : null;
+            })
+            .filter((p: any) => p?.id);
           setRecommendedPosts(enriched);
-          // Mark shown async
-          supabase
-            .from('content_recommendations')
-            .update({ shown: true })
-            .in('recommended_post_id', postIds)
-            .eq('user_id', user.id)
-            .catch(() => {});
+          supabase.from('content_recommendations').update({ shown: true }).in('recommended_post_id', postIds).eq('user_id', user.id).catch(() => {});
           return;
         }
       }
 
-      // Fallback: interest-based — fetch user interest hashtags
+      // 3️⃣ Fallback A: interest-based via user_interests hashtag graph
       const { data: interests } = await supabase
         .from('user_interests')
         .select('interest_score, hashtags(tag)')
@@ -227,17 +223,13 @@ export default function HomePage() {
         .order('interest_score', { ascending: false })
         .limit(8);
 
-      const tags = ((interests ?? []) as any[])
-        .map((i: any) => i.hashtags?.tag)
-        .filter(Boolean);
+      const tags = ((interests ?? []) as any[]).map((i: any) => i.hashtags?.tag).filter(Boolean);
 
       if (tags.length > 0) {
-        const { data: hashtagRows } = await supabase
-          .from('hashtags').select('id').in('tag', tags);
+        const { data: hashtagRows } = await supabase.from('hashtags').select('id').in('tag', tags);
         const tagIds = (hashtagRows ?? []).map((t: any) => t.id);
         if (tagIds.length > 0) {
-          const { data: phs } = await supabase
-            .from('post_hashtags').select('post_id').in('hashtag_id', tagIds).limit(50);
+          const { data: phs } = await supabase.from('post_hashtags').select('post_id').in('hashtag_id', tagIds).limit(50);
           const pids = [...new Set((phs ?? []).map((ph: any) => ph.post_id))] as string[];
           if (pids.length > 0) {
             const { data: intPosts } = await supabase
@@ -246,14 +238,19 @@ export default function HomePage() {
               .is('community_id', null)
               .neq('user_id', user.id);
             if (intPosts && intPosts.length > 0) {
-              setRecommendedPosts(intPosts.map((p: any) => ({ ...p, _reason: 'Based on your interests' })));
+              // Sort by engagement score (Twitter-style)
+              const scored = [...intPosts].sort((a: any, b: any) =>
+                ((b.likes_count ?? 0) * 2 + (b.reposts_count ?? 0) * 3 + (b.views_count ?? 0) * 0.05) -
+                ((a.likes_count ?? 0) * 2 + (a.reposts_count ?? 0) * 3 + (a.views_count ?? 0) * 0.05)
+              );
+              setRecommendedPosts(scored.map((p: any) => ({ ...p, _reason: 'Based on your interests' })));
               return;
             }
           }
         }
       }
 
-      // Final fallback: popular posts from followed users
+      // 4️⃣ Fallback B: popular posts from followed users (social proof)
       const { data: followingData } = await supabase
         .from('follows').select('following_id').eq('follower_id', user.id).limit(20);
       const followIds = (followingData ?? []).map((f: any) => f.following_id);
@@ -492,14 +489,17 @@ export default function HomePage() {
       const scorePost = (p: any) => {
         const ageHours = (Date.now() - new Date(p.created_at).getTime()) / 3_600_000;
         const boostBonus = getBoostedType(p.id) ? 50 : 0;
-        return (
-          (p.views_count ?? 0) * 0.1 +
-          (p.likes_count ?? 0) * 2 +
-          (p.reposts_count ?? 0) * 3 +
+        // Twitter-style relevance: engagement-weighted + recency decay + type bonus
+        const engagementScore =
+          (p.likes_count ?? 0) * 2.0 +
+          (p.reposts_count ?? 0) * 3.0 +
           (p.replies_count ?? 0) * 1.5 +
-          Math.max(0, 100 - ageHours * 0.5) +
-          boostBonus
-        );
+          (p.views_count ?? 0) * 0.05;
+        // Recency decay: score halves every 12h (Twitter-like freshness bias)
+        const decayFactor = Math.pow(0.5, ageHours / 12);
+        const typeBonus = p.is_video ? 8 : (p.image_url || (p.media_urls?.length > 0)) ? 4 : 0;
+        const verifiedBonus = p.user_profiles?.verified ? 5 : 0;
+        return (engagementScore * decayFactor) + typeBonus + verifiedBonus + boostBonus;
       };
 
       const posts = (postsRes.data ?? []).map((p: any) => ({

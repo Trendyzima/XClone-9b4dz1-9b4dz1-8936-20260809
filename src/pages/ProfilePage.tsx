@@ -381,6 +381,22 @@ export default function ProfilePage() {
   const trackProfileView = async (viewedUserId: string) => {
     if (!currentUser || currentUser.id === viewedUserId) return;
     await supabase.from('browsing_history').insert({ user_id: currentUser.id, profile_id: viewedUserId, view_type: 'profile' }).catch(() => {});
+    // ── Profile View Notification: notify owner once per viewer per 24h (localStorage dedup) ──
+    const notifKey = `ts-pv-notif-${viewedUserId}-${currentUser.id}`;
+    try {
+      const last = parseInt(localStorage.getItem(notifKey) ?? '0', 10);
+      if (Date.now() - last < 86400000) return; // 24h cooldown
+      localStorage.setItem(notifKey, String(Date.now()));
+    } catch { return; }
+    supabase.from('platform_inbox').insert({
+      user_id: viewedUserId,
+      subject: `@${currentUser.username} viewed your profile`,
+      body: `@${currentUser.username} just visited your profile. They might be interested in your content!`,
+      type: 'info',
+      icon_emoji: '👀',
+      cta_label: 'View their profile',
+      cta_url: `/profile/${currentUser.username}`,
+    }).catch(() => {});
   };
 
   const fetchProfileViews7d = async (userId: string) => {
