@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { VideoMonetizationAd } from './VideoMonetizationAd';
 import { EmbedRenderer } from './EmbedRenderer';
+import { updateInterestSignal } from '@/services/recommendations';
 
 const REPORT_CATEGORIES = [
   { id: 'spam',           emoji: '📢', label: 'Spam',               desc: 'Unsolicited or repetitive content' },
@@ -523,6 +524,8 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
           await supabase.from('notifications').insert({ user_id: post.user_id, type: 'like', from_user_id: user.id, post_id: post.id });
           sendActivityNotification({ recipientUserId: post.user_id, title: 'New Like', body: `${user.username} liked your post`, data: { route: `/post/${post.id}`, type: 'like' } });
         }
+        // Update interest signal — fire-and-forget (esbuild guard: called outside render)
+        updateInterestSignal(user.id, post.id, 'like').catch(() => {});
       } else {
         await supabase.from('likes').delete().eq('user_id', user.id).eq('post_id', post.id);
         await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
@@ -552,6 +555,8 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
           sendActivityNotification({ recipientUserId: post.user_id, title: 'New Repost', body: `${user.username} reposted your post`, data: { route: `/post/${post.id}`, type: 'repost' } });
         }
         toast({ title: 'Reposted successfully' });
+        // Update interest signal — fire-and-forget
+        updateInterestSignal(user.id, post.id, 'repost').catch(() => {});
       } else {
         await supabase.from('reposts').delete().eq('user_id', user.id).eq('post_id', post.id);
         await supabase.from('posts').update({ reposts_count: newCount }).eq('id', post.id);
