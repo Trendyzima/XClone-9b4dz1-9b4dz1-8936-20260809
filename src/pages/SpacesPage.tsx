@@ -6,7 +6,7 @@ import {
   Radio, Users, Mic, Loader2, Headphones, Video, Settings, BadgeCheck,
   Lock, Play, Clock, Hash, Rss, Search, Bell, BellOff, Copy, Share2,
   CalendarDays, ChevronDown, Check, TrendingUp, Bookmark, Star,
-  Plus, ListMusic, X, Trash2,
+  Plus, ListMusic, X, Trash2, Scissors, Timer,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -82,6 +82,44 @@ export default function SpacesPage() {
   const [rssUser, setRssUser] = useState('');
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(() => new Set<string>());
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // ── Space Clip Sharing ────────────────────────────────────────────────────
+  const [clipRecId,     setClipRecId]     = useState<string | null>(null);
+  const [clipRecTitle,  setClipRecTitle]  = useState('');
+  const [clipStart,     setClipStart]     = useState(0);
+  const [clipEnd,       setClipEnd]       = useState(30);
+  const [clipCopied,    setClipCopied]    = useState(false);
+  const [showClipModal, setShowClipModal] = useState(false);
+
+  const openClipModal = useCallback((recId: string, title: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setClipRecId(recId);
+    setClipRecTitle(title);
+    setClipStart(0);
+    setClipEnd(30);
+    setClipCopied(false);
+    setShowClipModal(true);
+  }, []);
+
+  const copyClipUrl = useCallback(() => {
+    if (!clipRecId) return;
+    const clipUrl = `${window.location.origin}/space-recording/${clipRecId}?t=${clipStart}&end=${clipEnd}`;
+    navigator.clipboard.writeText(clipUrl).then(() => {
+      setClipCopied(true);
+      setTimeout(() => setClipCopied(false), 2500);
+    });
+  }, [clipRecId, clipStart, clipEnd]);
+
+  const shareClip = useCallback(async () => {
+    if (!clipRecId) return;
+    const clipUrl = `${window.location.origin}/space-recording/${clipRecId}?t=${clipStart}&end=${clipEnd}`;
+    const shareTitle = `Clip: ${clipRecTitle.slice(0, 60)}`;
+    if (navigator.share) {
+      await navigator.share({ title: shareTitle, url: clipUrl }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(clipUrl).then(() => { setClipCopied(true); setTimeout(() => setClipCopied(false), 2500); });
+    }
+  }, [clipRecId, clipRecTitle, clipStart, clipEnd]);
 
   // ── Live Reactions ──────────────────────────────────────────────────────────
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
@@ -583,6 +621,12 @@ export default function SpacesPage() {
                           className="w-10 h-10 rounded-full bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors">
                           <Play className="w-4 h-4 text-primary ml-0.5" fill="currentColor" />
                         </button>
+                        {/* Clip button */}
+                        <button onClick={e => openClipModal(rec.id, rec.spaces?.title ?? rec.title, e)}
+                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all"
+                          title="Create a clip">
+                          <Scissors className="w-4 h-4" />
+                        </button>
                         <button onClick={e => toggleSaveRecording(rec.id, e)}
                           className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${isSaved ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/30 hover:text-primary'}`}>
                           <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
@@ -773,6 +817,78 @@ export default function SpacesPage() {
           </div>
         )}
       </div>
+
+      {/* ── Clip Modal ── */}
+      {showClipModal && clipRecId && (
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowClipModal(false)}>
+          <div className="bg-background border border-border rounded-2xl p-5 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <Scissors className="w-5 h-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold">Create Clip</h3>
+                <p className="text-xs text-muted-foreground truncate">{clipRecTitle.slice(0, 50)}</p>
+              </div>
+              <button onClick={() => setShowClipModal(false)} className="p-1.5 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+
+            {/* Start / End sliders */}
+            <div className="space-y-4 mb-4">
+              <div>
+                <div className="flex justify-between text-xs font-semibold mb-1.5">
+                  <span className="flex items-center gap-1"><Timer className="w-3.5 h-3.5 text-primary" />Start</span>
+                  <span className="font-mono text-primary">{clipStart}s</span>
+                </div>
+                <input
+                  type="range" min={0} max={3600} step={5}
+                  value={clipStart}
+                  onChange={e => { const v = Number(e.target.value); setClipStart(Math.min(v, clipEnd - 5)); }}
+                  className="w-full accent-primary"
+                />
+              </div>
+              <div>
+                <div className="flex justify-between text-xs font-semibold mb-1.5">
+                  <span className="flex items-center gap-1"><Timer className="w-3.5 h-3.5 text-orange-500" />End</span>
+                  <span className="font-mono text-orange-500">{clipEnd}s</span>
+                </div>
+                <input
+                  type="range" min={5} max={3600} step={5}
+                  value={clipEnd}
+                  onChange={e => { const v = Number(e.target.value); setClipEnd(Math.max(v, clipStart + 5)); }}
+                  className="w-full accent-orange-500"
+                />
+              </div>
+              <div className="bg-muted/40 border border-border rounded-xl px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-bold text-foreground">Duration:</span> {clipEnd - clipStart}s clip
+                <span className="mx-2">·</span>{clipStart}s → {clipEnd}s
+              </div>
+            </div>
+
+            <div className="bg-muted/30 rounded-xl px-3 py-2 mb-4 font-mono text-[10px] text-muted-foreground break-all">
+              {window.location.origin}/space-recording/{clipRecId}?t={clipStart}&end={clipEnd}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={copyClipUrl}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                  clipCopied ? 'bg-green-500 text-white' : 'bg-primary text-primary-foreground hover:opacity-90'
+                }`}
+              >
+                {clipCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                {clipCopied ? 'Copied!' : 'Copy Link'}
+              </button>
+              <button
+                onClick={shareClip}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors"
+              >
+                <Share2 className="w-4 h-4" />Share
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Playlist Modal ── */}
       {showPlaylistModal && (

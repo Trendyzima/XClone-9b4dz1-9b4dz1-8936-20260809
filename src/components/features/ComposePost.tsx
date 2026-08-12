@@ -310,6 +310,48 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
       sonnerToast.success('Post created successfully!');
       toast({ title: 'Success', description: 'Post created successfully' });
       pingGoogleSitemap();
+
+      // ── Hashtag Challenge Notifications ──────────────────────────────────
+      const postContent = content.trim();
+      const hashtagMatches = postContent.match(/#(\w+)/g);
+      if (hashtagMatches && postData) {
+        const uniqueTags = [...new Set(hashtagMatches.map((h: string) => h.slice(1).toLowerCase()))].slice(0, 5);
+        const { data: htRows } = await supabase
+          .from('hashtags')
+          .select('id, tag')
+          .in('tag', uniqueTags);
+        if (htRows && htRows.length > 0) {
+          const htIds = htRows.map((r: any) => r.id);
+          const { data: challenges } = await supabase
+            .from('hashtag_challenges')
+            .select('id, title, prize, end_date, entry_count')
+            .in('hashtag_id', htIds)
+            .eq('is_active', true)
+            .limit(3);
+          if (challenges && challenges.length > 0) {
+            const firstChallenge = challenges[0];
+            sonnerToast.success(
+              firstChallenge.prize
+                ? `🏆 Your post entered the "${firstChallenge.title}" challenge! Prize: ${firstChallenge.prize}`
+                : `🏆 Your post entered the "${firstChallenge.title}" challenge!`,
+              { duration: 6000, action: { label: 'View', onClick: () => window.location.href = `/challenge/${firstChallenge.id}` } }
+            );
+            // Insert platform_inbox notification
+            await supabase.from('platform_inbox').insert({
+              user_id: user!.id,
+              subject: `🏆 You entered the "${firstChallenge.title}" challenge!`,
+              body: `Your post with #${uniqueTags[0] ?? ''} was entered into the active challenge "${firstChallenge.title}"${
+                firstChallenge.prize ? ` — Prize: ${firstChallenge.prize}` : ''
+              }. Check the leaderboard to see how you rank!`,
+              type: 'update',
+              icon_emoji: '🏆',
+              cta_label: 'View Challenge',
+              cta_url: `/challenge/${firstChallenge.id}`,
+            }).catch(() => {});
+          }
+        }
+      }
+
       onSuccess?.();
     } catch (error: any) {
       console.error('Post error:', error);
