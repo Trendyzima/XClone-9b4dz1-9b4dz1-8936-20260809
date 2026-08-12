@@ -26,8 +26,11 @@ const TRENDING_FILTER_KEYWORDS = {
 };
 
 type ExploreTab = 'Explore' | 'Trending' | 'News' | 'Sports' | 'Entertainment';
+// ── Search history storage key (module-level — esbuild guard) ─────────────
+const SEARCH_HISTORY_KEY = 'ts-explore-search-history';
 
 function ExploreAdBanner() { return <PageAdBanner />; }
+
 export default function ExplorePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -53,10 +56,59 @@ export default function ExplorePage() {
   const [showCreateChallenge, setShowCreateChallenge] = useState(false);
   const [challengeForm, setChallengeForm] = useState({ title: '', description: '', prize: '', end_date: '', hashtag: '' });
   const [creatingChallenge, setCreatingChallenge] = useState(false);
-  // Trending tab — category filter (esbuild guard: module-level array constant)
+  // Trending tab — category filter
   const [trendingTagFilter, setTrendingTagFilter] = useState('All');
+  // ── Search History (localStorage, max 8) ─────────────────────────────────
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
+  // ── Live user autocomplete (debounced 250ms) — esbuild guard: plain arrays ──
+  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // SEO — dynamic title from top 3 trending hashtags (placed after ALL state declarations)
+  // Fetch user suggestions with debounce
+  const fetchUserSuggestions = (q: string) => {
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    if (!q.trim() || q.trim().length < 2) { setSearchSuggestions([]); setShowSuggestions(false); return; }
+    suggestTimerRef.current = setTimeout(async () => {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('id, username, avatar_url, verified, followers_count')
+        .ilike('username', `%${q.trim()}%`)
+        .order('followers_count', { ascending: false })
+        .limit(5);
+      if (data && data.length > 0) { setSearchSuggestions(data); setShowSuggestions(true); }
+      else { setSearchSuggestions([]); setShowSuggestions(false); }
+    }, 250);
+  };
+
+  useEffect(() => {
+    try { const raw = localStorage.getItem(SEARCH_HISTORY_KEY); if (raw) setSearchHistory(JSON.parse(raw)); } catch { /* ignore */ }
+  }, []);
+
+  const addToSearchHistory = (q: string) => {
+    if (!q.trim()) return;
+    setSearchHistory(prev => {
+      const next = [q.trim(), ...prev.filter(h => h !== q.trim())].slice(0, 8);
+      try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const clearSearchHistory = () => {
+    setSearchHistory([]);
+    try { localStorage.removeItem(SEARCH_HISTORY_KEY); } catch { /* ignore */ }
+  };
+
+  const removeHistoryItem = (i: number) => {
+    setSearchHistory(prev => {
+      const next = prev.filter((_, j) => j !== i);
+      try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  // SEO — dynamic title from top 3 trending hashtags
   const topHashtagNames = trendingHashtags.slice(0, 3).map((h: any) => `#${h.tag}`);
   useSEO({
     title: topHashtagNames.length > 0
@@ -72,7 +124,6 @@ export default function ExplorePage() {
 
   const ALL_CATEGORIES = ['News', 'Sports', 'Entertainment', 'Politics', 'Technology', 'Music', 'Science', 'Business'];
   const COUNTRIES = ['Kenya', 'Nigeria', 'USA', 'UK', 'India', 'South Africa', 'Tanzania', 'Uganda'];
-
   const tabs: ExploreTab[] = ['Explore', 'Trending', 'News', 'Sports', 'Entertainment'];
 
   useEffect(() => {
@@ -177,7 +228,21 @@ export default function ExplorePage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    if (searchQuery.trim()) {
+      addToSearchHistory(searchQuery.trim());
+      setShowSearchHistory(false);
+      setShowSuggestions(false);
+      setSearchSuggestions([]);
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    }
+  };
+
+  const handleHistorySelect = (q: string) => {
+    setSearchQuery(q);
+    setShowSearchHistory(false);
+    setShowSuggestions(false);
+    addToSearchHistory(q);
+    navigate(`/search?q=${encodeURIComponent(q)}`);
   };
 
   const fetchActiveChallenges = async () => {
@@ -248,6 +313,10 @@ export default function ExplorePage() {
     .filter(t => ['news', 'entertainment', 'sports', 'politics'].includes((t.category ?? '').toLowerCase()))
     .slice(0, 5);
 
+  // Pre-compute active story viewer data — esbuild guard: no IIFE in render
+  const activeStory = activeStoryIdx !== null ? (exploreStories[activeStoryIdx] ?? null) : null;
+  const activeStoryProfile = activeStory?.user_profiles ?? null;
+
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Explore" showProfile={false} />
@@ -300,7 +369,73 @@ export default function ExplorePage() {
           <form onSubmit={handleSearch} className="flex-1">
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input type="text" placeholder="Search Tsocial" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10 h-10 rounded-full bg-muted/80 border-0 focus-visible:ring-1 focus-visible:ring-primary text-sm" />
+              <Input
+                type="text"
+                placeholder="Search Tsocial"
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); fetchUserSuggestions(e.target.value); }}
+                onFocus={() => { setShowSearchHistory(true); if (searchQuery.trim().length >= 2) setShowSuggestions(true); }}
+                onBlur={() => setTimeout(() => { setShowSearchHistory(false); setShowSuggestions(false); }, 200)}
+                className="pl-10 h-10 rounded-full bg-muted/80 border-0 focus-visible:ring-1 focus-visible:ring-primary text-sm"
+              />
+              {/* Live user autocomplete — shown while typing 2+ chars */}
+              {showSuggestions && searchSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1.5 bg-background border border-border rounded-2xl shadow-xl z-50 overflow-hidden">
+                  <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">People</span>
+                    <button type="button" onClick={() => { setShowSuggestions(false); setSearchSuggestions([]); }} className="text-[10px] text-muted-foreground hover:text-foreground">✕</button>
+                  </div>
+                  {searchSuggestions.map((u: any) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onMouseDown={() => { navigate(`/profile/${u.username}`); setShowSuggestions(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs">
+                        {u.avatar_url ? <img src={u.avatar_url} alt={u.username} className="w-full h-full object-cover" /> : u.username[0]?.toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-semibold truncate">@{u.username}</span>
+                          {u.verified && <BadgeCheck className="w-3 h-3 text-primary shrink-0" fill="currentColor" />}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">{(u.followers_count ?? 0).toLocaleString()} followers</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Search history dropdown — shown on focus when no active suggestions */}
+              {showSearchHistory && !showSuggestions && searchHistory.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1.5 bg-background border border-border rounded-2xl shadow-xl z-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Recent Searches</span>
+                    <button
+                      type="button"
+                      onClick={() => clearSearchHistory()}
+                      className="text-[10px] text-primary font-semibold hover:underline"
+                    >Clear all</button>
+                  </div>
+                  {searchHistory.map((q, i) => (
+                    <div key={i} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted transition-colors">
+                      <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <button
+                        type="button"
+                        className="flex-1 text-sm text-foreground text-left truncate"
+                        onMouseDown={() => handleHistorySelect(q)}
+                      >{q}</button>
+                      <button
+                        type="button"
+                        onMouseDown={() => removeHistoryItem(i)}
+                        className="text-muted-foreground/50 hover:text-muted-foreground p-1 shrink-0"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </form>
           <button onClick={() => setShowSettings(true)} className="shrink-0 w-10 h-10 rounded-full bg-muted/80 flex items-center justify-center hover:bg-muted transition-colors">
@@ -361,81 +496,74 @@ export default function ExplorePage() {
             </section>
           )}
 
-          {activeStoryIdx !== null && exploreStories[activeStoryIdx] && (() => {
-            const story = exploreStories[activeStoryIdx];
-            const profile = story.user_profiles;
-            return (
-              <div className="fixed inset-0 z-[500] bg-black flex items-center justify-center" onClick={() => setActiveStoryIdx(null)}>
-                <div className="relative w-full max-w-sm h-full" onClick={e => e.stopPropagation()}>
-                  {story.media_type === 'video'
-                    ? <video key={story.id} src={story.media_url} autoPlay muted={false} playsInline className="absolute inset-0 w-full h-full object-cover" />
-                    : <img key={story.id} src={story.media_url} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-                  <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/50 pointer-events-none" />
-                  <div className="absolute top-3 left-3 right-3 flex gap-1 z-10 pointer-events-none">
-                    {exploreStories.slice(0, Math.min(exploreStories.length, 8)).map((_: any, pIdx: number) => (
-                      <div key={pIdx} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
-                        <div className="h-full bg-white rounded-full" style={{ width: pIdx < activeStoryIdx ? '100%' : pIdx === activeStoryIdx ? `${storyProgress}%` : '0%' }} />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="absolute top-8 left-3 right-3 flex items-center justify-between z-10">
-                    <div className="flex items-center gap-2">
-                      <div className="w-9 h-9 rounded-full border-2 border-white overflow-hidden bg-muted">
-                        {profile?.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-primary"><span className="text-xs font-black text-primary-foreground">{profile?.username?.[0]?.toUpperCase()}</span></div>}
-                      </div>
-                      <div>
-                        <p className="text-white text-sm font-bold">@{profile?.username}</p>
-                        <p className="text-white/60 text-[10px]">{story.views_count} views</p>
-                      </div>
+          {/* Story viewer — pre-computed vars, no IIFE (esbuild guard) */}
+          {activeStoryIdx !== null && activeStory && (
+            <div className="fixed inset-0 z-[500] bg-black flex items-center justify-center" onClick={() => setActiveStoryIdx(null)}>
+              <div className="relative w-full max-w-sm h-full" onClick={e => e.stopPropagation()}>
+                {activeStory.media_type === 'video'
+                  ? <video key={activeStory.id} src={activeStory.media_url} autoPlay muted={false} playsInline className="absolute inset-0 w-full h-full object-cover" />
+                  : <img key={activeStory.id} src={activeStory.media_url} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/50 pointer-events-none" />
+                <div className="absolute top-3 left-3 right-3 flex gap-1 z-10 pointer-events-none">
+                  {exploreStories.slice(0, Math.min(exploreStories.length, 8)).map((_: any, pIdx: number) => (
+                    <div key={pIdx} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full" style={{ width: pIdx < activeStoryIdx ? '100%' : pIdx === activeStoryIdx ? `${storyProgress}%` : '0%' }} />
                     </div>
-                    <button onClick={() => setActiveStoryIdx(null)} className="w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full"><X className="w-4 h-4 text-white" /></button>
+                  ))}
+                </div>
+                <div className="absolute top-8 left-3 right-3 flex items-center justify-between z-10">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-full border-2 border-white overflow-hidden bg-muted">
+                      {activeStoryProfile?.avatar_url ? <img src={activeStoryProfile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-primary"><span className="text-xs font-black text-primary-foreground">{activeStoryProfile?.username?.[0]?.toUpperCase()}</span></div>}
+                    </div>
+                    <div>
+                      <p className="text-white text-sm font-bold">@{activeStoryProfile?.username}</p>
+                      <p className="text-white/60 text-[10px]">{activeStory.views_count} views</p>
+                    </div>
                   </div>
-                  {story.caption && <div className="absolute bottom-16 left-4 right-4 z-10"><p className="text-white text-sm leading-relaxed drop-shadow-lg">{story.caption}</p></div>}
-                  <button className="absolute left-0 top-0 bottom-0 w-1/3 z-20" onClick={() => setActiveStoryIdx(i => (i !== null && i > 0) ? i - 1 : null)} />
-                  <button className="absolute right-0 top-0 bottom-0 w-1/3 z-20" onClick={() => setActiveStoryIdx(i => { if (i === null) return null; return i + 1 < exploreStories.length ? i + 1 : null; })} />
-                  <div className="absolute inset-0 flex items-center justify-between px-2 z-20 pointer-events-none">
-                    {activeStoryIdx > 0 && <button className="pointer-events-auto w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full" onClick={() => setActiveStoryIdx(i => (i !== null && i > 0) ? i - 1 : null)}><ChevronLeft className="w-4 h-4 text-white" /></button>}
-                    <div className="flex-1" />
-                    {activeStoryIdx < exploreStories.length - 1 && <button className="pointer-events-auto w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full" onClick={() => setActiveStoryIdx(i => (i !== null && i + 1 < exploreStories.length) ? i + 1 : null)}><ChevronRightIcon className="w-4 h-4 text-white" /></button>}
-                  </div>
-                  {/* Quick emoji reactions for explore stories */}
-                  <div className="absolute bottom-16 left-0 right-0 flex justify-center gap-2 z-10 px-4">
-                    {['❤️', '🔥', '😮', '👏', '😍'].map(emoji => (
-                      <button
-                        key={emoji}
-                        onClick={async () => {
-                          if (!user) return;
-                          const s = exploreStories[activeStoryIdx];
-                          if (!s || s.user_id === user.id) return;
-                          const { data: existing } = await supabase.from('conversations').select('id')
-                            .or(`and(participant_1.eq.${user.id},participant_2.eq.${s.user_id}),and(participant_1.eq.${s.user_id},participant_2.eq.${user.id})`)
-                            .maybeSingle();
-                          let convId = existing?.id;
-                          if (!convId) {
-                            const { data: nc } = await supabase.from('conversations')
-                              .insert({ participant_1: user.id, participant_2: s.user_id }).select('id').single();
-                            convId = nc?.id;
-                          }
-                          if (convId) {
-                            await supabase.from('direct_messages').insert({ conversation_id: convId, sender_id: user.id, content: `${emoji} Reacted to your story` });
-                            toast.success(`${emoji} Sent!`, { duration: 1500 });
-                          }
-                        }}
-                        className="w-11 h-11 text-2xl rounded-full bg-black/40 backdrop-blur-sm border border-white/20 flex items-center justify-center hover:bg-black/60 active:scale-125 transition-all duration-150"
-                      >{emoji}</button>
-                    ))}
-                  </div>
-                  <div className="absolute bottom-4 left-0 right-0 flex justify-center z-10">
-                    <button onClick={() => { setActiveStoryIdx(null); navigate(`/profile/${profile?.username}`); }} className="px-5 py-2 bg-white/20 backdrop-blur-sm border border-white/30 text-white text-sm font-semibold rounded-full hover:bg-white/30 transition-colors">View @{profile?.username}'s profile</button>
-                  </div>
+                  <button onClick={() => setActiveStoryIdx(null)} className="w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full"><X className="w-4 h-4 text-white" /></button>
+                </div>
+                {activeStory.caption && <div className="absolute bottom-16 left-4 right-4 z-10"><p className="text-white text-sm leading-relaxed drop-shadow-lg">{activeStory.caption}</p></div>}
+                <button className="absolute left-0 top-0 bottom-0 w-1/3 z-20" onClick={() => setActiveStoryIdx(i => (i !== null && i > 0) ? i - 1 : null)} />
+                <button className="absolute right-0 top-0 bottom-0 w-1/3 z-20" onClick={() => setActiveStoryIdx(i => { if (i === null) return null; return i + 1 < exploreStories.length ? i + 1 : null; })} />
+                <div className="absolute inset-0 flex items-center justify-between px-2 z-20 pointer-events-none">
+                  {activeStoryIdx > 0 && <button className="pointer-events-auto w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full" onClick={() => setActiveStoryIdx(i => (i !== null && i > 0) ? i - 1 : null)}><ChevronLeft className="w-4 h-4 text-white" /></button>}
+                  <div className="flex-1" />
+                  {activeStoryIdx < exploreStories.length - 1 && <button className="pointer-events-auto w-9 h-9 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-full" onClick={() => setActiveStoryIdx(i => (i !== null && i + 1 < exploreStories.length) ? i + 1 : null)}><ChevronRightIcon className="w-4 h-4 text-white" /></button>}
+                </div>
+                {/* Quick emoji reactions */}
+                <div className="absolute bottom-16 left-0 right-0 flex justify-center gap-2 z-10 px-4">
+                  {['❤️', '🔥', '😮', '👏', '😍'].map(emoji => (
+                    <button
+                      key={emoji}
+                      onClick={async () => {
+                        if (!user || !activeStory || activeStory.user_id === user.id) return;
+                        const { data: existing } = await supabase.from('conversations').select('id')
+                          .or(`and(participant_1.eq.${user.id},participant_2.eq.${activeStory.user_id}),and(participant_1.eq.${activeStory.user_id},participant_2.eq.${user.id})`)
+                          .maybeSingle();
+                        let convId = existing?.id;
+                        if (!convId) {
+                          const { data: nc } = await supabase.from('conversations')
+                            .insert({ participant_1: user.id, participant_2: activeStory.user_id }).select('id').single();
+                          convId = nc?.id;
+                        }
+                        if (convId) {
+                          await supabase.from('direct_messages').insert({ conversation_id: convId, sender_id: user.id, content: `${emoji} Reacted to your story` });
+                          toast.success(`${emoji} Sent!`, { duration: 1500 });
+                        }
+                      }}
+                      className="w-11 h-11 text-2xl rounded-full bg-black/40 backdrop-blur-sm border border-white/20 flex items-center justify-center hover:bg-black/60 active:scale-125 transition-all duration-150"
+                    >{emoji}</button>
+                  ))}
+                </div>
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center z-10">
+                  <button onClick={() => { setActiveStoryIdx(null); navigate(`/profile/${activeStoryProfile?.username}`); }} className="px-5 py-2 bg-white/20 backdrop-blur-sm border border-white/30 text-white text-sm font-semibold rounded-full hover:bg-white/30 transition-colors">View @{activeStoryProfile?.username}'s profile</button>
                 </div>
               </div>
-            );
-          })()}
+            </div>
+          )}
 
-          {/* AdSense banner — explore page */}
           <ExploreAdBanner />
-
           <section className="border-b border-border"><TrendingVideosSection variant="full" /></section>
 
           {(activeChallenges.length > 0 || user?.verified) && (
@@ -565,7 +693,6 @@ export default function ExplorePage() {
 
       {activeTab === 'Trending' && (
         <div>
-          {/* Hero banner */}
           <div className="relative overflow-hidden border-b border-border mx-4 my-4 rounded-2xl">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-950 via-indigo-900 to-purple-900" />
             <div className="relative px-5 py-8 flex items-end justify-between">
@@ -578,7 +705,6 @@ export default function ExplorePage() {
             </div>
           </div>
 
-          {/* Trending hashtags bar chart */}
           {trendingHashtags.length > 0 && (
             <div className="mx-4 mb-4 bg-card border border-border rounded-2xl overflow-hidden">
               <div className="px-4 pt-4 pb-2 flex items-center justify-between">
@@ -593,19 +719,9 @@ export default function ExplorePage() {
                   data={trendingHashtags.slice(0, 10).map((h: any) => ({ tag: `#${h.tag}`, posts: h.daily_posts ?? h.usage_count ?? 0 }))}
                   margin={{ top: 4, right: 16, left: -16, bottom: 32 }}
                 >
-                  <XAxis
-                    dataKey="tag"
-                    tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }}
-                    angle={-35}
-                    textAnchor="end"
-                    interval={0}
-                  />
+                  <XAxis dataKey="tag" tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} angle={-35} textAnchor="end" interval={0} />
                   <YAxis hide />
-                  <Tooltip
-                    formatter={(v: any) => [v, 'posts']}
-                    contentStyle={{ fontSize: 11, borderRadius: 10, padding: '4px 10px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))' }}
-                    cursor={{ fill: 'hsl(var(--muted))', opacity: 0.5 }}
-                  />
+                  <Tooltip formatter={(v: any) => [v, 'posts']} contentStyle={{ fontSize: 11, borderRadius: 10, padding: '4px 10px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))' }} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.5 }} />
                   <Bar dataKey="posts" radius={[4, 4, 0, 0]}>
                     {trendingHashtags.slice(0, 10).map((_: any, i: number) => (
                       <Cell key={i} fill={i < 3 ? '#f97316' : i < 6 ? '#6366f1' : '#94a3b8'} />
@@ -616,20 +732,11 @@ export default function ExplorePage() {
             </div>
           )}
 
-          {/* Trending hashtag chips grid */}
           <div className="px-4 mb-4">
-            {/* Category filter chips */}
             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-3">
               {TRENDING_FILTER_CATS.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setTrendingTagFilter(cat)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border-2 transition-all ${
-                    trendingTagFilter === cat
-                      ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                      : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
-                  }`}
-                >
+                <button key={cat} onClick={() => setTrendingTagFilter(cat)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border-2 transition-all ${trendingTagFilter === cat ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'}`}>
                   {cat === 'All' ? '🌐 All' : cat === 'Tech' ? '💻 Tech' : cat === 'Sports' ? '⚽ Sports' : cat === 'Entertainment' ? '🎥 Entertainment' : cat === 'Music' ? '🎵 Music' : '🗳️ Politics'}
                 </button>
               ))}
@@ -647,14 +754,9 @@ export default function ExplorePage() {
                   <p className="text-xs mt-1">Try a different category or check back later</p>
                 </div>
               ) : filteredTrendingHashtags.map((tag: any, i: number) => (
-                <button
-                  key={tag.id}
-                  onClick={() => navigate(`/hashtag/${tag.tag}`)}
-                  className="flex items-center gap-2 p-3 border border-border rounded-xl hover:bg-muted/50 transition-all text-left group active:scale-95"
-                >
-                  <span className={`text-xs font-black w-5 shrink-0 ${
-                    i === 0 ? 'text-orange-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-amber-600' : 'text-muted-foreground'
-                  }`}>{i + 1}</span>
+                <button key={tag.id} onClick={() => navigate(`/hashtag/${tag.tag}`)}
+                  className="flex items-center gap-2 p-3 border border-border rounded-xl hover:bg-muted/50 transition-all text-left group active:scale-95">
+                  <span className={`text-xs font-black w-5 shrink-0 ${i === 0 ? 'text-orange-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-amber-600' : 'text-muted-foreground'}`}>{i + 1}</span>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-sm text-primary truncate">#{tag.tag}</p>
                     <p className="text-[10px] text-muted-foreground">{formatNumber(tag.usage_count)} posts</p>
@@ -665,7 +767,6 @@ export default function ExplorePage() {
             </div>
           </div>
 
-          {/* Trending topics list */}
           {trending.length > 0 && (
             <div className="border-t border-border">
               <div className="px-4 pt-4 pb-2"><p className="font-bold text-sm">Trending Topics</p></div>
@@ -684,24 +785,17 @@ export default function ExplorePage() {
             </div>
           )}
 
-          {/* Discover verified creators */}
           {whoToFollow.length > 0 && (
             <div className="border-t border-border mt-4">
               <div className="px-4 pt-4 pb-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Star className="w-4 h-4 text-primary" />
-                  <p className="font-bold text-sm">Rising Creators</p>
-                </div>
+                <div className="flex items-center gap-2"><Star className="w-4 h-4 text-primary" /><p className="font-bold text-sm">Rising Creators</p></div>
                 <button onClick={() => navigate('/discover')} className="text-xs text-primary hover:underline font-semibold">See all</button>
               </div>
               <div className="divide-y divide-border">
                 {whoToFollow.slice(0, 5).map((profile: any) => (
                   <div key={profile.id} className="px-4 py-3 flex items-center gap-3">
                     <div className="w-11 h-11 rounded-full bg-muted overflow-hidden shrink-0 cursor-pointer" onClick={() => navigate(`/profile/${profile.username}`)}>
-                      {profile.avatar_url
-                        ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
-                        : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{profile.username[0]?.toUpperCase()}</div>
-                      }
+                      {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{profile.username[0]?.toUpperCase()}</div>}
                     </div>
                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/profile/${profile.username}`)}>
                       <div className="flex items-center gap-1">
@@ -713,12 +807,8 @@ export default function ExplorePage() {
                         <span className="flex items-center gap-0.5"><UsersIcon className="w-2.5 h-2.5" />{formatNumber(profile.followers_count)} followers</span>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleFollow(profile.id, profile.username)}
-                      className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                        isFollowingId(profile.id) ? 'border border-border hover:bg-muted' : 'bg-foreground text-background hover:opacity-90'
-                      }`}
-                    >
+                    <button onClick={() => handleFollow(profile.id, profile.username)}
+                      className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${isFollowingId(profile.id) ? 'border border-border hover:bg-muted' : 'bg-foreground text-background hover:opacity-90'}`}>
                       {isFollowingId(profile.id) ? 'Following' : 'Follow'}
                     </button>
                   </div>
@@ -752,8 +842,3 @@ export default function ExplorePage() {
     </div>
   );
 }
-
-// ── AdSense banner — mounted once, push-guarded ─────────────────────────────────────────────────────
-// ad banner — defined above
-function _unused_explore() { return null; }
-

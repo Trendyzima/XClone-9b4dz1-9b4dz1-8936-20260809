@@ -791,6 +791,8 @@ export default function ProfilePage() {
   const podTotalEps = profilePodcasts.length;
   const podTotalListeners = profilePodcasts.reduce((s: number, p: any) => s + (p.listener_count ?? 0), 0);
   const podTotalSecs = profilePodcasts.reduce((s: number, p: any) => s + (p.duration ?? 0), 0);
+  // Pre-computed highlight viewer story — esbuild guard: no IIFE in render
+  const viewerHighlightStory = viewingHighlight ? (highlightStories[highlightStoryIdx] ?? null) : null;
   const tabs = isOwnProfile
     ? ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following', 'Analytics']
     : ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
@@ -1273,6 +1275,17 @@ export default function ProfilePage() {
               {posts.filter(p => p.id !== pinnedPostId).map(post => (
                 <div key={post.id} className="relative group">
                   <PostCard post={post} onUpdate={fetchProfile} />
+                  {/* Impression milestone badge — ⭐ 1K · 🚀 10K (esbuild guard: no IIFE, plain conditional) */}
+                  {(post.views_count ?? 0) >= 10000 && (
+                    <div className="absolute top-3 left-14 z-10 flex items-center gap-0.5 px-1.5 py-0.5 bg-primary text-primary-foreground rounded-full text-[9px] font-black shadow pointer-events-none">
+                      🚀 {formatNumber(post.views_count ?? 0)}
+                    </div>
+                  )}
+                  {(post.views_count ?? 0) >= 1000 && (post.views_count ?? 0) < 10000 && (
+                    <div className="absolute top-3 left-14 z-10 flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-500 text-white rounded-full text-[9px] font-black shadow pointer-events-none">
+                      ⭐ {formatNumber(post.views_count ?? 0)}
+                    </div>
+                  )}
                   {isOwnProfile && (
                     <button onClick={() => togglePinPost(post.id)} className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold text-muted-foreground hover:text-primary bg-background/90 px-2 py-1 rounded-full border border-border shadow-sm">
                       {pinnedPostId === post.id ? 'Unpin' : '📌 Pin'}
@@ -1818,41 +1831,39 @@ export default function ProfilePage() {
               <Star className="w-12 h-12" /><p className="text-sm">No media found for this highlight</p>
               <button onClick={closeHighlightViewer} className="px-5 py-2 border border-white/30 rounded-full text-sm text-white">Close</button>
             </div>
-          ) : (() => {
-            const story = highlightStories[highlightStoryIdx];
-            return (
-              <>
-                <div className="absolute top-3 left-3 right-3 flex gap-1 z-30 pointer-events-none">
-                  {highlightStories.map((_, i) => (
-                    <div key={i} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
-                      <div className="h-full bg-white rounded-full transition-none" style={{ width: i < highlightStoryIdx ? '100%' : i === highlightStoryIdx ? `${highlightProgress}%` : '0%' }} />
-                    </div>
-                  ))}
-                </div>
-                <div className="absolute top-8 left-3 right-3 flex items-center gap-2 z-30">
-                  <div className="w-8 h-8 rounded-full overflow-hidden bg-white/20 shrink-0">
-                    {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white font-bold text-xs">{profile.username[0]?.toUpperCase()}</div>}
+          ) : viewerHighlightStory ? (
+            // Highlight story content — no IIFE (esbuild guard): viewerHighlightStory pre-computed above
+            <>
+              <div className="absolute top-3 left-3 right-3 flex gap-1 z-30 pointer-events-none">
+                {highlightStories.map((_, i) => (
+                  <div key={i} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
+                    <div className="h-full bg-white rounded-full transition-none" style={{ width: i < highlightStoryIdx ? '100%' : i === highlightStoryIdx ? `${highlightProgress}%` : '0%' }} />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-semibold text-sm truncate">{viewingHighlight.title}</p>
-                    <p className="text-white/60 text-xs">@{profile.username}</p>
-                  </div>
-                  <button onClick={closeHighlightViewer} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white"><X className="w-4 h-4" /></button>
+                ))}
+              </div>
+              <div className="absolute top-8 left-3 right-3 flex items-center gap-2 z-30">
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-white/20 shrink-0">
+                  {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white font-bold text-xs">{profile.username[0]?.toUpperCase()}</div>}
                 </div>
-                <div className="flex-1 flex items-center justify-center" onClick={e => {
-                  const x = e.clientX; const w = (e.currentTarget as HTMLElement).offsetWidth;
-                  if (x < w / 2) { setHighlightStoryIdx(p => Math.max(0, p - 1)); setHighlightProgress(0); }
-                  else if (highlightStoryIdx < highlightStories.length - 1) { setHighlightStoryIdx(p => p + 1); setHighlightProgress(0); }
-                  else closeHighlightViewer();
-                }}>
-                  {story.media_type === 'video'
-                    ? <video key={story.id} src={story.media_url} autoPlay playsInline className="max-h-screen max-w-full object-contain" onEnded={() => { if (highlightStoryIdx < highlightStories.length - 1) { setHighlightStoryIdx(p => p + 1); setHighlightProgress(0); } else closeHighlightViewer(); }} />
-                    : <img key={story.id} src={story.media_url} alt="" className="max-h-screen max-w-full object-contain" draggable={false} />}
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-semibold text-sm truncate">{viewingHighlight.title}</p>
+                  <p className="text-white/60 text-xs">@{profile.username}</p>
                 </div>
-                {story.caption && <div className="absolute bottom-8 left-6 right-6 z-30 pointer-events-none"><p className="text-white text-sm font-medium bg-black/50 rounded-2xl px-4 py-2.5 text-center backdrop-blur-sm">{story.caption}</p></div>}
-              </>
-            );
-          })()}
+                <button onClick={closeHighlightViewer} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="flex-1 flex items-center justify-center" onClick={e => {
+                const x = e.clientX; const w = (e.currentTarget as HTMLElement).offsetWidth;
+                if (x < w / 2) { setHighlightStoryIdx(p => Math.max(0, p - 1)); setHighlightProgress(0); }
+                else if (highlightStoryIdx < highlightStories.length - 1) { setHighlightStoryIdx(p => p + 1); setHighlightProgress(0); }
+                else closeHighlightViewer();
+              }}>
+                {viewerHighlightStory.media_type === 'video'
+                  ? <video key={viewerHighlightStory.id} src={viewerHighlightStory.media_url} autoPlay playsInline className="max-h-screen max-w-full object-contain" onEnded={() => { if (highlightStoryIdx < highlightStories.length - 1) { setHighlightStoryIdx(p => p + 1); setHighlightProgress(0); } else closeHighlightViewer(); }} />
+                  : <img key={viewerHighlightStory.id} src={viewerHighlightStory.media_url} alt="" className="max-h-screen max-w-full object-contain" draggable={false} />}
+              </div>
+              {viewerHighlightStory.caption && <div className="absolute bottom-8 left-6 right-6 z-30 pointer-events-none"><p className="text-white text-sm font-medium bg-black/50 rounded-2xl px-4 py-2.5 text-center backdrop-blur-sm">{viewerHighlightStory.caption}</p></div>}
+            </>
+          ) : null
         </div>
       )}
 
