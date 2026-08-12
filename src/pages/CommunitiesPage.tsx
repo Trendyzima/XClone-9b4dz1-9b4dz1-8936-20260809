@@ -37,6 +37,8 @@ const COMMUNITY_CATEGORIES = [
 ] as const;
 
 const SORT_OPTIONS = ['Popular', 'Newest', 'Active'] as const;
+const COMM_TABS = ['all', 'joined', 'discover'] as const;
+type CommTab = typeof COMM_TABS[number];
 type SortOption = typeof SORT_OPTIONS[number];
 
 interface Community {
@@ -68,7 +70,7 @@ export default function CommunitiesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [activeTab, setActiveTab] = useState<'all' | 'joined' | 'discover'>('all');
+  const [activeTab, setActiveTab] = useState<CommTab>('all');
   const [activeCategory, setActiveCategory] = useState('all');
   const [sortBy, setSortBy] = useState<SortOption>('Popular');
   const [recentPosts, setRecentPosts] = useState<{ [cId: string]: number }>({});
@@ -502,7 +504,7 @@ export default function CommunitiesPage() {
       {user && (
         <div className="sticky top-14 z-20 bg-background border-b border-border">
           <div className="flex items-center">
-            {(['all', 'joined', 'discover'] as const).map(tab => (
+            {COMM_TABS.map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className={`flex-1 py-3 text-sm font-semibold transition-colors border-b-2 capitalize ${
                   activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/50'

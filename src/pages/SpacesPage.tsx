@@ -41,6 +41,14 @@ type SpaceTab = typeof SPACE_TABS[number];
 // Live reaction emojis at module scope to prevent render-scope allocation (esbuild guard)
 const LIVE_EMOJIS = ['❤️', '🔥', '🎉', '👏', '🤣', '💯'] as const;
 
+// Tab definitions at module scope — prevents inline `as const` in JSX render (esbuild guard)
+const SPACE_TAB_DEFS = [
+  { key: 'live',       label: 'Live',      badgeColor: 'bg-red-500/10 text-red-500' },
+  { key: 'recordings',label: 'Episodes',  badgeColor: '' },
+  { key: 'upcoming',  label: 'Upcoming',  badgeColor: 'bg-blue-500/10 text-blue-500' },
+  { key: 'playlists', label: 'Playlists', badgeColor: 'bg-primary/10 text-primary' },
+] as const;
+
 function formatDurationSecs(secs: number) {
   const d = intervalToDuration({ start: 0, end: secs * 1000 });
   if ((d.hours ?? 0) > 0) return `${d.hours}h ${d.minutes ?? 0}m`;
@@ -368,21 +376,26 @@ export default function SpacesPage() {
       {/* Tabs */}
       <div className="sticky top-0 z-30 bg-background border-b border-border">
         <div className="flex">
-          {([
-            { key: 'live',       icon: Radio,        label: 'Live',      badge: spaces.length > 0 ? spaces.length : 0,             badgeColor: 'bg-red-500/10 text-red-500' },
-            { key: 'recordings', icon: Headphones,   label: 'Episodes',  badge: 0,                                                  badgeColor: '' },
-            { key: 'upcoming',   icon: CalendarDays, label: 'Upcoming',  badge: scheduledSpaces.length > 0 ? scheduledSpaces.length : 0, badgeColor: 'bg-blue-500/10 text-blue-500' },
-            { key: 'playlists',  icon: ListMusic,    label: 'Playlists', badge: playlists.length > 0 ? playlists.length : 0,         badgeColor: 'bg-primary/10 text-primary' },
-          ] as const).map(t => {
-            const Icon = t.icon;
+          {SPACE_TAB_DEFS.map(t => {
+            const tabIconMap: { [k: string]: any } = {
+              live: Radio, recordings: Headphones, upcoming: CalendarDays, playlists: ListMusic,
+            };
+            const tabBadgeMap: { [k: string]: number } = {
+              live: spaces.length,
+              recordings: 0,
+              upcoming: scheduledSpaces.length,
+              playlists: playlists.length,
+            };
+            const TabIcon = tabIconMap[t.key] ?? Radio;
+            const tabBadge = tabBadgeMap[t.key] ?? 0;
             return (
               <button key={t.key} onClick={() => setActiveTab(t.key as SpaceTab)}
                 className={`flex-1 py-3 font-semibold text-xs border-b-2 transition-colors flex items-center justify-center gap-1 ${
                   activeTab === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
                 }`}>
-                <Icon className="w-3.5 h-3.5" />
+                <TabIcon className="w-3.5 h-3.5" />
                 {t.label}
-                {t.badge > 0 && <span className={`ml-0.5 px-1.5 py-0.5 text-[9px] rounded-full font-bold ${t.badgeColor}`}>{t.badge}</span>}
+                {tabBadge > 0 && <span className={`ml-0.5 px-1.5 py-0.5 text-[9px] rounded-full font-bold ${t.badgeColor}`}>{tabBadge}</span>}
               </button>
             );
           })}
