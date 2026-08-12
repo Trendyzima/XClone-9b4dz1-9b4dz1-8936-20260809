@@ -1,16 +1,156 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { VideoPlayer } from '@/components/features/VideoPlayer';
 import { supabase } from '@/lib/supabase';
 import { Post } from '@/types/app-types';
-import { Loader2, Gift, X, Zap, Play } from 'lucide-react';
+import { Loader2, Gift, X, Zap, Play, Search, Bookmark, Share, MessageCircle, Eye, Heart, BadgeCheck, Send as SendIcon, Gauge } from 'lucide-react';
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { formatDistanceToNow } from 'date-fns';
+import { formatNumber } from '@/lib/utils';
+import { toast } from 'sonner';
+
+// esbuild-safe module-level constants
+const VIDEO_SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const VIDEO_SEARCH_DEBOUNCE_MS = 400;
 
 const PRELOAD_AHEAD = 2;
 const PAGE_SIZE = 20;
 
-type FeedTab = 'foryou' | 'following';
+type FeedTab = 'foryou' | 'following' | 'watchlater';
+
+// Comment drawer for video feed
+function VideoCommentDrawer({ post, onClose }: { post: Post; onClose: () => void }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [replies, setReplies] = useState<any[]>([]);
+  const [replyText, setReplyText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
+
+  useEffect(() => {
+    supabase.from('replies')
+      .select('*, user_profiles(id,username,avatar_url,verified)')
+      .eq('post_id', post.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data }) => { setReplies(data ?? []); setLoading(false); });
+  }, [post.id]);
+
+  const postReply = async () => {
+    if (!user) { navigate('/auth'); return; }
+    if (!replyText.trim()) return;
+    setPosting(true);
+    const { error } = await supabase.from('replies').insert({ post_id: post.id, user_id: user.id, content: replyText.trim() });
+    if (!error) {
+      setReplies(prev => [{ id: Date.now().toString(), content: replyText.trim(), created_at: new Date().toISOString(), user_profiles: { username: user.username, avatar_url: user.avatar, verified: false } }, ...prev]);
+      setReplyText('');
+      toast.success('Comment posted!');
+    }
+    setPosting(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col justify-end" onClick={onClose}>
+      <div className="bg-background rounded-t-3xl border-t border-border max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div>
+            <h3 className="font-bold text-base">{formatNumber(post.replies_count ?? 0)} Comments</h3>
+            <p className="text-xs text-muted-foreground line-clamp-1">{post.content?.slice(0, 60)}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-muted transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto divide-y divide-border">
+          {loading ? (
+            <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+          ) : replies.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <MessageCircle className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No comments yet. Be the first!</p>
+            </div>
+          ) : (
+            replies.map(r => (
+              <div key={r.id} className="flex gap-3 px-4 py-3">
+                <div className="w-9 h-9 rounded-full bg-muted overflow-hidden shrink-0">
+                  {r.user_profiles?.avatar_url
+                    ? <img src={r.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{r.user_profiles?.username?.[0]?.toUpperCase()}</div>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="font-semibold text-sm">{r.user_profiles?.username}</span>
+                    {r.user_profiles?.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary" fill="currentColor" />}
+                    <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}</span>
+                  </div>
+                  <p className="text-sm leading-relaxed break-words">{r.content}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        {user ? (
+          <div className="px-4 py-3 border-t border-border flex items-center gap-3 shrink-0">
+            <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+              {user.avatar ? <img src={user.avatar} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{user.username?.[0]?.toUpperCase()}</div>}
+            </div>
+            <input type="text" value={replyText} onChange={e => setReplyText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postReply(); } }}
+              placeholder="Add a comment…" maxLength={280}
+              className="flex-1 bg-muted/50 border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30" />
+            <button onClick={postReply} disabled={!replyText.trim() || posting}
+              className="text-primary disabled:opacity-30 transition-opacity">
+              {posting ? <Loader2 className="w-5 h-5 animate-spin" /> : <SendIcon className="w-5 h-5" />}
+            </button>
+          </div>
+        ) : (
+          <div className="px-4 py-3 border-t border-border shrink-0">
+            <button onClick={() => navigate('/auth')} className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90">Sign in to comment</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Video share card
+function VideoShareCard({ post, onClose }: { post: Post; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/videos?id=${post.id}`;
+  const copy = () => { navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
+  const share = async () => {
+    try {
+      await navigator.share({ title: post.content?.slice(0, 60), url });
+    } catch {
+      copy();
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-[200] flex items-end justify-center" onClick={onClose}>
+      <div className="bg-background rounded-t-3xl border-t border-border w-full max-w-sm p-5 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold">Share Video</h3>
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="flex items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-2.5">
+          <span className="text-xs font-mono text-muted-foreground truncate flex-1">{url}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={copy} className={`flex items-center justify-center gap-2 py-3 rounded-xl border font-semibold text-sm transition-all ${copied ? 'bg-green-500/10 border-green-500/30 text-green-600' : 'border-border hover:bg-muted'}`}>
+            {copied ? '✓ Copied!' : '🔗 Copy Link'}
+          </button>
+          <button onClick={share} className="flex items-center justify-center gap-2 py-3 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90">
+            <Share className="w-4 h-4" /> Share
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {[{ label: '💬 Reply', action: () => { copy(); onClose(); } }, { label: '📖 Thread', action: () => { window.open(`/post/${post.id}`, '_blank'); onClose(); } }, { label: '🔥 Challenge', action: () => { navigator.clipboard.writeText(`${url}&challenge=1`).then(() => toast.success('Challenge link copied!')); onClose(); } }].map(btn => (
+            <button key={btn.label} onClick={btn.action} className="py-2.5 border border-border rounded-xl text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">{btn.label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function VideosPage() {
   const navigate = useNavigate();
@@ -20,6 +160,21 @@ export default function VideosPage() {
   const [videos, setVideos] = useState<Post[]>([]);
   const [activeTab, setActiveTab] = useState<FeedTab>('foryou');
   const [followingIds, setFollowingIds] = useState<string[]>([]);
+  // Search
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Post[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Comment drawer
+  const [commentPost, setCommentPost] = useState<Post | null>(null);
+  // Share card
+  const [sharePost, setSharePost] = useState<Post | null>(null);
+  // Watch later
+  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set());
+  // Speed overlay
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
 
   // Top 5 videos for SEO ItemList JSON-LD
   const topVideos = videos.slice(0, 5);
@@ -78,18 +233,48 @@ export default function VideosPage() {
   // Preload map: index → shouldPreload
   const [preloadMap, setPreloadMap] = useState<Record<number, boolean>>({});
 
-  // Fetch following IDs when user logs in
+  // Fetch following IDs + watch later when user logs in
   useEffect(() => {
-    if (!user) { setFollowingIds([]); return; }
-    supabase
-      .from('follows')
-      .select('following_id')
-      .eq('follower_id', user.id)
+    if (!user) { setFollowingIds([]); setWatchLaterIds(new Set()); return; }
+    supabase.from('follows').select('following_id').eq('follower_id', user.id)
       .then(({ data }) => setFollowingIds((data ?? []).map((f: any) => f.following_id)));
+    // Load watch-later from localStorage (persists across sessions)
+    const wl = localStorage.getItem(`ts-watchlater-${user.id}`);
+    if (wl) setWatchLaterIds(new Set(JSON.parse(wl)));
   }, [user?.id]);
 
-  // Re-fetch when tab changes
+  const toggleWatchLater = (e: React.MouseEvent, videoId: string) => {
+    e.stopPropagation();
+    if (!user) { navigate('/auth'); return; }
+    setWatchLaterIds(prev => {
+      const s = new Set(prev);
+      if (s.has(videoId)) { s.delete(videoId); toast.success('Removed from Watch Later'); }
+      else { s.add(videoId); toast.success('Saved to Watch Later'); }
+      localStorage.setItem(`ts-watchlater-${user.id}`, JSON.stringify([...s]));
+      return s;
+    });
+  };
+
+  // Search videos
+  const handleSearch = useCallback((q: string) => {
+    setSearchQuery(q);
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    if (!q.trim()) { setSearchResults([]); return; }
+    searchDebounce.current = setTimeout(async () => {
+      setSearchLoading(true);
+      const { data } = await supabase.from('posts').select('*, user_profiles(*)')
+        .eq('is_video', true).ilike('content', `%${q}%`).order('views_count', { ascending: false }).limit(20);
+      setSearchResults(data ?? []);
+      setSearchLoading(false);
+    }, VIDEO_SEARCH_DEBOUNCE_MS);
+  }, []);
+
+  // Watch Later tab: filter from loaded videos by id
+  const watchLaterVideos = useMemo(() => videos.filter(v => watchLaterIds.has(v.id)), [videos, watchLaterIds]);
+
+  // Re-fetch when tab changes (skip watch-later — uses local filter)
   useEffect(() => {
+    if (activeTab === 'watchlater') return;
     setVideos([]);
     setPage(0);
     setHasMore(true);
@@ -97,7 +282,6 @@ export default function VideosPage() {
     activeIndexRef.current = 0;
     deepLinkProcessed.current = false;
     setPreloadMap({});
-    // Scroll to top
     if (containerRef.current) containerRef.current.scrollTo({ top: 0 });
     setLoading(true);
     fetchVideos(0);
@@ -289,23 +473,95 @@ export default function VideosPage() {
 
   return (
     <div className="relative bg-black" style={{ height: '100svh' }}>
-      {/* For You / Following tab bar — overlaid at top of screen */}
-      <div className="absolute top-0 left-0 right-0 z-30 flex justify-center pt-3 pointer-events-none">
+      {/* Comment drawer */}
+      {commentPost && <VideoCommentDrawer post={commentPost} onClose={() => setCommentPost(null)} />}
+      {/* Share card */}
+      {sharePost && <VideoShareCard post={sharePost} onClose={() => setSharePost(null)} />}
+
+      {/* Speed overlay */}
+      {showSpeedMenu && (
+        <div className="fixed inset-0 z-[150] flex items-end justify-center" onClick={() => setShowSpeedMenu(false)}>
+          <div className="bg-background/95 backdrop-blur-xl rounded-t-3xl border-t border-border w-full max-w-sm p-4 space-y-2" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2"><Gauge className="w-4 h-4 text-primary" /><h3 className="font-bold text-sm">Playback Speed</h3></div>
+              <button onClick={() => setShowSpeedMenu(false)} className="p-1 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {VIDEO_SPEED_OPTIONS.map(spd => (
+                <button key={spd} onClick={() => { setPlaybackSpeed(spd); setShowSpeedMenu(false); toast.success(`Speed: ${spd}×`); }}
+                  className={`py-3 rounded-xl font-bold text-sm border-2 transition-all ${
+                    playbackSpeed === spd ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/30 text-muted-foreground'
+                  }`}>{spd}×</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search panel */}
+      {showSearch && (
+        <div className="absolute inset-0 z-[100] bg-black/95 flex flex-col">
+          <div className="flex items-center gap-3 px-4 pt-12 pb-3 border-b border-white/10">
+            <Search className="w-4 h-4 text-white/60 shrink-0" />
+            <input autoFocus type="text" value={searchQuery} onChange={e => handleSearch(e.target.value)}
+              placeholder="Search videos…" className="flex-1 bg-transparent text-white text-sm focus:outline-none placeholder:text-white/40" />
+            {searchQuery && <button onClick={() => { setSearchQuery(''); setSearchResults([]); }} className="text-white/60"><X className="w-4 h-4" /></button>}
+            <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); }} className="text-white/70 text-sm font-semibold">Cancel</button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {searchLoading ? (
+              <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-white/40" /></div>
+            ) : searchResults.length === 0 && searchQuery ? (
+              <div className="text-center py-16 text-white/40">
+                <Play className="w-10 h-10 mx-auto mb-2" />
+                <p className="text-sm">No videos found for "{searchQuery}"</p>
+              </div>
+            ) : (
+              searchResults.map((v, i) => (
+                <div key={v.id} className="flex gap-3 px-4 py-3 border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors"
+                  onClick={() => { setVideos(searchResults); setActiveIndex(i); setShowSearch(false); setSearchQuery(''); setSearchResults([]); }}>
+                  <div className="relative w-16 h-24 bg-white/10 rounded-xl overflow-hidden shrink-0">
+                    <video src={`${v.video_url}#t=0.5`} className="w-full h-full object-cover" muted preload="metadata" />
+                    <div className="absolute inset-0 flex items-center justify-center"><Play className="w-5 h-5 text-white" fill="white" /></div>
+                  </div>
+                  <div className="flex-1 min-w-0 py-1">
+                    <p className="text-white text-sm font-semibold line-clamp-2 mb-1">{v.content?.slice(0, 100)}</p>
+                    <p className="text-white/50 text-xs">@{(v as any).user_profiles?.username}</p>
+                    <div className="flex items-center gap-3 mt-2 text-white/40 text-xs">
+                      <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{formatNumber(v.views_count ?? 0)}</span>
+                      <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{formatNumber(v.likes_count ?? 0)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* For You / Following / Watch Later tab bar — overlaid at top of screen */}
+      <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-3 pt-3 pointer-events-none">
+        <button onClick={() => setShowSearch(true)} className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors pointer-events-auto">
+          <Search className="w-5 h-5" />
+        </button>
         <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-1.5 py-1 border border-white/10 pointer-events-auto">
-          {(['foryou', 'following'] as FeedTab[]).map(tab => (
+          {(['foryou', 'following', 'watchlater'] as FeedTab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all active:scale-95 ${
+              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-95 ${
                 activeTab === tab
                   ? 'bg-white text-black shadow-sm'
                   : 'text-white/70 hover:text-white'
               }`}
             >
-              {tab === 'foryou' ? 'For You' : 'Following'}
+              {tab === 'foryou' ? 'For You' : tab === 'following' ? 'Following' : '🔖'}
             </button>
           ))}
         </div>
+        <button onClick={() => setShowSpeedMenu(true)} className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors pointer-events-auto" title={`Speed: ${playbackSpeed}×`}>
+          <span className="text-[10px] font-black">{playbackSpeed}×</span>
+        </button>
       </div>
 
       {/* TikTok-style vertical scroll feed */}
@@ -347,14 +603,49 @@ export default function VideosPage() {
         )}
       </div>
 
-      {/* Video index indicator — shifted below tab bar */}
+      {/* Video index indicator + watch-later + comment + share quick actions */}
       <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
         <div className="bg-black/40 backdrop-blur-sm rounded-full px-3 py-1">
           <p className="text-white/70 text-xs font-medium">
-            {activeIndex + 1} / {videos.length}{hasMore ? '+' : ''}
+            {activeIndex + 1} / {(activeTab === 'watchlater' ? watchLaterVideos : videos).length}{hasMore ? '+' : ''}
           </p>
         </div>
       </div>
+      {/* Floating comment + share + watch-later quick actions over current video */}
+      {(activeTab === 'watchlater' ? watchLaterVideos : videos)[activeIndex] && (
+        <div className="absolute right-3 bottom-32 z-20 flex flex-col gap-4 pointer-events-auto">
+          {(() => {
+            const currentVideo = (activeTab === 'watchlater' ? watchLaterVideos : videos)[activeIndex];
+            return currentVideo ? (
+              <>
+                <button onClick={() => setCommentPost(currentVideo)}
+                  className="flex flex-col items-center gap-1">
+                  <div className="w-11 h-11 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
+                    <MessageCircle className="w-5 h-5 text-white" />
+                  </div>
+                  <span className="text-white text-[10px] font-semibold">{formatNumber(currentVideo.replies_count ?? 0)}</span>
+                </button>
+                <button onClick={e => toggleWatchLater(e, currentVideo.id)}
+                  className="flex flex-col items-center gap-1">
+                  <div className={`w-11 h-11 backdrop-blur-sm rounded-full flex items-center justify-center border ${
+                    watchLaterIds.has(currentVideo.id) ? 'bg-primary border-primary' : 'bg-black/50 border-white/20'
+                  }`}>
+                    <Bookmark className={`w-5 h-5 ${watchLaterIds.has(currentVideo.id) ? 'text-white fill-white' : 'text-white'}`} />
+                  </div>
+                  <span className="text-white text-[10px] font-semibold">{watchLaterIds.has(currentVideo.id) ? 'Saved' : 'Later'}</span>
+                </button>
+                <button onClick={() => setSharePost(currentVideo)}
+                  className="flex flex-col items-center gap-1">
+                  <div className="w-11 h-11 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
+                    <Share className="w-5 h-5 text-white" />
+                  </div>
+                  <span className="text-white text-[10px] font-semibold">Share</span>
+                </button>
+              </>
+            ) : null;
+          })()}
+        </div>
+      )}
 
       {/* Rewarded Ad Prompt */}
       {showRewardPrompt && !rewardMessage && (

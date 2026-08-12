@@ -1,15 +1,16 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Loader2, BadgeCheck, Heart, MessageCircle, TrendingUp, BookOpen, Video, Image as ImageIcon, Clock, Bookmark } from 'lucide-react';
+import { Plus, Loader2, BadgeCheck, Heart, MessageCircle, TrendingUp, BookOpen, Video, Image as ImageIcon, Clock, Bookmark, Search, X, Eye, Repeat2, Filter, BarChart3 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { useSEO } from '@/hooks/useSEO';
+import { toast } from 'sonner';
 
 interface Thread {
   id: string;
@@ -54,13 +55,53 @@ function accentBorderClass(content: string): string {
   return 'border-l-green-500';
 }
 
+// esbuild-safe module-level constants
+const THREADS_TABS = ['For You', 'Following', 'Trending', 'Reading List'] as const;
+const THREADS_SORT_OPTIONS = ['Newest', 'Most Viewed', 'Most Liked', 'Longest'] as const;
+
 function ThreadsAdBanner() { return <PageAdBanner />; }
+
+function ThreadAnalyticsCard({ thread }: { thread: Thread }) {
+  const wordCount = thread.content.trim().split(/\s+/).length;
+  const engagementRate = thread.views_count > 0
+    ? ((thread.likes_count + (thread.replies_count ?? 0)) / thread.views_count * 100)
+    : 0;
+  return (
+    <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-border/50">
+      <div className="text-center">
+        <p className="text-xs font-black">{formatNumber(thread.views_count)}</p>
+        <p className="text-[9px] text-muted-foreground flex items-center justify-center gap-0.5"><Eye className="w-2.5 h-2.5" />Views</p>
+      </div>
+      <div className="text-center">
+        <p className="text-xs font-black text-pink-600">{formatNumber(thread.likes_count)}</p>
+        <p className="text-[9px] text-muted-foreground flex items-center justify-center gap-0.5"><Heart className="w-2.5 h-2.5" />Likes</p>
+      </div>
+      <div className="text-center">
+        <p className="text-xs font-black text-green-600">{formatNumber(thread.reposts_count ?? 0)}</p>
+        <p className="text-[9px] text-muted-foreground flex items-center justify-center gap-0.5"><Repeat2 className="w-2.5 h-2.5" />Reposts</p>
+      </div>
+      <div className="text-center">
+        <p className="text-xs font-black text-primary">{engagementRate.toFixed(1)}%</p>
+        <p className="text-[9px] text-muted-foreground flex items-center justify-center gap-0.5"><BarChart3 className="w-2.5 h-2.5" />Engage</p>
+      </div>
+    </div>
+  );
+}
+
 export default function ThreadsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('For You');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [sortBy, setSortBy] = useState<typeof THREADS_SORT_OPTIONS[number]>('Newest');
+  const [showSortMenu, setShowSortMenu] = useState(false);
+  const [expandedAnalytics, setExpandedAnalytics] = useState<Set<string>>(new Set());
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // ── SEO — dynamic title + ItemList JSON-LD from top 5 threads ─────────────
   const topThreads = threads.filter(t => t.views_count > 0).slice(0, 5);
@@ -90,11 +131,66 @@ export default function ThreadsPage() {
     structuredData: threadsJsonLd,
   });
 
-  const tabs = ['For You', 'Following', 'Trending', 'Reading List'];
-
   useEffect(() => {
     fetchThreads();
   }, [activeTab, user?.id]);
+
+  useEffect(() => {
+    if (!user) return;
+    // Fetch user's liked and bookmarked thread IDs for optimistic UI
+    Promise.all([
+      supabase.from('thread_likes').select('thread_id').eq('user_id', user.id).limit(200),
+      supabase.from('thread_bookmarks').select('thread_id').eq('user_id', user.id).limit(200),
+    ]).then(([{ data: likes }, { data: bookmarks }]) => {
+      setLikedIds(new Set((likes ?? []).map((l: any) => l.thread_id)));
+      setBookmarkedIds(new Set((bookmarks ?? []).map((b: any) => b.thread_id)));
+    });
+  }, [user?.id]);
+
+  const handleQuickLike = async (e: React.MouseEvent, threadId: string) => {
+    e.stopPropagation();
+    if (!user) { navigate('/auth'); return; }
+    const isLiked = likedIds.has(threadId);
+    setLikedIds(prev => { const s = new Set(prev); isLiked ? s.delete(threadId) : s.add(threadId); return s; });
+    setThreads(prev => prev.map(t => t.id === threadId ? { ...t, likes_count: t.likes_count + (isLiked ? -1 : 1) } : t));
+    if (isLiked) {
+      await supabase.from('thread_likes').delete().eq('thread_id', threadId).eq('user_id', user.id);
+    } else {
+      await supabase.from('thread_likes').insert({ thread_id: threadId, user_id: user.id });
+    }
+  };
+
+  const handleQuickBookmark = async (e: React.MouseEvent, threadId: string) => {
+    e.stopPropagation();
+    if (!user) { navigate('/auth'); return; }
+    const isBookmarked = bookmarkedIds.has(threadId);
+    setBookmarkedIds(prev => { const s = new Set(prev); isBookmarked ? s.delete(threadId) : s.add(threadId); return s; });
+    if (isBookmarked) {
+      await supabase.from('thread_bookmarks').delete().eq('thread_id', threadId).eq('user_id', user.id);
+      toast.success('Bookmark removed');
+    } else {
+      await supabase.from('thread_bookmarks').insert({ thread_id: threadId, user_id: user.id });
+      toast.success('Thread bookmarked!');
+    }
+  };
+
+  const filteredAndSorted = (() => {
+    let result = threads;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(t =>
+        t.title.toLowerCase().includes(q) ||
+        t.content.toLowerCase().includes(q) ||
+        t.user_profiles.username.toLowerCase().includes(q)
+      );
+    }
+    switch (sortBy) {
+      case 'Most Viewed': return [...result].sort((a, b) => b.views_count - a.views_count);
+      case 'Most Liked':  return [...result].sort((a, b) => b.likes_count - a.likes_count);
+      case 'Longest':     return [...result].sort((a, b) => b.content.length - a.content.length);
+      default:            return result;
+    }
+  })();
 
   const fetchThreads = async () => {
     setLoading(true);
@@ -168,37 +264,94 @@ export default function ThreadsPage() {
       <TopBar title="Threads" />
       <ThreadsAdBanner />
 
-      {/* Tabs */}
+      {/* Sticky header: tabs + search + sort */}
       <div className="sticky top-14 z-30 bg-background border-b border-border">
-        <div className="flex overflow-x-auto scrollbar-hide">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-shrink-0 px-6 py-4 font-semibold transition-colors border-b-2 ${
-                activeTab === tab
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:bg-muted/50'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
+        {showSearch ? (
+          <div className="flex items-center gap-2 px-4 py-2.5">
+            <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search threads, topics, authors…"
+              autoFocus
+              className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+            <button onClick={() => { setShowSearch(false); setSearchQuery(''); }} className="text-sm text-muted-foreground font-semibold hover:text-foreground">Cancel</button>
+          </div>
+        ) : (
+          <div className="flex items-center">
+            <div className="flex overflow-x-auto scrollbar-hide flex-1">
+              {THREADS_TABS.map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-shrink-0 px-5 py-4 font-semibold transition-colors border-b-2 text-sm ${
+                    activeTab === tab
+                      ? 'border-primary text-foreground'
+                      : 'border-transparent text-muted-foreground hover:bg-muted/50'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1 pr-3 shrink-0">
+              <button onClick={() => setShowSearch(true)} className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                <Search className="w-4 h-4" />
+              </button>
+              <div className="relative">
+                <button onClick={() => setShowSortMenu(v => !v)} className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                  <Filter className="w-4 h-4" />
+                </button>
+                {showSortMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)} />
+                    <div className="absolute right-0 top-full mt-1 w-44 bg-background border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                      {THREADS_SORT_OPTIONS.map(opt => (
+                        <button key={opt} onClick={() => { setSortBy(opt); setShowSortMenu(false); }}
+                          className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
+                            sortBy === opt ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-muted-foreground'
+                          }`}>{opt}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Search result count */}
+        {searchQuery && (
+          <div className="px-4 py-1.5 bg-muted/30 border-t border-border">
+            <p className="text-xs text-muted-foreground">
+              {filteredAndSorted.length} result{filteredAndSorted.length !== 1 ? 's' : ''} for <span className="font-semibold text-foreground">"{searchQuery}"</span>
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* AdSense banner — between tabs and thread list */}
+      {/* AdSense banner */}
       <PageAdBanner />
 
       {/* Create Thread */}
       {user && (
-        <div className="p-4 border-b border-border">
+        <div className="p-4 border-b border-border flex gap-2">
           <Button
             onClick={() => navigate('/threads/create')}
-            className="w-full rounded-full"
+            className="flex-1 rounded-full"
           >
             <Plus className="w-4 h-4 mr-2" />
             Create Thread
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/create-thread?template=poll')} className="rounded-full px-4" title="Create poll thread">
+            <BarChart3 className="w-4 h-4" />
           </Button>
         </div>
       )}
@@ -228,7 +381,7 @@ export default function ThreadsPage() {
         </div>
       ) : (
         <div className="divide-y divide-border">
-          {threads.map((thread) => (
+          {filteredAndSorted.map((thread) => (
             <article
               key={thread.id}
               onClick={() => navigate(`/thread/${thread.id}`)}
@@ -321,22 +474,33 @@ export default function ThreadsPage() {
                       />
                     )}
 
-                    {/* Stats */}
-                    <div className="flex items-center gap-4 text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <Heart className="w-3.5 h-3.5" />
+                    {/* Stats row with quick actions */}
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <button onClick={e => handleQuickLike(e, thread.id)}
+                        className={`flex items-center gap-1 transition-colors ${ likedIds.has(thread.id) ? 'text-pink-600' : 'hover:text-pink-600'}`}>
+                        <Heart className={`w-3.5 h-3.5 ${ likedIds.has(thread.id) ? 'fill-current' : ''}`} />
                         <span className="text-xs font-medium">{formatNumber(thread.likes_count)}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
+                      </button>
+                      <div className="flex items-center gap-1">
                         <MessageCircle className="w-3.5 h-3.5" />
                         <span className="text-xs font-medium">{formatNumber(thread.replies_count ?? 0)}</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <TrendingUp className="w-3.5 h-3.5" />
-                        <span className="text-xs font-medium">{formatNumber(thread.views_count)} views</span>
+                      <div className="flex items-center gap-1">
+                        <Eye className="w-3.5 h-3.5" />
+                        <span className="text-xs font-medium">{formatNumber(thread.views_count)}</span>
                       </div>
-                      <span className="ml-auto text-xs font-semibold text-primary hover:underline">Read →</span>
+                      <button onClick={e => handleQuickBookmark(e, thread.id)}
+                        className={`flex items-center gap-1 transition-colors ml-auto ${ bookmarkedIds.has(thread.id) ? 'text-primary' : 'hover:text-primary'}`}>
+                        <Bookmark className={`w-3.5 h-3.5 ${ bookmarkedIds.has(thread.id) ? 'fill-current' : ''}`} />
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); setExpandedAnalytics(prev => { const s = new Set(prev); s.has(thread.id) ? s.delete(thread.id) : s.add(thread.id); return s; }); }}
+                        className="flex items-center gap-1 hover:text-primary transition-colors">
+                        <BarChart3 className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="text-xs font-semibold text-primary hover:underline">Read →</span>
                     </div>
+                    {/* Expandable analytics */}
+                    {expandedAnalytics.has(thread.id) && <ThreadAnalyticsCard thread={thread} />}
                   </>
                 );
               })()}
