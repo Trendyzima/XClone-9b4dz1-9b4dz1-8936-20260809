@@ -1,6 +1,6 @@
 import { Analytics, StatusBar, Style, Capacitor } from '@/lib/capacitor-stub';
-import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider } from '@/components/layout/AuthProvider';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { RightSidebar } from '@/components/layout/RightSidebar';
@@ -11,7 +11,8 @@ import { LiveNotificationBanner } from '@/components/features/LiveNotificationBa
 import { useCreatorTierAlert } from '@/hooks/useCreatorTierAlert';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles, Check, X, ArrowRight } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 import HomePage from '@/pages/HomePage';
 import AuthPage from '@/pages/AuthPage';
 import VideosPage from '@/pages/VideosPage';
@@ -93,6 +94,147 @@ function PageLoader() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <Loader2 className="w-8 h-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
+// ── Interest Onboarding Bottom-Sheet (shown once after first login) ───────────
+const INTEREST_CHIPS = [
+  { tag: 'technology', emoji: '💻' }, { tag: 'ai', emoji: '🤖' },
+  { tag: 'music', emoji: '🎵' },      { tag: 'art', emoji: '🎨' },
+  { tag: 'football', emoji: '⚽' },   { tag: 'fitness', emoji: '💪' },
+  { tag: 'food', emoji: '🍜' },       { tag: 'travel', emoji: '✈️' },
+  { tag: 'finance', emoji: '💰' },    { tag: 'science', emoji: '🔬' },
+  { tag: 'gaming', emoji: '🎮' },     { tag: 'news', emoji: '📰' },
+];
+
+import { supabase } from '@/lib/supabase';
+
+function InterestOnboardingSheet() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [show, setShow] = useState(false);
+  // selected — plain array (esbuild guard: no Set<string> state)
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const key = `ts-interest-onboarded-${user.id}`;
+    const done = localStorage.getItem(key);
+    if (done) return;
+    // Show after a short delay so the home feed renders first
+    const t = setTimeout(() => setShow(true), 1800);
+    return () => clearTimeout(t);
+  }, [user?.id]);
+
+  const toggle = (tag: string) => {
+    setSelectedTags(prev =>
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleSave = async () => {
+    if (!user || selectedTags.length < 3) return;
+    setSaving(true);
+    for (const tag of selectedTags) {
+      let hashtagId: string | null = null;
+      const { data: existing } = await supabase.from('hashtags').select('id').eq('tag', tag).maybeSingle();
+      if (existing?.id) hashtagId = existing.id;
+      else {
+        const { data: newTag } = await supabase.from('hashtags').insert({ tag }).select('id').single();
+        hashtagId = newTag?.id ?? null;
+      }
+      if (hashtagId) {
+        await supabase.from('user_interests').upsert(
+          { user_id: user.id, hashtag_id: hashtagId, interest_score: 1.0 },
+          { onConflict: 'user_id,hashtag_id' }
+        ).catch(() => {});
+      }
+    }
+    localStorage.setItem(`ts-interest-onboarded-${user.id}`, '1');
+    setSaving(false);
+    setShow(false);
+  };
+
+  const handleDismiss = () => {
+    if (user) localStorage.setItem(`ts-interest-onboarded-${user.id}`, '1');
+    setShow(false);
+  };
+
+  if (!show || !user) return null;
+
+  return (
+    <div className="fixed inset-0 z-[600] flex items-end justify-center" onClick={handleDismiss}>
+      <div
+        className="w-full max-w-2xl bg-background rounded-t-3xl border-t border-border shadow-2xl p-5 pb-8 max-h-[80vh] overflow-y-auto animate-in slide-in-from-bottom duration-300"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Handle */}
+        <div className="flex justify-center mb-4">
+          <div className="w-10 h-1.5 rounded-full bg-muted" />
+        </div>
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="font-bold text-lg leading-tight">What are you into?</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Pick at least 3 topics to personalise your feed</p>
+            </div>
+          </div>
+          <button onClick={handleDismiss} className="p-1.5 rounded-full hover:bg-muted text-muted-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Interest chips */}
+        <div className="flex flex-wrap gap-2 mb-5">
+          {INTEREST_CHIPS.map(({ tag, emoji }) => {
+            const sel = selectedTags.includes(tag);
+            return (
+              <button
+                key={tag}
+                onClick={() => toggle(tag)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-semibold transition-all active:scale-95 ${
+                  sel
+                    ? 'bg-primary border-primary text-primary-foreground shadow-sm'
+                    : 'bg-muted/30 border-border text-foreground hover:border-primary/40 hover:bg-primary/5'
+                }`}
+              >
+                <span className="text-base leading-none">{emoji}</span>
+                <span>#{tag}</span>
+                {sel && <Check className="w-3 h-3" />}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* CTA */}
+        <div className="flex gap-3">
+          <button
+            onClick={() => { navigate('/interests'); handleDismiss(); }}
+            className="flex-1 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors"
+          >
+            See all topics
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || selectedTags.length < 3}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+              selectedTags.length >= 3
+                ? 'bg-primary text-primary-foreground hover:opacity-90'
+                : 'bg-muted text-muted-foreground cursor-not-allowed'
+            }`}
+          >
+            {saving
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <><Sparkles className="w-4 h-4" />Save {selectedTags.length >= 3 ? `${selectedTags.length} interests` : `(${3 - selectedTags.length} more)`}</>
+            }
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -212,6 +354,7 @@ function AppInner() {
         <LiveNotificationBanner />
         <BottomNav />
         <FloatingActionButton />
+        <InterestOnboardingSheet />
       </div>
 
       <Toaster />

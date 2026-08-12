@@ -842,7 +842,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               onMouseUp={handleViewsMouseUp}
               onTouchStart={handleViewsMouseDown}
               onTouchEnd={handleViewsMouseUp}
-              onClick={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); setShowFullAnalytics(true); fetchFullAnalyticsData(); }}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer select-none"
             >
               <Eye className="w-3.5 h-3.5" />

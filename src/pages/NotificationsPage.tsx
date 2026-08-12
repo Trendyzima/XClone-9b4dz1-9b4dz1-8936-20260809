@@ -82,35 +82,49 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<NotifTab>('all');
   const [page, setPage] = useState(0);
 
-  // ── Group consecutive like/repost rows by post_id ────────────────────────
+  // ── Smart Notification Grouping: group likes/reposts by post, and consecutive follows ──
   function groupNotifications(notifs: any[]): any[] {
     const result: any[] = [];
-    let i = 0;
-    while (i < notifs.length) {
+    const used = new Set<number>();
+    for (let i = 0; i < notifs.length; i++) {
+      if (used.has(i)) continue;
       const n = notifs[i];
+      // Group likes + reposts by same post_id across nearby window
       if (n.type === 'like' || n.type === 'repost') {
-        // collect all same-type + same-post consecutive rows
         const group: any[] = [n];
-        let j = i + 1;
-        while (
-          j < notifs.length &&
-          notifs[j].type === n.type &&
-          notifs[j].post_id === n.post_id
-        ) {
-          group.push(notifs[j]);
-          j++;
+        used.add(i);
+        for (let j = i + 1; j < Math.min(notifs.length, i + 20); j++) {
+          if (!used.has(j) && notifs[j].type === n.type && notifs[j].post_id === n.post_id) {
+            group.push(notifs[j]);
+            used.add(j);
+          }
         }
         if (group.length > 1) {
-          result.push({ _grouped: true, type: n.type, post_id: n.post_id, post: n.post, items: group, created_at: n.created_at, read: group.every(g => g.read) });
-          i = j;
+          result.push({ _grouped: true, type: n.type, post_id: n.post_id, post: n.post, items: group, created_at: n.created_at, read: group.every((g: any) => g.read) });
         } else {
           result.push(n);
-          i++;
         }
-      } else {
-        result.push(n);
-        i++;
+        continue;
       }
+      // Group follows: collapse consecutive follow notifications
+      if (n.type === 'follow') {
+        const group: any[] = [n];
+        used.add(i);
+        for (let j = i + 1; j < Math.min(notifs.length, i + 10); j++) {
+          if (!used.has(j) && notifs[j].type === 'follow') {
+            group.push(notifs[j]);
+            used.add(j);
+          }
+        }
+        if (group.length > 1) {
+          result.push({ _grouped: true, type: 'follow', post_id: null, post: null, items: group, created_at: n.created_at, read: group.every((g: any) => g.read) });
+        } else {
+          result.push(n);
+        }
+        continue;
+      }
+      used.add(i);
+      result.push(n);
     }
     return result;
   }
@@ -517,12 +531,14 @@ export default function NotificationsPage() {
                         )}
                         {!n.read && <div className="w-2 h-2 bg-primary rounded-full ml-auto shrink-0" />}
                       </div>
-                      {/* Summary text */}
+                      {/* Summary text — handle follow groups too */}
                       <p className="text-sm">
                         <span className="font-bold">{n.items[0].from_user?.username ?? 'Someone'}</span>
                         {n.items.length === 2 && <> and <span className="font-bold">{n.items[1].from_user?.username ?? 'another'}</span></>}
                         {n.items.length > 2 && <> and <span className="font-semibold">{n.items.length - 1} others</span></>}
-                        <span className="text-muted-foreground">{n.type === 'like' ? ' liked' : ' reposted'} your post</span>
+                        <span className="text-muted-foreground">
+                          {n.type === 'like' ? ' liked' : n.type === 'repost' ? ' reposted' : ' followed'} your {n.type === 'follow' ? 'account' : 'post'}
+                        </span>
                       </p>
                       {n.post?.content && (
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{n.post.content}</p>

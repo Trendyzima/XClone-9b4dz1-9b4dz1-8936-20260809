@@ -58,6 +58,9 @@ export default function ExplorePage() {
   const [creatingChallenge, setCreatingChallenge] = useState(false);
   // Trending tab — category filter
   const [trendingTagFilter, setTrendingTagFilter] = useState('All');
+  // ── Trending Posts Feed (top views in last 48h) ──
+  const [trendingPosts, setTrendingPosts] = useState<any[]>([]);
+  const [trendingPostsLoading, setTrendingPostsLoading] = useState(false);
   // ── Search History (localStorage, max 8) ─────────────────────────────────
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
@@ -130,7 +133,22 @@ export default function ExplorePage() {
     fetchData();
     fetchActiveChallenges();
     fetchExploreStories();
+    fetchTrendingPosts();
   }, [activeTab, user?.id]);
+
+  const fetchTrendingPosts = async () => {
+    setTrendingPostsLoading(true);
+    const since48h = new Date(Date.now() - 48 * 3600000).toISOString();
+    const { data } = await supabase
+      .from('posts')
+      .select('id, content, image_url, video_url, media_urls, is_video, views_count, likes_count, user_profiles(id, username, avatar_url, verified)')
+      .is('community_id', null)
+      .gte('created_at', since48h)
+      .order('views_count', { ascending: false })
+      .limit(10);
+    setTrendingPosts(data ?? []);
+    setTrendingPostsLoading(false);
+  };
 
   // Story progress timer
   useEffect(() => {
@@ -491,6 +509,69 @@ export default function ExplorePage() {
                       </div>
                     </button>
                   ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Trending Posts Feed — top 10 by views in last 48h */}
+          {(trendingPostsLoading || trendingPosts.length > 0) && (
+            <section className="border-b border-border">
+              <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                <h2 className="font-bold text-xl flex items-center gap-2"><Flame className="w-5 h-5 text-orange-500" />Trending Posts</h2>
+                <span className="text-xs text-muted-foreground">Last 48h</span>
+              </div>
+              {trendingPostsLoading ? (
+                <div className="flex gap-3 px-4 pb-4 overflow-x-auto scrollbar-hide">
+                  {[0,1,2].map(i => <div key={i} className="shrink-0 w-48 h-64 rounded-2xl bg-muted animate-pulse" />)}
+                </div>
+              ) : (
+                <div className="flex gap-3 px-4 pb-4 overflow-x-auto scrollbar-hide">
+                  {trendingPosts.map((post: any, idx: number) => {
+                    const thumb = post.image_url || (post.media_urls?.[0]) || null;
+                    const uname = post.user_profiles?.username ?? '';
+                    const isVid = post.is_video || !!post.video_url;
+                    return (
+                      <button
+                        key={post.id}
+                        onClick={() => navigate(`/post/${post.id}`)}
+                        className="shrink-0 w-48 rounded-2xl overflow-hidden bg-zinc-900 relative hover:scale-[1.03] active:scale-[0.97] transition-transform focus:outline-none"
+                        style={{ height: 200 }}
+                      >
+                        {thumb
+                          ? <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                          : isVid && post.video_url
+                            ? <video src={`${post.video_url}#t=0.5`} className="absolute inset-0 w-full h-full object-cover" muted preload="metadata" />
+                            : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/20 to-purple-500/20" />}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/20" />
+                        {/* Rank badge */}
+                        <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                          <span className={`text-[10px] font-black ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-white/70'}`}>#{idx+1}</span>
+                        </div>
+                        {isVid && (
+                          <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center">
+                            <Play className="w-3 h-3 text-white fill-white" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 p-2.5">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <div className="w-5 h-5 rounded-full bg-muted overflow-hidden shrink-0">
+                              {post.user_profiles?.avatar_url
+                                ? <img src={post.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                                : <div className="w-full h-full bg-primary/20 flex items-center justify-center text-[8px] font-bold text-primary">{uname[0]?.toUpperCase()}</div>}
+                            </div>
+                            <span className="text-white text-[10px] font-semibold truncate">@{uname}</span>
+                            {post.user_profiles?.verified && <BadgeCheck className="w-3 h-3 text-primary shrink-0" fill="currentColor" />}
+                          </div>
+                          <p className="text-white text-[11px] font-medium line-clamp-2 leading-tight mb-1.5">{(post.content ?? '').slice(0, 60)}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center gap-0.5 text-white/70 text-[10px]"><Eye className="w-2.5 h-2.5" />{formatNumber(post.views_count ?? 0)}</span>
+                            <span className="flex items-center gap-0.5 text-white/70 text-[10px]"><Star className="w-2.5 h-2.5" />{formatNumber(post.likes_count ?? 0)}</span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </section>
