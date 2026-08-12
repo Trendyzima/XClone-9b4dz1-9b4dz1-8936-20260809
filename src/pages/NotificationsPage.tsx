@@ -10,8 +10,9 @@ import {
   BadgeCheck, Loader2, DollarSign, CheckCircle2, Smartphone,
   TrendingUp, Bell, CreditCard, ArrowDownLeft, Globe, UserCheck,
   Star, ExternalLink, RefreshCw, Flame, Trophy, Zap, XCircle, Megaphone,
-  Settings2,
+  Settings2, Send as SendIcon, X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import { useFediversePolling } from '@/hooks/useFediversePolling';
@@ -21,6 +22,56 @@ function NotificationsAdBanner() { return <PageAdBanner />; }
 const PAGE_SIZE = 20;
 
 type NotifTab = 'all' | 'mentions' | 'payments' | 'fediverse';
+
+// ── Inline Mention Reply Component ───────────────────────────────────────────
+function MentionReplyInput({ postId, onPosted }: { postId: string; onPosted: () => void }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [text, setText] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [show, setShow] = useState(false);
+
+  const submit = async () => {
+    if (!user) { navigate('/auth'); return; }
+    if (!text.trim()) return;
+    setPosting(true);
+    const { error } = await supabase.from('replies').insert({ post_id: postId, user_id: user.id, content: text.trim() });
+    if (!error) {
+      setText('');
+      setShow(false);
+      toast.success('Reply sent!');
+      onPosted();
+    } else {
+      toast.error('Failed to send reply');
+    }
+    setPosting(false);
+  };
+
+  if (!show) {
+    return (
+      <button onClick={() => setShow(true)}
+        className="mt-2 flex items-center gap-1.5 text-xs text-primary font-semibold hover:underline transition-colors">
+        <MessageCircle className="w-3.5 h-3.5" />Reply
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-2" onClick={e => e.stopPropagation()}>
+      <input type="text" value={text} onChange={e => setText(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } if (e.key === 'Escape') setShow(false); }}
+        placeholder="Write a reply…" maxLength={280} autoFocus
+        className="flex-1 text-sm bg-muted/60 border border-border rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+      <button onClick={submit} disabled={!text.trim() || posting}
+        className="text-primary disabled:opacity-30 transition-opacity">
+        {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendIcon className="w-4 h-4" />}
+      </button>
+      <button onClick={() => { setShow(false); setText(''); }} className="text-muted-foreground hover:text-foreground">
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
 
 export default function NotificationsPage() {
   useSEO({ noindex: true, title: 'Notifications', url: '/notifications' });
@@ -266,10 +317,12 @@ export default function NotificationsPage() {
 
   const tabs: { key: NotifTab; label: string }[] = [
     { key: 'all',       label: 'All'       },
-    { key: 'mentions',  label: 'Mentions'  },
+    { key: 'mentions',  label: '@Mentions' },
     { key: 'payments',  label: 'Payments'  },
     { key: 'fediverse', label: 'Fediverse' },
   ];
+
+  const unreadMentions = notifications.filter(n => n.type === 'mention' && !n.read).length;
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
@@ -284,13 +337,18 @@ export default function NotificationsPage() {
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
-                className={`flex-1 min-w-[80px] py-4 font-semibold transition-colors border-b-2 text-sm whitespace-nowrap ${
+                className={`flex-1 min-w-[80px] py-4 font-semibold transition-colors border-b-2 text-sm whitespace-nowrap relative ${
                   activeTab === key
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground hover:bg-muted/50'
                 }`}
               >
                 {label}
+                {key === 'mentions' && unreadMentions > 0 && (
+                  <span className="absolute top-2.5 right-1.5 min-w-[16px] h-4 bg-primary text-primary-foreground text-[9px] font-black rounded-full flex items-center justify-center px-0.5">
+                    {unreadMentions > 9 ? '9+' : unreadMentions}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -408,6 +466,12 @@ export default function NotificationsPage() {
                 <p className="font-semibold">No payment notifications yet</p>
                 <p className="text-sm mt-1">Deposits, payouts, and boosts will appear here</p>
               </>
+            ) : activeTab === 'mentions' ? (
+              <>
+                <AtSign className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                <p className="font-semibold">No mentions yet</p>
+                <p className="text-sm mt-1">When someone @mentions you in a post, it'll appear here</p>
+              </>
             ) : (
               <>
                 <Bell className="w-12 h-12 mx-auto mb-3 opacity-40" />
@@ -496,6 +560,66 @@ export default function NotificationsPage() {
                           {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
                         </span>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              ) : n.type === 'mention' ? (
+                /* ── Mention card with inline reply ── */
+                <div
+                  key={n.id}
+                  ref={idx === notifications.length - 1 ? lastElementRef : null}
+                  className={`border-b border-border p-4 transition-colors bg-primary/[0.02] hover:bg-primary/[0.04] ${
+                    !n.read ? 'border-l-2 border-l-primary' : ''
+                  }`}
+                >
+                  <div className="flex gap-3">
+                    <div className="shrink-0">
+                      {n.from_user?.avatar_url ? (
+                        <img src={n.from_user.avatar_url} alt={n.from_user.username}
+                          className="w-10 h-10 rounded-full object-cover cursor-pointer"
+                          onClick={() => navigate(`/profile/${n.from_user.username}`)} />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary cursor-pointer"
+                          onClick={() => navigate(`/profile/${n.from_user?.username}`)}>
+                          {n.from_user?.username?.[0]?.toUpperCase() ?? '@'}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-primary uppercase tracking-wide">
+                          <AtSign className="w-3 h-3" />Mention
+                        </span>
+                        {!n.read && <span className="w-2 h-2 bg-primary rounded-full" />}
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 mb-1">
+                        <button onClick={() => navigate(`/profile/${n.from_user?.username}`)}
+                          className="font-bold text-sm hover:underline">{n.from_user?.username}</button>
+                        {n.from_user?.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary" fill="currentColor" />}
+                        <span className="text-sm text-muted-foreground">mentioned you</span>
+                      </div>
+                      {/* Post content preview */}
+                      {n.post?.content && (
+                        <button onClick={() => n.post_id && navigate(`/post/${n.post_id}`)}
+                          className="w-full text-left mt-1 mb-1 px-3 py-2 bg-muted/50 border border-border rounded-xl hover:bg-muted/80 transition-colors">
+                          <p className="text-sm text-foreground line-clamp-3 leading-relaxed">{n.post.content}</p>
+                          {n.post_id && (
+                            <span className="text-xs text-primary font-semibold mt-1 block hover:underline">
+                              View post →
+                            </span>
+                          )}
+                        </button>
+                      )}
+                      {/* Inline reply */}
+                      {n.post_id && (
+                        <MentionReplyInput
+                          postId={n.post_id}
+                          onPosted={() => fetchNotifications(0)}
+                        />
+                      )}
                     </div>
                   </div>
                 </div>

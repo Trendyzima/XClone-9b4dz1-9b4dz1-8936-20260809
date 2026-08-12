@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import {
   Loader2, Image as ImageIcon, Video as VideoIcon, X, Wand2, Sparkles,
-  Bold, Italic, Heading2, Quote, List, Type, FileText, Clock, Save, LayoutList, Code, Link2, Play, ExternalLink,
+  Bold, Italic, Heading2, Quote, List, Type, FileText, Clock, Save, LayoutList, Code, Link2, Play, ExternalLink, BookOpen, Check,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { toast as sonnerToast } from 'sonner';
@@ -148,6 +148,29 @@ export default function CreateThreadPage() {
     const raw = data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? '';
     if (raw.trim()) setContent(prev => prev ? prev + '\n\n' + raw.trim() : raw.trim());
     setAiVideoCaptionLoading(false);
+  };
+
+  // ── Series Linking ─────────────────────────────────────────────────────
+  const [showSeriesDialog, setShowSeriesDialog] = useState(false);
+  const [seriesList, setSeriesList] = useState<any[]>([]);
+  const [selectedSeries, setSelectedSeries] = useState<{ id: string; name: string } | null>(null);
+  const [seriesLoading, setSeriesLoading] = useState(false);
+
+  const loadSeries = async () => {
+    if (!user) return;
+    setSeriesLoading(true);
+    const { data } = await supabase.from('post_series')
+      .select('id, name, description, item_count, cover_image')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(20);
+    setSeriesList(data ?? []);
+    setSeriesLoading(false);
+  };
+
+  const openSeriesDialog = () => {
+    setShowSeriesDialog(true);
+    if (seriesList.length === 0) loadSeries();
   };
 
   // ── Embed URL Dialog ───────────────────────────────────────────────────
@@ -334,7 +357,8 @@ Requirements:
       }
 
       const parsedChapters = parseChaptersForDB();
-      const { error } = await supabase.from('threads').insert({
+      // Insert thread
+      const { error, data: threadData } = await supabase.from('threads').insert({
         user_id: user.id,
         title: title.trim(),
         content: content.trim(),
@@ -344,9 +368,17 @@ Requirements:
         media_urls: uploadedMediaUrls.length > 0 ? uploadedMediaUrls : [],
         chapters: parsedChapters.length > 0 ? parsedChapters : null,
         is_published: true,
-      });
+      }).select('id').single();
 
       if (error) throw error;
+
+      // Link to series if selected
+      if (selectedSeries && (threadData as any)?.id) {
+        const { count } = await supabase.from('post_series_items').select('*', { count: 'exact', head: true }).eq('series_id', selectedSeries.id);
+        const position = (count ?? 0) + 1;
+        await supabase.from('post_series_items').insert({ series_id: selectedSeries.id, post_id: (threadData as any).id, position }).catch(() => {});
+        await supabase.from('post_series').update({ item_count: position, updated_at: new Date().toISOString() }).eq('id', selectedSeries.id).catch(() => {});
+      }
 
       // Clear draft on success
       localStorage.removeItem(DRAFT_KEY);
@@ -588,11 +620,81 @@ Requirements:
             >
               <Link2 className="w-3.5 h-3.5" />
             </button>
+            {/* Series button */}
+            <button
+              onClick={openSeriesDialog}
+              title="Link to a series"
+              className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95 ${
+                selectedSeries ? 'bg-purple-500/15 text-purple-600' : 'hover:bg-background hover:shadow-sm text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+            </button>
             <div className="ml-auto flex items-center gap-3 pr-1 text-[10px] text-muted-foreground">
               <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{wordCount} words</span>
               <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{Math.max(1, Math.ceil(wordCount / 200))} min read</span>
             </div>
           </div>
+
+          {/* Selected series badge */}
+          {selectedSeries && (
+            <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-purple-500/8 border border-purple-500/20 rounded-xl">
+              <BookOpen className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+              <span className="text-xs font-bold text-purple-700 dark:text-purple-400">Part of series:</span>
+              <span className="text-xs font-semibold text-foreground truncate flex-1">{selectedSeries.name}</span>
+              <button onClick={() => setSelectedSeries(null)} className="text-muted-foreground hover:text-destructive shrink-0">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Series picker dialog */}
+          {showSeriesDialog && (
+            <div className="mb-3 rounded-2xl border-2 border-dashed border-purple-500/30 bg-purple-500/[0.03] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-purple-500" />
+                  <span className="text-sm font-bold">Link to Series</span>
+                  {selectedSeries && <Check className="w-4 h-4 text-green-500" />}
+                </div>
+                <button onClick={() => setShowSeriesDialog(false)}
+                  className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
+              </div>
+              {seriesLoading ? (
+                <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+              ) : seriesList.length === 0 ? (
+                <div className="text-center py-6">
+                  <BookOpen className="w-8 h-8 text-muted-foreground/20 mx-auto mb-2" />
+                  <p className="text-xs text-muted-foreground">No series yet — create one in your profile</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-56 overflow-y-auto">
+                  {seriesList.map(s => (
+                    <button key={s.id}
+                      onClick={() => { setSelectedSeries({ id: s.id, name: s.name }); setShowSeriesDialog(false); }}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                        selectedSeries?.id === s.id
+                          ? 'border-purple-500 bg-purple-500/10'
+                          : 'border-border hover:border-purple-500/40 hover:bg-purple-500/5'
+                      }`}>
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/20 to-primary/20 flex items-center justify-center shrink-0">
+                        {s.cover_image
+                          ? <img src={s.cover_image} alt={s.name} className="w-full h-full object-cover rounded-lg" />
+                          : <BookOpen className="w-5 h-5 text-purple-500" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold truncate">{s.name}</p>
+                        <p className="text-xs text-muted-foreground">{s.item_count ?? 0} parts</p>
+                      </div>
+                      {selectedSeries?.id === s.id && <Check className="w-4 h-4 text-purple-500 shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => navigate('/series')}
+                className="w-full py-2 text-xs text-primary font-semibold hover:underline">Manage series →</button>
+            </div>
+          )}
 
           {/* Embed dialog — inline below toolbar */}
           {showEmbedDialog && (

@@ -59,7 +59,9 @@ export function MonetizationDashboard() {
   const [credits, setCredits]           = useState(0);
   const [dailyReward, setDailyReward]   = useState<any>(null);
   const [claimingReward, setClaimingReward] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'credits' | 'earnings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'credits' | 'earnings' | 'mentions'>('overview');
+  const [mentionChartData, setMentionChartData] = useState<any[]>([]);
+  const [mentionTotal, setMentionTotal] = useState(0);
   const [rateInfo,   setRateInfo]   = useState<any | null>(null);
 
   // ── Earnings Milestone Alerts ──────────────────────────────────────────────
@@ -105,6 +107,27 @@ export function MonetizationDashboard() {
       setPostCount(postCountRes.count ?? 0);
       setVideoCount(videoCountRes.count ?? 0);
       setRateInfo(rateRes.data);
+
+      // Build 30-day mention analytics
+      const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+      const { data: mentionRows } = await supabase
+        .from('notifications')
+        .select('created_at')
+        .eq('user_id', user.id)
+        .eq('type', 'mention')
+        .gte('created_at', thirtyDaysAgo.toISOString());
+      const last30 = Array.from({ length: 30 }, (_, i) => {
+        const d = new Date(); d.setDate(d.getDate() - (29 - i)); return d.toISOString().split('T')[0];
+      });
+      const mentionByDay: { [k: string]: number } = {};
+      last30.forEach(d => { mentionByDay[d] = 0; });
+      (mentionRows ?? []).forEach((r: any) => {
+        const day = r.created_at?.split('T')[0];
+        if (day && mentionByDay[day] !== undefined) mentionByDay[day]++;
+      });
+      const mentionData = last30.map(d => ({ date: d.slice(5), count: mentionByDay[d] }));
+      setMentionChartData(mentionData);
+      setMentionTotal((mentionRows ?? []).length);
 
       const earningsList = earningsRes.data || [];
       setEarnings(earningsList);
@@ -346,11 +369,11 @@ ${tableHtml}
 
         {/* Tabs */}
         <div className="flex bg-muted/30 rounded-xl p-1 gap-1">
-          {(['overview', 'credits', 'earnings'] as const).map(tab => (
+          {(['overview', 'credits', 'earnings', 'mentions'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold capitalize transition-all ${
                 activeTab === tab ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-              }`}>{tab}</button>
+              }`}>{tab === 'mentions' ? '@Mentions' : tab}</button>
           ))}
         </div>
 
@@ -594,6 +617,69 @@ ${tableHtml}
               <p className="text-xs text-center text-muted-foreground">💳 Secure payments via Stripe</p>
             </div>
           </>
+        )}
+
+        {/* ─── MENTIONS ─── */}
+        {activeTab === 'mentions' && (
+          <div className="space-y-4">
+            {/* Summary card */}
+            <div className="bg-gradient-to-br from-primary/10 to-blue-500/10 border border-primary/20 rounded-2xl p-5">
+              <div className="flex items-center gap-3 mb-1">
+                <div className="w-10 h-10 rounded-2xl bg-primary/15 flex items-center justify-center">
+                  <span className="text-lg font-black text-primary">@</span>
+                </div>
+                <div>
+                  <p className="text-2xl font-black text-primary">{mentionTotal}</p>
+                  <p className="text-xs text-muted-foreground">@mentions in the last 30 days</p>
+                </div>
+              </div>
+            </div>
+            {/* 30-day bar chart */}
+            <div className="bg-card border border-border rounded-2xl p-4">
+              <h3 className="font-bold text-sm mb-4 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-primary" />
+                Daily @Mentions — Last 30 Days
+              </h3>
+              {mentionTotal === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <span className="text-4xl font-black opacity-20 mb-2">@</span>
+                  <p className="text-sm font-medium">No mentions yet</p>
+                  <p className="text-xs mt-1">When someone @mentions you, it appears here</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={mentionChartData} margin={{ top: 4, right: 4, left: -25, bottom: 0 }} barSize={8}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                    <XAxis dataKey="date" tick={{ fontSize: 9 }} interval={4} />
+                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip formatter={(v: any) => [v, '@Mentions']} />
+                    <Bar dataKey="count" name="@Mentions" fill="var(--primary)" radius={[3, 3, 0, 0]} opacity={0.85} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            {/* Peak day */}
+            {mentionTotal > 0 && (() => {
+              const peak = mentionChartData.reduce((a, b) => (a.count >= b.count ? a : b), mentionChartData[0]);
+              const avg = (mentionTotal / 30).toFixed(1);
+              return (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-card border border-border rounded-xl p-4 text-center">
+                    <p className="text-2xl font-black text-primary">{peak.count}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Peak day ({peak.date})</p>
+                  </div>
+                  <div className="bg-card border border-border rounded-xl p-4 text-center">
+                    <p className="text-2xl font-black text-primary">{avg}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Daily average</p>
+                  </div>
+                </div>
+              );
+            })()}
+            <button onClick={() => navigate('/notifications?tab=mentions')}
+              className="w-full py-3 border border-primary/30 text-primary font-semibold text-sm rounded-xl hover:bg-primary/5 transition-colors flex items-center justify-center gap-2">
+              <span>@</span> View All Mentions
+            </button>
+          </div>
         )}
 
         {/* ─── EARNINGS ─── */}
