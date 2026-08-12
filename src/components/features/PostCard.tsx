@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon, Crown, Megaphone, Quote } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon, Crown, Megaphone, Quote, Activity } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types/app-types';
 import { formatDistanceToNow } from 'date-fns';
@@ -352,10 +352,47 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     }
   };
 
-  // Report state
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [reportCategory, setReportCategory] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
+
+  // Full Post Analytics Modal
+  const [showFullAnalytics, setShowFullAnalytics] = useState(false);
+  const [fullAnalyticsData, setFullAnalyticsData] = useState<{ date: string; views: number }[] | null>(null);
+  const [fullAnalyticsLoading, setFullAnalyticsLoading] = useState(false);
+  const [fullAnalyticsMeta, setFullAnalyticsMeta] = useState<{ views: number; unique: number; engagement: number; shares: number } | null>(null);
+
+  const fetchFullAnalyticsData = useCallback(async () => {
+    if (fullAnalyticsData) return;
+    setFullAnalyticsLoading(true);
+    // 7-day daily view counts from browsing_history
+    const since = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+    const [historyRes, analyticsRes] = await Promise.all([
+      supabase.from('browsing_history').select('created_at').eq('post_id', post.id).eq('view_type', 'post').gte('created_at', since),
+      supabase.from('post_analytics').select('views, unique_viewers, engagement_rate, shares').eq('post_id', post.id).maybeSingle(),
+    ]);
+    // Build 7-day chart — parallel arrays, no index-sig (esbuild guard)
+    const dayKeys: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      dayKeys.push(d.toISOString().slice(0, 10));
+    }
+    const counts = new Array<number>(7).fill(0);
+    for (const row of (historyRes.data ?? [])) {
+      const day = String(row.created_at ?? '').slice(0, 10);
+      const idx = dayKeys.indexOf(day);
+      if (idx >= 0) counts[idx]++;
+    }
+    setFullAnalyticsData(dayKeys.map((d, i) => ({ date: d.slice(5), views: counts[i] })));
+    const a = analyticsRes.data;
+    setFullAnalyticsMeta({
+      views: a?.views ?? post.views_count ?? 0,
+      unique: a?.unique_viewers ?? 0,
+      engagement: Number(a?.engagement_rate ?? 0),
+      shares: a?.shares ?? 0,
+    });
+    setFullAnalyticsLoading(false);
+  }, [post.id, post.views_count, fullAnalyticsData]);
 
   const handleSubmitReport = async () => {
     if (!user || !reportCategory) return;
@@ -614,7 +651,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                         </button>
                       )}
                       <button
-                        onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(false); navigate(`/post-analytics/${post.id}`); }}
+                        onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(false); setShowFullAnalytics(true); fetchFullAnalyticsData(); }}
                         className="w-full text-left px-4 py-3 hover:bg-muted flex items-center gap-2"
                       >
                         <BarChart3 className="w-4 h-4 text-blue-500" /> Post Analytics
@@ -1148,8 +1185,88 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         </div>
       )}
 
+      {/* Full Post Analytics Modal */}
+      {showFullAnalytics && (
+        <div className="fixed inset-0 z-[350] bg-black/70 flex items-end sm:items-center justify-center" onClick={e => { e.stopPropagation(); setShowFullAnalytics(false); }}>
+          <div className="w-full max-w-md bg-background rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-primary" />
+                <h2 className="font-black text-base">Post Analytics</h2>
+              </div>
+              <button onClick={() => setShowFullAnalytics(false)} className="p-2 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-5">
+              {/* Post preview */}
+              <div className="p-3 bg-muted/40 rounded-xl">
+                <p className="text-xs text-muted-foreground line-clamp-2">{post.content?.slice(0, 120)}{(post.content?.length ?? 0) > 120 ? '…' : ''}</p>
+              </div>
+              {fullAnalyticsLoading ? (
+                <div className="flex justify-center py-8"><TransLoader className="w-7 h-7 animate-spin text-primary" /></div>
+              ) : (
+                <>
+                  {/* KPI grid */}
+                  {fullAnalyticsMeta && (
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { label: 'Total Views',   val: (fullAnalyticsMeta.views).toLocaleString(),               icon: Eye,         color: 'text-blue-500',   bg: 'from-blue-500/15' },
+                        { label: 'Unique Viewers',val: (fullAnalyticsMeta.unique).toLocaleString(),              icon: Users,       color: 'text-purple-500', bg: 'from-purple-500/15' },
+                        { label: 'Engagement',    val: fullAnalyticsMeta.engagement.toFixed(1) + '%',            icon: TrendingUp,  color: 'text-green-500',  bg: 'from-green-500/15' },
+                        { label: 'Shares',        val: (fullAnalyticsMeta.shares).toLocaleString(),              icon: Share,       color: 'text-orange-500', bg: 'from-orange-500/15' },
+                      ].map(s => (
+                        <div key={s.label} className={`p-3.5 rounded-2xl bg-gradient-to-br ${s.bg} to-transparent border border-border`}>
+                          <s.icon className={`w-4 h-4 mb-2 ${s.color}`} />
+                          <p className="font-black text-xl leading-none">{s.val}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* 7-day views chart */}
+                  {fullAnalyticsData && (
+                    <div className="bg-card border border-border rounded-2xl p-4">
+                      <p className="text-sm font-bold mb-3 flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-blue-500" />Views (Last 7 Days)
+                      </p>
+                      {fullAnalyticsData.some(d => d.views > 0) ? (
+                        <>
+                          <div className="flex items-end gap-1 h-24">
+                            {fullAnalyticsData.map(d => {
+                              const maxV = Math.max(...fullAnalyticsData.map(x => x.views), 1);
+                              const pct = Math.max(4, Math.round((d.views / maxV) * 100));
+                              return (
+                                <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
+                                  <span className="text-[9px] text-muted-foreground">{d.views > 0 ? d.views : ''}</span>
+                                  <div className="w-full rounded-t-sm bg-primary/70" style={{ height: pct + '%' }} />
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="flex gap-1 mt-1">
+                            {fullAnalyticsData.map(d => (
+                              <div key={d.date} className="flex-1 text-center">
+                                <span className="text-[9px] text-muted-foreground font-mono">{d.date}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center h-20 text-muted-foreground text-xs">No view data in the last 7 days</div>
+                      )}
+                    </div>
+                  )}
+                  <button onClick={() => { setShowFullAnalytics(false); navigate(`/post-analytics/${post.id}`); }}
+                    className="w-full py-2.5 border border-border rounded-xl text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
+                    <BarChart3 className="w-4 h-4" />Full Analytics Dashboard
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showReportDialog && (
-        <div className="fixed inset-0 z-[350] bg-black/60" onClick={(e) => { e.stopPropagation(); setShowReportDialog(false); }}>
           <div className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <div>
