@@ -3,13 +3,22 @@ import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import {
   Shield, AlertTriangle, Ban, Megaphone, CheckCircle, XCircle,
-  MessageSquare, Eye, Heart, Flag, Globe, Zap,
+  MessageSquare, Eye, Flag, Globe, Zap,
 } from 'lucide-react';
 
-// Module-level constants — esbuild guard
-const MODERATION_CATEGORIES = [
+// ── Module-level data — NO `as const`, NO icon lookups in render (esbuild guard) ──
+
+interface CatDef {
+  color: string;
+  bg: string;
+  title: string;
+  desc: string;
+  allowed: string[];
+  prohibited: string[];
+}
+
+const MODERATION_CATEGORIES: CatDef[] = [
   {
-    icon: AlertTriangle,
     color: 'text-red-500',
     bg: 'bg-red-500/10 border-red-500/20',
     title: 'Hate Speech',
@@ -28,7 +37,6 @@ const MODERATION_CATEGORIES = [
     ],
   },
   {
-    icon: MessageSquare,
     color: 'text-orange-500',
     bg: 'bg-orange-500/10 border-orange-500/20',
     title: 'Harassment & Bullying',
@@ -47,7 +55,6 @@ const MODERATION_CATEGORIES = [
     ],
   },
   {
-    icon: Eye,
     color: 'text-pink-500',
     bg: 'bg-pink-500/10 border-pink-500/20',
     title: 'Explicit & Sexual Content',
@@ -66,7 +73,6 @@ const MODERATION_CATEGORIES = [
     ],
   },
   {
-    icon: Ban,
     color: 'text-red-600',
     bg: 'bg-red-600/10 border-red-600/20',
     title: 'Violence & Gore',
@@ -85,7 +91,6 @@ const MODERATION_CATEGORIES = [
     ],
   },
   {
-    icon: Zap,
     color: 'text-yellow-600',
     bg: 'bg-yellow-500/10 border-yellow-500/20',
     title: 'Spam & Deceptive Content',
@@ -104,7 +109,6 @@ const MODERATION_CATEGORIES = [
     ],
   },
   {
-    icon: Globe,
     color: 'text-amber-600',
     bg: 'bg-amber-500/10 border-amber-500/20',
     title: 'Misinformation',
@@ -122,36 +126,58 @@ const MODERATION_CATEGORIES = [
       'Crisis misinformation during emergencies or disasters',
     ],
   },
-] as const;
+];
 
-const AD_RULES = [
-  { icon: XCircle, color: 'text-red-500', label: 'Never Allowed in Ads', items: [
-    'Nudity, sexual imagery, or suggestive content of any kind',
-    'Violent, gory, or disturbing imagery',
-    'Illegal products, services, or substances',
-    'Counterfeit or trademark-infringing products',
-    'Misleading claims, fake testimonials, or false "before/after" imagery',
-    'Tobacco, cigarettes, or vaping products',
-    'Political campaign ads or partisan content',
-  ]},
-  { icon: CheckCircle, color: 'text-green-500', label: 'Encouraged in Ads', items: [
-    'Clear, honest description of the product or service',
-    'Authentic user-generated content with permission',
-    'Accessible language and inclusive imagery',
-    'Transparent pricing and terms',
-    'Strong call-to-action with a working destination URL',
-    'High-quality images (minimum 800px wide, no excessive text overlay)',
-  ]},
-] as const;
+// Pure module-level helper — returns icon JSX for a category (esbuild guard: no const Icon in render)
+function getCatIconNode(title: string, colorClass: string) {
+  if (title === 'Hate Speech')             return <AlertTriangle className={`w-5 h-5 ${colorClass}`} />;
+  if (title === 'Harassment & Bullying')   return <MessageSquare className={`w-5 h-5 ${colorClass}`} />;
+  if (title === 'Explicit & Sexual Content') return <Eye className={`w-5 h-5 ${colorClass}`} />;
+  if (title === 'Violence & Gore')         return <Ban className={`w-5 h-5 ${colorClass}`} />;
+  if (title === 'Spam & Deceptive Content') return <Zap className={`w-5 h-5 ${colorClass}`} />;
+  return <Globe className={`w-5 h-5 ${colorClass}`} />;
+}
 
-const ENFORCEMENT_STEPS = [
-  { step: '1', icon: Flag, color: 'text-orange-500', bg: 'bg-orange-500/10', title: 'First Strike', desc: '24-hour posting restriction + warning notification sent to your inbox.' },
-  { step: '2', icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-500/10', title: 'Second Strike', desc: '72-hour full account restriction. Appeal available via /appeals.' },
-  { step: '3', icon: Ban, color: 'text-red-700', bg: 'bg-red-700/10', title: 'Third Strike', desc: 'Permanent account suspension. Final appeal may be submitted once.' },
-] as const;
+interface AdRule { color: string; label: string; isProhibited: boolean; items: string[] }
 
-// Silence unused import warnings
-const _Heart = Heart;
+const AD_PROHIBITED_ITEMS = [
+  'Nudity, sexual imagery, or suggestive content of any kind',
+  'Violent, gory, or disturbing imagery',
+  'Illegal products, services, or substances',
+  'Counterfeit or trademark-infringing products',
+  'Misleading claims, fake testimonials, or false "before/after" imagery',
+  'Tobacco, cigarettes, or vaping products',
+  'Political campaign ads or partisan content',
+];
+
+const AD_ENCOURAGED_ITEMS = [
+  'Clear, honest description of the product or service',
+  'Authentic user-generated content with permission',
+  'Accessible language and inclusive imagery',
+  'Transparent pricing and terms',
+  'Strong call-to-action with a working destination URL',
+  'High-quality images (minimum 800px wide, no excessive text overlay)',
+];
+
+const AD_RULES: AdRule[] = [
+  { color: 'text-red-500',   label: 'Never Allowed in Ads', isProhibited: true,  items: AD_PROHIBITED_ITEMS },
+  { color: 'text-green-500', label: 'Encouraged in Ads',    isProhibited: false, items: AD_ENCOURAGED_ITEMS },
+];
+
+interface StepDef { step: string; color: string; bg: string; title: string; desc: string }
+
+const ENFORCEMENT_STEPS: StepDef[] = [
+  { step: '1', color: 'text-orange-500', bg: 'bg-orange-500/10', title: 'First Strike',  desc: '24-hour posting restriction + warning notification sent to your inbox.' },
+  { step: '2', color: 'text-red-500',    bg: 'bg-red-500/10',    title: 'Second Strike', desc: '72-hour full account restriction. Appeal available via /appeals.' },
+  { step: '3', color: 'text-red-700',    bg: 'bg-red-700/10',    title: 'Third Strike',  desc: 'Permanent account suspension. Final appeal may be submitted once.' },
+];
+
+// Pure helper — returns icon JSX for enforcement step (esbuild guard)
+function getStepIconNode(step: string, colorClass: string) {
+  if (step === '1') return <Flag className={`w-5 h-5 ${colorClass}`} />;
+  if (step === '2') return <AlertTriangle className={`w-5 h-5 ${colorClass}`} />;
+  return <Ban className={`w-5 h-5 ${colorClass}`} />;
+}
 
 export default function ContentPolicyPage() {
   useSEO({
@@ -217,9 +243,9 @@ export default function ContentPolicyPage() {
           {/* Score bands */}
           <div className="grid grid-cols-3 gap-2">
             {[
-              { range: '0 – 49', label: 'Pass ✅', bg: 'bg-green-500/8 border-green-500/20', text: 'text-green-600' },
-              { range: '50 – 79', label: 'Flag 🚩', bg: 'bg-orange-500/8 border-orange-500/20', text: 'text-orange-600' },
-              { range: '80 – 100', label: 'Auto-Ban 🚫', bg: 'bg-red-500/8 border-red-500/20', text: 'text-red-600' },
+              { range: '0 – 49',   label: 'Pass ✅',      bg: 'bg-green-500/8 border-green-500/20',   text: 'text-green-600' },
+              { range: '50 – 79',  label: 'Flag 🚩',      bg: 'bg-orange-500/8 border-orange-500/20', text: 'text-orange-600' },
+              { range: '80 – 100', label: 'Auto-Ban 🚫',  bg: 'bg-red-500/8 border-red-500/20',       text: 'text-red-600' },
             ].map(b => (
               <div key={b.range} className={`p-3 rounded-xl border text-center ${b.bg}`}>
                 <p className={`font-black text-sm ${b.text}`}>{b.range}</p>
@@ -228,48 +254,45 @@ export default function ContentPolicyPage() {
             ))}
           </div>
 
-          {MODERATION_CATEGORIES.map(cat => {
-            const Icon = cat.icon;
-            return (
-              <div key={cat.title} className={`border rounded-2xl overflow-hidden ${cat.bg}`}>
-                <div className="px-5 py-4 flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${cat.bg}`}>
-                    <Icon className={`w-5 h-5 ${cat.color}`} />
-                  </div>
-                  <div>
-                    <h3 className={`font-black text-sm ${cat.color}`}>{cat.title}</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">{cat.desc}</p>
-                  </div>
+          {MODERATION_CATEGORIES.map(cat => (
+            <div key={cat.title} className={`border rounded-2xl overflow-hidden ${cat.bg}`}>
+              <div className="px-5 py-4 flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${cat.bg}`}>
+                  {getCatIconNode(cat.title, cat.color)}
                 </div>
-                <div className="bg-background/70 border-t border-current/10 px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-[10px] font-black text-green-600 uppercase tracking-wide mb-2 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" />Allowed
-                    </p>
-                    <ul className="space-y-1">
-                      {cat.allowed.map((item, i) => (
-                        <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
-                          <span className="text-green-500 shrink-0 mt-0.5">•</span>{item}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black text-red-600 uppercase tracking-wide mb-2 flex items-center gap-1">
-                      <XCircle className="w-3 h-3" />Prohibited
-                    </p>
-                    <ul className="space-y-1">
-                      {cat.prohibited.map((item, i) => (
-                        <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
-                          <span className="text-red-500 shrink-0 mt-0.5">•</span>{item}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                <div>
+                  <h3 className={`font-black text-sm ${cat.color}`}>{cat.title}</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">{cat.desc}</p>
                 </div>
               </div>
-            );
-          })}
+              <div className="bg-background/70 border-t border-current/10 px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[10px] font-black text-green-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />Allowed
+                  </p>
+                  <ul className="space-y-1">
+                    {cat.allowed.map((item, i) => (
+                      <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                        <span className="text-green-500 shrink-0 mt-0.5">•</span>{item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-red-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+                    <XCircle className="w-3 h-3" />Prohibited
+                  </p>
+                  <ul className="space-y-1">
+                    {cat.prohibited.map((item, i) => (
+                      <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                        <span className="text-red-500 shrink-0 mt-0.5">•</span>{item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Advertisement Policy */}
@@ -285,44 +308,43 @@ export default function ContentPolicyPage() {
             <p className="text-sm font-bold">No nudity, pornography, or sexual content in advertisements — ever.</p>
             <p className="text-xs text-muted-foreground mt-1">Any ad containing sexual imagery is automatically rejected and the account flagged for review. Repeat violations result in a permanent advertising ban.</p>
           </div>
-          {AD_RULES.map(section => {
-            const Icon = section.icon;
-            return (
-              <div key={section.label} className="bg-card border border-border rounded-2xl p-4">
-                <p className={`text-xs font-black uppercase tracking-wide mb-3 flex items-center gap-1.5 ${section.color}`}>
-                  <Icon className="w-3.5 h-3.5" />{section.label}
-                </p>
-                <ul className="space-y-1.5">
-                  {section.items.map((item, i) => (
-                    <li key={i} className="text-xs text-muted-foreground flex gap-2">
-                      <Icon className={`w-3 h-3 shrink-0 mt-0.5 ${section.color}`} />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
+          {AD_RULES.map(section => (
+            <div key={section.label} className="bg-card border border-border rounded-2xl p-4">
+              <p className={`text-xs font-black uppercase tracking-wide mb-3 flex items-center gap-1.5 ${section.color}`}>
+                {section.isProhibited
+                  ? <XCircle className="w-3.5 h-3.5" />
+                  : <CheckCircle className="w-3.5 h-3.5" />}
+                {section.label}
+              </p>
+              <ul className="space-y-1.5">
+                {section.items.map((item, i) => (
+                  <li key={i} className="text-xs text-muted-foreground flex gap-2">
+                    {section.isProhibited
+                      ? <XCircle className={`w-3 h-3 shrink-0 mt-0.5 ${section.color}`} />
+                      : <CheckCircle className={`w-3 h-3 shrink-0 mt-0.5 ${section.color}`} />}
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
 
         {/* Enforcement */}
         <div className="space-y-4">
           <h2 className="font-black text-lg">Enforcement & Strikes</h2>
           <div className="space-y-3">
-            {ENFORCEMENT_STEPS.map(step => {
-              const Icon = step.icon;
-              return (
-                <div key={step.step} className="flex items-start gap-4 p-4 bg-card border border-border rounded-2xl">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${step.bg}`}>
-                    <Icon className={`w-5 h-5 ${step.color}`} />
-                  </div>
-                  <div>
-                    <p className="font-black text-sm">{step.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{step.desc}</p>
-                  </div>
+            {ENFORCEMENT_STEPS.map(step => (
+              <div key={step.step} className="flex items-start gap-4 p-4 bg-card border border-border rounded-2xl">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${step.bg}`}>
+                  {getStepIconNode(step.step, step.color)}
                 </div>
-              );
-            })}
+                <div>
+                  <p className="font-black text-sm">{step.title}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{step.desc}</p>
+                </div>
+              </div>
+            ))}
           </div>
           <div className="p-4 bg-primary/5 border border-primary/20 rounded-2xl">
             <p className="text-xs font-bold text-primary mb-1">🔄 Appeals Process</p>
@@ -347,9 +369,9 @@ export default function ContentPolicyPage() {
           <div className="grid grid-cols-2 gap-2 mt-4 text-xs">
             {[
               { label: 'Posts Analyzed', val: 'Every post' },
-              { label: 'Review Time', val: '< 2 seconds' },
-              { label: 'Appeal Window', val: 'Always open' },
-              { label: 'Human Review', val: 'Within 48h' },
+              { label: 'Review Time',    val: '< 2 seconds' },
+              { label: 'Appeal Window',  val: 'Always open' },
+              { label: 'Human Review',   val: 'Within 48h' },
             ].map(s => (
               <div key={s.label} className="bg-background/60 rounded-xl p-2.5 text-center">
                 <p className="font-black text-sm">{s.val}</p>

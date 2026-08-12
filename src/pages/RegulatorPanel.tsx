@@ -1787,6 +1787,96 @@ export default function RegulatorPanel() {
         )}
 
         {/* ── REPORTS TAB ── */}
+        {/* ── ANALYTICS TAB ── */}
+        {activeTab === 'analytics' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-black text-base flex items-center gap-2"><TrendingUp className="w-5 h-5 text-primary" />Platform Analytics</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">30-day overview — signups, posts, revenue, and trending content</p>
+              </div>
+              <button onClick={fetchAnalytics} disabled={loadingAnalytics} className="text-muted-foreground hover:text-foreground">
+                <RefreshCw className={`w-4 h-4 ${loadingAnalytics ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            {loadingAnalytics ? (
+              <div className="flex justify-center py-12"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
+            ) : !analyticsData ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <BarChart3 className="w-14 h-14 mx-auto mb-3 opacity-20" />
+                <p className="font-semibold">No analytics data yet</p>
+              </div>
+            ) : (() => {
+              const chartDays = analyticsData.days.map(d => d.slice(5));
+              const signupChartData = chartDays.map((date, i) => ({ date, count: analyticsData.signups[i] }));
+              const postChartData = chartDays.map((date, i) => ({ date, count: analyticsData.posts[i] }));
+              const revChartData = chartDays.map((date, i) => ({ date, amount: analyticsData.revenue[i] }));
+              const maxHashtag = analyticsData.topHashtags.length > 0 ? Math.max(...analyticsData.topHashtags.map(h => h.count), 1) : 1;
+              return (
+                <div className="space-y-5">
+                  {/* New User Signups */}
+                  <div className="bg-card border border-border rounded-2xl p-4">
+                    <p className="font-bold text-sm mb-3 flex items-center gap-2"><Users className="w-4 h-4 text-blue-500" />New Signups (30d)</p>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <LineChart data={signupChartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="date" tick={{ fontSize: 8 }} interval={6} stroke="hsl(var(--muted-foreground))" />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 8 }} stroke="hsl(var(--muted-foreground))" />
+                        <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                        <Line type="monotone" dataKey="count" name="Signups" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  {/* Daily Posts */}
+                  <div className="bg-card border border-border rounded-2xl p-4">
+                    <p className="font-bold text-sm mb-3 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-primary" />Daily Posts (30d)</p>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <BarChart data={postChartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="date" tick={{ fontSize: 8 }} interval={6} stroke="hsl(var(--muted-foreground))" />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 8 }} stroke="hsl(var(--muted-foreground))" />
+                        <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                        <Bar dataKey="count" name="Posts" fill="hsl(var(--primary))" radius={[2,2,0,0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  {/* Revenue */}
+                  <div className="bg-card border border-border rounded-2xl p-4">
+                    <p className="font-bold text-sm mb-3 flex items-center gap-2"><DollarSign className="w-4 h-4 text-green-500" />Daily Creator Revenue (30d)</p>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <LineChart data={revChartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="date" tick={{ fontSize: 8 }} interval={6} stroke="hsl(var(--muted-foreground))" />
+                        <YAxis tick={{ fontSize: 8 }} stroke="hsl(var(--muted-foreground))" />
+                        <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v: any) => [`$${Number(v).toFixed(2)}`, 'Revenue']} />
+                        <Line type="monotone" dataKey="amount" name="Revenue" stroke="#22c55e" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  {/* Top Hashtags */}
+                  {analyticsData.topHashtags.length > 0 && (
+                    <div className="bg-card border border-border rounded-2xl p-4">
+                      <p className="font-bold text-sm mb-3 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-orange-500" />Top Hashtags (all time)</p>
+                      <div className="space-y-2">
+                        {analyticsData.topHashtags.map((h, i) => (
+                          <div key={h.tag} className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-muted-foreground w-4 shrink-0 text-center">{i + 1}</span>
+                            <span className="text-xs font-bold text-primary min-w-[80px] shrink-0">#{h.tag}</span>
+                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-orange-400 to-amber-500 rounded-full" style={{ width: `${Math.max(4, (h.count / maxHashtag) * 100)}%` }} />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground shrink-0 font-semibold">{h.count.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {activeTab === 'reports' && (
           <div className="space-y-4">
             <h2 className="font-black text-base">Platform Reports</h2>
