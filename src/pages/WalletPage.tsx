@@ -39,7 +39,7 @@ const FAVORITES_MAX = 5;
 type TopUpStep    = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type CurrencyCode = 'USD' | 'KES' | 'EUR';
-type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled' | 'savings' | 'reminders' | 'security' | 'converter';
+type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled' | 'savings' | 'reminders' | 'security' | 'converter' | 'pocket';
 
 const CURRENCIES: { code: CurrencyCode; symbol: string; rate: number }[] = [
   { code: 'USD', symbol: '$',    rate: 1    },
@@ -2392,6 +2392,13 @@ const SEARCH_COMMANDS: { label: string; hint: string; emoji: string; tab: Active
 const FREQ_WEEKLY_MONTHLY = ['weekly','monthly'] as const;
 const PERIOD_OPTIONS      = ['week','month','all'] as const;
 const FILTER_OPTIONS      = ['all','deposit','withdrawal','earnings'] as const;
+const CALENDAR_DAYS       = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as const;
+const TOUR_STEPS: { emoji: string; title: string; body: string; tab: ActiveTab }[] = [
+  { emoji: '💳', title: 'Deposit Funds',      body: 'Top up your wallet with M-Pesa STK Push in seconds. Funds arrive instantly after payment.',             tab: 'wallet'   },
+  { emoji: '💸', title: 'Send Money',         body: 'Transfer funds to any Testagram user instantly, or request payment with a link.',                       tab: 'send'     },
+  { emoji: '💰', title: 'Savings Pocket',     body: 'Set aside money in your Savings Pocket — separate from your spending balance.',                        tab: 'pocket'   },
+  { emoji: '🔒', title: 'Secure Your Wallet', body: 'Set a 4-digit PIN or enable biometric (Face ID / fingerprint) to protect every transaction.',           tab: 'security' },
+];
 
 // ── Module-level heatmap color scales ────────────────────────────────────
 const HEATMAP_GREEN = ['bg-green-200 dark:bg-green-950','bg-green-300 dark:bg-green-800','bg-green-500 dark:bg-green-700','bg-green-600 dark:bg-green-500'] as const;
@@ -2932,6 +2939,457 @@ function InactivityLockCard({ userId }: { userId: string }) {
 
 
 
+// ── Wallet Onboarding Tour ──────────────────────────────────────────────
+function WalletOnboardingTour({ userId, onNavigate, onDismiss }: {
+  userId: string; onNavigate: (tab: ActiveTab) => void; onDismiss: () => void;
+}) {
+  const [step, setStep] = useState(0);
+  const current = TOUR_STEPS[step];
+  const isLast  = step === TOUR_STEPS.length - 1;
+
+  const dismiss = () => {
+    try { localStorage.setItem(`ts-wallet-toured-${userId}`, '1'); } catch { /* ignore */ }
+    onDismiss();
+  };
+
+  return (
+    <div className="rounded-2xl border-2 border-primary/30 bg-gradient-to-br from-primary/10 to-purple-500/5 p-5 relative">
+      <button onClick={dismiss} className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-muted/60 text-muted-foreground">
+        <X className="w-3.5 h-3.5" />
+      </button>
+      <div className="flex items-center gap-1.5 mb-4">
+        {TOUR_STEPS.map((_, i) => (
+          <div key={i} className={`h-1 rounded-full flex-1 transition-all ${
+            i === step ? 'bg-primary' : i < step ? 'bg-primary/40' : 'bg-border'
+          }`} />
+        ))}
+      </div>
+      <div className="flex flex-col items-center text-center gap-3 py-2">
+        <div className="text-4xl">{current.emoji}</div>
+        <div>
+          <p className="font-black text-base">{current.title}</p>
+          <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{current.body}</p>
+        </div>
+        <div className="flex gap-2 w-full mt-1">
+          {step > 0 && (
+            <button onClick={() => setStep(s => s - 1)}
+              className="flex-1 py-2.5 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors">
+              Back
+            </button>
+          )}
+          <button
+            onClick={() => {
+              onNavigate(current.tab);
+              if (isLast) { dismiss(); } else { setStep(s => s + 1); }
+            }}
+            className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90 transition-opacity">
+            {isLast ? 'Get Started' : `Next: ${TOUR_STEPS[step + 1].title}`}
+          </button>
+        </div>
+        <button onClick={dismiss} className="text-xs text-muted-foreground hover:underline">Skip tour</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Monthly Heatmap Calendar ──────────────────────────────────────────────
+function MonthlyHeatmapCalendar({ userId, currency }: { userId: string; currency: CurrencyCode }) {
+  const [txns,    setTxns]    = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [offset,  setOffset]  = useState(0);
+
+  const { year, month, monthLabel } = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + offset);
+    d.setDate(1);
+    return {
+      year:       d.getFullYear(),
+      month:      d.getMonth(),
+      monthLabel: d.toLocaleDateString('en', { month: 'long', year: 'numeric' }),
+    };
+  }, [offset]);
+
+  useEffect(() => {
+    setLoading(true);
+    const start = new Date(year, month, 1).toISOString();
+    const end   = new Date(year, month + 1, 1).toISOString();
+    supabase.from('wallet_transactions')
+      .select('created_at,amount,type').eq('user_id', userId)
+      .gte('created_at', start).lt('created_at', end)
+      .then(({ data }) => { setTxns(data ?? []); setLoading(false); });
+  }, [userId, year, month]);
+
+  const { cells, maxAmt } = useMemo(() => {
+    const daysInMonth  = new Date(year, month + 1, 0).getDate();
+    const firstWeekday = new Date(year, month, 1).getDay();
+    const dayMap: Record<number, { inAmt: number; outAmt: number; count: number }> = {};
+    for (let d = 1; d <= daysInMonth; d++) dayMap[d] = { inAmt: 0, outAmt: 0, count: 0 };
+    txns.forEach(t => {
+      const day = new Date(t.created_at).getDate();
+      if (!dayMap[day]) return;
+      dayMap[day].count++;
+      if (t.type === 'deposit' || t.type === 'earnings') dayMap[day].inAmt  += Number(t.amount);
+      else                                                dayMap[day].outAmt += Number(t.amount);
+    });
+    const cells: { day: number | null; data: { inAmt: number; outAmt: number; count: number } | null }[] = [];
+    for (let i = 0; i < firstWeekday; i++) cells.push({ day: null, data: null });
+    for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d, data: dayMap[d] });
+    const maxAmt = Math.max(...Object.values(dayMap).map(v => v.inAmt + v.outAmt), 1);
+    return { cells, maxAmt };
+  }, [txns, year, month]);
+
+  const getCellColor = (data: { inAmt: number; outAmt: number; count: number } | null) => {
+    if (!data || data.count === 0) return 'bg-muted/60';
+    const total     = data.inAmt + data.outAmt;
+    const intensity = Math.min(Math.ceil((total / maxAmt) * 4), 4);
+    const greens    = ['bg-green-100 dark:bg-green-950','bg-green-200 dark:bg-green-900','bg-green-400 dark:bg-green-700','bg-green-600 dark:bg-green-500'] as const;
+    const reds      = ['bg-red-100 dark:bg-red-950','bg-red-200 dark:bg-red-900','bg-red-400 dark:bg-red-700','bg-red-600 dark:bg-red-500'] as const;
+    return data.inAmt >= data.outAmt ? (greens[intensity - 1] ?? greens[3]) : (reds[intensity - 1] ?? reds[3]);
+  };
+
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+
+  return (
+    <div className="border border-border rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-primary" /><h3 className="font-bold text-sm">Monthly Calendar</h3></div>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setOffset(o => o - 1)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+            <ChevronDown className="w-3.5 h-3.5 rotate-90 text-muted-foreground" />
+          </button>
+          <span className="text-xs font-semibold min-w-[108px] text-center">{monthLabel}</span>
+          <button onClick={() => setOffset(o => o + 1)} disabled={isCurrentMonth}
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-30">
+            <ChevronDown className="w-3.5 h-3.5 -rotate-90 text-muted-foreground" />
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 mb-1">
+        {CALENDAR_DAYS.map(d => <div key={d} className="text-center text-[9px] font-bold text-muted-foreground py-1">{d}</div>)}
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+      ) : (
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((cell, i) => {
+            if (!cell.day) return <div key={i} />;
+            const isToday  = isCurrentMonth && cell.day === today.getDate();
+            const label    = cell.data && cell.data.count > 0
+              ? `${cell.data.count} txn(s) · ${fmtAmt(cell.data.inAmt + cell.data.outAmt, currency)}`
+              : 'No activity';
+            return (
+              <div key={i}
+                title={`${year}-${String(month + 1).padStart(2,'0')}-${String(cell.day).padStart(2,'0')}\n${label}`}
+                className={`aspect-square rounded-lg flex items-center justify-center text-[10px] font-bold cursor-default hover:opacity-75 transition-opacity ${
+                  isToday ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''
+                } ${getCellColor(cell.data)}`}>
+                {cell.day}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="flex gap-4 justify-center mt-3 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-green-400 dark:bg-green-700" /><span>Deposits</span></div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-red-400 dark:bg-red-700" /><span>Withdrawals</span></div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-muted border border-border/50" /><span>None</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ── P2P Money Request Panel ───────────────────────────────────────────────
+function RequestMoneyPanel({ userId, senderUsername, currency }: {
+  userId: string; senderUsername: string; currency: CurrencyCode;
+}) {
+  const [query,     setQuery]     = useState('');
+  const [results,   setResults]   = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [target,    setTarget]    = useState<any | null>(null);
+  const [amount,    setAmount]    = useState('');
+  const [note,      setNote]      = useState('');
+  const [sent,      setSent]      = useState(false);
+  const [sending,   setSending]   = useState(false);
+
+  const payLink = useMemo(() => {
+    if (!target || typeof window === 'undefined') return '';
+    const params = new URLSearchParams({ tab: 'send', to: senderUsername });
+    if (amount && parseFloat(amount) > 0) params.set('amount', amount);
+    if (note.trim()) params.set('note', note.trim());
+    return `${window.location.origin}/wallet?${params.toString()}`;
+  }, [target, senderUsername, amount, note]);
+
+  const searchUsers = async (q: string) => {
+    setQuery(q);
+    if (q.trim().length < 2) { setResults([]); return; }
+    setSearching(true);
+    const { data } = await supabase.from('user_profiles').select('id,username,avatar_url,verified')
+      .ilike('username', `%${q.trim()}%`).neq('id', userId).limit(8);
+    setResults(data ?? []); setSearching(false);
+  };
+
+  const sendRequest = async () => {
+    if (!target) return;
+    setSending(true);
+    const amtLabel  = amount && parseFloat(amount) > 0 ? ` for ${fmtAmt(parseFloat(amount), currency)}` : '';
+    const noteLabel = note.trim() ? ` — "${note.trim()}"` : '';
+    await supabase.from('platform_inbox').insert({
+      user_id: target.id,
+      subject: `@${senderUsername} requested money from you`,
+      body: `@${senderUsername} is requesting payment${amtLabel}${noteLabel}. Tap below to send instantly.`,
+      type: 'payment', icon_emoji: '\uD83D\uDE4F',
+      cta_label: `Send${amtLabel}`, cta_url: payLink,
+    });
+    setSending(false); setSent(true);
+    toast.success(`Request sent to @${target.username}!`);
+  };
+
+  if (sent) {
+    return (
+      <div className="flex flex-col items-center gap-4 p-6 bg-gradient-to-br from-blue-500/10 to-indigo-400/5 border border-blue-500/20 rounded-2xl text-center">
+        <div className="w-16 h-16 rounded-full bg-blue-500/15 flex items-center justify-center"><CheckCircle2 className="w-9 h-9 text-blue-500" /></div>
+        <div>
+          <p className="text-lg font-black text-blue-600">Request Sent!</p>
+          <p className="text-sm text-muted-foreground mt-0.5">@{target?.username} received your payment request</p>
+        </div>
+        <button onClick={() => { setSent(false); setTarget(null); setAmount(''); setNote(''); setQuery(''); }}
+          className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold text-sm hover:opacity-90">Done</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20">
+        <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">Request Money</p>
+        <p className="text-xs text-muted-foreground mt-0.5">The recipient gets a notification with a one-tap Pay button pre-filled with your username.</p>
+      </div>
+      {!target ? (
+        <div className="space-y-2">
+          <label className="text-sm font-semibold">Request from</label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input value={query} onChange={e => searchUsers(e.target.value)} placeholder="Search by username…"
+              className="w-full pl-9 pr-4 py-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+            {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin" />}
+          </div>
+          {results.length > 0 && (
+            <div className="space-y-1">
+              {results.map(u => (
+                <button key={u.id} onClick={() => { setTarget(u); setResults([]); setQuery(''); }}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl border border-border hover:border-blue-500/30 hover:bg-blue-500/5 transition-all text-left">
+                  <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-sm">
+                    {u.avatar_url ? <img src={u.avatar_url} alt={u.username} className="w-full h-full object-cover" /> : u.username[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 flex items-center gap-1">
+                    <p className="font-bold text-sm">@{u.username}</p>
+                    {u.verified && <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-3 bg-blue-500/5 border border-blue-500/20 rounded-2xl">
+            <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold">
+              {target.avatar_url ? <img src={target.avatar_url} alt="" className="w-full h-full object-cover" /> : target.username[0]?.toUpperCase()}
+            </div>
+            <div className="flex-1"><p className="font-bold">@{target.username}</p><p className="text-xs text-muted-foreground">Will receive your request</p></div>
+            <button onClick={() => setTarget(null)} className="p-1.5 rounded-full hover:bg-muted"><X className="w-3.5 h-3.5" /></button>
+          </div>
+          <div>
+            <label className="text-sm font-semibold mb-2 block">Amount (optional)</label>
+            <div className="grid grid-cols-4 gap-2 mb-2">
+              {[1,5,10,25].map(a => (
+                <button key={a} onClick={() => setAmount(String(a))}
+                  className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${amount === String(a) ? 'border-blue-500 bg-blue-500/10 text-blue-600' : 'border-border hover:border-blue-500/30'}`}>${a}</button>
+              ))}
+            </div>
+            <input type="number" min="0.01" step="0.01" placeholder="Custom amount (USD)…"
+              value={amount && !['1','5','10','25'].includes(amount) ? amount : ''} onChange={e => setAmount(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+          </div>
+          <div>
+            <label className="text-sm font-semibold mb-2 block">Note (optional)</label>
+            <input type="text" maxLength={80} placeholder="What's it for?" value={note} onChange={e => setNote(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+          </div>
+          <button onClick={sendRequest} disabled={sending}
+            className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+            {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Bell className="w-5 h-5" />}
+            {sending ? 'Sending request…' : `Request${amount && parseFloat(amount) > 0 ? ' ' + fmtAmt(parseFloat(amount), currency) : ''} from @${target.username}`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Savings Pocket Tab ────────────────────────────────────────────────────
+function SavingsPocketTab({ userId, mainBalance, savingsBalance, pinHash, currency, onRefresh }: {
+  userId: string; mainBalance: number; savingsBalance: number;
+  pinHash: string | null; currency: CurrencyCode; onRefresh: () => void;
+}) {
+  const [mode,      setMode]      = useState<'idle' | 'deposit' | 'withdraw'>('idle');
+  const [amount,    setAmount]    = useState('');
+  const [saving,    setSaving]    = useState(false);
+  const [showPin,   setShowPin]   = useState(false);
+  const [pendingOp, setPendingOp] = useState<'in' | 'out' | null>(null);
+  const [history,   setHistory]   = useState<{ type: 'in' | 'out'; amount: number; date: string }[]>([]);
+  const historyKey = useMemo(() => `ts-pocket-hist-${userId}`, [userId]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(historyKey);
+      if (raw) setHistory(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, [historyKey]);
+
+  const addHistory = (type: 'in' | 'out', amt: number) => {
+    const next = [{ type, amount: amt, date: new Date().toISOString() }, ...history].slice(0, 50);
+    setHistory(next);
+    localStorage.setItem(historyKey, JSON.stringify(next));
+  };
+
+  const executeTransfer = async (type: 'in' | 'out') => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return;
+    if (type === 'in'  && amt > mainBalance)    { toast.error('Insufficient wallet balance');  return; }
+    if (type === 'out' && amt > savingsBalance) { toast.error('Insufficient savings balance'); return; }
+    setSaving(true);
+    const newMain    = parseFloat((type === 'in' ? mainBalance - amt : mainBalance + amt).toFixed(2));
+    const newSavings = parseFloat((type === 'in' ? savingsBalance + amt : savingsBalance - amt).toFixed(2));
+    const { error } = await supabase.from('user_wallets')
+      .update({ balance: newMain, savings_balance: newSavings }).eq('user_id', userId);
+    setSaving(false);
+    if (error) { toast.error('Transfer failed'); return; }
+    addHistory(type, amt);
+    toast.success(type === 'in' ? `${fmtAmt(amt, currency)} moved to Savings Pocket` : `${fmtAmt(amt, currency)} returned to wallet`);
+    setAmount(''); setMode('idle'); onRefresh();
+  };
+
+  const handleAction = (type: 'in' | 'out') => {
+    if (pinHash) { setPendingOp(type); setShowPin(true); }
+    else { executeTransfer(type); }
+  };
+
+  const handlePinConfirm = (pin: string) => {
+    hashPin(pin).then(h => {
+      setShowPin(false);
+      if (h !== pinHash) { toast.error('Incorrect PIN'); return; }
+      if (pendingOp) executeTransfer(pendingOp);
+    });
+  };
+
+  const { savingsPct, streak } = useMemo(() => ({
+    savingsPct: mainBalance + savingsBalance > 0
+      ? Math.round((savingsBalance / (mainBalance + savingsBalance)) * 100) : 0,
+    streak: history.filter(h => h.type === 'in').length,
+  }), [mainBalance, savingsBalance, history]);
+
+  return (
+    <div className="space-y-5">
+      {showPin && <PinEntryModal title="Confirm Transfer" onConfirm={handlePinConfirm} onCancel={() => setShowPin(false)} userId={userId} />}
+      <div className="bg-gradient-to-br from-emerald-500/15 to-teal-400/5 border border-emerald-500/25 rounded-2xl p-5">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Savings Pocket</p>
+            <p className="text-4xl font-black text-emerald-600 mt-0.5">{fmtAmt(savingsBalance, currency)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{savingsPct}% of total balance</p>
+          </div>
+          <div className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+            <Star className="w-3 h-3 text-emerald-600" />
+            <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400">{streak} saves</span>
+          </div>
+        </div>
+        <div className="space-y-1.5 mb-4">
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Wallet: {fmtAmt(mainBalance, currency)}</span>
+            <span className="text-emerald-600 font-semibold">Saved: {fmtAmt(savingsBalance, currency)}</span>
+          </div>
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" style={{ width: `${savingsPct}%` }} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => { setMode(mode === 'deposit' ? 'idle' : 'deposit'); setAmount(''); }}
+            className="flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors">
+            <ArrowDownLeft className="w-4 h-4" /> Save Money
+          </button>
+          <button onClick={() => { setMode(mode === 'withdraw' ? 'idle' : 'withdraw'); setAmount(''); }}
+            disabled={savingsBalance <= 0}
+            className="flex items-center justify-center gap-1.5 py-2.5 border border-emerald-500/30 text-emerald-600 rounded-xl font-bold text-sm hover:bg-emerald-500/10 disabled:opacity-40 transition-colors">
+            <ArrowUpRight className="w-4 h-4" /> Withdraw
+          </button>
+        </div>
+      </div>
+      {mode !== 'idle' && (
+        <div className="p-4 border border-border rounded-2xl bg-card space-y-4">
+          <h4 className="font-bold text-sm">{mode === 'deposit' ? 'Move to Savings Pocket' : 'Withdraw from Savings Pocket'}</h4>
+          <p className="text-xs text-muted-foreground">
+            {mode === 'deposit' ? `Available in wallet: ${fmtAmt(mainBalance, currency)}` : `Available in savings: ${fmtAmt(savingsBalance, currency)}`}
+          </p>
+          <div>
+            <div className="grid grid-cols-4 gap-2 mb-2">
+              {[1,5,10,25].map(a => (
+                <button key={a} onClick={() => setAmount(String(a))}
+                  className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${amount === String(a) ? 'border-emerald-600 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400' : 'border-border hover:border-emerald-600/40'}`}>${a}</button>
+              ))}
+            </div>
+            <input type="number" min="0.01" step="0.01" placeholder="Custom amount (USD)…"
+              value={amount && !['1','5','10','25'].includes(amount) ? amount : ''} onChange={e => setAmount(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => { setMode('idle'); setAmount(''); }}
+              className="flex-1 py-2.5 border border-border rounded-xl font-semibold text-sm hover:bg-muted">Cancel</button>
+            <button onClick={() => handleAction(mode === 'deposit' ? 'in' : 'out')}
+              disabled={saving || !amount || parseFloat(amount) <= 0}
+              className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : mode === 'deposit' ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+              {saving ? 'Processing…' : mode === 'deposit' ? 'Save' : 'Withdraw'}
+            </button>
+          </div>
+        </div>
+      )}
+      {history.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Recent Activity</p>
+          {history.slice(0, 10).map((h, i) => (
+            <div key={i} className="flex items-center gap-3 p-3 border border-border rounded-xl bg-card">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${h.type === 'in' ? 'bg-emerald-500/10' : 'bg-orange-500/10'}`}>
+                {h.type === 'in' ? <ArrowDownLeft className="w-4 h-4 text-emerald-600" /> : <ArrowUpRight className="w-4 h-4 text-orange-600" />}
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-sm">{h.type === 'in' ? 'Saved to pocket' : 'Withdrawn'}</p>
+                <p className="text-xs text-muted-foreground">{new Date(h.date).toLocaleDateString()}</p>
+              </div>
+              <p className={`font-black text-sm ${h.type === 'in' ? 'text-emerald-600' : 'text-orange-600'}`}>
+                {h.type === 'in' ? '+' : '-'}{fmtAmt(h.amount, currency)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+      {history.length === 0 && (
+        <div className="text-center py-8">
+          <div className="w-14 h-14 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
+            <ArrowDownLeft className="w-7 h-7 text-emerald-600" />
+          </div>
+          <p className="font-semibold text-sm">No savings activity yet</p>
+          <p className="text-xs text-muted-foreground mt-1">Start by moving money from your wallet into the Savings Pocket</p>
+        </div>
+      )}
+      <div className="p-4 bg-muted/30 border border-border rounded-2xl text-xs text-muted-foreground">
+        <p><strong>Savings Pocket</strong> keeps funds separate from your spending balance. Withdraw any time with no restrictions.</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Wallet Search Shortcut ───────────────────────────────────────────────
 function WalletSearchShortcut({ onNavigate }: { onNavigate: (tab: ActiveTab) => void }) {
   const [open,  setOpen]  = useState(false);
@@ -3082,6 +3540,7 @@ function ReferralLeaderboard({ userId }: { userId: string }) {
 // ── Module-level tab config ───────────────────────────────────────────────
 const WALLET_TABS: { key: ActiveTab; label: string }[] = [
   { key: 'wallet',    label: '💳 Wallet'    },
+  { key: 'pocket',    label: '💰 Savings'   },
   { key: 'send',      label: '💸 Send'      },
   { key: 'receive',   label: '📥 Receive'   },
   { key: 'history',   label: '📋 History'   },
@@ -3100,7 +3559,17 @@ export default function WalletPage() {
   useSEO({ noindex: true, title: 'Wallet', url: '/wallet' });
   const { user }                = useAuth();
   const { wallet, fetchWallet } = useWallet();
-  const [searchParams]          = useSearchParams();
+  const [showTour, setShowTour] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const toured = localStorage.getItem(`ts-wallet-toured-${user.id}`);
+      if (!toured) setShowTour(true);
+    } catch { /* ignore */ }
+  }, [user]);
+
+  const [searchParams] = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const t = searchParams.get('tab');
@@ -3114,6 +3583,7 @@ export default function WalletPage() {
     if (t === 'reminders') return 'reminders';
     if (t === 'security')  return 'security';
     if (t === 'converter') return 'converter';
+    if (t === 'pocket')    return 'pocket';
     return 'wallet';
   });
   const prefillTo = searchParams.get('to') ?? '';
@@ -3347,10 +3817,13 @@ export default function WalletPage() {
     executeWithdraw();
   };
 
-  const { walletBalance, username, totalDeposited } = useMemo(() => ({
+  const [sendMode, setSendMode] = useState<'send' | 'request'>('send');
+
+  const { walletBalance, username, totalDeposited, savingsBalance } = useMemo(() => ({
     walletBalance:  Number(wallet?.balance ?? 0),
     username:       user?.username ?? user?.email?.split('@')[0] ?? 'me',
     totalDeposited: Number((wallet as any)?.total_deposited ?? 0),
+    savingsBalance: Number((wallet as any)?.savings_balance ?? 0),
   }), [wallet, user]);
 
   return (
@@ -3390,15 +3863,34 @@ export default function WalletPage() {
 
       <div className="max-w-2xl mx-auto p-4 space-y-5">
         {activeTab === 'history'   && user && <TransactionHistoryTab userId={user.id} currency={currency} />}
-        {activeTab === 'send'      && user && (
-          <SendMoneyTab userId={user.id} senderUsername={username} walletBalance={walletBalance}
-            pinHash={pinHash} biometricCredentialId={biometricCredentialId} onComplete={fetchWallet}
-            prefillUsername={prefillTo} currency={currency} />
+        {activeTab === 'pocket' && user && (
+          <SavingsPocketTab userId={user.id} mainBalance={walletBalance} savingsBalance={savingsBalance}
+            pinHash={pinHash} currency={currency} onRefresh={fetchWallet} />
+        )}
+        {activeTab === 'send' && user && (
+          <div className="space-y-4">
+            <div className="flex gap-1 bg-muted rounded-xl p-1">
+              <button onClick={() => setSendMode('send')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  sendMode === 'send' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}>💸 Send Money</button>
+              <button onClick={() => setSendMode('request')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  sendMode === 'request' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}>🙏 Request Money</button>
+            </div>
+            {sendMode === 'send'
+              ? <SendMoneyTab userId={user.id} senderUsername={username} walletBalance={walletBalance}
+                  pinHash={pinHash} biometricCredentialId={biometricCredentialId} onComplete={fetchWallet}
+                  prefillUsername={prefillTo} currency={currency} />
+              : <RequestMoneyPanel userId={user.id} senderUsername={username} currency={currency} />}
+          </div>
         )}
         {activeTab === 'receive'   && user && <ReceiveMoneyTab username={username} walletBalance={walletBalance} currency={currency} />}
         {activeTab === 'analytics' && user && (
           <>
             <P2PBalanceChart userId={user.id} currency={currency} />
+            <MonthlyHeatmapCalendar userId={user.id} currency={currency} />
             <ActivityHeatmap userId={user.id} />
             <WalletAnalyticsExportButton userId={user.id} currency={currency} />
             <SpendingAnalyticsTab userId={user.id} currency={currency} />
@@ -3424,7 +3916,14 @@ export default function WalletPage() {
 
       {activeTab === 'wallet' && (
         <div className="max-w-2xl mx-auto p-4 space-y-5">
-          <div className="bg-gradient-to-br from-primary/10 to-purple-500/5 border border-primary/20 rounded-2xl p-5">
+        {showTour && user && (
+          <WalletOnboardingTour
+            userId={user.id}
+            onNavigate={tab => { setActiveTab(tab); setShowTour(false); }}
+            onDismiss={() => setShowTour(false)}
+          />
+        )}
+        <div className="bg-gradient-to-br from-primary/10 to-purple-500/5 border border-primary/20 rounded-2xl p-5">
             <div className="flex items-start justify-between mb-1">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-semibold text-muted-foreground">Wallet Balance</p>
@@ -3459,6 +3958,11 @@ export default function WalletPage() {
                 <Lock className="w-3.5 h-3.5" /> Security
               </button>
             </div>
+            <button onClick={() => setActiveTab('pocket')}
+              className="w-full flex items-center justify-between gap-2 py-2.5 px-3 mt-1 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-700 dark:text-emerald-400 font-semibold text-xs hover:bg-emerald-500/15 transition-colors">
+              <div className="flex items-center gap-1.5"><ArrowDownLeft className="w-3.5 h-3.5" /> Savings Pocket</div>
+              <span className="font-black text-sm">{fmtAmt(savingsBalance, currency)}</span>
+            </button>
           </div>
 
           {/* Deposit */}
