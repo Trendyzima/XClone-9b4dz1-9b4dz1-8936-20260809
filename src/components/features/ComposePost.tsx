@@ -13,6 +13,7 @@ import { ProductTagDialog } from './ProductTagDialog';
 import { GifPicker } from './GifPicker';
 import { toast as sonnerToast } from 'sonner';
 import * as federation from '@/api/federation';
+import { detectEmbed } from './EmbedRenderer';
 
 interface ComposePostProps {
   onSuccess?: () => void;
@@ -51,6 +52,10 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const [threadParts, setThreadParts] = useState<string[]>(['', '']);
   // Link preview detection
   const [linkPreview, setLinkPreview] = useState<{ url: string } | null>(null);
+  // Embed dialog
+  const [showEmbedDialog, setShowEmbedDialog] = useState(false);
+  const [embedUrl, setEmbedUrl] = useState('');
+  const [embedPlatform, setEmbedPlatform] = useState<string | null>(null);
   const { toast } = useToast();
 
   // ── @Mentions Autocomplete ─────────────────────────────────────────────────
@@ -90,6 +95,25 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
     setMentionResults([]);
     setTimeout(() => { if (ta) { ta.focus(); ta.setSelectionRange(replaced.length, replaced.length); } }, 0);
   }, [content]);
+
+  const handleEmbedUrlChange = (val: string) => {
+    setEmbedUrl(val);
+    if (val.trim()) {
+      const info = detectEmbed(val.trim());
+      setEmbedPlatform(info ? info.type : null);
+    } else {
+      setEmbedPlatform(null);
+    }
+  };
+
+  const insertEmbed = () => {
+    if (!embedUrl.trim()) return;
+    setContent(prev => prev ? prev + '\n\n' + embedUrl.trim() : embedUrl.trim());
+    setEmbedUrl('');
+    setEmbedPlatform(null);
+    setShowEmbedDialog(false);
+    sonnerToast.success('Embed URL added to post');
+  };
 
   const handleMentionKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionResults.length === 0 || mentionQuery === null) return;
@@ -554,6 +578,11 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
                 title={postToFediverse ? 'Will post to Fediverse' : 'Also post to Fediverse'}>
                 <Globe className="w-5 h-5" />
               </button>
+              <button onClick={() => setShowEmbedDialog(v => !v)} disabled={loading}
+                className={`cursor-pointer p-2 rounded-full transition-colors disabled:opacity-50 flex-shrink-0 ${showEmbedDialog ? 'bg-blue-500/20 text-blue-600' : 'hover:bg-primary/10 text-muted-foreground'}`}
+                title="Embed media (YouTube, Spotify, CodePen…)">
+                <Link2 className="w-5 h-5" />
+              </button>
             </div>
             <div className="flex items-center space-x-3 flex-shrink-0">
               {images.length > 0 && <span className="text-sm text-muted-foreground">{images.length}/4 images</span>}
@@ -619,6 +648,42 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
                     <button key={i} onClick={() => applyDraft(draft)} className="w-full text-left text-sm p-2.5 border border-border rounded-lg hover:border-purple-500 hover:bg-purple-500/5 transition-colors leading-relaxed">{draft}</button>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Embed dialog */}
+          {showEmbedDialog && (
+            <div className="mt-3 p-3 border-2 border-dashed border-blue-500/30 bg-blue-500/[0.03] rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-blue-500" />
+                  <span className="text-sm font-bold">Embed Media</span>
+                  <span className="text-[10px] text-muted-foreground">YouTube · Spotify · SoundCloud · CodePen · X/Twitter · Giphy</span>
+                </div>
+                <button onClick={() => { setShowEmbedDialog(false); setEmbedUrl(''); setEmbedPlatform(null); }}
+                  className="text-muted-foreground hover:text-foreground p-0.5"><X className="w-3.5 h-3.5" /></button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="url" value={embedUrl} onChange={e => handleEmbedUrlChange(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') insertEmbed(); if (e.key === 'Escape') setShowEmbedDialog(false); }}
+                  placeholder="Paste a URL to embed…"
+                  className="flex-1 text-sm bg-background border border-border rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                <button onClick={insertEmbed} disabled={!embedUrl.trim()}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-opacity shrink-0">
+                  Insert
+                </button>
+              </div>
+              {embedPlatform && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-green-500/8 border border-green-500/20 rounded-xl">
+                  <span className="text-xs font-bold text-green-700 dark:text-green-400 capitalize">{embedPlatform} embed detected</span>
+                  <span className="text-xs text-muted-foreground font-mono truncate">
+                    {embedUrl.length > 45 ? embedUrl.slice(0, 45) + '…' : embedUrl}
+                  </span>
+                </div>
+              )}
+              {embedUrl.trim() && !embedPlatform && (
+                <p className="text-xs text-muted-foreground">URL not recognized as a supported embed — will appear as a link preview.</p>
               )}
             </div>
           )}
