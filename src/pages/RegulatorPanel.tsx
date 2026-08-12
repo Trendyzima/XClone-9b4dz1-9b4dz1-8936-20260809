@@ -139,7 +139,7 @@ export default function RegulatorPanel() {
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [auditFilter, setAuditFilter] = useState('all');
 
-  const [platformStats, setPlatformStats] = useState<{ [k: string]: number }>({});
+  const [platformStats, setPlatformStats] = useState({ users: 0, posts: 0, live_spaces: 0 });
   const [recentUsers, setRecentUsers] = useState<any[]>([]);
   const [platformRevenue, setPlatformRevenue] = useState(0);
 

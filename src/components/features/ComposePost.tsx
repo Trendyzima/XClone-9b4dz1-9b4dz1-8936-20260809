@@ -798,7 +798,8 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
                 </div>
                 <p className="text-sm text-muted-foreground mb-1">AI detected potential policy violation:</p>
                 <p className="text-sm font-semibold text-orange-600 mb-4">{violationReason}</p>
-                <p className="text-xs text-muted-foreground mb-4">You can edit your post or post anyway. Repeated violations may result in account restrictions.</p>
+                <p className="text-xs text-muted-foreground mb-1">You can edit your post or post anyway. Repeated violations may result in account restrictions.</p>
+                <button onClick={() => { setShowViolationWarning(false); navigate('/policy'); }} className="text-xs text-primary hover:underline font-semibold mb-3 block">View Content Policy →</button>
                 <div className="flex gap-2">
                   <button onClick={() => setShowViolationWarning(false)}
                     className="flex-1 py-2.5 border border-border rounded-xl text-sm font-bold hover:bg-muted">Edit Post</button>
