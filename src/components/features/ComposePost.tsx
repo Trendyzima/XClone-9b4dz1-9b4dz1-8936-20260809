@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { pingGoogleSitemap } from '@/lib/pingGoogle';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe, Wand2, AtSign, Sparkles, Layers } from 'lucide-react';
+import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe, Wand2, AtSign, Sparkles, Layers, Quote, Hash, Link2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CreatePollDialog } from './CreatePollDialog';
 import { SchedulePostDialog } from './SchedulePostDialog';
@@ -25,9 +25,11 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const [searchParams] = useSearchParams();
 
   // Duet/quote params — set by VideoPlayer when user taps Duet or Quote
-  const duetUrl   = searchParams.get('duet_url')  ? decodeURIComponent(searchParams.get('duet_url')!)  : null;
-  const duetMeta  = searchParams.get('duet_meta') ? decodeURIComponent(searchParams.get('duet_meta')!) : null;
-  const quoteText = searchParams.get('quote')     ? decodeURIComponent(searchParams.get('quote')!)     : null;
+  const duetUrl          = searchParams.get('duet_url')      ? decodeURIComponent(searchParams.get('duet_url')!)      : null;
+  const duetMeta         = searchParams.get('duet_meta')     ? decodeURIComponent(searchParams.get('duet_meta')!)     : null;
+  const quoteText        = searchParams.get('quote')         ? decodeURIComponent(searchParams.get('quote')!)         : null;
+  const quotedPostId     = searchParams.get('quote_post_id') ?? null;
+  const quotedPostPreview = searchParams.get('quote_preview') ? decodeURIComponent(searchParams.get('quote_preview')!) : null;
 
   // Content creation is free for ALL users — no follower gate.
   // Monetization is separately gated in MonetizationDashboard (500 followers + 3000 posts + 100 videos).
@@ -44,6 +46,11 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const [showProductDialog, setShowProductDialog] = useState(false);
   const [taggedProducts, setTaggedProducts] = useState<any[]>([]);
   const [postToFediverse, setPostToFediverse] = useState(false);
+  // Thread composer (multi-tweet chain)
+  const [showThreadMode, setShowThreadMode] = useState(false);
+  const [threadParts, setThreadParts] = useState<string[]>(['', '']);
+  // Link preview detection
+  const [linkPreview, setLinkPreview] = useState<{ url: string } | null>(null);
   const { toast } = useToast();
 
   // ── @Mentions Autocomplete ─────────────────────────────────────────────────
@@ -55,6 +62,9 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
 
   const handleContentChange = useCallback(async (val: string) => {
     setContent(val);
+    // Link preview detection (first URL)
+    const urlMatch = val.match(/https?:\/\/[^\s]+/);
+    setLinkPreview(urlMatch ? { url: urlMatch[0] } : null);
     const ta = textareaRef.current;
     const pos = ta?.selectionStart ?? val.length;
     const before = val.slice(0, pos);
@@ -67,7 +77,7 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
     if (q.length === 0) { setMentionResults([]); return; }
     const { data } = await supabase.from('user_profiles').select('id, username, avatar_url').ilike('username', `${q}%`).limit(5);
     if (mentionSearchRef.current === q) setMentionResults(data ?? []);
-  }, []);
+  }, [linkPreview]);
 
   const insertMention = useCallback((username: string) => {
     const ta = textareaRef.current;
@@ -298,6 +308,73 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   return (
     <div className="border-b border-border p-4">
       {/* Duet banner — shown when arriving from VideoPlayer Duet/Stitch button */}
+      {/* Quote-tweet card */}
+      {quotedPostId && quotedPostPreview && (
+        <div className="mb-3 rounded-xl border border-border bg-muted/30 p-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Quote className="w-3.5 h-3.5 text-primary" />
+            <span className="text-xs font-bold text-primary">Quoting post</span>
+          </div>
+          <p className="text-sm text-muted-foreground line-clamp-2">{quotedPostPreview}</p>
+        </div>
+      )}
+
+      {/* Thread mode */}
+      {showThreadMode && (
+        <div className="mb-4 border border-border rounded-2xl overflow-hidden bg-muted/10">
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/30">
+            <Hash className="w-4 h-4 text-primary" />
+            <span className="text-sm font-bold">Thread Composer</span>
+            <span className="text-xs text-muted-foreground ml-1">{threadParts.length} parts</span>
+            <button onClick={() => setShowThreadMode(false)} className="ml-auto text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="divide-y divide-border">
+            {threadParts.map((part, i) => (
+              <div key={i} className="relative p-3 flex gap-2">
+                <div className="flex flex-col items-center gap-1">
+                  <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-black text-muted-foreground shrink-0">{i + 1}</div>
+                  {i < threadParts.length - 1 && <div className="w-0.5 h-6 bg-border mt-1" />}
+                </div>
+                <div className="flex-1">
+                  <textarea rows={2} value={part}
+                    onChange={e => setThreadParts(prev => prev.map((p, j) => j === i ? e.target.value : p))}
+                    placeholder={i === 0 ? 'Start your thread here…' : `Part ${i + 1}…`}
+                    maxLength={280}
+                    className="w-full bg-transparent text-sm resize-none focus:outline-none placeholder:text-muted-foreground/50" />
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10px] ${part.length > 260 ? 'text-destructive' : 'text-muted-foreground'}`}>{part.length}/280</span>
+                    {threadParts.length > 2 && (
+                      <button onClick={() => setThreadParts(prev => prev.filter((_, j) => j !== i))} className="text-[10px] text-muted-foreground hover:text-destructive">Remove</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 px-4 py-3 border-t border-border">
+            <button onClick={() => setThreadParts(prev => [...prev, ''])}
+              className="flex items-center gap-1.5 text-sm text-primary font-semibold hover:opacity-80">+ Add part</button>
+            <button disabled={loading || threadParts.filter(p => p.trim()).length < 2}
+              onClick={async () => {
+                const validParts = threadParts.filter(p => p.trim());
+                if (validParts.length < 2) { sonnerToast.error('Add at least 2 parts to post a thread'); return; }
+                setLoading(true);
+                for (let idx = 0; idx < validParts.length; idx++) {
+                  const part = validParts[idx];
+                  const label = validParts.length > 1 ? ` \ud83e\uddf5 ${idx + 1}/${validParts.length}\n\n` : '';
+                  await supabase.from('posts').insert({ user_id: user!.id, content: label + part.trim(), community_id: communityId || null });
+                }
+                setLoading(false); setShowThreadMode(false); setThreadParts(['', '']);
+                sonnerToast.success(`Thread posted (${validParts.length} parts)!`);
+                onSuccess?.();
+              }}
+              className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-full font-bold text-sm disabled:opacity-50 hover:opacity-90">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Post Thread
+            </button>
+          </div>
+        </div>
+      )}
+
       {duetUrl && (
         <div className="mb-3 rounded-xl overflow-hidden border border-sky-500/30 bg-sky-500/5">
           <div className="flex items-center gap-2 px-3 py-2 bg-sky-500/10 border-b border-sky-500/20">
@@ -361,6 +438,15 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
               </div>
             )}
           </div>
+
+          {/* Link preview chip */}
+          {linkPreview && !images.length && !video && !gifUrl && (
+            <div className="mt-2 flex items-center gap-2 p-2.5 bg-muted/40 border border-border rounded-xl">
+              <Link2 className="w-4 h-4 text-muted-foreground shrink-0" />
+              <p className="text-xs text-muted-foreground font-mono truncate flex-1">{linkPreview.url}</p>
+              <button onClick={() => setLinkPreview(null)} className="text-muted-foreground hover:text-foreground"><X className="w-3 h-3" /></button>
+            </div>
+          )}
 
           {/* Image grid */}
           {images.length > 0 && (
@@ -447,6 +533,11 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
               </button>
               <button onClick={() => setShowProductDialog(true)} disabled={loading} className="cursor-pointer p-2 hover:bg-primary/10 rounded-full text-primary transition-colors disabled:opacity-50 flex-shrink-0" title="Tag products">
                 <ShoppingBag className="w-5 h-5" />
+              </button>
+              <button onClick={() => setShowThreadMode(v => !v)} disabled={loading}
+                className={`cursor-pointer p-2 rounded-full transition-colors disabled:opacity-50 flex-shrink-0 ${showThreadMode ? 'bg-primary/20 text-primary' : 'hover:bg-primary/10 text-muted-foreground'}`}
+                title="Thread composer">
+                <Hash className="w-5 h-5" />
               </button>
               <button onClick={() => setShowCaptionGen(v => !v)} disabled={loading}
                 className={`cursor-pointer p-2 rounded-full transition-colors disabled:opacity-50 flex-shrink-0 ${showCaptionGen ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'hover:bg-primary/10 text-muted-foreground'}`}

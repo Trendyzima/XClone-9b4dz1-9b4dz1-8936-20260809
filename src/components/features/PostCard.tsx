@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon, Crown, Megaphone } from 'lucide-react';
+import { Heart, MessageCircle, Repeat2, Share, MoreHorizontal, BadgeCheck, Trash2, TrendingUp, Zap, Eye, BarChart3, Users, History, X, Languages, Loader2 as TransLoader, DollarSign, Flag, Check as CheckIcon, ChevronDown, ChevronUp, Send as SendIcon, Crown, Megaphone, Quote } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { Post } from '@/types/app-types';
 import { formatDistanceToNow } from 'date-fns';
@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { VideoMonetizationAd } from './VideoMonetizationAd';
+import { EmbedRenderer } from './EmbedRenderer';
 
 const REPORT_CATEGORIES = [
   { id: 'spam',           emoji: '📢', label: 'Spam',               desc: 'Unsolicited or repetitive content' },
@@ -727,6 +728,9 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
           {poll && <PollCard poll={poll} postId={post.id} />}
 
+          {/* Embeds — YouTube, Spotify, SoundCloud, etc. */}
+          {!post.is_video && <EmbedRenderer content={post.content} />}
+
           {/* Reaction bubbles */}
           {Object.keys(reactionCounts).length > 0 && (
             <div className="flex gap-1.5 mt-2 flex-wrap" onClick={e => e.stopPropagation()}>
@@ -861,6 +865,17 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 </div>
               )}
             </div>
+
+            {/* Quote Tweet */}
+            <button
+              title="Quote Tweet"
+              className="flex items-center space-x-2 text-muted-foreground hover:text-blue-500 transition-colors group"
+              onClick={e => { e.stopPropagation(); navigate(`/?quote_post_id=${post.id}&quote_preview=${encodeURIComponent(post.content.slice(0, 100))}`); }}
+            >
+              <div className="p-2 rounded-full group-hover:bg-blue-500/10 transition-colors">
+                <Quote className="w-4 h-4" />
+              </div>
+            </button>
 
             <button
               className="flex items-center space-x-2 text-muted-foreground hover:text-primary transition-colors group"
