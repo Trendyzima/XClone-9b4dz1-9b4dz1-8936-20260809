@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
-import { Plus, X, Loader2, Send, MessageCircle, Music, Search as SearchIcon, Play, Pause } from 'lucide-react';
+import { Plus, X, Loader2, Send, MessageCircle, Music, Search as SearchIcon, Play, Pause, Compass, Gift, Star } from 'lucide-react';
 import { toast } from 'sonner';
+import { StoryAdSlide, checkStoryAdFreqCap } from './StoryAdSlide';
 
 interface Story {
   id: string;
@@ -198,8 +199,98 @@ export function StoriesStrip() {
     ? musicCatalogue.filter(t => t.title.toLowerCase().includes(musicSearch.toLowerCase()) || t.artist.toLowerCase().includes(musicSearch.toLowerCase()) || t.genre?.toLowerCase().includes(musicSearch.toLowerCase()))
     : musicCatalogue;
 
-  // Story creation is FREE for all users — no follower gate
+  // ── Story is FREE for all users — follower gate removed ──────────────────
+  const [creatorFollowers, setCreatorFollowers] = useState<number | null>(null);
+  // esbuild guard: keep vars to avoid unused-var warnings but gate is always open
+  const FOLLOWER_THRESHOLD = 0;
   const isCreationLocked = false;
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('user_profiles')
+      .select('followers_count')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setCreatorFollowers(data?.followers_count ?? 0));
+  }, [user?.id]);
+
+  // ── Story Ads: inject between groups ──────────────────────────────────────
+  const [storyAds, setStoryAds] = useState<any[]>([]);
+  const [currentStoryAd, setCurrentStoryAd] = useState<any | null>(null);
+  const [showStoryAd, setShowStoryAd] = useState(false);
+  const storyGroupViewCount = useRef(0);
+  const AD_INJECT_INTERVAL = 3;
+
+  useEffect(() => {
+    supabase
+      .from('user_ads')
+      .select('*, user_profiles!user_ads_user_id_fkey(username, avatar_url, verified)')
+      .eq('status', 'active')
+      .eq('payment_status', 'paid')
+      .order('created_at', { ascending: false })
+      .limit(8)
+      .then(({ data }) => setStoryAds(data ?? []));
+  }, []);
+
+  const maybeShowStoryAd = useCallback(() => {
+    if (storyAds.length === 0) return;
+    if (checkStoryAdFreqCap()) return;
+    storyGroupViewCount.current += 1;
+    if (storyGroupViewCount.current % AD_INJECT_INTERVAL !== 0) return;
+    const ad = storyAds[Math.floor(Math.random() * storyAds.length)];
+    setCurrentStoryAd(ad);
+    setShowStoryAd(true);
+  }, [storyAds]);
+
+  // ── Story Creation Rewards: +5 credits per day ─────────────────────────────
+  const grantStoryCreationReward = useCallback(async (userId: string) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const rewardKey = `ts-story-reward-${userId}-${today}`;
+    try {
+      if (localStorage.getItem(rewardKey)) return;
+      localStorage.setItem(rewardKey, '1');
+    } catch { return; }
+    await supabase.from('credit_transactions').insert({
+      user_id: userId,
+      amount: 5,
+      reason: 'story_creation',
+      metadata: { date: today },
+    }).catch(() => {});
+    toast.success('🎉 +5 credits for creating a story!', { duration: 3000 });
+  }, []);
+
+  // ── Explore Stories ─────────────────────────────────────────────────────────
+  const [exploreStories, setExploreStories] = useState<StoryGroup[]>([]);
+  const [exploreLoading, setExploreLoading] = useState(false);
+  const [showExplore, setShowExplore] = useState(false);
+
+  const fetchExploreStories = useCallback(async () => {
+    if (exploreStories.length > 0) return;
+    setExploreLoading(true);
+    const { data } = await supabase
+      .from('stories')
+      .select('*, user_profiles(username, avatar_url)')
+      .gt('expires_at', new Date().toISOString())
+      .order('views_count', { ascending: false })
+      .limit(40);
+    const rawStories: Story[] = (data as Story[]) ?? [];
+    const map: { [key: string]: StoryGroup } = {};
+    for (const story of rawStories) {
+      if (!map[story.user_id]) {
+        map[story.user_id] = {
+          userId: story.user_id,
+          username: story.user_profiles?.username ?? 'user',
+          avatarUrl: story.user_profiles?.avatar_url ?? null,
+          stories: [],
+          hasUnseen: true,
+        };
+      }
+      map[story.user_id].stories.push(story);
+    }
+    setExploreStories(Object.values(map).slice(0, 16));
+    setExploreLoading(false);
+  }, [exploreStories.length]);
 
   // ── Story Poll Sticker ────────────────────────────────────────────────────
   const [pollQuestion, setPollQuestion] = useState('');
@@ -306,52 +397,6 @@ export function StoriesStrip() {
   };
 
   const REACTIONS = ['❤️', '😂', '😮', '🔥', '👏', '😍'];
-
-  // ── Sponsored Story Ads ──────────────────────────────────────────────────────
-  const [sponsoredAds, setSponsoredAds] = useState<any[]>([]);
-  const [activeAdIdx, setActiveAdIdx] = useState<number | null>(null);
-  const [adLiked, setAdLiked] = useState(false);
-  // Ad injection interval: show one sponsored story every N real groups
-  const AD_STORY_INTERVAL = 3;
-
-  useEffect(() => {
-    supabase
-      .from('user_ads')
-      .select('*, user_profiles!user_ads_user_id_fkey(id, username, avatar_url, verified)')
-      .eq('status', 'active')
-      .eq('payment_status', 'paid')
-      .order('created_at', { ascending: false })
-      .limit(6)
-      .then(({ data }) => setSponsoredAds(data ?? []));
-  }, []);
-
-  const openAdStory = (adIndex: number) => {
-    setActiveAdIdx(adIndex);
-    setAdLiked(false);
-    // Track impression
-    const ad = sponsoredAds[adIndex];
-    if (ad) {
-      supabase.from('ad_impressions').insert({
-        ad_id: ad.id,
-        user_id: user?.id ?? null,
-        clicked: false,
-      }).catch(() => {});
-    }
-  };
-
-  const closeAdStory = () => setActiveAdIdx(null);
-
-  const handleAdCta = () => {
-    if (activeAdIdx === null) return;
-    const ad = sponsoredAds[activeAdIdx];
-    if (!ad) return;
-    supabase.from('ad_impressions').insert({
-      ad_id: ad.id,
-      user_id: user?.id ?? null,
-      clicked: true,
-    }).catch(() => {});
-    if (ad.target_url) window.open(ad.target_url, '_blank', 'noopener,noreferrer');
-  };
 
   const fetchStories = useCallback(async () => {
     setLoading(true);
@@ -580,6 +625,8 @@ export function StoriesStrip() {
   const doUpload = async () => {
     if (!pendingFile || !user) return;
     setUploading(true);
+    // Grant +5 credits for story creation (once per day)
+    grantStoryCreationReward(user.id).catch(() => {});
     const ext = pendingFile.name.split('.').pop();
     const path = `stories/${user.id}/${Date.now()}.${ext}`;
     const { error: upErr } = await supabase.storage.from('posts').upload(path, pendingFile);
@@ -733,6 +780,8 @@ export function StoriesStrip() {
 
   const myGroupIdx = groups.findIndex(g => g.userId === user?.id);
   const hasMyStory = myGroupIdx !== -1;
+  // Pre-compute (esbuild guard: no IIFE)
+  const exploreViewerStory0 = exploreStories[0]?.stories[0] ?? null;
 
   // Pre-compute viewer state before JSX — esbuild guard: no IIFE in render
   const viewerG     = viewerGroupIdx !== null ? (groups[viewerGroupIdx] ?? null) : null;
@@ -753,31 +802,126 @@ export function StoriesStrip() {
   if (viewerIsOwn && viewerStory) { void fetchStoryReplyCount(viewerStory.id, viewerG!.userId); }
   const viewerReplyCount = viewerIsOwn && viewerStory ? getStoryReplyCount(viewerStory.id) : 0;
 
-  // Pre-compute sponsored ad viewer vars before return — esbuild guard: no IIFE in JSX render
-  const adViewerAd = activeAdIdx !== null ? (sponsoredAds[activeAdIdx] ?? null) : null;
-  const adAdvertiserName = adViewerAd?.user_profiles?.username ?? 'Advertiser';
-  const adAdvertiserAvatar = adViewerAd?.user_profiles?.avatar_url ?? null;
-  const adIsVerified = adViewerAd?.user_profiles?.verified ?? false;
-  let adDomainShort = '';
-  if (adViewerAd?.target_url) {
-    try { adDomainShort = new URL(adViewerAd.target_url).hostname.replace(/^www\./, ''); } catch {}
-  }
-  const adCtaLabel = adViewerAd?.target_url?.includes('sign') || adViewerAd?.target_url?.includes('register')
-    ? 'Sign Up Now'
-    : adViewerAd?.target_url?.includes('shop') || adViewerAd?.target_url?.includes('buy')
-    ? 'Shop Now'
-    : adDomainShort
-    ? `GET ${adDomainShort.toUpperCase().slice(0, 14)}`
-    : 'Learn More';
-
   return (
     <>
+      {/* ── Story Ad Slide ── */}
+      {showStoryAd && currentStoryAd && (
+        <StoryAdSlide
+          ad={currentStoryAd}
+          onComplete={() => { setShowStoryAd(false); setCurrentStoryAd(null); }}
+          onSkip={() => { setShowStoryAd(false); setCurrentStoryAd(null); }}
+        />
+      )}
+
+      {/* ── Explore Stories Sheet ── */}
+      {showExplore && (
+        <div className="fixed inset-0 z-[300] bg-background flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+            <div className="flex items-center gap-2">
+              <Compass className="w-5 h-5 text-primary" />
+              <h2 className="font-bold text-lg">Explore Stories</h2>
+            </div>
+            <button onClick={() => setShowExplore(false)} className="p-2 rounded-full hover:bg-muted transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          {exploreLoading ? (
+            <div className="flex-1 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+          ) : exploreStories.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+              <Star className="w-12 h-12 opacity-20" />
+              <p className="font-semibold">No public stories yet</p>
+              <button onClick={() => { setShowExplore(false); fileInputRef.current?.click(); }}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90">Create one!</button>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto p-4">
+              {/* Ad injection in Explore */}
+              {!checkStoryAdFreqCap() && storyAds.length > 0 && storyAds[0]?.image_url && (
+                <button
+                  onClick={() => { setCurrentStoryAd(storyAds[0]); setShowStoryAd(true); setShowExplore(false); }}
+                  className="w-full mb-4 rounded-2xl overflow-hidden border border-border bg-muted/20 relative text-left"
+                >
+                  <div className="absolute top-2 right-2 z-10 bg-black/60 rounded-full px-2 py-0.5">
+                    <span className="text-white text-[10px] font-bold">Sponsored</span>
+                  </div>
+                  <img src={storyAds[0].image_url} alt={storyAds[0].title} className="w-full h-32 object-cover" loading="lazy" />
+                  <div className="p-3">
+                    <p className="font-bold text-sm">{storyAds[0].title}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-1">{storyAds[0].description}</p>
+                  </div>
+                </button>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                {exploreStories.map((g, idx) => (
+                  <button
+                    key={g.userId}
+                    onClick={() => {
+                      setShowExplore(false);
+                      const existingIdx = groups.findIndex(gr => gr.userId === g.userId);
+                      if (existingIdx >= 0) openViewer(existingIdx);
+                    }}
+                    className="rounded-2xl overflow-hidden border border-border bg-muted/20 hover:border-primary/30 transition-colors text-left"
+                  >
+                    <div className="aspect-[9/14] relative bg-muted">
+                      {g.stories[0]?.media_type === 'video' ? (
+                        <video src={`${g.stories[0].media_url}#t=0.5`} className="w-full h-full object-cover" muted preload="metadata" />
+                      ) : g.stories[0]?.media_url ? (
+                        <img src={g.stories[0].media_url} alt={g.username} className="w-full h-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-purple-500/20">
+                          <Star className="w-8 h-8 text-primary/40" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                      <div className="absolute top-2 left-2 w-8 h-8 rounded-full overflow-hidden border-2 border-white/70">
+                        {g.avatarUrl
+                          ? <img src={g.avatarUrl} alt={g.username} className="w-full h-full object-cover" />
+                          : <div className="w-full h-full bg-primary/30 flex items-center justify-center text-xs font-bold text-white">{g.username[0]?.toUpperCase()}</div>}
+                      </div>
+                      {g.stories.length > 1 && (
+                        <div className="absolute top-2 right-2 bg-black/60 rounded-full px-1.5 py-0.5 text-white text-[10px] font-bold">+{g.stories.length}</div>
+                      )}
+                    </div>
+                    <div className="p-2">
+                      <p className="text-xs font-semibold truncate">@{g.username}</p>
+                      {g.stories[0]?.caption && (
+                        <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{g.stories[0].caption}</p>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {/* Story Creation CTA */}
+              {user && (
+                <div className="mt-4 p-4 rounded-2xl bg-gradient-to-br from-primary/10 to-purple-500/10 border border-primary/20 flex items-center gap-3">
+                  <Gift className="w-8 h-8 text-primary shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-bold text-sm">Earn +5 credits daily</p>
+                    <p className="text-xs text-muted-foreground">Post a story every day to earn rewards</p>
+                  </div>
+                  <button onClick={() => { setShowExplore(false); fileInputRef.current?.click(); }}
+                    className="px-3 py-1.5 bg-primary text-primary-foreground rounded-full text-xs font-bold hover:opacity-90">
+                    Create
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Story Strip ────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 py-3 overflow-x-auto scrollbar-hide border-b border-border bg-background">
         {user && (
           <button
             onClick={() => {
-              if (hasMyStory) openViewer(myGroupIdx); else fileInputRef.current?.click();
+              if (isCreationLocked) {
+                const needed = FOLLOWER_THRESHOLD - (creatorFollowers ?? 0);
+                toast.error(`Unlock story creation by reaching ${FOLLOWER_THRESHOLD} followers — you need ${needed.toLocaleString()} more`);
+                return;
+              }
+              if (hasMyStory) { openViewer(myGroupIdx); maybeShowStoryAd(); } else fileInputRef.current?.click();
             }}
             disabled={uploading}
             className="flex flex-col items-center gap-1 flex-shrink-0 group"
@@ -791,57 +935,38 @@ export function StoriesStrip() {
               }
               {!hasMyStory && (
                 <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-2 border-background">
-                  {uploading ? <Loader2 className="w-3 h-3 text-white animate-spin" /> : <Plus className="w-3 h-3 text-white" />}
+                  {uploading ? <Loader2 className="w-3 h-3 text-white animate-spin" /> : isCreationLocked ? <span className="text-[8px]">🔒</span> : <Plus className="w-3 h-3 text-white" />}
                 </span>
               )}
             </div>
             <span className="text-[10px] text-muted-foreground font-medium leading-none">
-              {hasMyStory ? 'My Story' : 'Add Story'}
+              {hasMyStory ? 'My Story' : isCreationLocked ? '🔒 Locked' : 'Add Story'}
             </span>
           </button>
         )}
         <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFileSelected} />
-        {groups.filter(g => g.userId !== user?.id).map((g, listIdx) => {
+        {/* Explore Stories button */}
+        <button
+          onClick={() => { setShowExplore(true); fetchExploreStories(); }}
+          className="flex flex-col items-center gap-1.5 flex-shrink-0 group"
+        >
+          <div className="w-14 h-14 rounded-full border-2 border-dashed border-primary/40 group-hover:border-primary/70 flex items-center justify-center bg-primary/5 transition-colors">
+            <Compass className="w-6 h-6 text-primary/60 group-hover:text-primary transition-colors" />
+          </div>
+          <span className="text-[10px] text-muted-foreground font-medium">Explore</span>
+        </button>
+        {groups.filter(g => g.userId !== user?.id).map(g => {
           const realIdx = groups.indexOf(g);
-          // Inject a sponsored story ad every AD_STORY_INTERVAL real groups
-          const adSlotIdx = Math.floor(listIdx / AD_STORY_INTERVAL);
-          const showAdBefore = listIdx > 0 && listIdx % AD_STORY_INTERVAL === 0 && adSlotIdx - 1 < sponsoredAds.length;
-          const adForSlot = showAdBefore ? sponsoredAds[(adSlotIdx - 1) % sponsoredAds.length] : null;
-          // Pre-compute ad slot index for openAdStory
-          const adOpenIdx = showAdBefore ? (adSlotIdx - 1) % sponsoredAds.length : -1;
           return (
-            <React.Fragment key={g.userId}>
-              {/* Sponsored story ad circle */}
-              {adForSlot && (
-                <button
-                  onClick={() => openAdStory(adOpenIdx)}
-                  className="flex flex-col items-center gap-1 flex-shrink-0 group"
-                >
-                  <div className="relative w-14 h-14 rounded-full overflow-hidden ring-2 ring-offset-2 ring-offset-background ring-amber-400 border-2 border-amber-400/40">
-                    {adForSlot.image_url || adForSlot.video_url ? (
-                      adForSlot.video_url
-                        ? <video src={`${adForSlot.video_url}#t=0.5`} className="w-full h-full object-cover" muted preload="metadata" />
-                        : <img src={adForSlot.image_url} alt="Sponsored" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                        <span className="text-white text-lg font-black">{adForSlot.user_profiles?.username?.[0]?.toUpperCase() ?? 'A'}</span>
-                      </div>
-                    )}
-                    <div className="absolute bottom-0 left-0 right-0 bg-amber-500/90 text-[8px] font-black text-white text-center py-0.5">AD</div>
-                  </div>
-                  <span className="text-[10px] font-semibold leading-none max-w-[56px] truncate text-amber-600">Sponsored</span>
-                </button>
-              )}
-              <button key={g.userId} onClick={() => openViewer(realIdx)} className="flex flex-col items-center gap-1 flex-shrink-0 group">
-                <div className={`w-14 h-14 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all ${g.hasUnseen ? 'ring-primary' : 'ring-muted-foreground/20 group-hover:ring-muted-foreground/40'}`}>
-                  {g.avatarUrl
-                    ? <img src={g.avatarUrl} alt={g.username} className="w-full h-full rounded-full object-cover" />
-                    : <div className="w-full h-full rounded-full bg-muted flex items-center justify-center font-bold text-sm">{g.username[0]?.toUpperCase()}</div>
-                  }
-                </div>
-                <span className={`text-[10px] font-medium leading-none max-w-[56px] truncate ${g.hasUnseen ? 'text-foreground' : 'text-muted-foreground'}`}>{g.username}</span>
-              </button>
-            </React.Fragment>
+            <button key={g.userId} onClick={() => { openViewer(realIdx); maybeShowStoryAd(); }} className="flex flex-col items-center gap-1 flex-shrink-0 group">
+              <div className={`w-14 h-14 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all ${g.hasUnseen ? 'ring-primary' : 'ring-muted-foreground/20 group-hover:ring-muted-foreground/40'}`}>
+                {g.avatarUrl
+                  ? <img src={g.avatarUrl} alt={g.username} className="w-full h-full rounded-full object-cover" />
+                  : <div className="w-full h-full rounded-full bg-muted flex items-center justify-center font-bold text-sm">{g.username[0]?.toUpperCase()}</div>
+                }
+              </div>
+              <span className={`text-[10px] font-medium leading-none max-w-[56px] truncate ${g.hasUnseen ? 'text-foreground' : 'text-muted-foreground'}`}>{g.username}</span>
+            </button>
           );
         })}
       </div>
@@ -1067,207 +1192,7 @@ export function StoriesStrip() {
         </div>
       )}
 
-      {/* ── Full-screen Sponsored Story Ad Viewer ────────────────── */}
-      {activeAdIdx !== null && adViewerAd && (
-          <div className="fixed inset-0 z-[220] bg-black flex flex-col" onClick={closeAdStory}>
-            {/* Progress bar */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-white/20 z-10">
-              <div className="h-full bg-white/70 rounded-full" style={{ width: '100%' }} />
-            </div>
-            {/* Header */}
-            <div className="absolute top-4 left-0 right-0 flex items-center gap-3 px-4 z-10" onClick={e => e.stopPropagation()}>
-              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-amber-400 shrink-0">
-                {adAdvertiserAvatar
-                  ? <img src={adAdvertiserAvatar} alt={adAdvertiserName} className="w-full h-full object-cover" />
-                  : <div className="w-full h-full bg-amber-500 flex items-center justify-center font-bold text-white text-sm">{adAdvertiserName[0]?.toUpperCase()}</div>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-bold text-sm leading-tight truncate">{adAdvertiserName}</p>
-                <div className="flex items-center gap-1">
-                  {adIsVerified && <span className="text-blue-400 text-[10px]">✓</span>}
-                  <span className="text-amber-300 text-[10px] font-bold">Sponsored</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 mr-1">
-                <button
-                  onClick={e => { e.stopPropagation(); setActiveAdIdx(i => i !== null ? Math.max(0, i - 1) : null); setAdLiked(false); }}
-                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs"
-                  disabled={activeAdIdx === 0}
-                >‹</button>
-                <button
-                  onClick={e => { e.stopPropagation(); setActiveAdIdx(i => i !== null && i < sponsoredAds.length - 1 ? i + 1 : null); setAdLiked(false); }}
-                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs"
-                  disabled={activeAdIdx === sponsoredAds.length - 1}
-                >›</button>
-              </div>
-              <button onClick={e => { e.stopPropagation(); closeAdStory(); }} className="w-9 h-9 flex items-center justify-center rounded-full bg-black/40 text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            {/* Media */}
-            {adViewerAd.video_url ? (
-              <video
-                src={adViewerAd.video_url}
-                className="w-full h-full object-cover"
-                autoPlay muted playsInline loop
-                onClick={e => e.stopPropagation()}
-                onEnded={() => {
-                  if (activeAdIdx < sponsoredAds.length - 1) { setActiveAdIdx(i => (i ?? 0) + 1); setAdLiked(false); }
-                  else closeAdStory();
-                }}
-              />
-            ) : adViewerAd.image_url ? (
-              <img src={adViewerAd.image_url} alt={adViewerAd.title} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-amber-500/40 via-orange-500/20 to-black" />
-            )}
-            {/* Gradient overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
-            {/* Footer */}
-            <div className="absolute bottom-0 left-0 right-0 z-10 px-4 pb-8 space-y-3" onClick={e => e.stopPropagation()}>
-              <div>
-                <p className="text-white font-bold text-lg leading-tight">{adViewerAd.title}</p>
-                {adViewerAd.description && <p className="text-white/75 text-sm mt-0.5 line-clamp-2">{adViewerAd.description}</p>}
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => { setAdLiked(v => !v); if (!adLiked) supabase.from('ad_impressions').insert({ ad_id: adViewerAd.id, user_id: user?.id ?? null, clicked: true }).catch(() => {}); }}
-                  className={`flex items-center gap-1.5 text-sm font-semibold transition-colors ${adLiked ? 'text-blue-400' : 'text-white/80 hover:text-white'}`}
-                >
-                  <span className="text-xl">👍</span>
-                  {adLiked ? 'Liked' : 'Like'}
-                </button>
-                <div className="text-white/30">·</div>
-                <span className="text-white/50 text-xs">{adViewerAd.impressions ?? 0} views</span>
-                {adDomainShort && <span className="text-white/40 text-[10px] ml-auto truncate max-w-[120px]">{adDomainShort}</span>}
-              </div>
-              {adViewerAd.target_url && (
-                <button
-                  onClick={handleAdCta}
-                  className="w-full py-3.5 bg-white text-black rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-lg"
-                >
-                  {adCtaLabel}<span className="text-xs">›</span>
-                </button>
-              )}
-              <div className="flex items-center gap-1.5 justify-center">
-                <span className="text-[10px] text-white/40">🔊 Ad</span>
-                <span className="text-white/20 text-[10px]">·</span>
-                <span className="text-[10px] text-white/40">Why this ad?</span>
-              </div>
-            </div>
-          </div>
-      )}
-          <div className="fixed inset-0 z-[220] bg-black flex flex-col" onClick={closeAdStory}>
-            {/* Progress bar (static — shows as full for image, auto-drains for video) */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-white/20 z-10">
-              <div className="h-full bg-white/70 rounded-full" style={{ width: '100%' }} />
-            </div>
-            {/* Header */}
-            <div className="absolute top-4 left-0 right-0 flex items-center gap-3 px-4 z-10" onClick={e => e.stopPropagation()}>
-              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-amber-400 shrink-0">
-                {advertiserAvatar
-                  ? <img src={advertiserAvatar} alt={advertiserName} className="w-full h-full object-cover" />
-                  : <div className="w-full h-full bg-amber-500 flex items-center justify-center font-bold text-white text-sm">{advertiserName[0]?.toUpperCase()}</div>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-bold text-sm leading-tight truncate">{advertiserName}</p>
-                <div className="flex items-center gap-1">
-                  {isVerified && <span className="text-blue-400 text-[10px]">✓</span>}
-                  <span className="text-amber-300 text-[10px] font-bold">Sponsored</span>
-                </div>
-              </div>
-              {/* Prev / Next arrows */}
-              <div className="flex items-center gap-1 mr-1">
-                <button
-                  onClick={e => { e.stopPropagation(); setActiveAdIdx(i => i !== null ? Math.max(0, i - 1) : null); setAdLiked(false); }}
-                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs"
-                  disabled={activeAdIdx === 0}
-                >
-                  ‹
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); setActiveAdIdx(i => i !== null && i < sponsoredAds.length - 1 ? i + 1 : null); setAdLiked(false); }}
-                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs"
-                  disabled={activeAdIdx === sponsoredAds.length - 1}
-                >
-                  ›
-                </button>
-              </div>
-              <button onClick={e => { e.stopPropagation(); closeAdStory(); }} className="w-9 h-9 flex items-center justify-center rounded-full bg-black/40 text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            {/* Media */}
-            {ad.video_url ? (
-              <video
-                src={ad.video_url}
-                className="w-full h-full object-cover"
-                autoPlay
-                muted
-                playsInline
-                loop
-                onClick={e => e.stopPropagation()}
-                onEnded={() => {
-                  if (activeAdIdx < sponsoredAds.length - 1) { setActiveAdIdx(i => (i ?? 0) + 1); setAdLiked(false); }
-                  else closeAdStory();
-                }}
-              />
-            ) : ad.image_url ? (
-              <img src={ad.image_url} alt={ad.title} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-amber-500/40 via-orange-500/20 to-black" />
-            )}
-            {/* Gradient overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
-            {/* Footer content */}
-            <div className="absolute bottom-0 left-0 right-0 z-10 px-4 pb-8 space-y-3" onClick={e => e.stopPropagation()}>
-              <div>
-                <p className="text-white font-bold text-lg leading-tight">{ad.title}</p>
-                {ad.description && <p className="text-white/75 text-sm mt-0.5 line-clamp-2">{ad.description}</p>}
-              </div>
-              {/* Like row */}
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => { setAdLiked(v => !v); if (!adLiked) supabase.from('ad_impressions').insert({ ad_id: ad.id, user_id: user?.id ?? null, clicked: true }).catch(() => {}); }}
-                  className={`flex items-center gap-1.5 text-sm font-semibold transition-colors ${adLiked ? 'text-blue-400' : 'text-white/80 hover:text-white'}`}
-                >
-                  <span className="text-xl">{adLiked ? '👍' : '👍'}</span>
-                  {adLiked ? 'Liked' : 'Like'}
-                </button>
-                <div className="text-white/30">·</div>
-                <span className="text-white/50 text-xs">{ad.impressions ?? 0} views</span>
-                {domainShort && (
-                  <span className="text-white/40 text-[10px] ml-auto truncate max-w-[120px]">{domainShort}</span>
-                )}
-              </div>
-              {/* CTA button */}
-              {ad.target_url && (
-                <button
-                  onClick={handleAdCta}
-                  className="w-full py-3.5 bg-white text-black rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-lg"
-                >
-                  {domainShort
-                    ? `GET ${domainShort.toUpperCase().slice(0, 14)}`
-                    : ad.target_url?.includes('sign') || ad.target_url?.includes('register')
-                    ? 'Sign Up Now'
-                    : ad.target_url?.includes('shop') || ad.target_url?.includes('buy')
-                    ? 'Shop Now'
-                    : 'Learn More'}
-                  <span className="text-xs">›</span>
-                </button>
-              )}
-              {/* "Ad" badge */}
-              <div className="flex items-center gap-1.5 justify-center">
-                <span className="text-[10px] text-white/40">🔊 Ad</span>
-                <span className="text-white/20 text-[10px]">·</span>
-                <span className="text-[10px] text-white/40">Why this ad?</span>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ── Full-screen Story Viewer ─── */}
+      {/* ── Full-screen Story Viewer — no IIFE (esbuild guard) ─── */}
       {viewerGroupIdx !== null && viewerG && viewerStory && (
         <div
           className="fixed inset-0 z-[200] bg-black flex items-center justify-center select-none"
