@@ -1,51 +1,60 @@
--- ============================================================
--- pg_cron: Schedule daily-earnings-notification edge function
--- Run this SQL once in the Supabase SQL editor.
--- Requires: pg_cron extension (enabled by default on Supabase)
--- ============================================================
+-- =============================================================================
+-- Migration: Schedule daily earnings distribution + Revenue rate system
+-- Run in Supabase SQL Editor (requires pg_cron + pg_net extensions)
+-- =============================================================================
 
--- 1. Enable pg_cron if not already active
-create extension if not exists pg_cron;
-
--- 2. Enable pg_net for HTTP requests (required to call edge functions)
-create extension if not exists pg_net;
-
--- 3. Remove any existing schedule with this name (safe to re-run)
-select cron.unschedule('daily-earnings-notification')
-  where exists (
-    select 1 from cron.job where jobname = 'daily-earnings-notification'
-  );
-
--- 4. Schedule: every day at 08:00 UTC
---    Calls the daily-earnings-notification edge function via HTTP POST.
---    Replace <SUPABASE_URL> and <SERVICE_ROLE_KEY> with your actual values,
---    or use Supabase Vault secrets.
-select cron.schedule(
-  'daily-earnings-notification',          -- job name
-  '0 8 * * *',                            -- cron: 08:00 UTC every day
-  $$
-    select net.http_post(
-      url     := current_setting('app.supabase_url') || '/functions/v1/daily-earnings-notification',
-      headers := jsonb_build_object(
-        'Content-Type',  'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-      ),
-      body    := '{}'::jsonb
-    );
-  $$
-);
-
--- 5. Verify the schedule was created
-select jobid, jobname, schedule, command
-from cron.job
-where jobname = 'daily-earnings-notification';
-
--- ============================================================
--- HOW TO SET app.supabase_url / app.service_role_key
--- Run once in the SQL editor:
+-- Step 1: Enable extensions (run as postgres superuser)
+-- If you see "can only create extension in database postgres", run these two
+-- lines directly in the Supabase SQL editor as the default admin user:
 --
---   alter database postgres set app.supabase_url = 'https://lrqqpudyrkmitbeilrqq.backend.onspace.ai';
---   alter database postgres set app.service_role_key = '<your-service-role-key>';
+--   create extension if not exists pg_cron;
+--   create extension if not exists pg_net;
 --
--- Or replace current_setting() calls above with the literal strings.
--- ============================================================
+-- Both extensions are pre-installed on all Supabase projects.
+
+-- Step 2: Schedule distribute-earnings daily at midnight UTC
+-- Replace YOUR_SUPABASE_URL and YOUR_SERVICE_ROLE_KEY with your actual values
+-- from Settings → API in the Supabase dashboard.
+--
+-- select cron.schedule(
+--   'distribute-earnings-daily',      -- job name (unique)
+--   '0 0 * * *',                       -- cron: daily at 00:00 UTC
+--   $$
+--   select
+--     net.http_post(
+--       url        := 'YOUR_SUPABASE_URL/functions/v1/distribute-earnings',
+--       headers    := '{"Content-Type":"application/json","Authorization":"Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb,
+--       body       := '{}'::jsonb,
+--       timeout_milliseconds := 30000
+--     ) as request_id;
+--   $$
+-- );
+
+-- Step 3: View scheduled jobs
+-- select * from cron.job;
+
+-- Step 4: View job execution history
+-- select * from cron.job_run_details order by start_time desc limit 20;
+
+-- Step 5: To remove the job:
+-- select cron.unschedule('distribute-earnings-daily');
+
+-- =============================================================================
+-- Revenue Rate Tiers Reference
+-- =============================================================================
+-- tier         | cpm_usd | condition
+-- -------------|---------|------------------------------------------
+-- top_creator  | $3.50   | verified + 100k+ total video views
+-- premium      | $2.50   | verified creator
+-- rising       | $2.00   | unverified + 10k+ total video views
+-- standard     | $1.50   | all other creators (default)
+-- =============================================================================
+-- Revenue formula per video:
+--   earned = floor(views / 1000) × cpm_rate
+-- Example (top_creator, 50,000 views):
+--   earned = floor(50000 / 1000) × $3.50 = 50 × $3.50 = $175.00
+-- =============================================================================
+
+-- Alternative: Use Supabase Scheduled Functions (Edge Runtime)
+-- Go to: Dashboard → Database → Extensions → Enable pg_cron
+-- Then run the cron.schedule() query above in the SQL editor.

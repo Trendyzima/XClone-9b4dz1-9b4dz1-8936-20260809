@@ -10,6 +10,14 @@ import {
 // ── esbuild-safe module-level constants ─────────────────────────────────────
 const HUB_PIE_COLORS   = ['#f59e0b', '#6366f1', '#22c55e', '#ec4899', '#94a3b8'] as const;
 const HUB_TIER_PRESETS = ['Basic', 'Pro', 'Premium'] as const;
+
+// CPM rate tiers (must match distribute-earnings edge function)
+const CPM_TIERS = [
+  { tier: 'top_creator', cpm: 3.50, label: 'Top Creator', emoji: '👑', color: 'text-purple-600', bg: 'bg-purple-500/10', border: 'border-purple-500/20', condition: 'Verified + 100k+ views' },
+  { tier: 'premium',     cpm: 2.50, label: 'Premium',     emoji: '⭐', color: 'text-blue-600',   bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   condition: 'Verified creator' },
+  { tier: 'rising',      cpm: 2.00, label: 'Rising',      emoji: '📈', color: 'text-green-600', bg: 'bg-green-500/10', border: 'border-green-500/20', condition: '10k+ total video views' },
+  { tier: 'standard',    cpm: 1.50, label: 'Standard',    emoji: '🌱', color: 'text-amber-600', bg: 'bg-amber-500/10', border: 'border-amber-500/20', condition: 'Default (new creators)' },
+] as const;
 const HUB_PERK_PRESETS = [
   'Exclusive posts',
   'Behind-the-scenes content',
@@ -20,14 +28,166 @@ const HUB_PERK_PRESETS = [
   'Discord access',
   'Priority replies',
 ] as const;
-const HUB_TABS = ['overview', 'tiers', 'content', 'tips', 'analytics'] as const;
+const HUB_TABS = ['overview', 'tiers', 'content', 'tips', 'analytics', 'rates'] as const;
 const HUB_TIP_AMOUNTS  = [1, 2, 5, 10, 25, 50] as const;
 const HUB_FUND_CPM     = 0.0015; // $0.0015 per view ≈ $1.50 CPM creator share
 
 type HubTab = typeof HUB_TABS[number];
 
+// ── Revenue Rate Card (exported for MonetizationDashboard) ───────────────
+export function VideoRevenueRateCard({ userId }: { userId: string }) {
+  const [rate, setRate] = useState<any | null>(null);
+  const [videos, setVideos] = useState<{ id: string; views_count: number; content: string; fund_earnings_paid: boolean }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('video_revenue_rates').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('posts').select('id,views_count,content,fund_earnings_paid').eq('user_id', userId).eq('is_video', true).order('views_count', { ascending: false }).limit(10),
+    ]).then(([{ data: rateData }, { data: videosData }]) => {
+      setRate(rateData);
+      setVideos(videosData ?? []);
+      setLoading(false);
+    });
+  }, [userId]);
+
+  const currentTierInfo = useMemo(() => {
+    const t = rate?.tier ?? 'standard';
+    return CPM_TIERS.find(c => c.tier === t) ?? CPM_TIERS[3];
+  }, [rate]);
+
+  const { projected1m, unclaimedRevenue } = useMemo(() => {
+    const cpmRate = Number(rate?.cpm_usd ?? 1.50) / 1000;
+    const totalViews = videos.reduce((s, v) => s + (v.views_count ?? 0), 0);
+    const projected1m = Math.floor(totalViews / 1000) * cpmRate * 1000;
+    const unclaimedRevenue = videos
+      .filter(v => !v.fund_earnings_paid && v.views_count >= 1000)
+      .reduce((s, v) => s + Math.floor(v.views_count / 1000) * cpmRate * 1000, 0);
+    return { projected1m, unclaimedRevenue };
+  }, [videos, rate]);
+
+  const nextTier = useMemo(() => {
+    const idx = CPM_TIERS.findIndex(c => c.tier === (rate?.tier ?? 'standard'));
+    return idx > 0 ? CPM_TIERS[idx - 1] : null;
+  }, [rate]);
+
+  if (loading) return <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Current tier card */}
+      <div className={`rounded-2xl border ${currentTierInfo.border} overflow-hidden`}>
+        <div className={`px-4 py-3 flex items-center gap-3 ${currentTierInfo.bg} border-b ${currentTierInfo.border}`}>
+          <span className="text-2xl">{currentTierInfo.emoji}</span>
+          <div className="flex-1">
+            <p className="font-black text-sm">{currentTierInfo.label} Creator</p>
+            <p className="text-xs text-muted-foreground">{currentTierInfo.condition}</p>
+          </div>
+          <div className="text-right">
+            <p className={`text-2xl font-black ${currentTierInfo.color}`}>${currentTierInfo.cpm.toFixed(2)}</p>
+            <p className="text-[10px] text-muted-foreground">per 1k views</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 divide-x divide-border">
+          <div className="p-3 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Tracked Views</p>
+            <p className="font-black text-sm">{(rate?.period_views ?? 0).toLocaleString()}</p>
+          </div>
+          <div className="p-3 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Earned (period)</p>
+            <p className="font-black text-sm text-green-600">${Number(rate?.period_revenue ?? 0).toFixed(2)}</p>
+          </div>
+          <div className="p-3 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Unclaimed</p>
+            <p className={`font-black text-sm ${unclaimedRevenue > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>${unclaimedRevenue.toFixed(2)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* All tiers reference */}
+      <div className="border border-border rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-primary" />
+          <p className="font-bold text-sm">Revenue Rate Tiers</p>
+          <span className="text-[10px] text-muted-foreground ml-auto">paid daily at midnight</span>
+        </div>
+        <div className="divide-y divide-border">
+          {CPM_TIERS.map(t => {
+            const isActive = (rate?.tier ?? 'standard') === t.tier;
+            return (
+              <div key={t.tier} className={`flex items-center gap-3 px-4 py-3 ${isActive ? t.bg : ''}`}>
+                <span className="text-lg w-7 text-center">{t.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-sm">{t.label}</p>
+                    {isActive && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold border border-primary/20">Your tier</span>}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{t.condition}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`font-black text-base ${isActive ? t.color : 'text-foreground'}`}>${t.cpm.toFixed(2)}</p>
+                  <p className="text-[10px] text-muted-foreground">/1k views</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Next tier upgrade hint */}
+      {nextTier && (
+        <div className={`p-4 rounded-2xl border ${nextTier.border} ${nextTier.bg}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <ArrowUpRight className="w-4 h-4 text-primary" />
+            <p className="font-bold text-sm">Unlock {nextTier.label} Tier</p>
+            <span className={`text-xs font-black ml-auto ${nextTier.color}`}>${nextTier.cpm.toFixed(2)}/1k</span>
+          </div>
+          <p className="text-xs text-muted-foreground">{nextTier.condition}</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            +${(nextTier.cpm - currentTierInfo.cpm).toFixed(2)} more per 1k views · {Number(rate?.period_views ?? 0) >= 1000 ? `+$${(((nextTier.cpm - currentTierInfo.cpm) / 1000) * Number(rate?.period_views ?? 0)).toFixed(2)} on your current views` : 'Upload more videos to increase views'}
+          </p>
+        </div>
+      )}
+
+      {/* Per-video revenue breakdown */}
+      {videos.length > 0 && (
+        <div className="border border-border rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+            <Play className="w-4 h-4 text-primary" />
+            <p className="font-bold text-sm">Per-Video Revenue</p>
+          </div>
+          <div className="divide-y divide-border max-h-72 overflow-y-auto">
+            {videos.map(v => {
+              const cpmRate = Number(rate?.cpm_usd ?? 1.50) / 1000;
+              const earned  = Math.floor(v.views_count / 1000) * cpmRate * 1000;
+              return (
+                <div key={v.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Play className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold truncate">{v.content?.slice(0, 50) ?? 'Video'}…</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-muted-foreground">{v.views_count?.toLocaleString() ?? 0} views</span>
+                      {v.fund_earnings_paid && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold">Paid</span>}
+                      {!v.fund_earnings_paid && v.views_count >= 1000 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-bold">Claimable</span>}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`font-black text-sm ${earned > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>{earned > 0 ? `$${earned.toFixed(2)}` : '—'}</p>
+                    <p className="text-[10px] text-muted-foreground">{v.views_count >= 1000 ? `${Math.floor(v.views_count/1000)}k × $${currentTierInfo.cpm.toFixed(2)}` : '< 1k views'}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Currency helper (local copy to avoid cross-file collision) ───────────
-const HUB_SYMBOLS: Record<string, string> = { USD: '$', KES: 'KES ', EUR: '€' };
 function hfmt(usd: number): string { return `$${usd.toFixed(2)}`; }
 
 // ── Tip Button (exported for PostCard) ───────────────────────────────────
@@ -830,6 +990,11 @@ export default function CreatorMonetizationHub({ userId }: { userId: string }) {
             </div>
           )}
         </>
+      )}
+
+      {/* ── RATES ── */}
+      {activeTab === 'rates' && (
+        <VideoRevenueRateCard userId={userId} />
       )}
 
       {/* ── ANALYTICS ── */}

@@ -12,7 +12,7 @@ import {
   Coins, Gift, Zap, Play, Trophy, ArrowRight, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import CreatorMonetizationHub from '@/components/features/CreatorMonetizationHub';
+import CreatorMonetizationHub, { VideoRevenueRateCard } from '@/components/features/CreatorMonetizationHub';
 import { formatNumber } from '@/lib/utils';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -386,6 +386,9 @@ export function MonetizationDashboard() {
                   <Button onClick={() => navigate('/creator-studio')} variant="outline" className="flex-1">Creator Studio</Button>
                 </div>
                 {/* Full Creator Monetization Hub */}
+                <div className="mt-4">
+                  <VideoRevenueRateCard userId={user.id} />
+                </div>
                 <div className="mt-4">
                   <CreatorMonetizationHub userId={user.id} />
                 </div>
