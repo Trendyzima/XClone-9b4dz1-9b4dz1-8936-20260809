@@ -1003,31 +1003,11 @@ export default function ProfilePage() {
           <CreatorMonetizationHub userId={profile.id} />
         </div>
       )}
-      {!isOwnProfile && profile && user && (
+      {!isOwnProfile && profile && currentUser && (
         <div className="px-4 mt-4 space-y-3">
           <SubscriptionTiersDisplay
             creatorId={profile.id}
-            viewerId={user.id}
-            creatorUsername={profile.username ?? 'creator'}
-          />
-          <TipGoalWidget creatorId={profile.id} />
-        </div>
-      )}
-      {profile && (
-        <div className="px-4 mt-1">
-          <SubscriberBadge creatorId={profile.id} />
-        </div>
-      )}
-      {isOwnProfile && profile && (
-        <div className="px-4 mt-4">
-          <CreatorMonetizationHub userId={profile.id} />
-        </div>
-      )}
-      {!isOwnProfile && profile && user && (
-        <div className="px-4 mt-4 space-y-3">
-          <SubscriptionTiersDisplay
-            creatorId={profile.id}
-            viewerId={user.id}
+            viewerId={currentUser.id}
             creatorUsername={profile.username ?? 'creator'}
           />
           <TipGoalWidget creatorId={profile.id} />

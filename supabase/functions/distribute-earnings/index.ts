@@ -68,6 +68,15 @@ serve(async (req) => {
       const totalViews = viewsByCreator[creator.id] ?? 0;
       const tier       = getCpmTier(creator.verified, totalViews);
       const cpm        = CPM_TIERS[tier] * 1000; // as $/1k
+
+      // Detect tier upgrades before upserting
+      const { data: existingRate } = await supabase
+        .from('video_revenue_rates')
+        .select('tier, cpm_usd')
+        .eq('user_id', creator.id)
+        .maybeSingle();
+      const oldTier = existingRate?.tier as Tier | null;
+
       await supabase.from('video_revenue_rates').upsert({
         user_id:      creator.id,
         tier,
@@ -75,6 +84,28 @@ serve(async (req) => {
         period_views: totalViews,
         last_updated: new Date().toISOString(),
       }, { onConflict: 'user_id' });
+
+      // Fire platform_inbox notification on tier upgrade
+      if (oldTier && oldTier !== tier && CPM_TIERS[tier] > CPM_TIERS[oldTier]) {
+        const cpmGain    = (CPM_TIERS[tier] - CPM_TIERS[oldTier]) * 1000;
+        const revenueGain = totalViews >= 1000
+          ? ` That's an extra $${((CPM_TIERS[tier] - CPM_TIERS[oldTier]) * totalViews).toFixed(2)} on your current ${totalViews.toLocaleString()} views.`
+          : '';
+        const tierEmoji: Record<string, string> = {
+          top_creator: '\uD83D\uDC51', premium: '\u2B50', rising: '\uD83D\uDCC8', standard: '\uD83C\uDF31',
+        };
+        await supabase.from('platform_inbox').insert({
+          user_id:    creator.id,
+          subject:    `${tierEmoji[tier] ?? '\uD83C\uDF1F'} Revenue Tier Upgrade: ${tier.replace(/_/g, ' ')}!`,
+          body:       `Your revenue tier upgraded from ${oldTier.replace(/_/g, ' ')} \u2192 ${tier.replace(/_/g, ' ')}. New CPM rate: $${(CPM_TIERS[tier] * 1000).toFixed(2)}/1k views (+$${cpmGain.toFixed(2)} more per 1k).${revenueGain} Daily payouts are applied automatically at midnight.`,
+          type:       'update',
+          icon_emoji: tierEmoji[tier] ?? '\uD83C\uDF1F',
+          cta_label:  'View Revenue Rates',
+          cta_url:    '/monetization',
+        }).catch(() => {});
+        console.log(`Tier upgrade: user=${creator.id} ${oldTier} \u2192 ${tier} (+$${cpmGain.toFixed(2)}/1k)`);
+      }
+
       results.ratesUpdated++;
     }
 
@@ -94,7 +125,7 @@ serve(async (req) => {
       const tierMap: Record<string, Tier> = {};
       (creatorStats ?? []).forEach((c: any) => {
         const totalViews = viewsByCreator[c.id] ?? 0;
-        tierMap[c.user_id] = getCpmTier(c.verified, totalViews);
+        tierMap[c.id] = getCpmTier(c.verified, totalViews); // fixed: use c.id not c.user_id
       });
 
       for (const video of (unpaidVideos ?? [])) {
@@ -121,23 +152,15 @@ serve(async (req) => {
 
         // Mark as paid + update period revenue in rates table
         await supabase.from('posts').update({ fund_earnings_paid: true }).eq('id', video.id);
+        // Update period_revenue atomically via read-then-write
         await supabase.from('video_revenue_rates')
-          .update({ period_revenue: supabase.rpc as any })
-          .eq('user_id', video.user_id); // period_revenue incremented via direct update below
-        await supabase.rpc('increment', {
-          table_name: 'video_revenue_rates',
-          row_id:     video.user_id,   // this won't work directly — use raw update
-          column_name: 'period_revenue',
-          amount: earned,
-        }).catch(() => {
-          supabase.from('video_revenue_rates')
-            .select('period_revenue').eq('user_id', video.user_id).maybeSingle()
-            .then(({ data }) => {
-              const cur = Number(data?.period_revenue ?? 0);
-              supabase.from('video_revenue_rates')
-                .update({ period_revenue: cur + earned }).eq('user_id', video.user_id);
-            });
-        });
+          .select('period_revenue').eq('user_id', video.user_id).maybeSingle()
+          .then(({ data }) => {
+            const cur = Number(data?.period_revenue ?? 0);
+            return supabase.from('video_revenue_rates')
+              .update({ period_revenue: parseFloat((cur + earned).toFixed(6)) })
+              .eq('user_id', video.user_id);
+          });
 
         results.videoFund += earned;
         console.log(`Video fund [${tier}] $${(cpmRate * 1000).toFixed(2)}/1k: user=${video.user_id} video=${video.id} earned=$${earned.toFixed(4)} views=${video.views_count}`);

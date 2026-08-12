@@ -1,24 +1,24 @@
 -- =============================================================================
--- Migration: Schedule daily earnings distribution + Revenue rate system
+-- Migration: Schedule daily earnings distribution + budget alerts
 -- Run in Supabase SQL Editor (requires pg_cron + pg_net extensions)
+-- Go to: Dashboard → Database → Extensions → enable pg_cron AND pg_net
 -- =============================================================================
 
--- Step 1: Enable extensions (run as postgres superuser)
--- If you see "can only create extension in database postgres", run these two
--- lines directly in the Supabase SQL editor as the default admin user:
---
+-- Step 1: Enable extensions (run once, as the default admin user)
 --   create extension if not exists pg_cron;
 --   create extension if not exists pg_net;
---
--- Both extensions are pre-installed on all Supabase projects.
 
--- Step 2: Schedule distribute-earnings daily at midnight UTC
--- Replace YOUR_SUPABASE_URL and YOUR_SERVICE_ROLE_KEY with your actual values
--- from Settings → API in the Supabase dashboard.
---
+-- Step 2: Verify extensions are active
+--   select * from pg_extension where extname in ('pg_cron','pg_net');
+
+-- =============================================================================
+-- Job A: Distribute Earnings — daily at midnight UTC
+-- Pays video creator fund (tiered CPM), ad revenue share, subscription reminders,
+-- detects tier upgrades, fires earnings milestone notifications.
+-- =============================================================================
 -- select cron.schedule(
---   'distribute-earnings-daily',      -- job name (unique)
---   '0 0 * * *',                       -- cron: daily at 00:00 UTC
+--   'distribute-earnings-daily',
+--   '0 0 * * *',
 --   $$
 --   select
 --     net.http_post(
@@ -30,14 +30,39 @@
 --   $$
 -- );
 
--- Step 3: View scheduled jobs
--- select * from cron.job;
+-- =============================================================================
+-- Job B: Budget Alerts — daily at 09:00 UTC
+-- Checks every user's wallet budget_settings JSONB against the current month's
+-- wallet_transactions. Sends platform_inbox alerts for categories at 90%+ spend.
+-- =============================================================================
+-- select cron.schedule(
+--   'budget-alerts-daily',
+--   '0 9 * * *',
+--   $$
+--   select
+--     net.http_post(
+--       url        := 'YOUR_SUPABASE_URL/functions/v1/budget-alerts',
+--       headers    := '{"Content-Type":"application/json","Authorization":"Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb,
+--       body       := '{}'::jsonb,
+--       timeout_milliseconds := 30000
+--     ) as request_id;
+--   $$
+-- );
 
--- Step 4: View job execution history
--- select * from cron.job_run_details order by start_time desc limit 20;
+-- =============================================================================
+-- Management queries
+-- =============================================================================
+-- View all scheduled jobs:
+--   select jobid, jobname, schedule, command from cron.job;
 
--- Step 5: To remove the job:
--- select cron.unschedule('distribute-earnings-daily');
+-- View last 20 execution runs:
+--   select jobid, start_time, end_time, status, return_message
+--   from cron.job_run_details
+--   order by start_time desc limit 20;
+
+-- Remove a job:
+--   select cron.unschedule('distribute-earnings-daily');
+--   select cron.unschedule('budget-alerts-daily');
 
 -- =============================================================================
 -- Revenue Rate Tiers Reference
@@ -54,7 +79,12 @@
 -- Example (top_creator, 50,000 views):
 --   earned = floor(50000 / 1000) × $3.50 = 50 × $3.50 = $175.00
 -- =============================================================================
+-- Tier upgrade alerts fire when:
+--   distribute-earnings detects old_tier ≠ new_tier AND new CPM > old CPM
+--   → sends platform_inbox with new rate, gain per 1k, and projected revenue delta
+-- =============================================================================
 
--- Alternative: Use Supabase Scheduled Functions (Edge Runtime)
--- Go to: Dashboard → Database → Extensions → Enable pg_cron
--- Then run the cron.schedule() query above in the SQL editor.
+-- Budget alert thresholds (edge function reads from user_wallets.budget_settings):
+--   90% → warning alert
+--   100%+ → over-budget alert
+-- Categories tracked: deposits, withdrawals, transfers, boosts, other
