@@ -1171,6 +1171,24 @@ export default function ProfilePage() {
           ) : <div className="text-center py-12 text-muted-foreground"><p>No posts yet</p></div>
         )}
 
+        {/* ── RSS Feed button on own Threads tab ── */}
+        {activeTab === 'Threads' && isOwnProfile && (
+          <div className="flex items-center gap-2 px-4 pt-3 pb-0">
+            <button
+              onClick={async () => {
+                const rssUrl = `${import.meta.env.VITE_SUPABASE_URL?.replace('/v1', '')}/functions/v1/podcast-rss?username=${profile.username ?? ''}`;
+                await navigator.clipboard.writeText(rssUrl);
+                toast.success('Podcast RSS URL copied — paste into any podcast app');
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 transition-colors text-xs font-semibold"
+              title="Copy your podcast RSS feed URL for use in podcast apps"
+            >
+              <Rss className="w-3.5 h-3.5" />Copy Podcast RSS
+            </button>
+            <span className="text-[10px] text-muted-foreground">Subscribe in Apple Podcasts, Spotify…</span>
+          </div>
+        )}
+
         {activeTab === 'Threads' && (
           threads.length > 0 ? (
             <>

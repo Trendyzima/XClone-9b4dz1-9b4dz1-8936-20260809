@@ -315,7 +315,8 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
       const postContent = content.trim();
       const hashtagMatches = postContent.match(/#(\w+)/g);
       if (hashtagMatches && postData) {
-        const uniqueTags = [...new Set(hashtagMatches.map((h: string) => h.slice(1).toLowerCase()))].slice(0, 5);
+        const rawTags = hashtagMatches.map((h: string) => h.slice(1).toLowerCase());
+        const uniqueTags = rawTags.filter((t: string, idx: number) => rawTags.indexOf(t) === idx).slice(0, 5);
         const { data: htRows } = await supabase
           .from('hashtags')
           .select('id, tag')
