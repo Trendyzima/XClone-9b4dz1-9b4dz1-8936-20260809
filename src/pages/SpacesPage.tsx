@@ -6,10 +6,10 @@ import {
   Radio, Users, Mic, Loader2, Headphones, Video, Settings, BadgeCheck,
   Lock, Play, Clock, Hash, Rss, Search, Bell, BellOff, Copy, Share2,
   CalendarDays, ChevronDown, Check, TrendingUp, Bookmark, Star,
-  Plus, ListMusic, X, Trash2, Scissors, Timer,
+  Plus, ListMusic, X, Trash2, Scissors, Timer, DollarSign,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow, intervalToDuration, format, isPast } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
@@ -43,11 +43,14 @@ const LIVE_EMOJIS = ['❤️', '🔥', '🎉', '👏', '🤣', '💯'] as const;
 
 // Tab definitions at module scope — prevents inline `as const` in JSX render (esbuild guard)
 const SPACE_TAB_DEFS = [
-  { key: 'live',       label: 'Live',      badgeColor: 'bg-red-500/10 text-red-500' },
-  { key: 'recordings',label: 'Episodes',  badgeColor: '' },
-  { key: 'upcoming',  label: 'Upcoming',  badgeColor: 'bg-blue-500/10 text-blue-500' },
-  { key: 'playlists', label: 'Playlists', badgeColor: 'bg-primary/10 text-primary' },
+  { key: 'live',        label: 'Live',      badgeColor: 'bg-red-500/10 text-red-500' },
+  { key: 'recordings',  label: 'Episodes',  badgeColor: '' },
+  { key: 'upcoming',    label: 'Upcoming',  badgeColor: 'bg-blue-500/10 text-blue-500' },
+  { key: 'playlists',   label: 'Playlists', badgeColor: 'bg-primary/10 text-primary' },
 ] as const;
+
+// Episode tip amounts at module scope (esbuild guard)
+const PODCAST_EP_TIP_AMTS = [1, 2, 5] as const;
 
 function formatDurationSecs(secs: number) {
   const d = intervalToDuration({ start: 0, end: secs * 1000 });
@@ -61,6 +64,7 @@ interface Playlist { id: string; name: string; items: string[]; }
 export default function SpacesPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(true);
   const [showStartDialog, setShowStartDialog] = useState(false);
@@ -82,6 +86,15 @@ export default function SpacesPage() {
   const [rssUser, setRssUser] = useState('');
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(() => new Set<string>());
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [highlightedPlaylistId, setHighlightedPlaylistId] = useState<string | null>(null);
+
+  // ── Episode tip state ─────────────────────────────────────────────────────
+  const [tipEpId,       setTipEpId]       = useState<string | null>(null);
+  const [tipEpHostId,   setTipEpHostId]   = useState<string | null>(null);
+  const [tipEpHostName, setTipEpHostName] = useState('');
+  const [tipEpAmount,   setTipEpAmount]   = useState<number | null>(null);
+  const [sendingEpTip,  setSendingEpTip]  = useState(false);
+  const [tippedEpIds,   setTippedEpIds]   = useState<Set<string>>(() => new Set<string>());
 
   // ── Space Clip Sharing ────────────────────────────────────────────────────
   const [clipRecId,     setClipRecId]     = useState<string | null>(null);
@@ -90,6 +103,12 @@ export default function SpacesPage() {
   const [clipEnd,       setClipEnd]       = useState(30);
   const [clipCopied,    setClipCopied]    = useState(false);
   const [showClipModal, setShowClipModal] = useState(false);
+
+  // ── Playlist URL param — auto-switch to playlists tab on load ─────────────
+  useEffect(() => {
+    const pl = searchParams.get('playlist');
+    if (pl) { setActiveTab('playlists'); setHighlightedPlaylistId(pl); }
+  }, []);
 
   const openClipModal = useCallback((recId: string, title: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -121,7 +140,39 @@ export default function SpacesPage() {
     }
   }, [clipRecId, clipRecTitle, clipStart, clipEnd]);
 
-  // ── Live Reactions ──────────────────────────────────────────────────────────
+  // ── Episode tip handlers ──────────────────────────────────────────────────
+  const openEpTip = useCallback((recId: string, hostId: string, hostName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) { navigate('/auth'); return; }
+    setTipEpId(recId);
+    setTipEpHostId(hostId);
+    setTipEpHostName(hostName);
+    setTipEpAmount(null);
+  }, [user, navigate]);
+
+  const handleEpTip = useCallback(async () => {
+    if (!user || !tipEpHostId || !tipEpAmount || !tipEpId) return;
+    setSendingEpTip(true);
+    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: tipEpAmount });
+    if (deductErr) { toast.error('Insufficient wallet balance'); setSendingEpTip(false); return; }
+    await supabase.rpc('add_to_wallet', { p_user_id: tipEpHostId, p_amount: tipEpAmount }).catch(() => {});
+    await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: tipEpHostId, amount: tipEpAmount }).catch(() => {});
+    toast.success(`$${tipEpAmount} tip sent to @${tipEpHostName}!`);
+    setTippedEpIds(prev => new Set([...prev, tipEpId!]));
+    setTipEpId(null);
+    setTipEpHostId(null);
+    setSendingEpTip(false);
+    setTipEpAmount(null);
+  }, [user, tipEpId, tipEpHostId, tipEpHostName, tipEpAmount]);
+
+  // ── Playlist share ────────────────────────────────────────────────────────
+  const sharePlaylist = useCallback((pl: Playlist) => {
+    const url = `${window.location.origin}/spaces?playlist=${pl.id}`;
+    if (navigator.share) { navigator.share({ title: pl.name, url }).catch(() => {}); }
+    else { navigator.clipboard.writeText(url).then(() => toast.success('Playlist link copied!')); }
+  }, []);
+
+  // ── Live Reactions ────────────────────────────────────────────────────────
   const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
   const reactionTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -134,7 +185,7 @@ export default function SpacesPage() {
 
   useEffect(() => { return () => { reactionTimers.current.forEach(clearTimeout); }; }, []);
 
-  // ── Podcast Playlists ──────────────────────────────────────────────────────
+  // ── Podcast Playlists ─────────────────────────────────────────────────────
   const [playlists, setPlaylists] = useState<Playlist[]>(() => {
     try { const r = localStorage.getItem('podcast_playlists'); return r ? JSON.parse(r) : []; } catch { return []; }
   });
@@ -366,7 +417,7 @@ export default function SpacesPage() {
         </div>
       </div>
 
-      {/* Live Reaction Rail — shown only when live spaces exist */}
+      {/* Live Reaction Rail */}
       {activeTab === 'live' && filteredSpaces.length > 0 && (
         <div className="flex items-center justify-center gap-3 py-2.5 bg-gradient-to-r from-red-500/5 to-orange-500/5 border-b border-red-500/10">
           <span className="text-[10px] font-bold text-red-500 flex items-center gap-1">
@@ -557,7 +608,6 @@ export default function SpacesPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Controls row */}
               <div className="flex items-center gap-2 pb-1">
                 {savedRecordings.size > 0 && (
                   <div className="flex items-center gap-1.5">
@@ -583,6 +633,7 @@ export default function SpacesPage() {
                 const isChaptersExpanded = expandedChapters.has(rec.id);
                 const hostUsername = rec.spaces?.host?.username ?? rec.user_profiles?.username;
                 const hostId = rec.spaces?.host?.id ?? rec.user_id;
+                const isTipped = tippedEpIds.has(rec.id);
                 return (
                   <div key={rec.id} className="border border-border rounded-2xl overflow-hidden hover:border-primary/20 transition-colors cursor-pointer bg-card" onClick={() => navigate(`/space-recording/${rec.id}`)}>
                     <div className="flex items-start gap-3 p-4">
@@ -621,7 +672,6 @@ export default function SpacesPage() {
                           className="w-10 h-10 rounded-full bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors">
                           <Play className="w-4 h-4 text-primary ml-0.5" fill="currentColor" />
                         </button>
-                        {/* Clip button */}
                         <button onClick={e => openClipModal(rec.id, rec.spaces?.title ?? rec.title, e)}
                           className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all"
                           title="Create a clip">
@@ -636,6 +686,20 @@ export default function SpacesPage() {
                           title="Add to playlist">
                           <ListMusic className="w-4 h-4" />
                         </button>
+                        {/* Tip episode host button */}
+                        {user && hostId && user.id !== hostId && (
+                          <button
+                            onClick={e => openEpTip(rec.id, hostId, hostUsername, e)}
+                            className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${
+                              isTipped
+                                ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-600'
+                                : 'border-border text-muted-foreground hover:border-yellow-500/30 hover:text-yellow-600'
+                            }`}
+                            title="Tip host"
+                          >
+                            <DollarSign className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                     {user && hostId && user.id !== hostId && (
@@ -663,8 +727,12 @@ export default function SpacesPage() {
                             {(chapters as any[]).map((ch: any, ci: number) => (
                               <div key={ci} className="flex items-center gap-3 py-1.5 border-t border-border/50 first:border-0">
                                 <span className="text-[10px] font-black text-primary bg-primary/10 w-5 h-5 rounded-full flex items-center justify-center shrink-0">{ci + 1}</span>
-                                <p className="text-xs font-medium flex-1 truncate">{ch.title ?? `Chapter ${ci + 1}`}</p>
-                                {ch.timestamp && <span className="text-[10px] text-muted-foreground font-mono shrink-0">{ch.timestamp}</span>}
+                                <p className="text-xs font-medium flex-1 truncate">{ch.title ?? ch.label ?? `Chapter ${ci + 1}`}</p>
+                                {(ch.timestamp || ch.time !== undefined) && (
+                                  <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                                    {ch.timestamp ?? `${Math.floor((ch.time ?? 0) / 60)}:${String((ch.time ?? 0) % 60).padStart(2, '0')}`}
+                                  </span>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -772,21 +840,32 @@ export default function SpacesPage() {
               <div className="space-y-3">
                 {playlists.map(pl => {
                   const epList = allRecordings.filter(r => pl.items.includes(r.id));
+                  const isHighlighted = highlightedPlaylistId === pl.id;
                   return (
-                    <div key={pl.id} className="border border-border rounded-2xl overflow-hidden bg-card">
+                    <div key={pl.id} className={`border rounded-2xl overflow-hidden bg-card transition-all ${isHighlighted ? 'border-primary ring-2 ring-primary/20' : 'border-border'}`}>
                       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                         <div className="flex items-center gap-2">
-                          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                            <ListMusic className="w-4 h-4 text-primary" />
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isHighlighted ? 'bg-primary text-primary-foreground' : 'bg-primary/10'}`}>
+                            <ListMusic className="w-4 h-4" />
                           </div>
                           <div>
                             <p className="font-bold text-sm">{pl.name}</p>
                             <p className="text-[10px] text-muted-foreground">{pl.items.length} episode{pl.items.length !== 1 ? 's' : ''}</p>
                           </div>
                         </div>
-                        <button onClick={() => deletePlaylist(pl.id)} className="p-2 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          {/* Share playlist button */}
+                          <button
+                            onClick={() => sharePlaylist(pl)}
+                            className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
+                            title="Share playlist"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => deletePlaylist(pl.id)} className="p-2 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                       {epList.length === 0 ? (
                         <p className="text-xs text-muted-foreground text-center py-4">No episodes yet — add from the Episodes tab</p>
@@ -818,6 +897,35 @@ export default function SpacesPage() {
         )}
       </div>
 
+      {/* ── Episode Tip Dialog ── */}
+      {tipEpId && (
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4" onClick={() => setTipEpId(null)}>
+          <div className="bg-background border border-border rounded-2xl p-5 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center"><DollarSign className="w-5 h-5 text-yellow-600" /></div>
+              <div><h3 className="font-bold">Tip the Host</h3><p className="text-xs text-muted-foreground">@{tipEpHostName}</p></div>
+              <button onClick={() => setTipEpId(null)} className="ml-auto p-1.5 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {PODCAST_EP_TIP_AMTS.map(amt => (
+                <button key={amt} onClick={() => setTipEpAmount(amt)}
+                  className={`py-2.5 rounded-xl font-bold text-base border-2 transition-all ${
+                    tipEpAmount === amt ? 'border-yellow-500 bg-yellow-500/10 text-yellow-600' : 'border-border hover:border-yellow-500/40'
+                  }`}>${amt}</button>
+              ))}
+            </div>
+            <button
+              onClick={handleEpTip}
+              disabled={sendingEpTip || !tipEpAmount}
+              className="w-full py-3 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90"
+            >
+              {sendingEpTip ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+              {sendingEpTip ? 'Sending…' : `Send $${tipEpAmount ?? '—'} Tip`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Clip Modal ── */}
       {showClipModal && clipRecId && (
         <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4" onClick={() => setShowClipModal(false)}>
@@ -832,57 +940,43 @@ export default function SpacesPage() {
               </div>
               <button onClick={() => setShowClipModal(false)} className="p-1.5 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
             </div>
-
-            {/* Start / End sliders */}
             <div className="space-y-4 mb-4">
               <div>
                 <div className="flex justify-between text-xs font-semibold mb-1.5">
                   <span className="flex items-center gap-1"><Timer className="w-3.5 h-3.5 text-primary" />Start</span>
                   <span className="font-mono text-primary">{clipStart}s</span>
                 </div>
-                <input
-                  type="range" min={0} max={3600} step={5}
-                  value={clipStart}
+                <input type="range" min={0} max={3600} step={5} value={clipStart}
                   onChange={e => { const v = Number(e.target.value); setClipStart(Math.min(v, clipEnd - 5)); }}
-                  className="w-full accent-primary"
-                />
+                  className="w-full accent-primary" />
               </div>
               <div>
                 <div className="flex justify-between text-xs font-semibold mb-1.5">
                   <span className="flex items-center gap-1"><Timer className="w-3.5 h-3.5 text-orange-500" />End</span>
                   <span className="font-mono text-orange-500">{clipEnd}s</span>
                 </div>
-                <input
-                  type="range" min={5} max={3600} step={5}
-                  value={clipEnd}
+                <input type="range" min={5} max={3600} step={5} value={clipEnd}
                   onChange={e => { const v = Number(e.target.value); setClipEnd(Math.max(v, clipStart + 5)); }}
-                  className="w-full accent-orange-500"
-                />
+                  className="w-full accent-orange-500" />
               </div>
               <div className="bg-muted/40 border border-border rounded-xl px-3 py-2 text-xs text-muted-foreground">
                 <span className="font-bold text-foreground">Duration:</span> {clipEnd - clipStart}s clip
                 <span className="mx-2">·</span>{clipStart}s → {clipEnd}s
               </div>
             </div>
-
             <div className="bg-muted/30 rounded-xl px-3 py-2 mb-4 font-mono text-[10px] text-muted-foreground break-all">
               {window.location.origin}/space-recording/{clipRecId}?t={clipStart}&end={clipEnd}
             </div>
-
             <div className="flex gap-2">
-              <button
-                onClick={copyClipUrl}
+              <button onClick={copyClipUrl}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold transition-all ${
                   clipCopied ? 'bg-green-500 text-white' : 'bg-primary text-primary-foreground hover:opacity-90'
-                }`}
-              >
+                }`}>
                 {clipCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 {clipCopied ? 'Copied!' : 'Copy Link'}
               </button>
-              <button
-                onClick={shareClip}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors"
-              >
+              <button onClick={shareClip}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors">
                 <Share2 className="w-4 h-4" />Share
               </button>
             </div>
@@ -898,8 +992,6 @@ export default function SpacesPage() {
               <div className="flex items-center gap-2"><ListMusic className="w-5 h-5 text-primary" /><h3 className="font-bold text-lg">Playlists</h3></div>
               <button onClick={() => setShowPlaylistModal(false)} className="p-2 rounded-full hover:bg-muted"><X className="w-5 h-5" /></button>
             </div>
-
-            {/* Create new playlist */}
             <div className="flex gap-2">
               <input type="text" value={newPlaylistName} onChange={e => setNewPlaylistName(e.target.value)}
                 placeholder="New playlist name…" maxLength={50}
@@ -908,8 +1000,6 @@ export default function SpacesPage() {
               <button onClick={() => createPlaylist(playlistForRec)} disabled={!newPlaylistName.trim()}
                 className="px-4 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-bold disabled:opacity-50 hover:opacity-90">Create</button>
             </div>
-
-            {/* Existing playlists (for adding an episode) */}
             {playlistForRec && playlists.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-muted-foreground mb-2">Add to existing playlist</p>

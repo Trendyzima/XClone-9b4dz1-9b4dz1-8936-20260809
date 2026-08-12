@@ -7,7 +7,7 @@ import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
 import CreatorMonetizationHub, { SubscriptionTiersDisplay, TipGoalWidget, SubscriberBadge } from '@/components/features/CreatorMonetizationHub';
-import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart, BookOpen, ChevronRight } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart, BookOpen, ChevronRight, Headphones, Clock, Users } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
 import { useSEO, buildProfileLD, buildOgImageUrl } from '@/hooks/useSEO';
@@ -20,7 +20,15 @@ import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 function ProfileAdBanner() { return <PageAdBanner />; }
 
-// Stable module-level helper — avoids duplicate `const rssUrl` bindings across closures (esbuild guard)
+// Stable module-level helpers — avoids duplicate bindings across closures (esbuild guard)
+function fmtRecDuration(secs: number): string | null {
+  if (!secs || secs < 1) return null;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 function getPodcastRssUrl(username: string) {
   return `${import.meta.env.VITE_SUPABASE_URL?.replace('/v1', '')}/functions/v1/podcast-rss?username=${username}`;
 }
@@ -280,7 +288,7 @@ export default function ProfilePage() {
     const { data: monthTips } = await supabase.from('tips').select('from_user_id, amount').eq('to_user_id', userId).gte('created_at', startOfMonth.toISOString()).order('amount', { ascending: false });
     const total = (monthTips ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0);
     setCurrentMonthTips(total);
-    const byTipper: Record<string, number> = {};
+    const byTipper: { [uid: string]: number } = {};
     (monthTips ?? []).forEach((t: any) => { byTipper[t.from_user_id] = (byTipper[t.from_user_id] || 0) + Number(t.amount); });
     const sorted = Object.values(byTipper).sort((a, b) => b - a).slice(0, 3);
     setTopTippers(sorted.map((amount, i) => ({ rank: i + 1, amount })));
@@ -301,9 +309,10 @@ export default function ProfilePage() {
     setLoadingTips(true);
     const { data: tips } = await supabase.from('tips').select('*').or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`).order('created_at', { ascending: false }).limit(50);
     if (!tips || tips.length === 0) { setTipHistory([]); setLoadingTips(false); return; }
-    const uids = [...new Set(tips.flatMap((t: any) => [t.from_user_id, t.to_user_id]))] as string[];
+    const allUids = tips.flatMap((t: any) => [t.from_user_id, t.to_user_id]) as string[];
+    const uids = allUids.filter((u: string, i: number) => allUids.indexOf(u) === i);
     const { data: profiles } = await supabase.from('user_profiles').select('id, username, avatar_url').in('id', uids);
-    const profileMap: Record<string, any> = {};
+    const profileMap: { [uid: string]: any } = {};
     (profiles ?? []).forEach((p: any) => { profileMap[p.id] = p; });
     setTipHistory(tips.map((t: any) => ({ ...t, sender: profileMap[t.from_user_id], recipient: profileMap[t.to_user_id] })));
     setLoadingTips(false);
@@ -364,9 +373,28 @@ export default function ProfilePage() {
     setLoadingGifts(false);
   };
 
-  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
+  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
   // Derived: videos are posts where is_video=true
   const videoPosts = posts.filter(p => p.is_video && p.video_url);
+
+  // ── Profile Podcasts tab ─────────────────────────────────────────────────
+  const [profilePodcasts, setProfilePodcasts] = useState<any[]>([]);
+  const [loadingPodcasts, setLoadingPodcasts] = useState(false);
+  const [podcastsFetched, setPodcastsFetched] = useState(false);
+
+  const fetchProfilePodcasts = async (userId: string) => {
+    if (podcastsFetched) return;
+    setLoadingPodcasts(true);
+    const { data } = await supabase
+      .from('space_recordings')
+      .select('id, title, audio_url, video_url, has_video, duration, listener_count, created_at, spaces(title, artwork_url, category, episode_number, subscriber_only)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    setProfilePodcasts(data ?? []);
+    setLoadingPodcasts(false);
+    setPodcastsFetched(true);
+  };
 
   // Profile Series tab
   const [profileSeries, setProfileSeries] = useState<any[]>([]);
@@ -1295,6 +1323,115 @@ export default function ProfilePage() {
             )}
           </div>
         )}
+
+        {activeTab === 'Podcasts' && (() => {
+          if (!podcastsFetched && profile?.id) fetchProfilePodcasts(profile.id);
+          // Podcast stats — computed from loaded episodes
+          const podTotalEps = profilePodcasts.length;
+          const podTotalListeners = profilePodcasts.reduce((s: number, p: any) => s + (p.listener_count ?? 0), 0);
+          const podTotalSecs = profilePodcasts.reduce((s: number, p: any) => s + (p.duration ?? 0), 0);
+          const podTotalDurLabel = (() => {
+            const h = Math.floor(podTotalSecs / 3600);
+            const m = Math.floor((podTotalSecs % 3600) / 60);
+            if (h > 0) return `${h}h ${m}m`;
+            return `${m}m`;
+          })();
+          return loadingPodcasts ? (
+            <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
+          ) : (
+            <div>
+              {/* Podcast Stats row — shown once episodes are loaded */}
+              {podTotalEps > 0 && (
+                <div className="flex items-center gap-3 px-4 pt-3 pb-2 overflow-x-auto scrollbar-hide">
+                  <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/8 border border-primary/20 shrink-0">
+                    <Headphones className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-xs font-bold text-primary">{podTotalEps}</span>
+                    <span className="text-xs text-muted-foreground">episodes</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-500/8 border border-blue-500/20 shrink-0">
+                    <Users className="w-3.5 h-3.5 text-blue-500" />
+                    <span className="text-xs font-bold text-blue-600">{podTotalListeners.toLocaleString()}</span>
+                    <span className="text-xs text-muted-foreground">listeners</span>
+                  </div>
+                  {podTotalSecs > 0 && (
+                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-500/8 border border-violet-500/20 shrink-0">
+                      <Clock className="w-3.5 h-3.5 text-violet-500" />
+                      <span className="text-xs font-bold text-violet-600">{podTotalDurLabel}</span>
+                      <span className="text-xs text-muted-foreground">total</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* RSS copy shortcut */}
+              <div className="flex items-center gap-2 px-4 pt-3 pb-0">
+                <button
+                  onClick={() => navigator.clipboard.writeText(getPodcastRssUrl(profile.username ?? '')).then(() => toast.success('Podcast RSS URL copied!'))}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 transition-colors text-xs font-semibold"
+                >
+                  <Rss className="w-3.5 h-3.5" />Copy RSS Feed
+                </button>
+                <span className="text-[10px] text-muted-foreground">Subscribe in Apple Podcasts, Spotify…</span>
+              </div>
+              {profilePodcasts.length === 0 ? (
+                <div className="text-center py-16 text-muted-foreground">
+                  <Headphones className="w-14 h-14 mx-auto mb-3 opacity-20" />
+                  <p className="font-semibold">No podcast episodes yet</p>
+                  <p className="text-sm mt-1">Recorded audio spaces will appear here</p>
+                  {isOwnProfile && (
+                    <button onClick={() => navigate('/spaces')} className="mt-4 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90">
+                      Start a Space
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="divide-y divide-border mt-2">
+                  {profilePodcasts.map((pod: any) => {
+                    const podDur   = fmtRecDuration(pod.duration);
+                    const podArt   = pod.spaces?.artwork_url ?? null;
+                    const podTitle = pod.spaces?.title ?? pod.title;
+                    const podEp    = pod.spaces?.episode_number ?? null;
+                    const podSub   = pod.spaces?.subscriber_only ?? false;
+                    return (
+                      <div
+                        key={pod.id}
+                        className="flex items-center gap-3 p-4 hover:bg-muted/15 transition-colors cursor-pointer"
+                        onClick={() => navigate(`/space-recording/${pod.id}`)}
+                      >
+                        {/* Artwork */}
+                        <div className="w-14 h-14 rounded-xl overflow-hidden bg-gradient-to-br from-primary/15 to-purple-500/10 shrink-0 shadow-sm flex items-center justify-center">
+                          {podArt
+                            ? <img src={podArt} alt="" className="w-full h-full object-cover" />
+                            : <Headphones className="w-6 h-6 text-primary opacity-70" />}
+                        </div>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                            {podEp  && <span className="text-[10px] text-muted-foreground">Ep. {podEp}</span>}
+                            {pod.has_video && <span className="text-[10px] text-primary font-semibold">📹 Video</span>}
+                            {podSub && <span className="text-[10px] text-amber-600 font-semibold">⭐ Sub</span>}
+                          </div>
+                          <p className="font-bold text-sm line-clamp-2 leading-snug">{podTitle}</p>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            {podDur && <span className="flex items-center gap-0.5"><Clock className="w-3 h-3" />{podDur}</span>}
+                            {(pod.listener_count ?? 0) > 0 && <span className="flex items-center gap-0.5"><Users className="w-3 h-3" />{formatNumber(pod.listener_count)}</span>}
+                            <span>{formatDistanceToNow(new Date(pod.created_at), { addSuffix: true })}</span>
+                          </div>
+                        </div>
+                        {/* Play */}
+                        <button
+                          onClick={e => { e.stopPropagation(); navigate(`/space-recording/${pod.id}`); }}
+                          className="w-10 h-10 rounded-full bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors shrink-0"
+                        >
+                          <Play className="w-4 h-4 text-primary ml-0.5" fill="currentColor" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {activeTab === 'Gifts' && (
           loadingGifts ? (
