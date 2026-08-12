@@ -21,19 +21,52 @@ import { PageAdBanner } from '@/components/features/AdSenseAd';
 
 function MyAdsAdBanner() { return <PageAdBanner />; }
 
-const STATUS_MAP: Record<string, { label: string; icon: any; cls: string }> = {
-  active:   { label: 'Active',   icon: CheckCircle2, cls: 'text-green-500 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' },
-  pending:  { label: 'Pending',  icon: Clock,        cls: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800' },
-  paused:   { label: 'Paused',   icon: Pause,        cls: 'text-blue-500 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' },
-  rejected: { label: 'Rejected', icon: XCircle,      cls: 'text-red-500 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' },
-  completed:{ label: 'Completed',icon: CheckCircle2, cls: 'text-muted-foreground bg-muted border-border' },
-};
-
-const PAYMENT_MAP: Record<string, { label: string; cls: string }> = {
-  paid:    { label: 'Paid',   cls: 'text-green-600 bg-green-50 dark:bg-green-900/20' },
-  pending: { label: 'Unpaid', cls: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20' },
-  failed:  { label: 'Failed', cls: 'text-red-600 bg-red-50 dark:bg-red-900/20' },
-};
+// Pure module-level helpers — replaces Record<string,T> maps (esbuild guard)
+function getStatusInfo(status: string): { label: string; icon: any; cls: string } {
+  if (status === 'active')    return { label: 'Active',    icon: CheckCircle2, cls: 'text-green-500 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' };
+  if (status === 'paused')    return { label: 'Paused',    icon: Pause,        cls: 'text-blue-500 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' };
+  if (status === 'rejected')  return { label: 'Rejected',  icon: XCircle,      cls: 'text-red-500 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' };
+  if (status === 'completed') return { label: 'Completed', icon: CheckCircle2, cls: 'text-muted-foreground bg-muted border-border' };
+  return                             { label: 'Pending',   icon: Clock,        cls: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800' };
+}
+function getPaymentInfo(pstatus: string): { label: string; cls: string } {
+  if (pstatus === 'paid')   return { label: 'Paid',   cls: 'text-green-600 bg-green-50 dark:bg-green-900/20' };
+  if (pstatus === 'failed') return { label: 'Failed', cls: 'text-red-600 bg-red-50 dark:bg-red-900/20' };
+  return                           { label: 'Unpaid', cls: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20' };
+}
+// Pure helper: build 7-day day-array from impression rows, no index-sig objects (esbuild guard)
+function buildDayBuckets(rows: any[], last7: string[]): { date: string; impressions: number; clicks: number }[] {
+  const impr = new Array<number>(7).fill(0);
+  const clks = new Array<number>(7).fill(0);
+  for (const row of rows) {
+    const day = String(row.created_at ?? '').slice(0, 10);
+    const idx = last7.indexOf(day);
+    if (idx < 0) continue;
+    impr[idx]++;
+    if (row.clicked) clks[idx]++;
+  }
+  return last7.map((d, i) => ({ date: d.slice(5), impressions: impr[i], clicks: clks[i] }));
+}
+// Pure helper: build heatmap rows per ad, no index-sig objects (esbuild guard)
+function buildHeatmapRow(
+  adId: string, adTitle: string,
+  rows: any[], last7: string[]
+): { adId: string; adTitle: string; days: { date: string; impressions: number; clicks: number }[] } {
+  const impr = new Array<number>(7).fill(0);
+  const clks = new Array<number>(7).fill(0);
+  for (const row of rows) {
+    if (row.ad_id !== adId) continue;
+    const day = String(row.created_at ?? '').slice(0, 10);
+    const idx = last7.indexOf(day);
+    if (idx < 0) continue;
+    impr[idx]++;
+    if (row.clicked) clks[idx]++;
+  }
+  return {
+    adId, adTitle,
+    days: last7.map((d, i) => ({ date: d.slice(5), impressions: impr[i], clicks: clks[i] })),
+  };
+}
 
 export default function MyAdsPage() {
   useSEO({ noindex: true, title: 'My Advertisements', url: '/my-ads' });
@@ -91,38 +124,26 @@ export default function MyAdsPage() {
     if (!user) return;
     setLoadingCharts(true);
     try {
-      // Build last 7 days chart from ad_impressions
       const adIds = ads.map((a: any) => a.id);
       if (adIds.length === 0) { setLoadingCharts(false); return; }
-
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
       const { data: impressionRows } = await supabase
         .from('ad_impressions')
         .select('ad_id, clicked, created_at')
         .in('ad_id', adIds)
         .gte('created_at', sevenDaysAgo);
-
-      // Group by day
-      const byDay: Record<string, { impressions: number; clicks: number }> = {};
-      const last7 = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(); d.setDate(d.getDate() - (6 - i));
-        return d.toISOString().split('T')[0];
-      });
-      last7.forEach(d => { byDay[d] = { impressions: 0, clicks: 0 }; });
-      (impressionRows ?? []).forEach((row: any) => {
-        const day = row.created_at?.split('T')[0];
-        if (day && byDay[day]) {
-          byDay[day].impressions++;
-          if (row.clicked) byDay[day].clicks++;
-        }
-      });
-      setDailyChartData(last7.map(d => ({
-        date: d.slice(5), // MM-DD
-        impressions: byDay[d].impressions,
-        clicks: byDay[d].clicks,
-        ctr: byDay[d].impressions > 0
-          ? parseFloat(((byDay[d].clicks / byDay[d].impressions) * 100).toFixed(1))
-          : 0,
+      // Build last7 date strings
+      const last7: string[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        last7.push(d.toISOString().split('T')[0]);
+      }
+      const buckets = buildDayBuckets(impressionRows ?? [], last7);
+      setDailyChartData(buckets.map(b => ({
+        date: b.date,
+        impressions: b.impressions,
+        clicks: b.clicks,
+        ctr: b.impressions > 0 ? parseFloat(((b.clicks / b.impressions) * 100).toFixed(1)) : 0,
       })));
     } catch (err) {
       console.error('Failed to fetch daily stats:', err);
@@ -145,28 +166,17 @@ export default function MyAdsPage() {
       .select('ad_id, clicked, created_at')
       .in('ad_id', adIds)
       .gte('created_at', sevenDaysAgo);
-
-    const last7Dates: string[] = [];
+    const last7: string[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
-      last7Dates.push(d.toISOString().slice(0, 10));
+      last7.push(d.toISOString().slice(0, 10));
     }
-
-    const result: { adId: string; adTitle: string; days: { date: string; impressions: number; clicks: number }[] }[] = [];
-    for (const ad of ads.slice(0, 5)) {
-      const dayMap: { [d: string]: { impressions: number; clicks: number } } = {};
-      for (const dt of last7Dates) dayMap[dt] = { impressions: 0, clicks: 0 };
-      for (const row of rows ?? []) {
-        if (row.ad_id !== ad.id) continue;
-        const day = String(row.created_at ?? '').slice(0, 10);
-        if (dayMap[day]) { dayMap[day].impressions++; if (row.clicked) dayMap[day].clicks++; }
-      }
-      result.push({
-        adId: ad.id,
-        adTitle: ad.title.slice(0, 20) + (ad.title.length > 20 ? '…' : ''),
-        days: last7Dates.map(d => ({ date: d.slice(5), impressions: dayMap[d].impressions, clicks: dayMap[d].clicks })),
-      });
-    }
+    const result = ads.slice(0, 5).map((ad: any) => buildHeatmapRow(
+      ad.id,
+      ad.title.slice(0, 20) + (ad.title.length > 20 ? '…' : ''),
+      rows ?? [],
+      last7,
+    ));
     setHeatmapData(result);
     setLoadingHeatmap(false);
   };
@@ -277,8 +287,8 @@ export default function MyAdsPage() {
             ) : (
               <div className="space-y-4">
                 {ads.map((ad: any) => {
-                  const statusInfo = STATUS_MAP[ad.status] || STATUS_MAP['pending'];
-                  const payInfo = PAYMENT_MAP[ad.payment_status] || PAYMENT_MAP['pending'];
+                  const statusInfo = getStatusInfo(ad.status);
+                  const payInfo = getPaymentInfo(ad.payment_status);
                   const StatusIcon = statusInfo.icon;
                   const ctr = ad.impressions > 0 ? ((ad.clicks / ad.impressions) * 100).toFixed(1) : '0.0';
                   const budgetUsed = ad.budget > 0 ? Math.min(100, (ad.spent / ad.budget) * 100) : 0;
@@ -561,7 +571,7 @@ export default function MyAdsPage() {
                   <div className="space-y-3">
                     {ads.map((ad: any) => {
                       const ctr = ad.impressions > 0 ? ((ad.clicks / ad.impressions) * 100).toFixed(1) : '0.0';
-                      const statusInfo = STATUS_MAP[ad.status] || STATUS_MAP['pending'];
+                      const statusInfo = getStatusInfo(ad.status);
                       const StatusIcon = statusInfo.icon;
                       return (
                         <div key={ad.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-xl">

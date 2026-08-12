@@ -20,7 +20,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 
 // Module-level constants — esbuild guard
 const DEPT_OPTIONS = ['Engineering', 'Content', 'Marketing', 'Moderation', 'Finance', 'Design', 'Operations'] as const;
-const REG_PANEL_TABS = ['employees', 'features', 'wallets', 'moderation', 'platform', 'announce', 'reports'] as const;
+const REG_PANEL_TABS = ['employees', 'features', 'wallets', 'moderation', 'platform', 'announce', 'reports', 'audit'] as const;
 type RegTab = typeof REG_PANEL_TABS[number];
 
 const REG_TAB_DEFS = [
@@ -31,6 +31,7 @@ const REG_TAB_DEFS = [
   { key: 'platform',   label: 'Platform',   Icon: Settings    },
   { key: 'announce',   label: 'Announce',   Icon: Megaphone   },
   { key: 'reports',    label: 'Reports',    Icon: TrendingUp  },
+  { key: 'audit',      label: 'Audit Log',  Icon: FileText    },
 ] as const;
 
 function getScoreColor(score: number): string {
@@ -107,6 +108,11 @@ export default function RegulatorPanel() {
   const [sendingAnn, setSendingAnn] = useState(false);
   const [annSent, setAnnSent] = useState(false);
 
+  // Audit log
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [auditFilter, setAuditFilter] = useState('all');
+
   const [platformStats, setPlatformStats] = useState<{ [k: string]: number }>({});
   const [recentUsers, setRecentUsers] = useState<any[]>([]);
   const [platformRevenue, setPlatformRevenue] = useState(0);
@@ -149,7 +155,26 @@ export default function RegulatorPanel() {
     if (activeTab === 'moderation') fetchModChartData();
     if (activeTab === 'announce') fetchAnnArchive();
     if (activeTab === 'reports') fetchAdQueue();
+    if (activeTab === 'audit') fetchAuditLogs();
   }, [activeTab]);
+
+  const fetchAuditLogs = useCallback(async () => {
+    setLoadingAudit(true);
+    const { data } = await supabase
+      .from('regulator_audit_logs')
+      .select('*, target_user:target_user_id(username, avatar_url)')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    setAuditLogs(data ?? []);
+    setLoadingAudit(false);
+  }, []);
+
+  const logAudit = useCallback(async (action_type: string, target_user_id: string | null, notes: string) => {
+    if (!user) return;
+    supabase.from('regulator_audit_logs').insert({
+      regulator_id: user.id, action_type, target_user_id: target_user_id ?? null, notes,
+    }).then(() => {}).catch(() => {});
+  }, [user]);
 
   const fetchEmployees = useCallback(async () => {
     const { data } = await supabase
@@ -217,6 +242,7 @@ export default function RegulatorPanel() {
       type: 'update', icon_emoji: '🎉', cta_label: 'Open Team Chat', cta_url: '/team-chat',
     }).catch(() => {});
     toast.success(`@${selectedHireUser.username} hired!`);
+    await logAudit('hire_employee', selectedHireUser.id, 'Hired as ' + hireForm.job_title + ' in ' + hireForm.department);
     setShowHireDialog(false); setSelectedHireUser(null);
     setHireForm({ job_title: '', department: 'Engineering', notes: '', rev_share_pct: '0' });
     setHireSearch(''); setHireResults([]);
@@ -240,8 +266,10 @@ export default function RegulatorPanel() {
         type: 'update', icon_emoji: '✅',
       }).catch(() => {});
       toast.success(`@${username} verified!`);
+      await logAudit('grant_verified', empUserId, 'Granted verified badge to @' + username);
     } else {
       toast.success(`@${username} unverified`);
+      await logAudit('remove_verified', empUserId, 'Removed verified badge from @' + username);
     }
     fetchEmployees();
   }, [fetchEmployees]);
@@ -469,7 +497,8 @@ export default function RegulatorPanel() {
       body: `Your ad "${adTitle}" has been approved by the platform regulator and is now live.`,
       type: 'update', icon_emoji: '✅',
     }).catch(() => {});
-    toast.success('Ad approved!');
+    toast.success(`Ad approved!`);
+    await logAudit('approve_ad', adUserId, 'Ad approved: "' + adTitle.slice(0, 60) + '"');
     fetchAdQueue();
   }, [user, fetchAdQueue]);
 
@@ -481,6 +510,7 @@ export default function RegulatorPanel() {
       type: 'update', icon_emoji: '❌', cta_label: 'Create New Ad', cta_url: '/create-ad',
     }).catch(() => {});
     toast.success('Ad rejected');
+    await logAudit('reject_ad', adUserId, 'Ad rejected: "' + adTitle.slice(0, 60) + '"');
     fetchAdQueue();
   }, [user, fetchAdQueue]);
 
@@ -530,6 +560,7 @@ export default function RegulatorPanel() {
       type: 'update', icon_emoji: '✅',
     }).catch(() => {});
     toast.success(`@${username}'s ban lifted`);
+    await logAudit('lift_ban', userId, 'Ban lifted for @' + username);
     fetchModeration();
   }, [user, fetchModeration]);
 
@@ -541,6 +572,7 @@ export default function RegulatorPanel() {
       type: 'update', icon_emoji: '🔄',
     }).catch(() => {});
     toast.success(`Strikes reset for @${username}`);
+    await logAudit('reset_strikes', userId, 'Strike count reset to 0 for @' + username);
     fetchModeration();
   }, [fetchModeration]);
 
@@ -591,6 +623,7 @@ export default function RegulatorPanel() {
       type: 'update', icon_emoji: '🚫',
     }).catch(() => {});
     toast.success(`@${username} banned for 24h`);
+    await logAudit('manual_ban', userId, 'Manual 24h ban applied to @' + username);
     fetchModeration();
   }, [user, fetchModeration]);
 
@@ -604,6 +637,7 @@ export default function RegulatorPanel() {
     });
     if (error) { toast.error(error.message); setSendingAnn(false); return; }
     toast.success('Broadcast sent to all users!');
+    await logAudit('broadcast', null, 'Broadcast sent: ' + annSubject.trim());
     setAnnSubject(''); setAnnBody(''); setAnnCtaLabel(''); setAnnCtaUrl('');
     setAnnEmoji('📣'); setAnnSent(true);
     setTimeout(() => setAnnSent(false), 4000);
@@ -1616,6 +1650,84 @@ export default function RegulatorPanel() {
                 {sendingAnn ? 'Broadcasting…' : 'Broadcast to All Users'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── AUDIT LOG TAB ── */}
+        {activeTab === 'audit' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-black text-base flex items-center gap-2"><FileText className="w-5 h-5 text-primary" />Regulator Audit Log</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Every action taken in this panel — immutable record</p>
+              </div>
+              <button onClick={fetchAuditLogs} disabled={loadingAudit} className="text-muted-foreground hover:text-foreground">
+                <RefreshCw className={`w-4 h-4 ${loadingAudit ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+
+            {/* Filter chips */}
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+              {['all', 'ban', 'verified', 'hire', 'broadcast', 'ad'].map(f => (
+                <button key={f} onClick={() => setAuditFilter(f)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border-2 shrink-0 capitalize transition-all ${
+                    auditFilter === f ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'
+                  }`}>
+                  {f === 'all' ? 'All Actions' : f}
+                </button>
+              ))}
+            </div>
+
+            {loadingAudit ? (
+              <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+            ) : auditLogs.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <FileText className="w-14 h-14 mx-auto mb-3 opacity-20" />
+                <p className="font-semibold">No audit entries yet</p>
+                <p className="text-sm mt-1">Actions taken in this panel will appear here</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {auditLogs
+                  .filter(log => {
+                    if (auditFilter === 'all') return true;
+                    if (auditFilter === 'ban') return String(log.action_type).includes('ban');
+                    if (auditFilter === 'verified') return String(log.action_type).includes('verified');
+                    if (auditFilter === 'hire') return String(log.action_type).includes('hire');
+                    if (auditFilter === 'broadcast') return log.action_type === 'broadcast';
+                    if (auditFilter === 'ad') return String(log.action_type).includes('ad');
+                    return true;
+                  })
+                  .map((log: any) => {
+                    const actionEmoji = log.action_type.includes('ban') ? '🚫'
+                      : log.action_type.includes('verified') ? '✅'
+                      : log.action_type.includes('hire') ? '💼'
+                      : log.action_type === 'broadcast' ? '📣'
+                      : log.action_type.includes('ad') ? '📢'
+                      : log.action_type.includes('strikes') ? '🔄'
+                      : '⚙️';
+                    return (
+                      <div key={log.id} className="flex items-start gap-3 p-3 bg-card border border-border rounded-xl">
+                        <div className="w-8 h-8 rounded-xl bg-muted flex items-center justify-center shrink-0 text-base">
+                          {actionEmoji}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black capitalize">{log.action_type.replace(/_/g, ' ')}</span>
+                            {log.target_user?.username && (
+                              <span className="text-[10px] bg-primary/8 text-primary px-1.5 py-0.5 rounded-full font-semibold">@{log.target_user.username}</span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{log.notes}</p>
+                        </div>
+                        <span className="text-[9px] text-muted-foreground shrink-0 whitespace-nowrap">
+                          {formatDistanceToNow(new Date(log.created_at), { addSuffix: true })}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
 
