@@ -84,6 +84,7 @@ const HashtagDiscoveryPage = lazy(() => import('@/pages/HashtagDiscoveryPage'));
 const PodcastSearchPage = lazy(() => import('@/pages/PodcastSearchPage'));
 const RegulatorPanel = lazy(() => import('@/pages/RegulatorPanel'));
 const PodcastAnalyticsPage = lazy(() => import('@/pages/PodcastAnalyticsPage'));
+const TeamChatPage = lazy(() => import('@/pages/TeamChatPage'));
 
 function PageLoader() {
   return (
@@ -195,6 +196,7 @@ function AppInner() {
               <Route path="/podcasts/search" element={<PodcastSearchPage />} />
               <Route path="/regulator" element={<RegulatorPanel />} />
               <Route path="/podcasts/analytics" element={<PodcastAnalyticsPage />} />
+              <Route path="/team-chat" element={<TeamChatPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
