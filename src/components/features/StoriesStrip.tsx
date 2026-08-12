@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -198,21 +198,8 @@ export function StoriesStrip() {
     ? musicCatalogue.filter(t => t.title.toLowerCase().includes(musicSearch.toLowerCase()) || t.artist.toLowerCase().includes(musicSearch.toLowerCase()) || t.genre?.toLowerCase().includes(musicSearch.toLowerCase()))
     : musicCatalogue;
 
-  // ── Follower gate ──────────────────────────────────────────────────────────
-  const [creatorFollowers, setCreatorFollowers] = useState<number | null>(null);
-  const FOLLOWER_THRESHOLD = 500;
-
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from('user_profiles')
-      .select('followers_count')
-      .eq('id', user.id)
-      .maybeSingle()
-      .then(({ data }) => setCreatorFollowers(data?.followers_count ?? 0));
-  }, [user?.id]);
-
-  const isCreationLocked = creatorFollowers !== null && creatorFollowers < FOLLOWER_THRESHOLD;
+  // Story creation is FREE for all users — no follower gate
+  const isCreationLocked = false;
 
   // ── Story Poll Sticker ────────────────────────────────────────────────────
   const [pollQuestion, setPollQuestion] = useState('');
@@ -319,6 +306,52 @@ export function StoriesStrip() {
   };
 
   const REACTIONS = ['❤️', '😂', '😮', '🔥', '👏', '😍'];
+
+  // ── Sponsored Story Ads ──────────────────────────────────────────────────────
+  const [sponsoredAds, setSponsoredAds] = useState<any[]>([]);
+  const [activeAdIdx, setActiveAdIdx] = useState<number | null>(null);
+  const [adLiked, setAdLiked] = useState(false);
+  // Ad injection interval: show one sponsored story every N real groups
+  const AD_STORY_INTERVAL = 3;
+
+  useEffect(() => {
+    supabase
+      .from('user_ads')
+      .select('*, user_profiles!user_ads_user_id_fkey(id, username, avatar_url, verified)')
+      .eq('status', 'active')
+      .eq('payment_status', 'paid')
+      .order('created_at', { ascending: false })
+      .limit(6)
+      .then(({ data }) => setSponsoredAds(data ?? []));
+  }, []);
+
+  const openAdStory = (adIndex: number) => {
+    setActiveAdIdx(adIndex);
+    setAdLiked(false);
+    // Track impression
+    const ad = sponsoredAds[adIndex];
+    if (ad) {
+      supabase.from('ad_impressions').insert({
+        ad_id: ad.id,
+        user_id: user?.id ?? null,
+        clicked: false,
+      }).catch(() => {});
+    }
+  };
+
+  const closeAdStory = () => setActiveAdIdx(null);
+
+  const handleAdCta = () => {
+    if (activeAdIdx === null) return;
+    const ad = sponsoredAds[activeAdIdx];
+    if (!ad) return;
+    supabase.from('ad_impressions').insert({
+      ad_id: ad.id,
+      user_id: user?.id ?? null,
+      clicked: true,
+    }).catch(() => {});
+    if (ad.target_url) window.open(ad.target_url, '_blank', 'noopener,noreferrer');
+  };
 
   const fetchStories = useCallback(async () => {
     setLoading(true);
@@ -720,6 +753,23 @@ export function StoriesStrip() {
   if (viewerIsOwn && viewerStory) { void fetchStoryReplyCount(viewerStory.id, viewerG!.userId); }
   const viewerReplyCount = viewerIsOwn && viewerStory ? getStoryReplyCount(viewerStory.id) : 0;
 
+  // Pre-compute sponsored ad viewer vars before return — esbuild guard: no IIFE in JSX render
+  const adViewerAd = activeAdIdx !== null ? (sponsoredAds[activeAdIdx] ?? null) : null;
+  const adAdvertiserName = adViewerAd?.user_profiles?.username ?? 'Advertiser';
+  const adAdvertiserAvatar = adViewerAd?.user_profiles?.avatar_url ?? null;
+  const adIsVerified = adViewerAd?.user_profiles?.verified ?? false;
+  let adDomainShort = '';
+  if (adViewerAd?.target_url) {
+    try { adDomainShort = new URL(adViewerAd.target_url).hostname.replace(/^www\./, ''); } catch {}
+  }
+  const adCtaLabel = adViewerAd?.target_url?.includes('sign') || adViewerAd?.target_url?.includes('register')
+    ? 'Sign Up Now'
+    : adViewerAd?.target_url?.includes('shop') || adViewerAd?.target_url?.includes('buy')
+    ? 'Shop Now'
+    : adDomainShort
+    ? `GET ${adDomainShort.toUpperCase().slice(0, 14)}`
+    : 'Learn More';
+
   return (
     <>
       {/* ── Story Strip ────────────────────────────────────── */}
@@ -727,11 +777,6 @@ export function StoriesStrip() {
         {user && (
           <button
             onClick={() => {
-              if (isCreationLocked) {
-                const needed = FOLLOWER_THRESHOLD - (creatorFollowers ?? 0);
-                toast.error(`Unlock story creation by reaching ${FOLLOWER_THRESHOLD} followers — you need ${needed.toLocaleString()} more`);
-                return;
-              }
               if (hasMyStory) openViewer(myGroupIdx); else fileInputRef.current?.click();
             }}
             disabled={uploading}
@@ -746,28 +791,57 @@ export function StoriesStrip() {
               }
               {!hasMyStory && (
                 <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-2 border-background">
-                  {uploading ? <Loader2 className="w-3 h-3 text-white animate-spin" /> : isCreationLocked ? <span className="text-[8px]">🔒</span> : <Plus className="w-3 h-3 text-white" />}
+                  {uploading ? <Loader2 className="w-3 h-3 text-white animate-spin" /> : <Plus className="w-3 h-3 text-white" />}
                 </span>
               )}
             </div>
             <span className="text-[10px] text-muted-foreground font-medium leading-none">
-              {hasMyStory ? 'My Story' : isCreationLocked ? '🔒 Locked' : 'Add Story'}
+              {hasMyStory ? 'My Story' : 'Add Story'}
             </span>
           </button>
         )}
         <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFileSelected} />
-        {groups.filter(g => g.userId !== user?.id).map(g => {
+        {groups.filter(g => g.userId !== user?.id).map((g, listIdx) => {
           const realIdx = groups.indexOf(g);
+          // Inject a sponsored story ad every AD_STORY_INTERVAL real groups
+          const adSlotIdx = Math.floor(listIdx / AD_STORY_INTERVAL);
+          const showAdBefore = listIdx > 0 && listIdx % AD_STORY_INTERVAL === 0 && adSlotIdx - 1 < sponsoredAds.length;
+          const adForSlot = showAdBefore ? sponsoredAds[(adSlotIdx - 1) % sponsoredAds.length] : null;
+          // Pre-compute ad slot index for openAdStory
+          const adOpenIdx = showAdBefore ? (adSlotIdx - 1) % sponsoredAds.length : -1;
           return (
-            <button key={g.userId} onClick={() => openViewer(realIdx)} className="flex flex-col items-center gap-1 flex-shrink-0 group">
-              <div className={`w-14 h-14 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all ${g.hasUnseen ? 'ring-primary' : 'ring-muted-foreground/20 group-hover:ring-muted-foreground/40'}`}>
-                {g.avatarUrl
-                  ? <img src={g.avatarUrl} alt={g.username} className="w-full h-full rounded-full object-cover" />
-                  : <div className="w-full h-full rounded-full bg-muted flex items-center justify-center font-bold text-sm">{g.username[0]?.toUpperCase()}</div>
-                }
-              </div>
-              <span className={`text-[10px] font-medium leading-none max-w-[56px] truncate ${g.hasUnseen ? 'text-foreground' : 'text-muted-foreground'}`}>{g.username}</span>
-            </button>
+            <React.Fragment key={g.userId}>
+              {/* Sponsored story ad circle */}
+              {adForSlot && (
+                <button
+                  onClick={() => openAdStory(adOpenIdx)}
+                  className="flex flex-col items-center gap-1 flex-shrink-0 group"
+                >
+                  <div className="relative w-14 h-14 rounded-full overflow-hidden ring-2 ring-offset-2 ring-offset-background ring-amber-400 border-2 border-amber-400/40">
+                    {adForSlot.image_url || adForSlot.video_url ? (
+                      adForSlot.video_url
+                        ? <video src={`${adForSlot.video_url}#t=0.5`} className="w-full h-full object-cover" muted preload="metadata" />
+                        : <img src={adForSlot.image_url} alt="Sponsored" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                        <span className="text-white text-lg font-black">{adForSlot.user_profiles?.username?.[0]?.toUpperCase() ?? 'A'}</span>
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-amber-500/90 text-[8px] font-black text-white text-center py-0.5">AD</div>
+                  </div>
+                  <span className="text-[10px] font-semibold leading-none max-w-[56px] truncate text-amber-600">Sponsored</span>
+                </button>
+              )}
+              <button key={g.userId} onClick={() => openViewer(realIdx)} className="flex flex-col items-center gap-1 flex-shrink-0 group">
+                <div className={`w-14 h-14 rounded-full ring-2 ring-offset-2 ring-offset-background transition-all ${g.hasUnseen ? 'ring-primary' : 'ring-muted-foreground/20 group-hover:ring-muted-foreground/40'}`}>
+                  {g.avatarUrl
+                    ? <img src={g.avatarUrl} alt={g.username} className="w-full h-full rounded-full object-cover" />
+                    : <div className="w-full h-full rounded-full bg-muted flex items-center justify-center font-bold text-sm">{g.username[0]?.toUpperCase()}</div>
+                  }
+                </div>
+                <span className={`text-[10px] font-medium leading-none max-w-[56px] truncate ${g.hasUnseen ? 'text-foreground' : 'text-muted-foreground'}`}>{g.username}</span>
+              </button>
+            </React.Fragment>
           );
         })}
       </div>
@@ -993,7 +1067,207 @@ export function StoriesStrip() {
         </div>
       )}
 
-      {/* ── Full-screen Story Viewer — no IIFE (esbuild guard) ─── */}
+      {/* ── Full-screen Sponsored Story Ad Viewer ────────────────── */}
+      {activeAdIdx !== null && adViewerAd && (
+          <div className="fixed inset-0 z-[220] bg-black flex flex-col" onClick={closeAdStory}>
+            {/* Progress bar */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-white/20 z-10">
+              <div className="h-full bg-white/70 rounded-full" style={{ width: '100%' }} />
+            </div>
+            {/* Header */}
+            <div className="absolute top-4 left-0 right-0 flex items-center gap-3 px-4 z-10" onClick={e => e.stopPropagation()}>
+              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-amber-400 shrink-0">
+                {adAdvertiserAvatar
+                  ? <img src={adAdvertiserAvatar} alt={adAdvertiserName} className="w-full h-full object-cover" />
+                  : <div className="w-full h-full bg-amber-500 flex items-center justify-center font-bold text-white text-sm">{adAdvertiserName[0]?.toUpperCase()}</div>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-bold text-sm leading-tight truncate">{adAdvertiserName}</p>
+                <div className="flex items-center gap-1">
+                  {adIsVerified && <span className="text-blue-400 text-[10px]">✓</span>}
+                  <span className="text-amber-300 text-[10px] font-bold">Sponsored</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 mr-1">
+                <button
+                  onClick={e => { e.stopPropagation(); setActiveAdIdx(i => i !== null ? Math.max(0, i - 1) : null); setAdLiked(false); }}
+                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs"
+                  disabled={activeAdIdx === 0}
+                >‹</button>
+                <button
+                  onClick={e => { e.stopPropagation(); setActiveAdIdx(i => i !== null && i < sponsoredAds.length - 1 ? i + 1 : null); setAdLiked(false); }}
+                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs"
+                  disabled={activeAdIdx === sponsoredAds.length - 1}
+                >›</button>
+              </div>
+              <button onClick={e => { e.stopPropagation(); closeAdStory(); }} className="w-9 h-9 flex items-center justify-center rounded-full bg-black/40 text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Media */}
+            {adViewerAd.video_url ? (
+              <video
+                src={adViewerAd.video_url}
+                className="w-full h-full object-cover"
+                autoPlay muted playsInline loop
+                onClick={e => e.stopPropagation()}
+                onEnded={() => {
+                  if (activeAdIdx < sponsoredAds.length - 1) { setActiveAdIdx(i => (i ?? 0) + 1); setAdLiked(false); }
+                  else closeAdStory();
+                }}
+              />
+            ) : adViewerAd.image_url ? (
+              <img src={adViewerAd.image_url} alt={adViewerAd.title} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-amber-500/40 via-orange-500/20 to-black" />
+            )}
+            {/* Gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+            {/* Footer */}
+            <div className="absolute bottom-0 left-0 right-0 z-10 px-4 pb-8 space-y-3" onClick={e => e.stopPropagation()}>
+              <div>
+                <p className="text-white font-bold text-lg leading-tight">{adViewerAd.title}</p>
+                {adViewerAd.description && <p className="text-white/75 text-sm mt-0.5 line-clamp-2">{adViewerAd.description}</p>}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { setAdLiked(v => !v); if (!adLiked) supabase.from('ad_impressions').insert({ ad_id: adViewerAd.id, user_id: user?.id ?? null, clicked: true }).catch(() => {}); }}
+                  className={`flex items-center gap-1.5 text-sm font-semibold transition-colors ${adLiked ? 'text-blue-400' : 'text-white/80 hover:text-white'}`}
+                >
+                  <span className="text-xl">👍</span>
+                  {adLiked ? 'Liked' : 'Like'}
+                </button>
+                <div className="text-white/30">·</div>
+                <span className="text-white/50 text-xs">{adViewerAd.impressions ?? 0} views</span>
+                {adDomainShort && <span className="text-white/40 text-[10px] ml-auto truncate max-w-[120px]">{adDomainShort}</span>}
+              </div>
+              {adViewerAd.target_url && (
+                <button
+                  onClick={handleAdCta}
+                  className="w-full py-3.5 bg-white text-black rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-lg"
+                >
+                  {adCtaLabel}<span className="text-xs">›</span>
+                </button>
+              )}
+              <div className="flex items-center gap-1.5 justify-center">
+                <span className="text-[10px] text-white/40">🔊 Ad</span>
+                <span className="text-white/20 text-[10px]">·</span>
+                <span className="text-[10px] text-white/40">Why this ad?</span>
+              </div>
+            </div>
+          </div>
+      )}
+          <div className="fixed inset-0 z-[220] bg-black flex flex-col" onClick={closeAdStory}>
+            {/* Progress bar (static — shows as full for image, auto-drains for video) */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-white/20 z-10">
+              <div className="h-full bg-white/70 rounded-full" style={{ width: '100%' }} />
+            </div>
+            {/* Header */}
+            <div className="absolute top-4 left-0 right-0 flex items-center gap-3 px-4 z-10" onClick={e => e.stopPropagation()}>
+              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-amber-400 shrink-0">
+                {advertiserAvatar
+                  ? <img src={advertiserAvatar} alt={advertiserName} className="w-full h-full object-cover" />
+                  : <div className="w-full h-full bg-amber-500 flex items-center justify-center font-bold text-white text-sm">{advertiserName[0]?.toUpperCase()}</div>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-bold text-sm leading-tight truncate">{advertiserName}</p>
+                <div className="flex items-center gap-1">
+                  {isVerified && <span className="text-blue-400 text-[10px]">✓</span>}
+                  <span className="text-amber-300 text-[10px] font-bold">Sponsored</span>
+                </div>
+              </div>
+              {/* Prev / Next arrows */}
+              <div className="flex items-center gap-1 mr-1">
+                <button
+                  onClick={e => { e.stopPropagation(); setActiveAdIdx(i => i !== null ? Math.max(0, i - 1) : null); setAdLiked(false); }}
+                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs"
+                  disabled={activeAdIdx === 0}
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); setActiveAdIdx(i => i !== null && i < sponsoredAds.length - 1 ? i + 1 : null); setAdLiked(false); }}
+                  className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-white text-xs"
+                  disabled={activeAdIdx === sponsoredAds.length - 1}
+                >
+                  ›
+                </button>
+              </div>
+              <button onClick={e => { e.stopPropagation(); closeAdStory(); }} className="w-9 h-9 flex items-center justify-center rounded-full bg-black/40 text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Media */}
+            {ad.video_url ? (
+              <video
+                src={ad.video_url}
+                className="w-full h-full object-cover"
+                autoPlay
+                muted
+                playsInline
+                loop
+                onClick={e => e.stopPropagation()}
+                onEnded={() => {
+                  if (activeAdIdx < sponsoredAds.length - 1) { setActiveAdIdx(i => (i ?? 0) + 1); setAdLiked(false); }
+                  else closeAdStory();
+                }}
+              />
+            ) : ad.image_url ? (
+              <img src={ad.image_url} alt={ad.title} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-amber-500/40 via-orange-500/20 to-black" />
+            )}
+            {/* Gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+            {/* Footer content */}
+            <div className="absolute bottom-0 left-0 right-0 z-10 px-4 pb-8 space-y-3" onClick={e => e.stopPropagation()}>
+              <div>
+                <p className="text-white font-bold text-lg leading-tight">{ad.title}</p>
+                {ad.description && <p className="text-white/75 text-sm mt-0.5 line-clamp-2">{ad.description}</p>}
+              </div>
+              {/* Like row */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { setAdLiked(v => !v); if (!adLiked) supabase.from('ad_impressions').insert({ ad_id: ad.id, user_id: user?.id ?? null, clicked: true }).catch(() => {}); }}
+                  className={`flex items-center gap-1.5 text-sm font-semibold transition-colors ${adLiked ? 'text-blue-400' : 'text-white/80 hover:text-white'}`}
+                >
+                  <span className="text-xl">{adLiked ? '👍' : '👍'}</span>
+                  {adLiked ? 'Liked' : 'Like'}
+                </button>
+                <div className="text-white/30">·</div>
+                <span className="text-white/50 text-xs">{ad.impressions ?? 0} views</span>
+                {domainShort && (
+                  <span className="text-white/40 text-[10px] ml-auto truncate max-w-[120px]">{domainShort}</span>
+                )}
+              </div>
+              {/* CTA button */}
+              {ad.target_url && (
+                <button
+                  onClick={handleAdCta}
+                  className="w-full py-3.5 bg-white text-black rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-lg"
+                >
+                  {domainShort
+                    ? `GET ${domainShort.toUpperCase().slice(0, 14)}`
+                    : ad.target_url?.includes('sign') || ad.target_url?.includes('register')
+                    ? 'Sign Up Now'
+                    : ad.target_url?.includes('shop') || ad.target_url?.includes('buy')
+                    ? 'Shop Now'
+                    : 'Learn More'}
+                  <span className="text-xs">›</span>
+                </button>
+              )}
+              {/* "Ad" badge */}
+              <div className="flex items-center gap-1.5 justify-center">
+                <span className="text-[10px] text-white/40">🔊 Ad</span>
+                <span className="text-white/20 text-[10px]">·</span>
+                <span className="text-[10px] text-white/40">Why this ad?</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Full-screen Story Viewer ─── */}
       {viewerGroupIdx !== null && viewerG && viewerStory && (
         <div
           className="fixed inset-0 z-[200] bg-black flex items-center justify-center select-none"
