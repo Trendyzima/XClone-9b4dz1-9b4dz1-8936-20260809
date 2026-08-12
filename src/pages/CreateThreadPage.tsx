@@ -18,6 +18,16 @@ import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { detectEmbed } from '@/components/features/EmbedRenderer';
 function CreateThreadAdBanner() { return <PageAdBanner />; }
 
+// Module-level constant — esbuild-safe
+const EMBED_EXAMPLES = [
+  { label: 'YouTube',    icon: '▶',  hint: 'https://youtube.com/watch?v=...' },
+  { label: 'Spotify',   icon: '♫',  hint: 'https://open.spotify.com/track/...' },
+  { label: 'SoundCloud',icon: '🎵', hint: 'https://soundcloud.com/...' },
+  { label: 'CodePen',   icon: '</>',hint: 'https://codepen.io/.../pen/...' },
+  { label: 'Tweet / X', icon: '𝕏',  hint: 'https://x.com/user/status/...' },
+  { label: 'Giphy GIF', icon: '🎞', hint: 'https://giphy.com/gifs/...' },
+] as const;
+
 export default function CreateThreadPage() {
   useSEO({ noindex: true, title: 'Create Thread', url: '/create-thread' });
   const { user } = useAuth();
@@ -162,15 +172,6 @@ export default function CreateThreadPage() {
     setEmbedPreview(null);
     setShowEmbedDialog(false);
   };
-
-  const EMBED_EXAMPLES = [
-    { label: 'YouTube', icon: '▶', hint: 'https://youtube.com/watch?v=...' },
-    { label: 'Spotify', icon: '♫', hint: 'https://open.spotify.com/track/...' },
-    { label: 'SoundCloud', icon: '🎵', hint: 'https://soundcloud.com/...' },
-    { label: 'CodePen', icon: '</>', hint: 'https://codepen.io/.../pen/...' },
-    { label: 'Tweet / X', icon: '𝕏', hint: 'https://x.com/user/status/...' },
-    { label: 'Giphy GIF', icon: '🎞', hint: 'https://giphy.com/gifs/...' },
-  ] as const;
 
   // ── Video Chapters ──────────────────────────────────────────────────────
   const [chapters, setChapters] = useState<{ time: string; title: string }[]>([]);
