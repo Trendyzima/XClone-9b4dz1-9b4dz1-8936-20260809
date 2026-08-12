@@ -15,18 +15,17 @@ import { formatNumber } from '@/lib/utils';
 
 // Module-level constants — esbuild-safe
 const TEAM_CHAT_EMOJIS = ['👍', '❤️', '🔥', '🎉', '💯', '👏'] as const;
-const DEPT_COLORS: { [k: string]: string } = {
-  Engineering:  'bg-blue-500/10 text-blue-600 border-blue-500/20',
-  Content:      'bg-green-500/10 text-green-600 border-green-500/20',
-  Marketing:    'bg-pink-500/10 text-pink-600 border-pink-500/20',
-  Moderation:   'bg-red-500/10 text-red-600 border-red-500/20',
-  Finance:      'bg-amber-500/10 text-amber-600 border-amber-500/20',
-  Design:       'bg-violet-500/10 text-violet-600 border-violet-500/20',
-  Operations:   'bg-orange-500/10 text-orange-600 border-orange-500/20',
-};
 
+// Pure function replaces index-signature object (esbuild guard)
 function getDeptColor(dept: string): string {
-  return DEPT_COLORS[dept] ?? 'bg-muted text-muted-foreground border-border';
+  if (dept === 'Engineering')  return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
+  if (dept === 'Content')      return 'bg-green-500/10 text-green-600 border-green-500/20';
+  if (dept === 'Marketing')    return 'bg-pink-500/10 text-pink-600 border-pink-500/20';
+  if (dept === 'Moderation')   return 'bg-red-500/10 text-red-600 border-red-500/20';
+  if (dept === 'Finance')      return 'bg-amber-500/10 text-amber-600 border-amber-500/20';
+  if (dept === 'Design')       return 'bg-violet-500/10 text-violet-600 border-violet-500/20';
+  if (dept === 'Operations')   return 'bg-orange-500/10 text-orange-600 border-orange-500/20';
+  return 'bg-muted text-muted-foreground border-border';
 }
 
 export default function TeamChatPage() {
