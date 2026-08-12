@@ -25,6 +25,14 @@ const HUB_TABS         = ['overview', 'tiers', 'content', 'tips', 'analytics', '
 const HUB_TIP_AMOUNTS  = [1, 2, 5, 10, 25, 50] as const;
 const HUB_FUND_CPM     = 0.0015; // $0.0015 per view = $1.50 CPM (base tier creator share)
 
+// Creator tier progression steps — module-level to prevent as const in render scope (esbuild guard)
+const HUB_TIER_STEPS = [
+  { tier: 'standard',    views: 0,       label: 'Standard',    emoji: '\ud83c\udf31', cpm: 1.50, milestone: 'Start here' },
+  { tier: 'rising',      views: 10_000,  label: 'Rising',      emoji: '\ud83d\udcc8', cpm: 2.00, milestone: '10k views' },
+  { tier: 'premium',     views: 0,       label: 'Premium',     emoji: '\u2b50',      cpm: 2.50, milestone: 'Get verified' },
+  { tier: 'top_creator', views: 100_000, label: 'Top Creator', emoji: '\ud83d\udc51', cpm: 3.50, milestone: 'Verified + 100k views' },
+] as const;
+
 // CPM rate tiers — must match supabase/functions/distribute-earnings/index.ts
 const HUB_CPM_TIERS = [
   { tier: 'top_creator', cpm: 3.50, label: 'Top Creator', emoji: '👑', color: 'text-purple-600', bg: 'bg-purple-500/10', border: 'border-purple-500/20', condition: 'Verified + 100k+ views' },
@@ -133,18 +141,12 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
       {/* ── Creator Tier Progress Bar ── */}
       {(() => {
         // 4-step stepper: standard → rising → premium → top_creator
-        const TIER_STEPS = [
-          { tier: 'standard',    views: 0,       label: 'Standard',    emoji: '\ud83c\udf31', cpm: 1.50, milestone: 'Start here' },
-          { tier: 'rising',      views: 10_000,  label: 'Rising',      emoji: '\ud83d\udcc8', cpm: 2.00, milestone: '10k views' },
-          { tier: 'premium',     views: 0,       label: 'Premium',     emoji: '\u2b50', cpm: 2.50, milestone: 'Get verified' },
-          { tier: 'top_creator', views: 100_000, label: 'Top Creator', emoji: '\ud83d\udc51', cpm: 3.50, milestone: 'Verified + 100k views' },
-        ] as const;
-        const currentIdx = TIER_STEPS.findIndex(s => s.tier === (rate?.tier ?? 'standard'));
+        const currentIdx = HUB_TIER_STEPS.findIndex(s => s.tier === (rate?.tier ?? 'standard'));
         const safeIdx = currentIdx < 0 ? 0 : currentIdx;
         const totalViews = Number(rate?.period_views ?? 0);
         // Progress to next tier (view-based tiers only)
-        const nextStep = TIER_STEPS[safeIdx + 1];
-        const prevMilestone = TIER_STEPS[safeIdx]?.views ?? 0;
+        const nextStep = HUB_TIER_STEPS[safeIdx + 1];
+        const prevMilestone = HUB_TIER_STEPS[safeIdx]?.views ?? 0;
         const nextMilestone = nextStep?.views ?? 0;
         const barPct = nextMilestone > 0
           ? Math.min(100, Math.round(((totalViews - prevMilestone) / (nextMilestone - prevMilestone)) * 100))
@@ -168,9 +170,9 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
                 <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1 bg-muted rounded-full" />
                 <div
                   className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-primary rounded-full transition-all duration-500"
-                  style={{ width: `${(safeIdx / (TIER_STEPS.length - 1)) * 100}%` }}
+                  style={{ width: `${(safeIdx / (HUB_TIER_STEPS.length - 1)) * 100}%` }}
                 />
-                {TIER_STEPS.map((step, i) => {
+                {HUB_TIER_STEPS.map((step, i) => {
                   const isDone   = i < safeIdx;
                   const isCurrent = i === safeIdx;
                   return (
@@ -204,11 +206,11 @@ export function VideoRevenueRateCard({ userId }: { userId: string }) {
                     <div className="h-full bg-gradient-to-r from-primary to-green-500 rounded-full transition-all duration-700" style={{ width: `${barPct}%` }} />
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    {barPct}% to {nextStep.label} · +${(nextStep.cpm - (TIER_STEPS[safeIdx]?.cpm ?? 1.50)).toFixed(2)}/1k views when you upgrade
+                    {barPct}% to {nextStep.label} · +${(nextStep.cpm - (HUB_TIER_STEPS[safeIdx]?.cpm ?? 1.50)).toFixed(2)}/1k views when you upgrade
                   </p>
                 </div>
               )}
-              {safeIdx === TIER_STEPS.length - 1 && (
+              {safeIdx === HUB_TIER_STEPS.length - 1 && (
                 <p className="text-center text-xs font-bold text-primary mt-3">👑 You've reached the highest tier!</p>
               )}
             </div>
