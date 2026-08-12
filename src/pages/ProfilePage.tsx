@@ -7,7 +7,7 @@ import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
 import CreatorMonetizationHub, { SubscriptionTiersDisplay, TipGoalWidget, SubscriberBadge } from '@/components/features/CreatorMonetizationHub';
-import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart, BookOpen, ChevronRight } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
 import { useSEO, buildProfileLD, buildOgImageUrl } from '@/hooks/useSEO';
@@ -358,9 +358,53 @@ export default function ProfilePage() {
     setLoadingGifts(false);
   };
 
-  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
+  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
   // Derived: videos are posts where is_video=true
   const videoPosts = posts.filter(p => p.is_video && p.video_url);
+
+  // Profile Series tab
+  const [profileSeries, setProfileSeries] = useState<any[]>([]);
+  const [loadingProfileSeries, setLoadingProfileSeries] = useState(false);
+  const [profileSeriesFetched, setProfileSeriesFetched] = useState(false);
+
+  const fetchProfileSeries = async (userId: string) => {
+    if (profileSeriesFetched) return;
+    setLoadingProfileSeries(true);
+    const { data } = await supabase
+      .from('post_series')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_public', true)
+      .order('item_count', { ascending: false })
+      .limit(20);
+    setProfileSeries(data ?? []);
+    setLoadingProfileSeries(false);
+    setProfileSeriesFetched(true);
+  };
+
+  // Pinned post — own profile only
+  const [pinnedPostId, setPinnedPostId] = useState<string | null>(null);
+
+  const togglePinPost = async (postId: string) => {
+    if (!currentUser || !isOwnProfile) return;
+    const newPinned = pinnedPostId === postId ? null : postId;
+    setPinnedPostId(newPinned);
+    // Store in user metadata (localStorage for now, can be extended to DB)
+    if (newPinned) {
+      localStorage.setItem(`pinned_post_${currentUser.id}`, newPinned);
+      toast.success('Post pinned to your profile');
+    } else {
+      localStorage.removeItem(`pinned_post_${currentUser.id}`);
+      toast.success('Post unpinned');
+    }
+  };
+
+  // Load pinned post from localStorage
+  useEffect(() => {
+    if (isOwnProfile && currentUser) {
+      setPinnedPostId(localStorage.getItem(`pinned_post_${currentUser.id}`));
+    }
+  }, [isOwnProfile, currentUser]);
 
   useEffect(() => {
     if (username) fetchProfile();
@@ -1033,7 +1077,42 @@ export default function ProfilePage() {
 
       <div>
         {activeTab === 'Posts' && (
-          posts.length > 0 ? posts.map((post) => <PostCard key={post.id} post={post} onUpdate={fetchProfile} />) : <div className="text-center py-12 text-muted-foreground"><p>No posts yet</p></div>
+          posts.length > 0 ? (
+            <div>
+              {/* Pinned post */}
+              {pinnedPostId && (() => {
+                const pinned = posts.find(p => p.id === pinnedPostId);
+                if (!pinned) return null;
+                return (
+                  <div className="border-b-2 border-primary/20 bg-primary/3">
+                    <div className="flex items-center gap-2 px-4 pt-3 pb-0">
+                      <span className="text-[10px] font-bold text-primary uppercase tracking-wide">📌 Pinned Post</span>
+                      {isOwnProfile && (
+                        <button onClick={() => togglePinPost(pinnedPostId)}
+                          className="ml-auto text-[10px] text-muted-foreground hover:text-destructive transition-colors">
+                          Unpin
+                        </button>
+                      )}
+                    </div>
+                    <PostCard post={pinned} onUpdate={fetchProfile} />
+                  </div>
+                );
+              })()}
+              {posts.filter(p => p.id !== pinnedPostId).map((post) => (
+                <div key={post.id} className="relative group">
+                  <PostCard post={post} onUpdate={fetchProfile} />
+                  {isOwnProfile && (
+                    <button
+                      onClick={() => togglePinPost(post.id)}
+                      className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold text-muted-foreground hover:text-primary bg-background/90 px-2 py-1 rounded-full border border-border shadow-sm"
+                    >
+                      {pinnedPostId === post.id ? 'Unpin' : '📌 Pin'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : <div className="text-center py-12 text-muted-foreground"><p>No posts yet</p></div>
         )}
 
         {activeTab === 'Threads' && (
@@ -1244,6 +1323,46 @@ export default function ProfilePage() {
             </div>
           )
         )}
+
+        {activeTab === 'Series' && (() => {
+          if (!profileSeriesFetched && profile?.id) fetchProfileSeries(profile.id);
+          return loadingProfileSeries ? (
+            <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
+          ) : profileSeries.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <BookOpen className="w-14 h-14 mx-auto mb-3 opacity-20" />
+              <p className="font-semibold">No public series yet</p>
+              {isOwnProfile && (
+                <button onClick={() => navigate('/series')}
+                  className="mt-4 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90">
+                  Create a Series
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {profileSeries.map((s: any) => (
+                <button key={s.id} onClick={() => navigate('/series')}
+                  className="w-full flex items-start gap-3 p-4 text-left hover:bg-muted/30 transition-colors">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center shrink-0 overflow-hidden border border-border">
+                    {s.cover_image
+                      ? <img src={s.cover_image} alt={s.name} className="w-full h-full object-cover" />
+                      : <BookOpen className="w-7 h-7 text-primary" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm truncate">{s.name}</p>
+                    {s.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.description}</p>}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">{s.item_count ?? 0} parts</span>
+                      <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(s.updated_at ?? s.created_at), { addSuffix: true })}</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground mt-1 shrink-0" />
+                </button>
+              ))}
+            </div>
+          );
+        })()}
 
         {activeTab === 'Likes' && (
           likedPosts.length > 0 ? likedPosts.map((post) => <PostCard key={post.id} post={post} onUpdate={fetchProfile} />) : <div className="text-center py-12 text-muted-foreground"><p>No liked posts yet</p></div>

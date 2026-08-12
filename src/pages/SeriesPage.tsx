@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Plus, BookOpen, ChevronRight, ChevronLeft, Layers, Loader2,
-  X, Trash2, Lock, Globe, Edit3, Check, PlayCircle, RotateCcw,
+  X, Trash2, Lock, Globe, Edit3, Check, PlayCircle, RotateCcw, Trophy, Bell,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
@@ -229,11 +229,73 @@ export default function SeriesPage() {
 
     if (seriesPosts.length > 0) saveProgress(currentPostIdx);
 
+    // ── Series Completion Challenge ──
+    const isComplete = seriesPosts.length > 0 && currentPostIdx === seriesPosts.length - 1;
+    const [challengeSent, setChallengeSent] = useState(false);
+
+    const sendCompletionChallenge = async () => {
+      if (!user || challengeSent) return;
+      setChallengeSent(true);
+      try {
+        const { data: follows } = await supabase
+          .from('follows')
+          .select('follower_id')
+          .eq('following_id', user.id)
+          .limit(50);
+        if (!follows || follows.length === 0) {
+          toast.success('Challenge sent! (No followers yet to notify)');
+          return;
+        }
+        const notifications = follows.map((f: any) => ({
+          user_id: f.follower_id,
+          subject: `📚 ${user.username} finished "${selectedSeries.name}" — Can you beat them?`,
+          body: `@${user.username} just completed the "${selectedSeries.name}" series (${seriesPosts.length} parts). Challenge yourself to read it all and see if you can finish it too!`,
+          type: 'update',
+          icon_emoji: '🏆',
+          cta_label: 'Start Reading',
+          cta_url: '/series',
+          read: false,
+        }));
+        for (let i = 0; i < notifications.length; i += 10) {
+          await supabase.from('platform_inbox').insert(notifications.slice(i, i + 10)).catch(() => {});
+        }
+        toast.success(`Challenge sent to ${follows.length} follower${follows.length !== 1 ? 's' : ''}! 🏆`);
+      } catch { setChallengeSent(false); }
+    };
+
     return (
       <div className="min-h-screen bg-background pb-20">
         <TopBar title={selectedSeries.name} showBack onBack={() => setSelectedSeries(null)} />
 
         <div className="max-w-2xl mx-auto p-4 space-y-4">
+          {/* ── Completion Banner ── */}
+          {isComplete && seriesPosts.length > 0 && (
+            <div className="bg-gradient-to-br from-yellow-500/15 to-amber-500/10 border border-yellow-500/30 rounded-2xl p-4 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center shrink-0">
+                <Trophy className="w-6 h-6 text-yellow-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-black text-sm text-yellow-700 dark:text-yellow-400">Series Complete! 🎉</p>
+                <p className="text-xs text-muted-foreground">You've read all {seriesPosts.length} parts of "{selectedSeries.name}"</p>
+              </div>
+              {user && (
+                <button
+                  onClick={sendCompletionChallenge}
+                  disabled={challengeSent}
+                  className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                    challengeSent
+                      ? 'border-green-500/30 bg-green-500/10 text-green-600'
+                      : 'border-yellow-500/40 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/20'
+                  }`}
+                >
+                  {challengeSent
+                    ? <><Check className="w-3.5 h-3.5" />Sent!</>
+                    : <><Bell className="w-3.5 h-3.5" />Challenge Followers</>}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Series header */}
           <div className="bg-gradient-to-br from-primary/10 to-purple-500/5 border border-primary/20 rounded-2xl p-4">
             <div className="flex items-center gap-3 mb-2">
