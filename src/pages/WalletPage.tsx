@@ -32,6 +32,9 @@ import {
 const USD_TO_KES = 130;
 const PIE_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 const PIN_PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','del'];
+const PIN_MAX_ATTEMPTS    = 3;
+const PIN_LOCK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+const FAVORITES_MAX = 5;
 
 type TopUpStep    = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
@@ -126,55 +129,129 @@ function LoyaltyBadge({ totalDeposited }: { totalDeposited: number }) {
   );
 }
 
-// ── PIN Entry Modal ───────────────────────────────────────────────────────
-function PinEntryModal({ title, onConfirm, onCancel }: {
-  title: string; onConfirm: (pin: string) => void; onCancel: () => void;
+// ── PIN Entry Modal (with brute-force lock) ──────────────────────────────
+function PinEntryModal({ title, onConfirm, onCancel, userId }: {
+  title: string; onConfirm: (pin: string) => void; onCancel: () => void; userId?: string;
 }) {
-  const [pin, setPin] = useState('');
+  const [pin,          setPin]      = useState('');
+  const [lockedUntil,  setLockedUntil] = useState<number | null>(null);
+  const [failCount,    setFailCount]   = useState(0);
+  const [countdown,    setCountdown]   = useState(0);
+  const cdRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const raw = localStorage.getItem(`ts-pin-meta-${userId}`);
+      if (raw) {
+        const meta = JSON.parse(raw);
+        const fc = meta.failCount ?? 0;
+        const lu = meta.lockedUntil ?? 0;
+        setFailCount(fc);
+        if (lu > Date.now()) {
+          setLockedUntil(lu);
+          setCountdown(Math.ceil((lu - Date.now()) / 1000));
+        }
+      }
+    } catch { /* ignore */ }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!lockedUntil) { if (cdRef.current) clearInterval(cdRef.current); return; }
+    cdRef.current = setInterval(() => {
+      const remaining = Math.ceil((lockedUntil - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setLockedUntil(null); setCountdown(0); setFailCount(0);
+        if (userId) {
+          try {
+            const raw = localStorage.getItem(`ts-pin-meta-${userId}`);
+            const meta = raw ? JSON.parse(raw) : {};
+            meta.failCount = 0; meta.lockedUntil = 0;
+            localStorage.setItem(`ts-pin-meta-${userId}`, JSON.stringify(meta));
+          } catch { /* ignore */ }
+        }
+        if (cdRef.current) clearInterval(cdRef.current);
+      } else { setCountdown(remaining); }
+    }, 1000);
+    return () => { if (cdRef.current) clearInterval(cdRef.current); };
+  }, [lockedUntil, userId]);
+
   const handleKey = (key: string) => {
+    if (lockedUntil && lockedUntil > Date.now()) return;
     if (key === 'del') { setPin(p => p.slice(0, -1)); return; }
     if (pin.length >= 4) return;
     const next = pin + key;
     setPin(next);
-    if (next.length === 4) setTimeout(() => onConfirm(next), 120);
+    if (next.length === 4) {
+      setTimeout(() => { onConfirm(next); }, 120);
+    }
   };
+
+  const isLocked = !!(lockedUntil && lockedUntil > Date.now());
+  const attemptsLeft = Math.max(PIN_MAX_ATTEMPTS - failCount, 0);
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
       <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-              <Lock className="w-4 h-4 text-primary" />
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isLocked ? 'bg-red-500/15' : 'bg-primary/10'}`}>
+              <Lock className={`w-4 h-4 ${isLocked ? 'text-red-500' : 'text-primary'}`} />
             </div>
             <div>
               <p className="font-bold text-sm">{title}</p>
-              <p className="text-xs text-muted-foreground">Enter your 4-digit wallet PIN</p>
+              <p className="text-xs text-muted-foreground">
+                {isLocked ? `Locked · ${Math.floor(countdown/60)}:${String(countdown%60).padStart(2,'0')} remaining` : 'Enter your 4-digit wallet PIN'}
+              </p>
             </div>
           </div>
           <button onClick={onCancel} className="p-2 rounded-full hover:bg-muted transition-colors">
             <X className="w-4 h-4 text-muted-foreground" />
           </button>
         </div>
-        <div className="flex justify-center gap-5 mb-7">
-          {[0,1,2,3].map(i => (
-            <div key={i} className={`w-5 h-5 rounded-full border-2 transition-all ${
-              pin.length > i ? 'bg-primary border-primary scale-110' : 'border-muted-foreground/40'
-            }`} />
-          ))}
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          {PIN_PAD_KEYS.map((key, i) => {
-            if (!key) return <div key={i} />;
-            return (
-              <button key={i} onClick={() => handleKey(key)}
-                className={`h-14 rounded-2xl font-bold text-xl transition-all active:scale-95 ${
-                  key === 'del' ? 'bg-muted text-muted-foreground hover:bg-muted/70' : 'bg-muted hover:bg-primary/10 hover:text-primary'
-                }`}>
-                {key === 'del' ? '⌫' : key}
-              </button>
-            );
-          })}
-        </div>
+        {isLocked ? (
+          <div className="flex flex-col items-center gap-4 py-4 text-center">
+            <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
+              <Lock className="w-8 h-8 text-red-500" />
+            </div>
+            <div>
+              <p className="font-bold text-red-500">Wallet PIN Locked</p>
+              <p className="text-sm text-muted-foreground mt-1">Too many wrong attempts.</p>
+              <p className="text-2xl font-black text-red-500 mt-2">{Math.floor(countdown/60)}:{String(countdown%60).padStart(2,'0')}</p>
+              <p className="text-xs text-muted-foreground">Try again after the countdown</p>
+            </div>
+            <button onClick={onCancel} className="px-6 py-2.5 border border-border rounded-xl font-semibold text-sm hover:bg-muted">Close</button>
+          </div>
+        ) : (
+          <>
+            <div className="flex justify-center gap-5 mb-3">
+              {[0,1,2,3].map(i => (
+                <div key={i} className={`w-5 h-5 rounded-full border-2 transition-all ${
+                  pin.length > i ? 'bg-primary border-primary scale-110' : 'border-muted-foreground/40'
+                }`} />
+              ))}
+            </div>
+            {userId && failCount > 0 && !isLocked && (
+              <p className="text-center text-xs text-red-500 font-semibold mb-4">
+                {attemptsLeft} attempt{attemptsLeft !== 1 ? 's' : ''} remaining before lockout
+              </p>
+            )}
+            {!userId && <div className="mb-4" />}
+            <div className="grid grid-cols-3 gap-3">
+              {PIN_PAD_KEYS.map((key, i) => {
+                if (!key) return <div key={i} />;
+                return (
+                  <button key={i} onClick={() => handleKey(key)}
+                    className={`h-14 rounded-2xl font-bold text-xl transition-all active:scale-95 ${
+                      key === 'del' ? 'bg-muted text-muted-foreground hover:bg-muted/70' : 'bg-muted hover:bg-primary/10 hover:text-primary'
+                    }`}>
+                    {key === 'del' ? '⌫' : key}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1420,6 +1497,30 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
   const [sending,      setSending]      = useState(false);
   const [showPin,      setShowPin]      = useState(false);
   const [receipt, setReceipt] = useState<{ recipient: any; amount: number; note: string; ref: string; timestamp: string } | null>(null);
+  const [favorites,    setFavorites]    = useState<any[]>([]);
+  const favKey = useMemo(() => `ts-send-fav-${userId}`, [userId]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(favKey);
+      if (raw) setFavorites(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, [userId]);
+
+  const addToFavorites = (u: any) => {
+    const already = favorites.some(f => f.id === u.id);
+    if (already) { toast.info('Already in favorites'); return; }
+    const next = [u, ...favorites].slice(0, FAVORITES_MAX);
+    setFavorites(next);
+    localStorage.setItem(favKey, JSON.stringify(next));
+    toast.success(`@${u.username} added to favorites`);
+  };
+
+  const removeFromFavorites = (id: string) => {
+    const next = favorites.filter(f => f.id !== id);
+    setFavorites(next);
+    localStorage.setItem(favKey, JSON.stringify(next));
+  };
 
   useEffect(() => {
     if (prefillUsername && prefillUsername.length >= 2) searchUsers(prefillUsername);
@@ -1479,6 +1580,7 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
   };
 
   if (receipt) {
+    const isFav = favorites.some(f => f.id === receipt.recipient.id);
     return (
       <div className="space-y-5">
         <div className="flex flex-col items-center gap-4 p-6 bg-gradient-to-br from-green-500/10 to-emerald-400/5 border border-green-500/20 rounded-2xl text-center">
@@ -1498,6 +1600,12 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
               <span className="font-bold text-green-600 text-xs">Completed</span>
             </div>
           </div>
+          {!isFav && favorites.length < FAVORITES_MAX && (
+            <button onClick={() => addToFavorites(receipt.recipient)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 border border-amber-500/30 bg-amber-500/5 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-500/10 transition-colors">
+              <Star className="w-4 h-4" /> Add @{receipt.recipient.username} to Favorites
+            </button>
+          )}
           <div className="flex gap-3 w-full">
             <button onClick={() => {
               const text = `Transfer Receipt\nRef: ${receipt.ref}\nAmount: $${receipt.amount.toFixed(2)}\nTo: @${receipt.recipient.username}`;
@@ -1514,12 +1622,40 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
 
   return (
     <>
-      {showPin && <PinEntryModal title="Confirm Transfer" onConfirm={handlePinConfirm} onCancel={() => setShowPin(false)} />}
+      {showPin && <PinEntryModal title="Confirm Transfer" onConfirm={handlePinConfirm} onCancel={() => setShowPin(false)} userId={userId} />}
       <div className="space-y-5">
         <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20">
           <p className="text-sm font-semibold text-muted-foreground">Available to send</p>
           <p className="text-3xl font-black text-primary">{fmtAmt(walletBalance, currency)}</p>
         </div>
+        {favorites.length > 0 && !selectedUser && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Favorites</p>
+              <button onClick={() => removeFromFavorites(favorites[favorites.length - 1]?.id)} className="text-[10px] text-muted-foreground hover:text-destructive">Edit</button>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {favorites.map(fav => (
+                <button key={fav.id} onClick={() => { setSelectedUser(fav); setQuery(''); setUsers([]); }}
+                  className="flex flex-col items-center gap-1.5 px-3 py-2.5 border border-border rounded-2xl hover:border-primary/40 hover:bg-primary/5 transition-all shrink-0 group">
+                  <div className="relative">
+                    <div className="w-11 h-11 rounded-full bg-primary/10 overflow-hidden flex items-center justify-center font-bold text-sm">
+                      {fav.avatar_url
+                        ? <img src={fav.avatar_url} alt={fav.username} className="w-full h-full object-cover" />
+                        : fav.username?.[0]?.toUpperCase()}
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); removeFromFavorites(fav.id); }}
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-muted border border-border rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:border-red-500 hover:text-white">
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-semibold text-muted-foreground max-w-[56px] truncate">@{fav.username}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {!selectedUser ? (
           <div className="space-y-3">
             <label className="text-sm font-semibold">Send to user</label>
@@ -1855,10 +1991,11 @@ function ScheduledTransfersTab({ userId, currency, pinHash }: { userId: string; 
 
 // ── Transaction History Tab ───────────────────────────────────────────────
 function TransactionHistoryTab({ userId, currency }: { userId: string; currency: CurrencyCode }) {
-  const [txns,    setTxns]    = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter,  setFilter]  = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
-  const [search,  setSearch]  = useState('');
+  const [txns,           setTxns]          = useState<any[]>([]);
+  const [loading,        setLoading]       = useState(true);
+  const [filter,         setFilter]        = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
+  const [search,         setSearch]        = useState('');
+  const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
 
   useEffect(() => { fetchTxns(); }, [userId, filter]);
 
@@ -1946,15 +2083,26 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
         </div>
       ) : (
         <div className="space-y-2">
+          {selectedReceipt && (
+            <ReceiptModal tx={selectedReceipt} currency={currency} onClose={() => setSelectedReceipt(null)} />
+          )}
           {filtered.map(tx => {
             const isIn = tx.type === 'deposit' || tx.type === 'earnings';
+            const isMpesaDeposit = tx.type === 'deposit' && (tx.payment_method === 'mpesa' || tx.reference);
             return (
-              <div key={tx.id} className="flex items-center gap-3 p-3.5 bg-card border border-border rounded-2xl hover:bg-muted/30 transition-colors">
+              <div key={tx.id}
+                className={`flex items-center gap-3 p-3.5 bg-card border border-border rounded-2xl transition-colors ${
+                  isMpesaDeposit ? 'hover:border-green-500/40 hover:bg-green-500/5 cursor-pointer' : 'hover:bg-muted/30'
+                }`}
+                onClick={() => isMpesaDeposit && setSelectedReceipt(tx)}>
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isIn ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-500'}`}>
                   {isIn ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm capitalize">{tx.type.replace(/_/g,' ')}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-sm capitalize">{tx.type.replace(/_/g,' ')}</p>
+                    {isMpesaDeposit && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Receipt</span>}
+                  </div>
                   <p className="text-xs text-muted-foreground truncate">
                     {tx.payment_method ? `${tx.payment_method.toUpperCase()} · ` : ''}{tx.description || new Date(tx.created_at).toLocaleDateString()}
                   </p>
@@ -2051,6 +2199,90 @@ function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: a
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings2 className="w-4 h-4" />}
           {saving ? 'Saving…' : 'Save Limit'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── M-Pesa Receipt Modal ─────────────────────────────────────────────────
+function ReceiptModal({ tx, currency, onClose }: { tx: any; currency: CurrencyCode; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const kesAmount = useMemo(() => Math.round(Number(tx.amount) * USD_TO_KES), [tx.amount]);
+  const copyReceipt = () => {
+    const text = [
+      'M-Pesa Deposit Receipt',
+      `Date:     ${new Date(tx.created_at).toLocaleString()}`,
+      `Amount:   KES ${kesAmount.toLocaleString()} ($${Number(tx.amount).toFixed(2)})`,
+      tx.reference ? `Receipt:  ${tx.reference}` : '',
+      `Status:   ${tx.status}`,
+      tx.description ? `Details:  ${tx.description}` : '',
+    ].filter(Boolean).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true); toast.success('Receipt copied!');
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-card border border-border rounded-t-3xl sm:rounded-3xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-green-500/15 flex items-center justify-center">
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+            </div>
+            <div>
+              <p className="font-bold text-sm">M-Pesa Receipt</p>
+              <p className="text-xs text-muted-foreground">Deposit confirmation</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-muted transition-colors">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div className="text-center py-3 bg-green-500/5 border border-green-500/20 rounded-2xl">
+            <p className="text-xs text-muted-foreground mb-1">Amount Deposited</p>
+            <p className="text-3xl font-black text-green-600">+{fmtAmt(Number(tx.amount), currency)}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">KES {kesAmount.toLocaleString()}</p>
+          </div>
+          <div className="space-y-2.5 divide-y divide-border">
+            {tx.reference && (
+              <div className="flex justify-between items-center pt-2.5">
+                <span className="text-xs text-muted-foreground">Safaricom Receipt</span>
+                <span className="font-mono text-xs font-black text-foreground">{tx.reference}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center pt-2.5">
+              <span className="text-xs text-muted-foreground">Date &amp; Time</span>
+              <span className="text-xs font-semibold">{new Date(tx.created_at).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center pt-2.5">
+              <span className="text-xs text-muted-foreground">Payment Method</span>
+              <span className="text-xs font-semibold uppercase">{tx.payment_method ?? 'M-Pesa'}</span>
+            </div>
+            <div className="flex justify-between items-center pt-2.5">
+              <span className="text-xs text-muted-foreground">Status</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                tx.status === 'completed' ? 'bg-green-500/10 text-green-600' : 'bg-orange-500/10 text-orange-600'
+              }`}>{tx.status}</span>
+            </div>
+            {tx.description && (
+              <div className="pt-2.5">
+                <p className="text-xs text-muted-foreground mb-1">Description</p>
+                <p className="text-xs">{tx.description}</p>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button onClick={copyReceipt}
+              className="flex-1 flex items-center justify-center gap-2 py-3 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors">
+              {copied ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+              {copied ? 'Copied!' : 'Copy Receipt'}
+            </button>
+            <button onClick={onClose}
+              className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity">Done</button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2394,7 +2626,7 @@ function WalletNotificationsHub({ userId }: { userId: string }) {
 // ── Currency Converter Widget ─────────────────────────────────────────────
 const CONVERTER_RATES: Record<string, number> = { USD: 1, KES: 130, EUR: 0.92, GBP: 0.79, NGN: 1580, TZS: 2600, UGX: 3700, ZAR: 18.7 };
 const CONVERTER_SYMBOLS: Record<string, string> = { USD: '$', KES: 'KSh', EUR: '€', GBP: '£', NGN: '₦', TZS: 'TSh', UGX: 'USh', ZAR: 'R' };
-const CONVERTER_CURRENCY_KEYS = Object.keys(CONVERTER_RATES);
+const CONVERTER_CURRENCY_KEYS = ['USD','KES','EUR','GBP','NGN','TZS','UGX','ZAR'] as const;
 
 function CurrencyConverterWidget() {
   const [fromCur, setFromCur] = useState('KES');
@@ -2469,7 +2701,6 @@ function CurrencyConverterWidget() {
 
 // ── P2P Transfer History Chart ────────────────────────────────────────────
 const LINE_CHART_STROKE = '#7c3aed';
-const LINE_CHART_FILL   = 'rgba(124,58,237,0.08)';
 
 function P2PBalanceChart({ userId, currency }: { userId: string; currency: CurrencyCode }) {
   const [txns,    setTxns]    = useState<any[]>([]);
@@ -2538,9 +2769,12 @@ function P2PBalanceChart({ userId, currency }: { userId: string; currency: Curre
   );
 }
 
+// ── Inactivity lock minutes (must be before InactivityLockCard) ─────────
+const INACTIVITY_MINUTES = [5, 10, 30, 60] as const;
+
 // ── Inactivity Lock Card ────────────────────────────────────────────────
 function InactivityLockCard({ userId }: { userId: string }) {
-  const STORAGE_KEY = `ts-inactivity-mins-${userId}`;
+  const STORAGE_KEY = useMemo(() => `ts-inactivity-mins-${userId}`, [userId]);
   const [enabled, setEnabled] = useState(false);
   const [minutes, setMinutes] = useState(10);
   const [saved,   setSaved]   = useState(false);
@@ -2596,8 +2830,7 @@ function InactivityLockCard({ userId }: { userId: string }) {
   );
 }
 
-// ── Inactivity lock minutes options ──────────────────────────────────────
-const INACTIVITY_MINUTES = [5, 10, 30, 60] as const;
+
 
 // ── Module-level tab config ───────────────────────────────────────────────
 const WALLET_TABS: { key: ActiveTab; label: string }[] = [
@@ -2875,8 +3108,8 @@ export default function WalletPage() {
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
-      {showPinModal && <PinEntryModal title="Confirm Withdrawal" onConfirm={handleWithdrawPinConfirm} onCancel={() => setShowPinModal(false)} />}
-      {showDepositPin && <PinEntryModal title="Confirm Deposit" onConfirm={async (pin) => { const h = await hashPin(pin); setShowDepositPin(false); if (h !== pinHash) { toast.error('Incorrect PIN'); return; } handleTopUp(); }} onCancel={() => setShowDepositPin(false)} />}
+      {showPinModal && <PinEntryModal title="Confirm Withdrawal" onConfirm={handleWithdrawPinConfirm} onCancel={() => setShowPinModal(false)} userId={user?.id} />}
+      {showDepositPin && <PinEntryModal title="Confirm Deposit" onConfirm={async (pin) => { const h = await hashPin(pin); setShowDepositPin(false); if (h !== pinHash) { toast.error('Incorrect PIN'); return; } handleTopUp(); }} onCancel={() => setShowDepositPin(false)} userId={user?.id} />}
       {showSplit && user && (
         <SplitPaymentPanel userId={user.id} senderUsername={username} walletBalance={walletBalance} pinHash={pinHash} currency={currency} onClose={() => setShowSplit(false)} />
       )}
