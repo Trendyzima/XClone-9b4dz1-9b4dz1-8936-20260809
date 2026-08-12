@@ -199,10 +199,14 @@ export default function HomePage() {
           .in('id', postIds)
           .is('community_id', null);
         if (posts && posts.length > 0) {
-          const postMap = Object.fromEntries(posts.map((p: any) => [p.id, p]));
-          const enriched = recs
-            .map((r: any) => ({ ...postMap[r.recommended_post_id], _reason: r.reason, _score: r.score }))
-            .filter((p: any) => p.id);
+            // Parallel arrays instead of Object.fromEntries (esbuild guard)
+            const pIds: string[] = posts.map((p: any) => p.id);
+            const enriched = recs
+              .map((r: any) => {
+                const pi = pIds.indexOf(r.recommended_post_id);
+                return pi >= 0 ? { ...(posts[pi] as any), _reason: r.reason, _score: r.score } : null;
+              })
+              .filter((p: any) => p?.id);
           setRecommendedPosts(enriched);
           // Mark shown async
           supabase
