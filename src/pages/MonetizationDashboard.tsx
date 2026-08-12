@@ -32,10 +32,10 @@ const CREDIT_PACKAGES = [
   { credits: 10000, price: 19.99, label: 'Creator', color: 'from-yellow-500 to-orange-500',  popular: false },
 ];
 
-const CREDIT_COSTS: Record<string, number> = {
+const CREDIT_COSTS = {
   'AI Reply': 1, 'AI Image': 5, 'AI Video': 20,
   'Profile Boost': 10, 'Post Promotion': 50, 'Verification': 50,
-};
+} as const;
 
 export function MonetizationDashboard() {
   const { user } = useAuth();
