@@ -1399,14 +1399,14 @@ export default function ProfilePage() {
             <div className="divide-y divide-border">
               {profileSeries.map((s: any) => {
                 // Read reading progress from localStorage — inline, no hook
-                const prog = (() => {
+                const sProg = (() => {
                   try {
                     const raw = localStorage.getItem('series_progress');
                     return raw ? (JSON.parse(raw)[s.id] ?? null) : null;
                   } catch { return null; }
                 })();
-                const total = s.item_count ?? 0;
-                const pct = prog && total > 0 ? Math.round((prog.currentPart / total) * 100) : 0;
+                const sTotal = s.item_count ?? 0;
+                const sPct = sProg && sTotal > 0 ? Math.round((sProg.currentPart / sTotal) * 100) : 0;
                 return (
                   <div key={s.id} className="hover:bg-muted/20 transition-colors">
                     <button onClick={() => navigate('/series')} className="w-full flex items-start gap-3 p-4 text-left">
@@ -1419,17 +1419,17 @@ export default function ProfilePage() {
                         <p className="font-bold text-sm truncate">{s.name}</p>
                         {s.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.description}</p>}
                         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                          <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">{total} parts</span>
-                          {prog && total > 0 && (
+                          <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">{sTotal} parts</span>
+                          {sProg && sTotal > 0 && (
                             <span className="text-[10px] font-bold text-purple-600 bg-purple-500/10 px-1.5 py-0.5 rounded-full border border-purple-500/20">
-                              {pct}% · Part {prog.currentPart}/{total}
+                              {sPct}% · Part {sProg.currentPart}/{sTotal}
                             </span>
                           )}
                           <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(s.updated_at ?? s.created_at), { addSuffix: true })}</span>
                         </div>
-                        {prog && total > 0 && (
+                        {sProg && sTotal > 0 && (
                           <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                            <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${sPct}%` }} />
                           </div>
                         )}
                       </div>
@@ -1439,12 +1439,12 @@ export default function ProfilePage() {
                       <button
                         onClick={() => navigate('/series')}
                         className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-colors ${
-                          prog && total > 0
+                          sProg && sTotal > 0
                             ? 'bg-primary text-primary-foreground hover:opacity-90'
                             : 'bg-muted hover:bg-muted/80 text-foreground'
                         }`}>
                         <Play className="w-3.5 h-3.5" />
-                        {prog && total > 0 ? `Continue (Part ${prog.currentPart})` : 'Start Reading'}
+                        {sProg && sTotal > 0 ? `Continue (Part ${sProg.currentPart})` : 'Start Reading'}
                       </button>
                     </div>
                   </div>

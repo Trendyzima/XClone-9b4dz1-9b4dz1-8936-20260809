@@ -63,6 +63,7 @@ const VerificationRequestPage = lazy(() => import('@/pages/VerificationRequestPa
 const AdminVerificationPage = lazy(() => import('@/pages/AdminVerificationPage'));
 const DailyRewardsPage = lazy(() => import('@/pages/DailyRewardsPage'));
 const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage'));
+const ChallengeLeaderboardPage = lazy(() => import('@/pages/ChallengeLeaderboardPage'));
 const DiscoverPage = lazy(() => import('@/pages/DiscoverPage'));
 const ReferralPage = lazy(() => import('@/pages/ReferralPage'));
 const SpaceRecordingViewerPage = lazy(() => import('@/pages/SpaceRecordingViewerPage'));
@@ -171,6 +172,7 @@ function AppInner() {
               <Route path="/fediverse" element={<FediversePage />} />
               <Route path="/daily-rewards" element={<DailyRewardsPage />} />
               <Route path="/leaderboard" element={<LeaderboardPage />} />
+              <Route path="/leaderboard/challenges" element={<ChallengeLeaderboardPage />} />
               <Route path="/discover" element={<DiscoverPage />} />
               <Route path="/referral" element={<ReferralPage />} />
               <Route path="/space-recording/:id" element={<SpaceRecordingViewerPage />} />
