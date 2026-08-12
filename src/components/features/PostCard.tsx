@@ -1267,6 +1267,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
       )}
 
       {showReportDialog && (
+        <div className="fixed inset-0 z-[350] bg-black/60" onClick={e => { e.stopPropagation(); setShowReportDialog(false); setReportCategory(''); }}>
           <div className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <div>

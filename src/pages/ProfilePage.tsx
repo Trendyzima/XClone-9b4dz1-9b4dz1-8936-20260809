@@ -8,7 +8,7 @@ import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
 import CreatorMonetizationHub, { SubscriptionTiersDisplay, TipGoalWidget, SubscriberBadge } from '@/components/features/CreatorMonetizationHub';
-import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, Shield, AlertTriangle, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart, BookOpen, ChevronRight, Headphones, Clock, Users } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart, BookOpen, ChevronRight, Headphones, Clock, Users } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
 import { useSEO, buildProfileLD, buildOgImageUrl } from '@/hooks/useSEO';
@@ -21,7 +21,65 @@ import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 function ProfileAdBanner() { return <PageAdBanner />; }
 
-// Stable module-level helpers — avoids duplicate bindings across closures (esbuild guard)
+function ProfileSkeleton() {
+  return (
+    <div className="min-h-screen bg-background pb-16 md:pb-0">
+      <div className="h-12 border-b border-border flex items-center px-4 gap-3">
+        <div className="w-8 h-8 rounded-full bg-muted animate-pulse" />
+        <div className="w-28 h-4 bg-muted rounded-lg animate-pulse" />
+      </div>
+      <div className="border-b border-border animate-pulse">
+        <div className="h-36 bg-muted" />
+        <div className="px-4 pb-4">
+          <div className="flex justify-between items-start -mt-12 mb-4">
+            <div className="w-24 h-24 rounded-full bg-muted border-4 border-background shrink-0" />
+            <div className="flex gap-2 mt-6">
+              <div className="w-24 h-9 bg-muted rounded-full" />
+              <div className="w-9 h-9 bg-muted rounded-full" />
+            </div>
+          </div>
+          <div className="space-y-2.5 mb-4">
+            <div className="h-6 w-36 bg-muted rounded-lg" />
+            <div className="h-3.5 w-24 bg-muted rounded-lg" />
+            <div className="h-3.5 w-full bg-muted rounded-lg" />
+            <div className="h-3.5 w-3/4 bg-muted rounded-lg" />
+          </div>
+          <div className="flex gap-4 mt-3">
+            <div className="h-3.5 w-24 bg-muted rounded-lg" />
+            <div className="h-3.5 w-24 bg-muted rounded-lg" />
+          </div>
+        </div>
+      </div>
+      <div className="flex border-b border-border overflow-x-auto">
+        {['Posts','Threads','Media','Videos','Likes'].map(t => (
+          <div key={t} className="shrink-0 px-4 py-4 animate-pulse">
+            <div className="h-3 w-10 bg-muted rounded" />
+          </div>
+        ))}
+      </div>
+      <div className="divide-y divide-border">
+        {[1,2,3].map(i => (
+          <div key={i} className="p-4 animate-pulse flex gap-3">
+            <div className="w-10 h-10 rounded-full bg-muted shrink-0" />
+            <div className="flex-1 space-y-2 pt-1">
+              <div className="flex gap-2">
+                <div className="h-3 w-24 bg-muted rounded" />
+                <div className="h-3 w-16 bg-muted/60 rounded" />
+              </div>
+              <div className="h-3.5 w-full bg-muted rounded" />
+              <div className="h-3.5 w-5/6 bg-muted rounded" />
+              <div className="flex gap-6 pt-1">
+                {[1,2,3,4].map(j => <div key={j} className="h-3 w-8 bg-muted/60 rounded" />)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Module-level helpers — esbuild guard (no index-sig objects, no IIFEs in render) ──
 function fmtRecDuration(secs: number): string | null {
   if (!secs || secs < 1) return null;
   const h = Math.floor(secs / 3600);
@@ -29,25 +87,52 @@ function fmtRecDuration(secs: number): string | null {
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }
-
-// Module-level helper — avoids IIFE in render scope (esbuild guard)
 function fmtPodTotalDur(secs: number): string {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }
-
 function getPodcastRssUrl(username: string) {
   return `${import.meta.env.VITE_SUPABASE_URL?.replace('/v1', '')}/functions/v1/podcast-rss?username=${username}`;
+}
+
+// Pure helpers replacing Record<string,T> index-sig objects in render (esbuild guard)
+function getCreatorTierBg(tier: string): string {
+  if (tier === 'gold') return 'from-yellow-500/20 to-amber-400/10';
+  if (tier === 'silver') return 'from-slate-400/20 to-gray-300/10';
+  return 'from-amber-600/20 to-orange-400/10';
+}
+function getCreatorTierBorder(tier: string): string {
+  if (tier === 'gold') return 'border-yellow-400/40';
+  if (tier === 'silver') return 'border-slate-400/40';
+  return 'border-amber-500/40';
+}
+function getCreatorTierText(tier: string): string {
+  if (tier === 'gold') return 'text-yellow-600 dark:text-yellow-400';
+  if (tier === 'silver') return 'text-slate-600 dark:text-slate-300';
+  return 'text-amber-700 dark:text-amber-400';
+}
+function getCreatorTierIcon(tier: string): string {
+  if (tier === 'gold') return '🥇';
+  if (tier === 'silver') return '🥈';
+  return '🥉';
+}
+function getCreatorTierLabel(tier: string): string {
+  if (tier === 'gold') return 'Gold';
+  if (tier === 'silver') return 'Silver';
+  if (tier === 'bronze') return 'Bronze';
+  return '';
 }
 
 export default function ProfilePage() {
   const { username } = useParams();
   const { user: currentUser } = useAuth();
   const navigate = useNavigate();
-  // ── HOOKS must be at top level — never after conditional returns ──
+  // ── CRITICAL: All hooks must be at top level — never after conditional returns ──
   const isRegulator = useIsRegulator();
+  const { isActive: isPremiumUser } = usePremium();
+
   const [profile, setProfile] = useState<any>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [threads, setThreads] = useState<any[]>([]);
@@ -70,6 +155,59 @@ export default function ProfilePage() {
   const [isBlocked, setIsBlocked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showGiftPremiumDialog, setShowGiftPremiumDialog] = useState(false);
+  const [giftingPremium, setGiftingPremium] = useState(false);
+  const [showTipDialog, setShowTipDialog] = useState(false);
+  const [tipAmount, setTipAmount] = useState<number | null>(null);
+  const [customTipAmount, setCustomTipAmount] = useState('');
+  const [sendingTip, setSendingTip] = useState(false);
+  const [tipSent, setTipSent] = useState(false);
+  const [highlights, setHighlights] = useState<any[]>([]);
+  // highlights view counts — plain number array to avoid index-sig type (esbuild guard)
+  const [highlightIds, setHighlightIds] = useState<string[]>([]);
+  const [highlightCounts, setHighlightCounts] = useState<number[]>([]);
+  const [showCreateHighlight, setShowCreateHighlight] = useState(false);
+  const [highlightTitle, setHighlightTitle] = useState('');
+  const [draggingHighlightIdx, setDraggingHighlightIdx] = useState<number | null>(null);
+  const [dragOverHighlightIdx, setDragOverHighlightIdx] = useState<number | null>(null);
+  const [highlightCoverUrl, setHighlightCoverUrl] = useState<string | null>(null);
+  const [availableStories, setAvailableStories] = useState<any[]>([]);
+  const [creatingHighlight, setCreatingHighlight] = useState(false);
+  const [selectedStoryIds, setSelectedStoryIds] = useState<string[]>([]);
+  const [viewingHighlight, setViewingHighlight] = useState<any | null>(null);
+  const [highlightStories, setHighlightStories] = useState<any[]>([]);
+  const [highlightStoryIdx, setHighlightStoryIdx] = useState(0);
+  const [highlightProgress, setHighlightProgress] = useState(0);
+  const [loadingHighlightStories, setLoadingHighlightStories] = useState(false);
+  const [tipHistory, setTipHistory] = useState<any[]>([]);
+  const [loadingTips, setLoadingTips] = useState(false);
+  const [profileViews7d, setProfileViews7d] = useState<number>(0);
+  const [showSubscribeDialog, setShowSubscribeDialog] = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
+  const [activeSubscription, setActiveSubscription] = useState<any | null>(null);
+  const [tipGoal, setTipGoal] = useState<number | null>(null);
+  const [currentMonthTips, setCurrentMonthTips] = useState(0);
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
+  const [topTippers, setTopTippers] = useState<{ rank: number; amount: number }[]>([]);
+  const [giftHistory, setGiftHistory] = useState<any[]>([]);
+  const [loadingGifts, setLoadingGifts] = useState(false);
+  const [profilePodcasts, setProfilePodcasts] = useState<any[]>([]);
+  const [loadingPodcasts, setLoadingPodcasts] = useState(false);
+  const [podcastsFetched, setPodcastsFetched] = useState(false);
+  const [profileSeries, setProfileSeries] = useState<any[]>([]);
+  const [loadingProfileSeries, setLoadingProfileSeries] = useState(false);
+  const [profileSeriesFetched, setProfileSeriesFetched] = useState(false);
+  const [postImpressionsChart, setPostImpressionsChart] = useState<{ date: string; views: number }[]>([]);
+  const [pinnedPostId, setPinnedPostId] = useState<string | null>(null);
+
+  // Pure helper to get highlight view count by id (avoids index-sig map) — esbuild guard
+  const getHighlightCount = (id: string): number => {
+    const idx = highlightIds.indexOf(id);
+    return idx >= 0 ? (highlightCounts[idx] ?? 0) : 0;
+  };
+
+  const goalAchieved = tipGoal !== null && tipGoal > 0 && currentMonthTips >= tipGoal;
 
   const checkBlockMuteStatus = async (profileId: string) => {
     if (!currentUser) return;
@@ -113,48 +251,26 @@ export default function ProfilePage() {
     }
   };
 
-  // ── Premium Gifting ──────────────────────────────────────────────────────
-  const [showGiftPremiumDialog, setShowGiftPremiumDialog] = useState(false);
-  const [giftingPremium, setGiftingPremium] = useState(false);
-
   const handleGiftPremium = async () => {
     if (!currentUser || !profile) return;
     const GIFT_PRICE = 4.99;
     setGiftingPremium(true);
     try {
-      const { error: deductErr } = await supabase.rpc('deduct_from_wallet', {
-        p_user_id: currentUser.id,
-        p_amount: GIFT_PRICE,
-      });
-      if (deductErr) {
-        toast.error(`Insufficient wallet balance. You need $${GIFT_PRICE} to gift premium.`);
-        return;
-      }
+      const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: currentUser.id, p_amount: GIFT_PRICE });
+      if (deductErr) { toast.error(`Insufficient wallet balance. You need $${GIFT_PRICE} to gift premium.`); return; }
       const expiresAt = new Date();
       expiresAt.setMonth(expiresAt.getMonth() + 1);
       const { error } = await supabase.from('premium_subscriptions').upsert({
-        user_id: profile.id,
-        plan: 'monthly',
-        status: 'active',
-        price: GIFT_PRICE,
-        started_at: new Date().toISOString(),
-        expires_at: expiresAt.toISOString(),
+        user_id: profile.id, plan: 'monthly', status: 'active', price: GIFT_PRICE,
+        started_at: new Date().toISOString(), expires_at: expiresAt.toISOString(),
       }, { onConflict: 'user_id' });
       if (error) throw error;
       await supabase.from('platform_inbox').insert({
-        user_id: profile.id,
-        subject: '🎁 Someone gifted you Premium!',
+        user_id: profile.id, subject: '🎁 Someone gifted you Premium!',
         body: `@${currentUser.username} gifted you 1 month of Premium! Enjoy an ad-free experience until ${expiresAt.toLocaleDateString()}.`,
-        type: 'update',
-        icon_emoji: '👑',
-        cta_label: 'View Premium Benefits',
-        cta_url: '/premium',
+        type: 'update', icon_emoji: '👑', cta_label: 'View Premium Benefits', cta_url: '/premium',
       }).catch(() => {});
-      await supabase.from('notifications').insert({
-        user_id: profile.id,
-        type: 'tip',
-        from_user_id: currentUser.id,
-      }).catch(() => {});
+      await supabase.from('notifications').insert({ user_id: profile.id, type: 'tip', from_user_id: currentUser.id }).catch(() => {});
       toast.success(`🎁 Premium gifted to @${profile.username} for 1 month!`);
       setShowGiftPremiumDialog(false);
     } catch (err: any) {
@@ -164,47 +280,32 @@ export default function ProfilePage() {
     }
   };
 
-  // ── Tip ─────────────────────────────────────────────────────────────────
-  const [showTipDialog, setShowTipDialog] = useState(false);
-  const [tipAmount, setTipAmount] = useState<number | null>(null);
-  const [customTipAmount, setCustomTipAmount] = useState('');
-  const [sendingTip, setSendingTip] = useState(false);
-  const [tipSent, setTipSent] = useState(false);
+  const handleSubscribe = async (tier: string, price: number) => {
+    if (!currentUser) { navigate('/auth'); return; }
+    setSubscribing(true);
+    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: currentUser.id, p_amount: price });
+    if (deductErr) { toast.error('Insufficient wallet balance. Top up your wallet first.'); setSubscribing(false); return; }
+    const expiresAt = new Date();
+    expiresAt.setMonth(expiresAt.getMonth() + 1);
+    const { error } = await supabase.from('creator_subscriptions').upsert({
+      creator_id: profile.id, subscriber_id: currentUser.id, tier, price, status: 'active',
+      expires_at: expiresAt.toISOString(),
+    }, { onConflict: 'creator_id,subscriber_id' });
+    if (error) { toast.error('Subscription failed'); setSubscribing(false); return; }
+    await supabase.from('creator_earnings').insert({ user_id: profile.id, source: 'subscription', amount: price, status: 'paid' }).catch(() => {});
+    await supabase.from('notifications').insert({ user_id: profile.id, type: 'follow', from_user_id: currentUser.id }).catch(() => {});
+    toast.success(`Subscribed to @${profile.username} on ${tier} tier!`);
+    setActiveSubscription({ tier, price, status: 'active' });
+    setShowSubscribeDialog(false);
+    setSubscribing(false);
+  };
 
-  // Highlights
-  const [highlights, setHighlights] = useState<any[]>([]);
-  const [highlightViewCounts, setHighlightViewCounts] = useState<Record<string, number>>({});
-  const [showCreateHighlight, setShowCreateHighlight] = useState(false);
-  const [highlightTitle, setHighlightTitle] = useState('');
-  const [draggingHighlightIdx, setDraggingHighlightIdx] = useState<number | null>(null);
-  const [dragOverHighlightIdx, setDragOverHighlightIdx] = useState<number | null>(null);
-  const [highlightCoverUrl, setHighlightCoverUrl] = useState<string | null>(null);
-  const [availableStories, setAvailableStories] = useState<any[]>([]);
-  const [creatingHighlight, setCreatingHighlight] = useState(false);
-  const [selectedStoryIds, setSelectedStoryIds] = useState<string[]>([]);
-  const [viewingHighlight, setViewingHighlight] = useState<any | null>(null);
-  const [highlightStories, setHighlightStories] = useState<any[]>([]);
-  const [highlightStoryIdx, setHighlightStoryIdx] = useState(0);
-  const [highlightProgress, setHighlightProgress] = useState(0);
-  const [loadingHighlightStories, setLoadingHighlightStories] = useState(false);
-
-  // Tip history
-  const [tipHistory, setTipHistory] = useState<any[]>([]);
-  const [loadingTips, setLoadingTips] = useState(false);
-  const [profileViews7d, setProfileViews7d] = useState<number>(0);
-
-  // Subscription
-  const [showSubscribeDialog, setShowSubscribeDialog] = useState(false);
-  const [subscribing, setSubscribing] = useState(false);
-  const [activeSubscription, setActiveSubscription] = useState<any | null>(null);
-
-  // Tip goal
-  const [tipGoal, setTipGoal] = useState<number | null>(null);
-  const [currentMonthTips, setCurrentMonthTips] = useState(0);
-  const [editingGoal, setEditingGoal] = useState(false);
-  const [goalInput, setGoalInput] = useState('');
-  const [topTippers, setTopTippers] = useState<{ rank: number; amount: number }[]>([]);
-  const goalAchieved = tipGoal !== null && tipGoal > 0 && currentMonthTips >= tipGoal;
+  const handleUnsubscribe = async () => {
+    if (!currentUser || !profile) return;
+    await supabase.from('creator_subscriptions').update({ status: 'cancelled' }).eq('creator_id', profile.id).eq('subscriber_id', currentUser.id);
+    setActiveSubscription(null);
+    toast.success('Subscription cancelled');
+  };
 
   const openHighlightViewer = async (h: any) => {
     if (!h.story_ids || h.story_ids.length === 0) { toast.error('No stories in this highlight'); return; }
@@ -226,69 +327,19 @@ export default function ProfilePage() {
 
   const trackProfileView = async (viewedUserId: string) => {
     if (!currentUser || currentUser.id === viewedUserId) return;
-    await supabase.from('browsing_history').insert({
-      user_id: currentUser.id,
-      profile_id: viewedUserId,
-      view_type: 'profile',
-    }).catch(() => {});
+    await supabase.from('browsing_history').insert({ user_id: currentUser.id, profile_id: viewedUserId, view_type: 'profile' }).catch(() => {});
   };
 
   const fetchProfileViews7d = async (userId: string) => {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { count } = await supabase
-      .from('browsing_history')
-      .select('*', { count: 'exact', head: true })
-      .eq('profile_id', userId)
-      .eq('view_type', 'profile')
-      .gte('created_at', sevenDaysAgo);
+    const { count } = await supabase.from('browsing_history').select('*', { count: 'exact', head: true }).eq('profile_id', userId).eq('view_type', 'profile').gte('created_at', sevenDaysAgo);
     setProfileViews7d(count ?? 0);
   };
 
   const fetchSubscription = async (creatorId: string) => {
     if (!currentUser) return;
-    const { data } = await supabase
-      .from('creator_subscriptions')
-      .select('*')
-      .eq('creator_id', creatorId)
-      .eq('subscriber_id', currentUser.id)
-      .eq('status', 'active')
-      .maybeSingle();
+    const { data } = await supabase.from('creator_subscriptions').select('*').eq('creator_id', creatorId).eq('subscriber_id', currentUser.id).eq('status', 'active').maybeSingle();
     setActiveSubscription(data ?? null);
-  };
-
-  const handleSubscribe = async (tier: string, price: number) => {
-    if (!currentUser) { navigate('/auth'); return; }
-    setSubscribing(true);
-    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: currentUser.id, p_amount: price });
-    if (deductErr) {
-      toast.error('Insufficient wallet balance. Top up your wallet first.');
-      setSubscribing(false);
-      return;
-    }
-    const expiresAt = new Date();
-    expiresAt.setMonth(expiresAt.getMonth() + 1);
-    const { error } = await supabase.from('creator_subscriptions').upsert({
-      creator_id: profile.id,
-      subscriber_id: currentUser.id,
-      tier,
-      price,
-      status: 'active',
-      expires_at: expiresAt.toISOString(),
-    }, { onConflict: 'creator_id,subscriber_id' });
-    if (error) { toast.error('Subscription failed'); setSubscribing(false); return; }
-    await supabase.from('creator_earnings').insert({ user_id: profile.id, source: 'subscription', amount: price, status: 'paid' }).catch(() => {});
-    await supabase.from('notifications').insert({ user_id: profile.id, type: 'follow', from_user_id: currentUser.id }).catch(() => {});
-    toast.success(`Subscribed to @${profile.username} on ${tier} tier!`);
-    setActiveSubscription({ tier, price, status: 'active' });
-    setShowSubscribeDialog(false);
-    setSubscribing(false);
-  };
-
-  const handleUnsubscribe = async () => {
-    if (!currentUser || !profile) return;
-    await supabase.from('creator_subscriptions').update({ status: 'cancelled' }).eq('creator_id', profile.id).eq('subscriber_id', currentUser.id);
-    setActiveSubscription(null);
-    toast.success('Subscription cancelled');
   };
 
   const fetchTipGoal = async (userId: string) => {
@@ -299,9 +350,15 @@ export default function ProfilePage() {
     const { data: monthTips } = await supabase.from('tips').select('from_user_id, amount').eq('to_user_id', userId).gte('created_at', startOfMonth.toISOString()).order('amount', { ascending: false });
     const total = (monthTips ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0);
     setCurrentMonthTips(total);
-    const byTipper: { [uid: string]: number } = {};
-    (monthTips ?? []).forEach((t: any) => { byTipper[t.from_user_id] = (byTipper[t.from_user_id] || 0) + Number(t.amount); });
-    const sorted = Object.values(byTipper).sort((a, b) => b - a).slice(0, 3);
+    // Use parallel arrays instead of index-sig objects (esbuild guard)
+    const tipperIds: string[] = [];
+    const tipperAmts: number[] = [];
+    for (const t of (monthTips ?? [])) {
+      const idx = tipperIds.indexOf(t.from_user_id);
+      if (idx >= 0) tipperAmts[idx] += Number(t.amount);
+      else { tipperIds.push(t.from_user_id); tipperAmts.push(Number(t.amount)); }
+    }
+    const sorted = [...tipperAmts].sort((a, b) => b - a).slice(0, 3);
     setTopTippers(sorted.map((amount, i) => ({ rank: i + 1, amount })));
   };
 
@@ -322,33 +379,28 @@ export default function ProfilePage() {
     if (!tips || tips.length === 0) { setTipHistory([]); setLoadingTips(false); return; }
     const allUids = tips.flatMap((t: any) => [t.from_user_id, t.to_user_id]) as string[];
     const uids = allUids.filter((u: string, i: number) => allUids.indexOf(u) === i);
-    const { data: profiles } = await supabase.from('user_profiles').select('id, username, avatar_url').in('id', uids);
-    const profileMap: { [uid: string]: any } = {};
-    (profiles ?? []).forEach((p: any) => { profileMap[p.id] = p; });
-    setTipHistory(tips.map((t: any) => ({ ...t, sender: profileMap[t.from_user_id], recipient: profileMap[t.to_user_id] })));
+    const { data: profileRows } = await supabase.from('user_profiles').select('id, username, avatar_url').in('id', uids);
+    // Use parallel arrays instead of index-sig objects (esbuild guard)
+    const pIds: string[] = [];
+    const pData: any[] = [];
+    for (const p of (profileRows ?? [])) { pIds.push(p.id); pData.push(p); }
+    const getP = (uid: string) => pData[pIds.indexOf(uid)];
+    setTipHistory(tips.map((t: any) => ({ ...t, sender: getP(t.from_user_id), recipient: getP(t.to_user_id) })));
     setLoadingTips(false);
   };
 
   const handleShareProfile = async () => {
     const url = `${window.location.origin}/profile/${profile.username}`;
     const shareText = `Check out @${profile.username} on Tsocial${profile.bio ? ': ' + profile.bio.slice(0, 80) : ''}!`;
-    if (navigator.share) {
-      await navigator.share({ title: `@${profile.username} on Tsocial`, text: shareText, url }).catch(() => {});
-    } else {
-      await navigator.clipboard.writeText(url).catch(() => {});
-    }
+    if (navigator.share) await navigator.share({ title: `@${profile.username} on Tsocial`, text: shareText, url }).catch(() => {});
+    else await navigator.clipboard.writeText(url).catch(() => {});
     setProfileShared(true);
     setTimeout(() => setProfileShared(false), 2000);
   };
 
-  const { isActive: isPremiumUser } = usePremium();
-
-  // Dynamic SEO per profile
   useSEO({
     title: profile ? `@${profile.username} on Testagram` : 'Profile',
-    description: profile
-      ? (profile.bio?.slice(0, 155) || `Follow @${profile.username} on Testagram — ${profile.followers_count?.toLocaleString() ?? 0} followers`)
-      : 'View profile on Testagram',
+    description: profile ? (profile.bio?.slice(0, 155) || `Follow @${profile.username} on Testagram — ${profile.followers_count?.toLocaleString() ?? 0} followers`) : 'View profile on Testagram',
     image: profile ? buildOgImageUrl({ username: profile.username }) : undefined,
     url: profile ? `/profile/${profile.username}` : undefined,
     type: 'profile',
@@ -356,27 +408,11 @@ export default function ProfilePage() {
     structuredData: profile ? buildProfileLD(profile) : undefined,
   });
 
-  // ── Gift History ────────────────────────────────────────────────────────────
-  const [giftHistory, setGiftHistory] = useState<any[]>([]);
-  const [loadingGifts, setLoadingGifts] = useState(false);
-
   const fetchGiftHistory = async (userId: string) => {
     setLoadingGifts(true);
-    const { data } = await supabase
-      .from('premium_subscriptions')
-      .select('*')
-      .or(`user_id.eq.${userId}`)
-      .order('started_at', { ascending: false })
-      .limit(50);
+    const { data } = await supabase.from('premium_subscriptions').select('*').or(`user_id.eq.${userId}`).order('started_at', { ascending: false }).limit(50);
     if (!data || data.length === 0) { setGiftHistory([]); setLoadingGifts(false); return; }
-    // Fetch gifter info from platform_inbox notifications for this user
-    const { data: inbox } = await supabase
-      .from('platform_inbox')
-      .select('body, sent_at, user_id')
-      .eq('user_id', userId)
-      .ilike('subject', '%gift%')
-      .order('sent_at', { ascending: false })
-      .limit(30);
+    const { data: inbox } = await supabase.from('platform_inbox').select('body, sent_at, user_id').eq('user_id', userId).ilike('subject', '%gift%').order('sent_at', { ascending: false }).limit(30);
     setGiftHistory(data.map((sub: any) => ({
       ...sub,
       inboxHint: (inbox ?? []).find((m: any) => Math.abs(new Date(m.sent_at).getTime() - new Date(sub.started_at).getTime()) < 60000),
@@ -384,45 +420,20 @@ export default function ProfilePage() {
     setLoadingGifts(false);
   };
 
-  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
-  // Derived: videos are posts where is_video=true
-  const videoPosts = posts.filter(p => p.is_video && p.video_url);
-
-  // ── Profile Podcasts tab ─────────────────────────────────────────────────
-  const [profilePodcasts, setProfilePodcasts] = useState<any[]>([]);
-  const [loadingPodcasts, setLoadingPodcasts] = useState(false);
-  const [podcastsFetched, setPodcastsFetched] = useState(false);
-
   const fetchProfilePodcasts = async (userId: string) => {
     if (podcastsFetched) return;
     setLoadingPodcasts(true);
-    const { data } = await supabase
-      .from('space_recordings')
-      .select('id, title, audio_url, video_url, has_video, duration, listener_count, created_at, spaces(title, artwork_url, category, episode_number, subscriber_only)')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(30);
+    const { data } = await supabase.from('space_recordings').select('id, title, audio_url, video_url, has_video, duration, listener_count, created_at, spaces(title, artwork_url, category, episode_number, subscriber_only)').eq('user_id', userId).order('created_at', { ascending: false }).limit(30);
     setProfilePodcasts(data ?? []);
     setLoadingPodcasts(false);
     setPodcastsFetched(true);
   };
 
-  // Profile Series tab
-  const [profileSeries, setProfileSeries] = useState<any[]>([]);
-  const [loadingProfileSeries, setLoadingProfileSeries] = useState(false);
-  const [profileSeriesFetched, setProfileSeriesFetched] = useState(false);
-  const [postImpressionsChart, setPostImpressionsChart] = useState<{ date: string; views: number }[]>([]);
-
   const fetchPostImpressions = async (userId: string) => {
     const { data: userPosts } = await supabase.from('posts').select('id').eq('user_id', userId).limit(50);
     if (!userPosts || userPosts.length === 0) return;
     const since = new Date(Date.now() - 29 * 86400000).toISOString();
-    const { data } = await supabase
-      .from('browsing_history')
-      .select('created_at')
-      .in('post_id', userPosts.map((p: any) => p.id))
-      .eq('view_type', 'post')
-      .gte('created_at', since);
+    const { data } = await supabase.from('browsing_history').select('created_at').in('post_id', userPosts.map((p: any) => p.id)).eq('view_type', 'post').gte('created_at', since);
     const days: { date: string; views: number }[] = [];
     for (let i = 29; i >= 0; i--) {
       const d = new Date(Date.now() - i * 86400000);
@@ -439,26 +450,16 @@ export default function ProfilePage() {
   const fetchProfileSeries = async (userId: string) => {
     if (profileSeriesFetched) return;
     setLoadingProfileSeries(true);
-    const { data } = await supabase
-      .from('post_series')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_public', true)
-      .order('item_count', { ascending: false })
-      .limit(20);
+    const { data } = await supabase.from('post_series').select('*').eq('user_id', userId).eq('is_public', true).order('item_count', { ascending: false }).limit(20);
     setProfileSeries(data ?? []);
     setLoadingProfileSeries(false);
     setProfileSeriesFetched(true);
   };
 
-  // Pinned post — own profile only
-  const [pinnedPostId, setPinnedPostId] = useState<string | null>(null);
-
   const togglePinPost = async (postId: string) => {
     if (!currentUser || !isOwnProfile) return;
     const newPinned = pinnedPostId === postId ? null : postId;
     setPinnedPostId(newPinned);
-    // Store in user metadata (localStorage for now, can be extended to DB)
     if (newPinned) {
       localStorage.setItem(`pinned_post_${currentUser.id}`, newPinned);
       toast.success('Post pinned to your profile');
@@ -468,16 +469,11 @@ export default function ProfilePage() {
     }
   };
 
-  // Load pinned post from localStorage
   useEffect(() => {
-    if (isOwnProfile && currentUser) {
-      setPinnedPostId(localStorage.getItem(`pinned_post_${currentUser.id}`));
-    }
+    if (isOwnProfile && currentUser) setPinnedPostId(localStorage.getItem(`pinned_post_${currentUser.id}`));
   }, [isOwnProfile, currentUser]);
 
-  useEffect(() => {
-    if (username) fetchProfile();
-  }, [username]);
+  useEffect(() => { if (username) fetchProfile(); }, [username]);
 
   const fetchHighlights = async (userId: string) => {
     const { data } = await supabase.from('user_highlights').select('*').eq('user_id', userId).order('sort_order', { ascending: true });
@@ -486,9 +482,15 @@ export default function ProfilePage() {
     const allStoryIds = list.flatMap((h: any) => h.story_ids ?? []) as string[];
     if (allStoryIds.length > 0) {
       const { data: viewData } = await supabase.from('story_views').select('story_id').in('story_id', allStoryIds);
-      const counts: Record<string, number> = {};
-      list.forEach((h: any) => { counts[h.id] = (viewData ?? []).filter((v: any) => (h.story_ids ?? []).includes(v.story_id)).length; });
-      setHighlightViewCounts(counts);
+      // Use parallel arrays (no index-sig map) — esbuild guard
+      const ids: string[] = [];
+      const counts: number[] = [];
+      for (const h of list) {
+        ids.push(h.id);
+        counts.push((viewData ?? []).filter((v: any) => (h.story_ids ?? []).includes(v.story_id)).length);
+      }
+      setHighlightIds(ids);
+      setHighlightCounts(counts);
     }
   };
 
@@ -509,10 +511,7 @@ export default function ProfilePage() {
     if (error) { toast.error('Failed to create highlight'); }
     else {
       toast.success('Highlight created!');
-      setShowCreateHighlight(false);
-      setHighlightTitle('');
-      setHighlightCoverUrl(null);
-      setSelectedStoryIds([]);
+      setShowCreateHighlight(false); setHighlightTitle(''); setHighlightCoverUrl(null); setSelectedStoryIds([]);
       fetchHighlights(currentUser.id);
     }
     setCreatingHighlight(false);
@@ -537,26 +536,11 @@ export default function ProfilePage() {
     await supabase.from('tips').insert({ from_user_id: currentUser.id, to_user_id: profile.id, amount, message: `Tip from @${currentUser.username}` }).catch(() => {});
     await supabase.from('creator_earnings').insert({ user_id: profile.id, source: 'tips', amount, status: 'paid' }).catch(() => {});
     await supabase.from('notifications').insert({ user_id: profile.id, type: 'tip', from_user_id: currentUser.id }).catch(() => {});
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      const backendUrl = import.meta.env.VITE_SUPABASE_URL;
-      await fetch(`${backendUrl}/functions/v1/send-push-notification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ user_id: profile.id, title: 'You received a tip! 💰', body: `@${currentUser.username} sent you a $${amount.toFixed(2)} tip`, data: { route: `/profile/${currentUser.username}`, type: 'tip', amount } }),
-      });
-    } catch {}
     toast.success(`$${amount.toFixed(2)} tip sent to @${profile.username}!`);
-    setTipSent(true);
-    setShowTipDialog(false);
-    setTipAmount(null);
-    setCustomTipAmount('');
-    setSendingTip(false);
+    setTipSent(true); setShowTipDialog(false); setTipAmount(null); setCustomTipAmount(''); setSendingTip(false);
     setTimeout(() => setTipSent(false), 3000);
   };
 
-  // ── Highlight story viewer auto-advance ──────────────────────────────────
   useEffect(() => {
     if (!viewingHighlight || highlightStories.length === 0) { setHighlightProgress(0); return; }
     const story = highlightStories[highlightStoryIdx];
@@ -590,22 +574,25 @@ export default function ProfilePage() {
       const { data: profileData, error: profileError } = await supabase.from('user_profiles').select('*').eq('username', username).single();
       if (profileError) throw profileError;
       setProfile(profileData);
+      // Update meta tags inline (no IIFE in render — this is async data loading)
+      const title = `@${profileData.username} on Testagram`;
+      const desc = profileData.bio?.slice(0, 200) || `Follow @${profileData.username} on Testagram`;
+      const img = profileData.avatar_url || `${window.location.origin}/app-icon.jpg`;
+      const setM = (p: string, v: string) => { let el = document.querySelector(`meta[property="${p}"]`) as HTMLMetaElement | null; if (!el) { el = document.createElement('meta'); el.setAttribute('property', p); document.head.appendChild(el); } el.setAttribute('content', v); };
+      document.title = title;
+      setM('og:title', title); setM('og:description', desc); setM('og:image', img);
+      setM('og:url', `${window.location.origin}/profile/${profileData.username}`);
 
-      (() => {
-        const title = `@${profileData.username} on Testagram`;
-        const desc = profileData.bio?.slice(0, 200) || `Follow @${profileData.username} on Testagram`;
-        const img = profileData.avatar_url || `${window.location.origin}/app-icon.jpg`;
-        const setM = (p: string, v: string) => { let el = document.querySelector(`meta[property="${p}"]`) as HTMLMetaElement | null; if (!el) { el = document.createElement('meta'); el.setAttribute('property', p); document.head.appendChild(el); } el.setAttribute('content', v); };
-        document.title = title;
-        setM('og:title', title); setM('og:description', desc); setM('og:image', img);
-        setM('og:url', `${window.location.origin}/profile/${profileData.username}`);
-      })();
-
+      // Phase 1: critical path — posts + threads + media (renders the UI)
       await Promise.all([
         fetchPosts(profileData.id),
         fetchThreads(profileData.id),
-        fetchReplies(profileData.id),
         fetchMedia(profileData.id),
+      ]);
+      setLoading(false);
+      // Phase 2: background loads — deferred, non-blocking
+      Promise.all([
+        fetchReplies(profileData.id),
         fetchLikedPosts(profileData.id),
         fetchFollowers(profileData.id),
         fetchFollowing(profileData.id),
@@ -618,107 +605,81 @@ export default function ProfilePage() {
         trackProfileView(profileData.id),
         fetchGiftHistory(profileData.id),
         fetchPostImpressions(profileData.id),
-      ]);
+      ]).catch(() => {});
       if (currentUser && currentUser.id !== profileData.id) checkBlockMuteStatus(profileData.id);
     } catch (error) {
       console.error('Error fetching profile:', error);
-      navigate('/');
-    } finally {
       setLoading(false);
+      navigate('/');
     }
   };
 
   const fetchPosts = async (userId: string) => {
-    const { data, error } = await supabase.from('posts').select('*, user_profiles (*)').eq('user_id', userId).order('created_at', { ascending: false });
-    if (error) { console.error('Error fetching posts:', error); return; }
+    const { data } = await supabase.from('posts').select('*, user_profiles (*)').eq('user_id', userId).order('created_at', { ascending: false });
     setPosts(data || []);
   };
-
   const fetchThreads = async (userId: string) => {
-    const { data, error } = await supabase.from('threads').select('*').eq('user_id', userId).eq('is_published', true).order('created_at', { ascending: false });
-    if (error) { console.error('Error fetching threads:', error); return; }
+    const { data } = await supabase.from('threads').select('*').eq('user_id', userId).eq('is_published', true).order('created_at', { ascending: false });
     setThreads(data || []);
   };
-
   const fetchReplies = async (userId: string) => {
-    const { data, error } = await supabase.from('replies').select('*, posts(*, user_profiles(*))').eq('user_id', userId).order('created_at', { ascending: false });
-    if (error) { console.error('Error fetching replies:', error); return; }
+    const { data } = await supabase.from('replies').select('*, posts(*, user_profiles(*))').eq('user_id', userId).order('created_at', { ascending: false });
     setReplies(data || []);
   };
-
   const fetchMedia = async (userId: string) => {
-    const { data, error } = await supabase.from('posts').select('*, user_profiles (*)').eq('user_id', userId).or('image_url.not.is.null,video_url.not.is.null,media_urls.neq.[]').order('created_at', { ascending: false });
-    if (error) { console.error('Error fetching media:', error); return; }
+    const { data } = await supabase.from('posts').select('*, user_profiles (*)').eq('user_id', userId).or('image_url.not.is.null,video_url.not.is.null,media_urls.neq.[]').order('created_at', { ascending: false });
     setMedia(data || []);
   };
-
   const fetchLikedPosts = async (userId: string) => {
-    const { data, error } = await supabase.from('likes').select('posts(*, user_profiles(*))').eq('user_id', userId).order('created_at', { ascending: false });
-    if (error) { console.error('Error fetching liked posts:', error); return; }
+    const { data } = await supabase.from('likes').select('posts(*, user_profiles(*))').eq('user_id', userId).order('created_at', { ascending: false });
     setLikedPosts((data || []).map((item: any) => item.posts).filter(Boolean));
   };
-
   const fetchFollowers = async (userId: string) => {
-    const { data, error } = await supabase.from('follows').select('follower:user_profiles!follows_follower_id_fkey(*)').eq('following_id', userId);
-    if (error) { console.error('Error fetching followers:', error); return; }
+    const { data } = await supabase.from('follows').select('follower:user_profiles!follows_follower_id_fkey(*)').eq('following_id', userId);
     setFollowers((data || []).map((item: any) => item.follower).filter(Boolean));
   };
-
   const fetchProfileStats = async (userId: string) => {
     const { data: reward } = await supabase.from('daily_rewards').select('streak_day').eq('user_id', userId).maybeSingle();
     setStreakDay(reward?.streak_day ?? 0);
-    const { data: profileData } = await supabase.from('user_profiles').select('followers_count').eq('id', userId).maybeSingle();
-    if (profileData) {
-      const { count } = await supabase.from('user_profiles').select('*', { count: 'exact', head: true }).gt('followers_count', profileData.followers_count ?? 0);
+    const { data: pd } = await supabase.from('user_profiles').select('followers_count').eq('id', userId).maybeSingle();
+    if (pd) {
+      const { count } = await supabase.from('user_profiles').select('*', { count: 'exact', head: true }).gt('followers_count', pd.followers_count ?? 0);
       setFollowerRank((count ?? 0) + 1);
     }
   };
-
   const fetchFollowing = async (userId: string) => {
-    const { data, error } = await supabase.from('follows').select('following:user_profiles!follows_following_id_fkey(*)').eq('follower_id', userId);
-    if (error) { console.error('Error fetching following:', error); return; }
+    const { data } = await supabase.from('follows').select('following:user_profiles!follows_following_id_fkey(*)').eq('follower_id', userId);
     setFollowing((data || []).map((item: any) => item.following).filter(Boolean));
   };
-
   const checkFollowStatus = async () => {
     if (!currentUser || !profile) return;
     const { data } = await supabase.from('follows').select('id').eq('follower_id', currentUser.id).eq('following_id', profile.id).single();
     setIsFollowing(!!data);
   };
-
   const handleFollow = async () => {
     if (!currentUser) { navigate('/auth'); return; }
-    try {
-      if (isFollowing) {
-        await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', profile.id);
-      } else {
-        await supabase.from('follows').insert({ follower_id: currentUser.id, following_id: profile.id });
-        await supabase.from('notifications').insert({ user_id: profile.id, type: 'follow', from_user_id: currentUser.id });
-        await sendActivityNotification({ recipientUserId: profile.id, title: 'New Follower', body: `${currentUser.username} started following you`, data: { route: `/profile/${currentUser.username}`, type: 'follow', fromUserId: currentUser.id } });
-      }
-      setIsFollowing(!isFollowing);
-      fetchProfile();
-    } catch (error: any) {
-      console.error('Follow error:', error);
+    if (isFollowing) {
+      await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', profile.id);
+    } else {
+      await supabase.from('follows').insert({ follower_id: currentUser.id, following_id: profile.id });
+      await supabase.from('notifications').insert({ user_id: profile.id, type: 'follow', from_user_id: currentUser.id });
+      await sendActivityNotification({ recipientUserId: profile.id, title: 'New Follower', body: `${currentUser.username} started following you`, data: { route: `/profile/${currentUser.username}`, type: 'follow', fromUserId: currentUser.id } });
     }
+    setIsFollowing(!isFollowing);
+    fetchProfile();
   };
-
   const handleMessage = () => {
     if (!currentUser) { navigate('/auth'); return; }
     navigate(`/messages?to=${profile.username}`);
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  if (loading) return <ProfileSkeleton />;
 
   if (!profile) return null;
 
   const isOwnProfile = currentUser?.id === profile.id;
+  const videoPosts = posts.filter(p => p.is_video && p.video_url);
+  const tabs = ['Posts', 'Threads', 'Replies', 'Media', 'Videos', 'Podcasts', 'Series', 'Likes', 'Tips', 'Gifts', 'Followers', 'Following'];
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
@@ -735,18 +696,15 @@ export default function ProfilePage() {
         <div className="px-4 pb-4">
           <div className="flex justify-between items-start -mt-16 mb-4">
             <div className="w-32 h-32 rounded-full border-4 border-background bg-muted overflow-hidden">
-              {profile.avatar_url ? (
-                <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-4xl font-bold">{profile.username[0].toUpperCase()}</div>
-              )}
+              {profile.avatar_url
+                ? <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
+                : <div className="w-full h-full flex items-center justify-center text-4xl font-bold">{profile.username[0].toUpperCase()}</div>}
             </div>
-
             <div className="flex gap-2 mt-2 flex-wrap items-center">
               {isOwnProfile ? (
                 <>
                   <button onClick={() => setShowEditDialog(true)} className="px-4 py-2 border border-border rounded-full font-semibold hover:bg-muted transition-colors">Edit profile</button>
-                  <button onClick={handleShareProfile} className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground" title="Share profile">
+                  <button onClick={handleShareProfile} className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
                     {profileShared ? <Check className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
                   </button>
                 </>
@@ -755,45 +713,35 @@ export default function ProfilePage() {
                   <button onClick={handleMessage} className="px-4 py-2 border border-border rounded-full font-semibold hover:bg-muted transition-colors flex items-center gap-2">
                     <MessageCircle className="w-4 h-4" />Message
                   </button>
-                  {/* Gift Premium */}
-                  <button
-                    onClick={() => setShowGiftPremiumDialog(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-full font-semibold text-sm transition-colors"
-                    title="Gift 1-month Premium"
-                  >
+                  <button onClick={() => setShowGiftPremiumDialog(true)} className="flex items-center gap-1.5 px-3 py-2 border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-full font-semibold text-sm transition-colors">
                     <Crown className="w-3.5 h-3.5" />Gift Premium
                   </button>
-                  {/* P2P Send Money */}
-                  <button onClick={() => navigate(`/wallet?tab=send&to=${profile.username}`)}
-                    className="flex items-center gap-1.5 px-3 py-2 border border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary rounded-full font-semibold text-sm transition-colors" title="Send Money">
+                  <button onClick={() => navigate(`/wallet?tab=send&to=${profile.username}`)} className="flex items-center gap-1.5 px-3 py-2 border border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary rounded-full font-semibold text-sm transition-colors">
                     <Send className="w-3.5 h-3.5" />Send
                   </button>
-                  <button onClick={handleFollow}
-                    className={`px-4 py-2 rounded-full font-semibold transition-colors ${isFollowing ? 'border border-border hover:bg-muted' : 'bg-foreground text-background hover:opacity-90'}`}>
+                  <button onClick={handleFollow} className={`px-4 py-2 rounded-full font-semibold transition-colors ${isFollowing ? 'border border-border hover:bg-muted' : 'bg-foreground text-background hover:opacity-90'}`}>
                     {isFollowing ? 'Following' : 'Follow'}
                   </button>
-                  <button onClick={() => setShowTipDialog(true)}
-                    className={`p-2 border rounded-full transition-colors ${tipSent ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-500' : 'border-border hover:bg-yellow-500/10 hover:border-yellow-500/30 text-muted-foreground hover:text-yellow-600'}`} title="Send Tip">
+                  <button onClick={() => setShowTipDialog(true)} className={`p-2 border rounded-full transition-colors ${tipSent ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-500' : 'border-border hover:bg-yellow-500/10 hover:border-yellow-500/30 text-muted-foreground hover:text-yellow-600'}`}>
                     {tipSent ? <Check className="w-4 h-4 text-yellow-500" /> : <DollarSign className="w-4 h-4" />}
                   </button>
-                  {/* More options */}
                   <div className="relative">
-                    <button onClick={() => setShowMoreMenu(p => !p)} className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground" title="More options">
+                    <button onClick={() => setShowMoreMenu(p => !p)} className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground">
                       <MoreHorizontal className="w-4 h-4" />
                     </button>
                     {showMoreMenu && (
                       <>
                         <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
                         <div className="absolute right-0 mt-2 w-48 bg-background border border-border rounded-xl shadow-xl z-50 overflow-hidden">
-                          <button onClick={handleMute} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted text-left text-sm transition-colors">
+                          <button onClick={handleMute} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted text-left text-sm">
                             {isMuted ? <Volume2 className="w-4 h-4 text-primary" /> : <VolumeX className="w-4 h-4 text-muted-foreground" />}
                             {isMuted ? 'Unmute' : 'Mute'} @{profile.username}
                           </button>
-                          <button onClick={handleBlock} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-destructive/5 text-left text-sm transition-colors text-destructive">
+                          <button onClick={handleBlock} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-destructive/5 text-left text-sm text-destructive">
                             <Ban className="w-4 h-4" />{isBlocked ? 'Unblock' : 'Block'} @{profile.username}
                           </button>
                           <div className="border-t border-border" />
-                          <button onClick={() => { setShowMoreMenu(false); toast.success('Report submitted'); }} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted text-left text-sm transition-colors text-muted-foreground">
+                          <button onClick={() => { setShowMoreMenu(false); toast.success('Report submitted'); }} className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted text-left text-sm text-muted-foreground">
                             <Flag className="w-4 h-4" />Report account
                           </button>
                         </div>
@@ -811,7 +759,7 @@ export default function ProfilePage() {
                       </button>
                     )
                   )}
-                  <button onClick={handleShareProfile} className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground" title="Share profile">
+                  <button onClick={handleShareProfile} className="p-2 border border-border rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
                     {profileShared ? <Check className="w-4 h-4 text-green-500" /> : <Share2 className="w-4 h-4" />}
                   </button>
                 </>
@@ -824,25 +772,18 @@ export default function ProfilePage() {
               <h2 className="text-xl font-bold">{profile.username}</h2>
               {profile.verified && <BadgeCheck className="w-5 h-5 text-primary" fill="currentColor" />}
               {isRegulator && isOwnProfile && (
-                <button onClick={() => navigate('/regulator')}
-                  className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-violet-600/15 to-primary/10 border border-violet-500/30 text-[10px] font-black text-violet-600 dark:text-violet-400 hover:opacity-90 transition-opacity"
-                  title="Open Regulator Panel">
+                <button onClick={() => navigate('/regulator')} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-violet-600/15 to-primary/10 border border-violet-500/30 text-[10px] font-black text-violet-600 dark:text-violet-400 hover:opacity-90 transition-opacity">
                   👑 Regulator
                 </button>
               )}
               {(isOwnProfile ? isPremiumUser : false) && <Crown className="w-4 h-4 text-amber-500" fill="currentColor" title="Premium Member" />}
               {(() => {
                 const tier = profile.creator_tier;
-                if (!tier || tier === 'free') return null;
-                const cfg: Record<string, any> = {
-                  gold:   { label: 'Gold',   bg: 'from-yellow-500/20 to-amber-400/10',  border: 'border-yellow-400/40', text: 'text-yellow-600 dark:text-yellow-400',  icon: '🥇' },
-                  silver: { label: 'Silver', bg: 'from-slate-400/20 to-gray-300/10',   border: 'border-slate-400/40',  text: 'text-slate-600 dark:text-slate-300',   icon: '🥈' },
-                  bronze: { label: 'Bronze', bg: 'from-amber-600/20 to-orange-400/10', border: 'border-amber-500/40',  text: 'text-amber-700 dark:text-amber-400',   icon: '🥉' },
-                }[tier];
-                if (!cfg) return null;
+                const label = getCreatorTierLabel(tier);
+                if (!label) return null;
                 return (
-                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r ${cfg.bg} border ${cfg.border} text-xs font-bold ${cfg.text}`}>
-                    <span>{cfg.icon}</span>{cfg.label} Creator
+                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r ${getCreatorTierBg(tier)} border ${getCreatorTierBorder(tier)} text-xs font-bold ${getCreatorTierText(tier)}`}>
+                    <span>{getCreatorTierIcon(tier)}</span>{label} Creator
                   </span>
                 );
               })()}
@@ -854,17 +795,17 @@ export default function ProfilePage() {
 
           {/* Achievements */}
           {(() => {
-            const videoPosts = posts.filter(p => p.is_video).length;
-            const tipsReceived = tipHistory.filter(t => t.to_user_id === profile.id).length;
+            const vp = posts.filter(p => p.is_video).length;
+            const tr = tipHistory.filter(t => t.to_user_id === profile.id).length;
             const ACHIEVEMENTS = [
               { id: 'first_post',    emoji: '✍️', label: 'First Post',    unlocked: posts.length >= 1 },
               { id: 'verified',      emoji: '✅', label: 'Verified',       unlocked: !!profile.verified },
-              { id: 'video_creator', emoji: '🎬', label: 'Video Creator',  unlocked: videoPosts >= 1 },
+              { id: 'video_creator', emoji: '🎬', label: 'Video Creator',  unlocked: vp >= 1 },
               { id: 'followers_100', emoji: '👥', label: '100 Followers',  unlocked: (profile.followers_count ?? 0) >= 100 },
               { id: 'followers_1k',  emoji: '⭐', label: '1K Followers',   unlocked: (profile.followers_count ?? 0) >= 1000 },
               { id: 'first_dollar',  emoji: '💰', label: 'First Dollar',   unlocked: Number(profile.total_earnings ?? 0) >= 1 },
               { id: 'streak_7',      emoji: '🔥', label: '7-Day Streak',   unlocked: streakDay >= 7 },
-              { id: 'tip_received',  emoji: '💝', label: 'Tip Received',   unlocked: tipsReceived >= 1 },
+              { id: 'tip_received',  emoji: '💝', label: 'Tip Received',   unlocked: tr >= 1 },
               { id: 'posts_10',      emoji: '📝', label: '10 Posts',       unlocked: posts.length >= 10 },
               { id: 'followers_10k', emoji: '🌟', label: '10K Followers',  unlocked: (profile.followers_count ?? 0) >= 10000 },
             ];
@@ -878,8 +819,7 @@ export default function ProfilePage() {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {ACHIEVEMENTS.map(a => (
-                    <div key={a.id} title={a.label}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${a.unlocked ? 'bg-primary/8 border-primary/20 text-foreground shadow-sm' : 'bg-muted/30 border-border text-muted-foreground/40 grayscale opacity-40'}`}>
+                    <div key={a.id} title={a.label} className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${a.unlocked ? 'bg-primary/8 border-primary/20 text-foreground shadow-sm' : 'bg-muted/30 border-border text-muted-foreground/40 grayscale opacity-40'}`}>
                       <span>{a.emoji}</span>
                       <span className="hidden sm:inline">{a.label}</span>
                     </div>
@@ -968,7 +908,7 @@ export default function ProfilePage() {
                 </button>
               )}
               {highlights.map((h: any, hIdx: number) => {
-                const viewCount = highlightViewCounts[h.id] ?? 0;
+                const viewCount = getHighlightCount(h.id);
                 return (
                   <div key={h.id} draggable={isOwnProfile}
                     onDragStart={() => setDraggingHighlightIdx(hIdx)}
@@ -985,8 +925,7 @@ export default function ProfilePage() {
                     }}
                     className={`flex flex-col items-center gap-1.5 shrink-0 transition-all duration-150 ${draggingHighlightIdx === hIdx ? 'opacity-40 scale-90' : ''} ${dragOverHighlightIdx === hIdx && draggingHighlightIdx !== hIdx ? 'scale-110' : ''}`}>
                     <div className="relative">
-                      <button onClick={() => openHighlightViewer(h)}
-                        className="w-16 h-16 rounded-full ring-2 ring-offset-2 ring-offset-background ring-muted-foreground/20 hover:ring-primary/50 transition-all overflow-hidden bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                      <button onClick={() => openHighlightViewer(h)} className="w-16 h-16 rounded-full ring-2 ring-offset-2 ring-offset-background ring-muted-foreground/20 hover:ring-primary/50 transition-all overflow-hidden bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
                         {h.cover_url ? <img src={h.cover_url} alt={h.title} className="w-full h-full object-cover" /> : <Star className="w-6 h-6 text-primary" />}
                       </button>
                       {isOwnProfile && viewCount > 0 && (
@@ -1026,9 +965,9 @@ export default function ProfilePage() {
 
           {(profile.twitter_handle || profile.instagram_handle || profile.linkedin_url) && (
             <div className="flex gap-3 mb-3">
-              {profile.twitter_handle && <a href={`https://twitter.com/${profile.twitter_handle}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors" title="Twitter/X"><Twitter className="w-5 h-5" /></a>}
-              {profile.instagram_handle && <a href={`https://instagram.com/${profile.instagram_handle}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors" title="Instagram"><Instagram className="w-5 h-5" /></a>}
-              {profile.linkedin_url && <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors" title="LinkedIn"><Linkedin className="w-5 h-5" /></a>}
+              {profile.twitter_handle && <a href={`https://twitter.com/${profile.twitter_handle}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors"><Twitter className="w-5 h-5" /></a>}
+              {profile.instagram_handle && <a href={`https://instagram.com/${profile.instagram_handle}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors"><Instagram className="w-5 h-5" /></a>}
+              {profile.linkedin_url && <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors"><Linkedin className="w-5 h-5" /></a>}
             </div>
           )}
 
@@ -1041,7 +980,6 @@ export default function ProfilePage() {
             </button>
           </div>
 
-          {/* Referral Copy */}
           {isOwnProfile && (
             <button onClick={() => { const link = `${window.location.origin}/auth?ref=${profile.id}`; navigator.clipboard.writeText(link).then(() => { setReferralCopied(true); setTimeout(() => setReferralCopied(false), 2000); }); }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors mt-2">
@@ -1051,7 +989,7 @@ export default function ProfilePage() {
           )}
 
           {profile.is_creator && profile.subscriber_count > 0 && (
-            <div className="flex items-center gap-1.5 mb-2">
+            <div className="flex items-center gap-1.5 mb-2 mt-2">
               <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 text-xs font-semibold">
                 <Sparkles className="w-3 h-3" />{profile.subscriber_count.toLocaleString()} subscriber{profile.subscriber_count !== 1 ? 's' : ''}
               </span>
@@ -1098,16 +1036,16 @@ export default function ProfilePage() {
           {/* Account Standing — own profile only */}
           {isOwnProfile && (() => {
             const strikes = profile.strike_count ?? 0;
-            const strikeColorClass = strikes === 0 ? 'text-green-600' : strikes === 1 ? 'text-orange-500' : 'text-red-600';
-            const strikeBorderClass = strikes === 0 ? 'border-green-500/20 bg-green-500/5' : strikes === 1 ? 'border-orange-500/20 bg-orange-500/5' : 'border-red-500/20 bg-red-500/5';
+            const sc = strikes === 0 ? 'text-green-600' : strikes === 1 ? 'text-orange-500' : 'text-red-600';
+            const sb = strikes === 0 ? 'border-green-500/20 bg-green-500/5' : strikes === 1 ? 'border-orange-500/20 bg-orange-500/5' : 'border-red-500/20 bg-red-500/5';
             return (
-              <div className={`mt-3 rounded-2xl border p-3 ${strikeBorderClass}`}>
+              <div className={`mt-3 rounded-2xl border p-3 ${sb}`}>
                 <div className="flex items-center gap-2 mb-2">
-                  <ShieldCheck className={`w-4 h-4 shrink-0 ${strikeColorClass}`} />
+                  <ShieldCheck className={`w-4 h-4 shrink-0 ${sc}`} />
                   <span className="text-xs font-black text-foreground">Account Standing</span>
                   {strikes === 0
                     ? <span className="ml-auto text-[10px] font-bold text-green-600 bg-green-500/10 px-1.5 py-0.5 rounded-full">Good ✓</span>
-                    : <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${strikeColorClass}`}>{strikes}/3 Strike{strikes !== 1 ? 's' : ''}</span>}
+                    : <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${sc}`}>{strikes}/3 Strike{strikes !== 1 ? 's' : ''}</span>}
                 </div>
                 <div className="flex gap-1 mb-2">
                   {[1,2,3].map(n => (
@@ -1121,13 +1059,11 @@ export default function ProfilePage() {
                    '3 strikes — account may be permanently suspended.'}
                 </p>
                 <div className="flex gap-2">
-                  <button onClick={() => navigate('/policy')}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded-xl text-[10px] font-bold hover:bg-muted transition-colors">
+                  <button onClick={() => navigate('/policy')} className="flex items-center gap-1 px-2.5 py-1 bg-background border border-border rounded-xl text-[10px] font-bold hover:bg-muted transition-colors">
                     <ShieldCheck className="w-2.5 h-2.5" />View Policy
                   </button>
                   {strikes > 0 && (
-                    <button onClick={() => navigate('/appeals')}
-                      className="flex items-center gap-1 px-2.5 py-1 bg-primary/5 border border-primary/20 rounded-xl text-[10px] font-bold text-primary hover:bg-primary/10 transition-colors">
+                    <button onClick={() => navigate('/appeals')} className="flex items-center gap-1 px-2.5 py-1 bg-primary/5 border border-primary/20 rounded-xl text-[10px] font-bold text-primary hover:bg-primary/10 transition-colors">
                       <Flag className="w-2.5 h-2.5" />File Appeal
                     </button>
                   )}
@@ -1143,9 +1079,7 @@ export default function ProfilePage() {
                 <p className="text-xs font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1.5">
                   <Eye className="w-3.5 h-3.5" />Post Impressions (30d)
                 </p>
-                <span className="text-xs font-black text-blue-600">
-                  {postImpressionsChart.reduce((s, d) => s + d.views, 0).toLocaleString()} total
-                </span>
+                <span className="text-xs font-black text-blue-600">{postImpressionsChart.reduce((s, d) => s + d.views, 0).toLocaleString()} total</span>
               </div>
               <ResponsiveContainer width="100%" height={72}>
                 <AreaChart data={postImpressionsChart} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
@@ -1156,10 +1090,7 @@ export default function ProfilePage() {
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="date" hide />
-                  <Tooltip
-                    formatter={(v: any) => [v, 'views']}
-                    contentStyle={{ fontSize: 10, borderRadius: 8, padding: '4px 8px' }}
-                  />
+                  <Tooltip formatter={(v: any) => [v, 'views']} contentStyle={{ fontSize: 10, borderRadius: 8, padding: '4px 8px' }} />
                   <Area type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} fill="url(#impGrad)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -1183,38 +1114,26 @@ export default function ProfilePage() {
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button onClick={() => navigate('/verify')} className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-full transition-colors">Apply</button>
-              <button onClick={() => setVerifyBannerDismissed(true)} className="p-1 text-muted-foreground hover:text-foreground transition-colors" aria-label="Dismiss"><X className="w-4 h-4" /></button>
+              <button onClick={() => setVerifyBannerDismissed(true)} className="p-1 text-muted-foreground hover:text-foreground transition-colors"><X className="w-4 h-4" /></button>
             </div>
           </div>
         </div>
       )}
 
       {isOwnProfile && <div className="px-4 mt-4"><RevenueAnalyticsWidget /></div>}
-      {isOwnProfile && profile && (
-        <div className="px-4 mt-4">
-          <CreatorMonetizationHub userId={profile.id} />
-        </div>
-      )}
+      {isOwnProfile && profile && <div className="px-4 mt-4"><CreatorMonetizationHub userId={profile.id} /></div>}
       {!isOwnProfile && profile && currentUser && (
         <div className="px-4 mt-4 space-y-3">
-          <SubscriptionTiersDisplay
-            creatorId={profile.id}
-            viewerId={currentUser.id}
-            creatorUsername={profile.username ?? 'creator'}
-          />
+          <SubscriptionTiersDisplay creatorId={profile.id} viewerId={currentUser.id} creatorUsername={profile.username ?? 'creator'} />
           <TipGoalWidget creatorId={profile.id} />
         </div>
       )}
-      {profile && (
-        <div className="px-4 mt-1">
-          <SubscriberBadge creatorId={profile.id} />
-        </div>
-      )}
+      {profile && <div className="px-4 mt-1"><SubscriberBadge creatorId={profile.id} /></div>}
 
       {/* Tabs */}
       <div className="sticky top-14 z-30 bg-background border-b border-border">
         <div className="flex overflow-x-auto scrollbar-hide">
-          {tabs.map((tab) => (
+          {tabs.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`flex-shrink-0 px-4 py-4 font-semibold transition-colors border-b-2 ${activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/50'}`}>
               {tab}
@@ -1227,7 +1146,6 @@ export default function ProfilePage() {
         {activeTab === 'Posts' && (
           posts.length > 0 ? (
             <div>
-              {/* Pinned post */}
               {pinnedPostId && (() => {
                 const pinned = posts.find(p => p.id === pinnedPostId);
                 if (!pinned) return null;
@@ -1235,25 +1153,17 @@ export default function ProfilePage() {
                   <div className="border-b-2 border-primary/20 bg-primary/3">
                     <div className="flex items-center gap-2 px-4 pt-3 pb-0">
                       <span className="text-[10px] font-bold text-primary uppercase tracking-wide">📌 Pinned Post</span>
-                      {isOwnProfile && (
-                        <button onClick={() => togglePinPost(pinnedPostId)}
-                          className="ml-auto text-[10px] text-muted-foreground hover:text-destructive transition-colors">
-                          Unpin
-                        </button>
-                      )}
+                      {isOwnProfile && <button onClick={() => togglePinPost(pinnedPostId)} className="ml-auto text-[10px] text-muted-foreground hover:text-destructive transition-colors">Unpin</button>}
                     </div>
                     <PostCard post={pinned} onUpdate={fetchProfile} />
                   </div>
                 );
               })()}
-              {posts.filter(p => p.id !== pinnedPostId).map((post) => (
+              {posts.filter(p => p.id !== pinnedPostId).map(post => (
                 <div key={post.id} className="relative group">
                   <PostCard post={post} onUpdate={fetchProfile} />
                   {isOwnProfile && (
-                    <button
-                      onClick={() => togglePinPost(post.id)}
-                      className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold text-muted-foreground hover:text-primary bg-background/90 px-2 py-1 rounded-full border border-border shadow-sm"
-                    >
+                    <button onClick={() => togglePinPost(post.id)} className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold text-muted-foreground hover:text-primary bg-background/90 px-2 py-1 rounded-full border border-border shadow-sm">
                       {pinnedPostId === post.id ? 'Unpin' : '📌 Pin'}
                     </button>
                   )}
@@ -1263,35 +1173,27 @@ export default function ProfilePage() {
           ) : <div className="text-center py-12 text-muted-foreground"><p>No posts yet</p></div>
         )}
 
-        {/* ── RSS Feed button on own Threads tab ── */}
         {activeTab === 'Threads' && isOwnProfile && (
           <div className="flex items-center gap-2 px-4 pt-3 pb-0">
-            <button
-              onClick={async () => {
-                await navigator.clipboard.writeText(getPodcastRssUrl(profile.username ?? ''));
-                toast.success('Podcast RSS URL copied — paste into any podcast app');
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 transition-colors text-xs font-semibold"
-              title="Copy your podcast RSS feed URL for use in podcast apps"
-            >
+            <button onClick={async () => { await navigator.clipboard.writeText(getPodcastRssUrl(profile.username ?? '')); toast.success('Podcast RSS URL copied!'); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 transition-colors text-xs font-semibold">
               <Rss className="w-3.5 h-3.5" />Copy Podcast RSS
             </button>
             <span className="text-[10px] text-muted-foreground">Subscribe in Apple Podcasts, Spotify…</span>
           </div>
         )}
-
         {activeTab === 'Threads' && (
           threads.length > 0 ? (
             <>
               <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/20">
                 <Rss className="w-4 h-4 text-orange-500" />
                 <span className="text-sm text-muted-foreground flex-1">Share your podcast RSS feed</span>
-                <button onClick={() => { navigator.clipboard.writeText(getPodcastRssUrl(profile.username)).then(() => toast.success('RSS feed URL copied!')); }}
+                <button onClick={() => navigator.clipboard.writeText(getPodcastRssUrl(profile.username)).then(() => toast.success('RSS feed URL copied!'))}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold transition-colors">
                   <Copy className="w-3 h-3" /> Copy RSS
                 </button>
               </div>
-              {threads.map((thread) => (
+              {threads.map(thread => (
                 <div key={thread.id} onClick={() => navigate(`/thread/${thread.id}`)} className="border-b border-border p-4 hover:bg-muted/5 cursor-pointer">
                   <h3 className="font-bold text-lg mb-2">{thread.title}</h3>
                   <p className="text-muted-foreground line-clamp-3 mb-2">{thread.content.substring(0, 200)}...</p>
@@ -1307,21 +1209,19 @@ export default function ProfilePage() {
         )}
 
         {activeTab === 'Replies' && (
-          replies.length > 0 ? (
-            replies.map((reply: any) => (
-              <div key={reply.id} className="border-b border-border p-4 hover:bg-muted/5">
-                <p className="text-sm text-muted-foreground mb-2">Replying to @{reply.posts?.user_profiles?.username}</p>
-                <p className="mb-2">{reply.content}</p>
-                <button onClick={() => navigate(`/post/${reply.post_id}`)} className="text-sm text-primary hover:underline">View conversation</button>
-              </div>
-            ))
-          ) : <div className="text-center py-12 text-muted-foreground"><p>No replies yet</p></div>
+          replies.length > 0 ? replies.map((reply: any) => (
+            <div key={reply.id} className="border-b border-border p-4 hover:bg-muted/5">
+              <p className="text-sm text-muted-foreground mb-2">Replying to @{reply.posts?.user_profiles?.username}</p>
+              <p className="mb-2">{reply.content}</p>
+              <button onClick={() => navigate(`/post/${reply.post_id}`)} className="text-sm text-primary hover:underline">View conversation</button>
+            </div>
+          )) : <div className="text-center py-12 text-muted-foreground"><p>No replies yet</p></div>
         )}
 
         {activeTab === 'Media' && (
           media.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-2">
-              {media.map((post) => {
+              {media.map(post => {
                 const mediaUrl = post.video_url || post.image_url || post.media_urls?.[0];
                 return (
                   <div key={post.id} onClick={() => navigate(`/post/${post.id}`)} className="aspect-square bg-muted rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity">
@@ -1343,37 +1243,18 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                {videoPosts.map((post) => (
-                  <button
-                    key={post.id}
-                    onClick={() => navigate(`/videos?id=${post.id}`)}
-                    className="relative rounded-xl overflow-hidden bg-black aspect-[9/16] hover:scale-[1.02] active:scale-[0.98] transition-transform focus:outline-none"
-                  >
-                    {/* Video thumbnail */}
-                    <video
-                      src={`${post.video_url}#t=0.5`}
-                      className="w-full h-full object-cover"
-                      muted
-                      preload="metadata"
-                    />
-                    {/* Gradient overlay */}
+                {videoPosts.map(post => (
+                  <button key={post.id} onClick={() => navigate(`/videos?id=${post.id}`)} className="relative rounded-xl overflow-hidden bg-black aspect-[9/16] hover:scale-[1.02] active:scale-[0.98] transition-transform focus:outline-none">
+                    <video src={`${post.video_url}#t=0.5`} className="w-full h-full object-cover" muted preload="metadata" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                    {/* Play icon */}
                     <div className="absolute top-2 right-2 w-7 h-7 bg-black/50 rounded-full flex items-center justify-center">
                       <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
                     </div>
-                    {/* Stats */}
                     <div className="absolute bottom-2 left-2 right-2">
-                      <p className="text-white text-[10px] font-medium line-clamp-2 mb-1 leading-tight">
-                        {post.content?.slice(0, 60)}
-                      </p>
+                      <p className="text-white text-[10px] font-medium line-clamp-2 mb-1 leading-tight">{post.content?.slice(0, 60)}</p>
                       <div className="flex items-center gap-2">
-                        <span className="flex items-center gap-0.5 text-white/70 text-[10px]">
-                          <Heart className="w-2.5 h-2.5" />{formatNumber(post.likes_count ?? 0)}
-                        </span>
-                        <span className="flex items-center gap-0.5 text-white/70 text-[10px]">
-                          <Eye className="w-2.5 h-2.5" />{formatNumber(post.views_count ?? 0)}
-                        </span>
+                        <span className="flex items-center gap-0.5 text-white/70 text-[10px]"><Heart className="w-2.5 h-2.5" />{formatNumber(post.likes_count ?? 0)}</span>
+                        <span className="flex items-center gap-0.5 text-white/70 text-[10px]"><Eye className="w-2.5 h-2.5" />{formatNumber(post.views_count ?? 0)}</span>
                       </div>
                     </div>
                   </button>
@@ -1385,16 +1266,13 @@ export default function ProfilePage() {
 
         {activeTab === 'Podcasts' && (() => {
           if (!podcastsFetched && profile?.id) fetchProfilePodcasts(profile.id);
-          // Podcast stats — computed from loaded episodes
           const podTotalEps = profilePodcasts.length;
           const podTotalListeners = profilePodcasts.reduce((s: number, p: any) => s + (p.listener_count ?? 0), 0);
           const podTotalSecs = profilePodcasts.reduce((s: number, p: any) => s + (p.duration ?? 0), 0);
-          const podTotalDurLabel = fmtPodTotalDur(podTotalSecs);
           return loadingPodcasts ? (
             <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
           ) : (
             <div>
-              {/* Podcast Stats row — shown once episodes are loaded */}
               {podTotalEps > 0 && (
                 <div className="flex items-center gap-3 px-4 pt-3 pb-2 overflow-x-auto scrollbar-hide">
                   <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/8 border border-primary/20 shrink-0">
@@ -1410,18 +1288,15 @@ export default function ProfilePage() {
                   {podTotalSecs > 0 && (
                     <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-500/8 border border-violet-500/20 shrink-0">
                       <Clock className="w-3.5 h-3.5 text-violet-500" />
-                      <span className="text-xs font-bold text-violet-600">{podTotalDurLabel}</span>
+                      <span className="text-xs font-bold text-violet-600">{fmtPodTotalDur(podTotalSecs)}</span>
                       <span className="text-xs text-muted-foreground">total</span>
                     </div>
                   )}
                 </div>
               )}
-              {/* RSS copy shortcut */}
               <div className="flex items-center gap-2 px-4 pt-3 pb-0">
-                <button
-                  onClick={() => navigator.clipboard.writeText(getPodcastRssUrl(profile.username ?? '')).then(() => toast.success('Podcast RSS URL copied!'))}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 transition-colors text-xs font-semibold"
-                >
+                <button onClick={() => navigator.clipboard.writeText(getPodcastRssUrl(profile.username ?? '')).then(() => toast.success('Podcast RSS URL copied!'))}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-orange-500/30 bg-orange-500/5 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 transition-colors text-xs font-semibold">
                   <Rss className="w-3.5 h-3.5" />Copy RSS Feed
                 </button>
                 <span className="text-[10px] text-muted-foreground">Subscribe in Apple Podcasts, Spotify…</span>
@@ -1431,36 +1306,24 @@ export default function ProfilePage() {
                   <Headphones className="w-14 h-14 mx-auto mb-3 opacity-20" />
                   <p className="font-semibold">No podcast episodes yet</p>
                   <p className="text-sm mt-1">Recorded audio spaces will appear here</p>
-                  {isOwnProfile && (
-                    <button onClick={() => navigate('/spaces')} className="mt-4 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90">
-                      Start a Space
-                    </button>
-                  )}
+                  {isOwnProfile && <button onClick={() => navigate('/spaces')} className="mt-4 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90">Start a Space</button>}
                 </div>
               ) : (
                 <div className="divide-y divide-border mt-2">
                   {profilePodcasts.map((pod: any) => {
-                    const podDur   = fmtRecDuration(pod.duration);
-                    const podArt   = pod.spaces?.artwork_url ?? null;
+                    const podDur = fmtRecDuration(pod.duration);
+                    const podArt = pod.spaces?.artwork_url ?? null;
                     const podTitle = pod.spaces?.title ?? pod.title;
-                    const podEp    = pod.spaces?.episode_number ?? null;
-                    const podSub   = pod.spaces?.subscriber_only ?? false;
+                    const podEp = pod.spaces?.episode_number ?? null;
+                    const podSub = pod.spaces?.subscriber_only ?? false;
                     return (
-                      <div
-                        key={pod.id}
-                        className="flex items-center gap-3 p-4 hover:bg-muted/15 transition-colors cursor-pointer"
-                        onClick={() => navigate(`/space-recording/${pod.id}`)}
-                      >
-                        {/* Artwork */}
+                      <div key={pod.id} className="flex items-center gap-3 p-4 hover:bg-muted/15 transition-colors cursor-pointer" onClick={() => navigate(`/space-recording/${pod.id}`)}>
                         <div className="w-14 h-14 rounded-xl overflow-hidden bg-gradient-to-br from-primary/15 to-purple-500/10 shrink-0 shadow-sm flex items-center justify-center">
-                          {podArt
-                            ? <img src={podArt} alt="" className="w-full h-full object-cover" />
-                            : <Headphones className="w-6 h-6 text-primary opacity-70" />}
+                          {podArt ? <img src={podArt} alt="" className="w-full h-full object-cover" /> : <Headphones className="w-6 h-6 text-primary opacity-70" />}
                         </div>
-                        {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-                            {podEp  && <span className="text-[10px] text-muted-foreground">Ep. {podEp}</span>}
+                            {podEp && <span className="text-[10px] text-muted-foreground">Ep. {podEp}</span>}
                             {pod.has_video && <span className="text-[10px] text-primary font-semibold">📹 Video</span>}
                             {podSub && <span className="text-[10px] text-amber-600 font-semibold">⭐ Sub</span>}
                           </div>
@@ -1471,11 +1334,7 @@ export default function ProfilePage() {
                             <span>{formatDistanceToNow(new Date(pod.created_at), { addSuffix: true })}</span>
                           </div>
                         </div>
-                        {/* Play */}
-                        <button
-                          onClick={e => { e.stopPropagation(); navigate(`/space-recording/${pod.id}`); }}
-                          className="w-10 h-10 rounded-full bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors shrink-0"
-                        >
+                        <button onClick={e => { e.stopPropagation(); navigate(`/space-recording/${pod.id}`); }} className="w-10 h-10 rounded-full bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors shrink-0">
                           <Play className="w-4 h-4 text-primary ml-0.5" fill="currentColor" />
                         </button>
                       </div>
@@ -1488,19 +1347,13 @@ export default function ProfilePage() {
         })()}
 
         {activeTab === 'Gifts' && (
-          loadingGifts ? (
-            <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
-          ) : giftHistory.length === 0 ? (
+          loadingGifts ? <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+          : giftHistory.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
               <Crown className="w-12 h-12 mx-auto mb-3 opacity-20" />
               <p className="font-semibold">No gift history yet</p>
               <p className="text-sm mt-1">Premium gifts sent or received will appear here</p>
-              {isOwnProfile && (
-                <button onClick={() => navigate('/premium')}
-                  className="mt-4 px-5 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 text-white rounded-full text-sm font-bold shadow-sm shadow-amber-500/20 hover:opacity-90">
-                  Get Premium
-                </button>
-              )}
+              {isOwnProfile && <button onClick={() => navigate('/premium')} className="mt-4 px-5 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 text-white rounded-full text-sm font-bold shadow-sm shadow-amber-500/20 hover:opacity-90">Get Premium</button>}
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -1513,23 +1366,13 @@ export default function ProfilePage() {
                 const isReceived = sub.user_id === profile.id;
                 return (
                   <div key={sub.id} className="p-4 hover:bg-muted/5 transition-colors flex items-center gap-3">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
-                      isActive ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-muted border border-border'
-                    }`}>
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${isActive ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-muted border border-border'}`}>
                       <Crown className={`w-6 h-6 ${isActive ? 'text-amber-500' : 'text-muted-foreground'}`} fill={isActive ? 'currentColor' : 'none'} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm">
-                          {isReceived ? (
-                            gifterName ? `From @${gifterName}` : 'Premium Gift'
-                          ) : 'Gift Sent'}
-                        </span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                          isActive ? 'bg-amber-500/15 text-amber-600' :
-                          isExpired ? 'bg-muted text-muted-foreground' :
-                          'bg-primary/10 text-primary'
-                        }`}>
+                        <span className="font-semibold text-sm">{isReceived ? (gifterName ? `From @${gifterName}` : 'Premium Gift') : 'Gift Sent'}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${isActive ? 'bg-amber-500/15 text-amber-600' : isExpired ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>
                           {isActive ? '✓ Active' : isExpired ? 'Expired' : sub.status}
                         </span>
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 font-semibold capitalize">{sub.plan}</span>
@@ -1542,12 +1385,9 @@ export default function ProfilePage() {
                         <div className="mt-1.5 flex items-center gap-2">
                           <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full"
-                              style={{ width: `${Math.max(5, Math.min(100, ((new Date(sub.expires_at).getTime() - Date.now()) / (30 * 24 * 60 * 60 * 1000)) * 100))}%` }}
-                            />
+                              style={{ width: `${Math.max(5, Math.min(100, ((new Date(sub.expires_at).getTime() - Date.now()) / (30 * 24 * 60 * 60 * 1000)) * 100))}%` }} />
                           </div>
-                          <span className="text-[9px] text-muted-foreground shrink-0">
-                            {Math.max(0, Math.ceil((new Date(sub.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))}d left
-                          </span>
+                          <span className="text-[9px] text-muted-foreground shrink-0">{Math.max(0, Math.ceil((new Date(sub.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))}d left</span>
                         </div>
                       )}
                     </div>
@@ -1560,8 +1400,8 @@ export default function ProfilePage() {
         )}
 
         {activeTab === 'Tips' && (
-          loadingTips ? <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div> :
-          tipHistory.length === 0 ? (
+          loadingTips ? <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+          : tipHistory.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
               <DollarSign className="w-12 h-12 mx-auto mb-3 opacity-20" />
               <p className="font-semibold">No tips yet</p>
@@ -1601,22 +1441,13 @@ export default function ProfilePage() {
             <div className="text-center py-16 text-muted-foreground">
               <BookOpen className="w-14 h-14 mx-auto mb-3 opacity-20" />
               <p className="font-semibold">No public series yet</p>
-              {isOwnProfile && (
-                <button onClick={() => navigate('/series')}
-                  className="mt-4 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90">
-                  Create a Series
-                </button>
-              )}
+              {isOwnProfile && <button onClick={() => navigate('/series')} className="mt-4 px-5 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90">Create a Series</button>}
             </div>
           ) : (
             <div className="divide-y divide-border">
               {profileSeries.map((s: any) => {
-                // Read reading progress from localStorage — inline, no hook
                 const sProg = (() => {
-                  try {
-                    const raw = localStorage.getItem('series_progress');
-                    return raw ? (JSON.parse(raw)[s.id] ?? null) : null;
-                  } catch { return null; }
+                  try { const raw = localStorage.getItem('series_progress'); return raw ? (JSON.parse(raw)[s.id] ?? null) : null; } catch { return null; }
                 })();
                 const sTotal = s.item_count ?? 0;
                 const sPct = sProg && sTotal > 0 ? Math.round((sProg.currentPart / sTotal) * 100) : 0;
@@ -1624,38 +1455,22 @@ export default function ProfilePage() {
                   <div key={s.id} className="hover:bg-muted/20 transition-colors">
                     <button onClick={() => navigate('/series')} className="w-full flex items-start gap-3 p-4 text-left">
                       <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center shrink-0 overflow-hidden border border-border">
-                        {s.cover_image
-                          ? <img src={s.cover_image} alt={s.name} className="w-full h-full object-cover" />
-                          : <BookOpen className="w-7 h-7 text-primary" />}
+                        {s.cover_image ? <img src={s.cover_image} alt={s.name} className="w-full h-full object-cover" /> : <BookOpen className="w-7 h-7 text-primary" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-sm truncate">{s.name}</p>
                         {s.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.description}</p>}
                         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                           <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">{sTotal} parts</span>
-                          {sProg && sTotal > 0 && (
-                            <span className="text-[10px] font-bold text-purple-600 bg-purple-500/10 px-1.5 py-0.5 rounded-full border border-purple-500/20">
-                              {sPct}% · Part {sProg.currentPart}/{sTotal}
-                            </span>
-                          )}
+                          {sProg && sTotal > 0 && <span className="text-[10px] font-bold text-purple-600 bg-purple-500/10 px-1.5 py-0.5 rounded-full border border-purple-500/20">{sPct}% · Part {sProg.currentPart}/{sTotal}</span>}
                           <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(s.updated_at ?? s.created_at), { addSuffix: true })}</span>
                         </div>
-                        {sProg && sTotal > 0 && (
-                          <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${sPct}%` }} />
-                          </div>
-                        )}
+                        {sProg && sTotal > 0 && <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden"><div className="h-full bg-primary rounded-full" style={{ width: `${sPct}%` }} /></div>}
                       </div>
                       <ChevronRight className="w-4 h-4 text-muted-foreground mt-1 shrink-0" />
                     </button>
                     <div className="px-4 pb-3">
-                      <button
-                        onClick={() => navigate('/series')}
-                        className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-colors ${
-                          sProg && sTotal > 0
-                            ? 'bg-primary text-primary-foreground hover:opacity-90'
-                            : 'bg-muted hover:bg-muted/80 text-foreground'
-                        }`}>
+                      <button onClick={() => navigate('/series')} className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-colors ${sProg && sTotal > 0 ? 'bg-primary text-primary-foreground hover:opacity-90' : 'bg-muted hover:bg-muted/80 text-foreground'}`}>
                         <Play className="w-3.5 h-3.5" />
                         {sProg && sTotal > 0 ? `Continue (Part ${sProg.currentPart})` : 'Start Reading'}
                       </button>
@@ -1668,13 +1483,13 @@ export default function ProfilePage() {
         })()}
 
         {activeTab === 'Likes' && (
-          likedPosts.length > 0 ? likedPosts.map((post) => <PostCard key={post.id} post={post} onUpdate={fetchProfile} />) : <div className="text-center py-12 text-muted-foreground"><p>No liked posts yet</p></div>
+          likedPosts.length > 0 ? likedPosts.map(post => <PostCard key={post.id} post={post} onUpdate={fetchProfile} />) : <div className="text-center py-12 text-muted-foreground"><p>No liked posts yet</p></div>
         )}
 
         {activeTab === 'Followers' && (
           followers.length > 0 ? (
             <div className="divide-y divide-border">
-              {followers.map((follower) => (
+              {followers.map(follower => (
                 <div key={follower.id} className="p-4 hover:bg-muted/5 flex items-center justify-between">
                   <div className="flex items-center space-x-3 flex-1 cursor-pointer" onClick={() => navigate(`/profile/${follower.username}`)}>
                     <div className="w-12 h-12 rounded-full bg-muted overflow-hidden">
@@ -1697,7 +1512,7 @@ export default function ProfilePage() {
         {activeTab === 'Following' && (
           following.length > 0 ? (
             <div className="divide-y divide-border">
-              {following.map((followedUser) => (
+              {following.map(followedUser => (
                 <div key={followedUser.id} className="p-4 hover:bg-muted/5 flex items-center justify-between">
                   <div className="flex items-center space-x-3 flex-1 cursor-pointer" onClick={() => navigate(`/profile/${followedUser.username}`)}>
                     <div className="w-12 h-12 rounded-full bg-muted overflow-hidden">
@@ -1718,7 +1533,7 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* Highlight Viewer Overlay */}
+      {/* Highlight Viewer */}
       {viewingHighlight && (
         <div className="fixed inset-0 z-[220] bg-black flex flex-col select-none">
           {loadingHighlightStories ? (
@@ -1747,12 +1562,13 @@ export default function ProfilePage() {
                     <p className="text-white font-semibold text-sm truncate">{viewingHighlight.title}</p>
                     <p className="text-white/60 text-xs">@{profile.username}</p>
                   </div>
-                  <button onClick={closeHighlightViewer} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors"><X className="w-4 h-4" /></button>
+                  <button onClick={closeHighlightViewer} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white"><X className="w-4 h-4" /></button>
                 </div>
                 <div className="flex-1 flex items-center justify-center" onClick={e => {
                   const x = e.clientX; const w = (e.currentTarget as HTMLElement).offsetWidth;
                   if (x < w / 2) { setHighlightStoryIdx(p => Math.max(0, p - 1)); setHighlightProgress(0); }
-                  else { if (highlightStoryIdx < highlightStories.length - 1) { setHighlightStoryIdx(p => p + 1); setHighlightProgress(0); } else closeHighlightViewer(); }
+                  else if (highlightStoryIdx < highlightStories.length - 1) { setHighlightStoryIdx(p => p + 1); setHighlightProgress(0); }
+                  else closeHighlightViewer();
                 }}>
                   {story.media_type === 'video'
                     ? <video key={story.id} src={story.media_url} autoPlay playsInline className="max-h-screen max-w-full object-contain" onEnded={() => { if (highlightStoryIdx < highlightStories.length - 1) { setHighlightStoryIdx(p => p + 1); setHighlightProgress(0); } else closeHighlightViewer(); }} />
@@ -1825,8 +1641,7 @@ export default function ProfilePage() {
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowGiftPremiumDialog(false)} className="flex-1 py-3 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors">Cancel</button>
-              <button onClick={handleGiftPremium} disabled={giftingPremium}
-                className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg shadow-amber-500/20">
+              <button onClick={handleGiftPremium} disabled={giftingPremium} className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-yellow-500 text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg shadow-amber-500/20">
                 {giftingPremium ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crown className="w-4 h-4" fill="currentColor" />}
                 {giftingPremium ? 'Gifting…' : 'Gift $4.99'}
               </button>
