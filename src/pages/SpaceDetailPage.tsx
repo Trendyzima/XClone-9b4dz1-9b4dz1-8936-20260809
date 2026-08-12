@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
@@ -122,12 +122,17 @@ export default function SpaceDetailPage() {
     } : undefined,
   });
 
+  // Poll superchats every 10 seconds while space is live
+  const superChatPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     if (!id) return;
     fetchSpace();
     fetchRecordings();
     fetchParticipants();
     fetchSuperChats(id);
+    superChatPollRef.current = setInterval(() => fetchSuperChats(id), 10000);
+    return () => { if (superChatPollRef.current) clearInterval(superChatPollRef.current); };
   }, [id]);
 
   const fetchSpace = async () => {
@@ -254,6 +259,40 @@ export default function SpaceDetailPage() {
             <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Recordings</span>
           </div>
         </div>
+
+        {/* SuperChat feed strip */}
+        {superChats.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-bold flex items-center gap-1.5">
+              <DollarSign className="w-3.5 h-3.5 text-yellow-500" />SuperChats
+              <span className="text-[10px] text-muted-foreground font-normal">pinned for 60s</span>
+            </p>
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+              {superChats.map((sc: any) => {
+                const scAmt = Number(sc.amount ?? 0);
+                const scColor = scAmt >= 50 ? 'border-red-500/50 bg-red-500/8 text-red-700 dark:text-red-400'
+                  : scAmt >= 20 ? 'border-orange-500/50 bg-orange-500/8 text-orange-700 dark:text-orange-400'
+                  : scAmt >= 10 ? 'border-yellow-500/50 bg-yellow-500/8 text-yellow-700 dark:text-yellow-400'
+                  : scAmt >= 5 ? 'border-green-500/50 bg-green-500/8 text-green-700 dark:text-green-400'
+                  : 'border-blue-500/50 bg-blue-500/8 text-blue-700 dark:text-blue-400';
+                return (
+                  <div key={sc.id} className={`shrink-0 max-w-[200px] px-3 py-2 rounded-2xl border-2 ${scColor}`}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <div className="w-5 h-5 rounded-full overflow-hidden bg-muted shrink-0">
+                        {sc.user_profiles?.avatar_url
+                          ? <img src={sc.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" />
+                          : <div className="w-full h-full flex items-center justify-center text-[8px] font-bold">{sc.user_profiles?.username?.[0]?.toUpperCase()}</div>}
+                      </div>
+                      <span className="text-[10px] font-black truncate">{sc.user_profiles?.username}</span>
+                      <span className="text-[10px] font-black ml-auto shrink-0">${scAmt}</span>
+                    </div>
+                    <p className="text-[11px] leading-snug line-clamp-2">{sc.message}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* CTA */}
         {space.is_live && (
