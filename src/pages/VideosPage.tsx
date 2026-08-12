@@ -15,7 +15,9 @@ import { toast } from 'sonner';
 const VIDEO_SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const VIDEO_SEARCH_DEBOUNCE_MS = 400;
 
-const PRELOAD_AHEAD = 2;
+const PRELOAD_AHEAD = 3;
+// PRELOAD_CANCEL_BEHIND: release buffering for videos more than this many slots behind current
+const PRELOAD_CANCEL_BEHIND = 2;
 const PAGE_SIZE = 20;
 // Inject a video ad every AD_INTERVAL videos
 const AD_INTERVAL = 5;
@@ -236,7 +238,10 @@ export default function VideosPage() {
   const lastRewardedAt = useRef(0);
 
   // Preload map: index → shouldPreload — plain untyped object (esbuild guard: no Record<N,T> annotation)
+  // Smart preloading: eagerly buffer next PRELOAD_AHEAD slots, cancel stale ones behind
   const [preloadMap, setPreloadMap] = useState<any>({});
+  // Track indices whose <video> src should be set to '' to cancel buffering
+  const [cancelMap, setCancelMap] = useState<any>({});
 
   // Fetch active user-created video/image ads for injection
   useEffect(() => {
@@ -372,8 +377,9 @@ export default function VideosPage() {
         setVideos(newVideos);
         // esbuild guard: plain untyped object (no Record<N,T> annotation)
         const init: any = {};
-        for (let i = 0; i < Math.min(3, newVideos.length); i++) init[i] = true;
+        for (let i = 0; i < Math.min(4, newVideos.length); i++) init[i] = true;
         setPreloadMap(init);
+        setCancelMap({});
       } else {
         setVideos(prev => [...prev, ...newVideos]);
       }
@@ -407,6 +413,14 @@ export default function VideosPage() {
           const map = { ...prev };
           for (let i = idx; i <= idx + PRELOAD_AHEAD && i < videos.length; i++) {
             map[i] = true;
+          }
+          return map;
+        });
+        // Cancel buffering for slots too far behind (release memory)
+        setCancelMap(prev => {
+          const map = { ...prev };
+          for (let i = 0; i < idx - PRELOAD_CANCEL_BEHIND; i++) {
+            if (!map[i]) map[i] = true;
           }
           return map;
         });
@@ -638,11 +652,28 @@ export default function VideosPage() {
                   position: 'relative',
                 }}
               >
+                {/* Thumbnail shimmer while video is loading (shown before preload activates) */}
+                {!preloadMap[index] && video.image_url && (
+                  <div className="absolute inset-0 bg-black">
+                    <img
+                      src={video.image_url}
+                      alt=""
+                      className="w-full h-full object-cover opacity-60"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-16 h-16 rounded-full bg-black/40 border border-white/20 flex items-center justify-center animate-pulse">
+                        <Play className="w-7 h-7 text-white fill-white ml-1" />
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <VideoPlayer
                   post={video}
                   isActive={slotIndex === activeIndex}
                   onUpdate={() => fetchVideos(0)}
                   shouldPreload={!!preloadMap[index]}
+                  cancelPreload={!!cancelMap[index]}
                 />
               </div>
             </React.Fragment>

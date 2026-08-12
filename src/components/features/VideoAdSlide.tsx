@@ -32,6 +32,30 @@ interface VideoAdSlideProps {
   isActive: boolean;
 }
 
+// ── Ad Frequency Cap: max 3 impressions per ad per user per 24h ──────────────
+// Uses localStorage key ts-adfreq-{adId} → JSON array of timestamps
+function checkAdFreqCap(adId: string): boolean {
+  try {
+    const key = `ts-adfreq-${adId}`;
+    const raw = localStorage.getItem(key);
+    const stamps: number[] = raw ? JSON.parse(raw) : [];
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const recent = stamps.filter(t => t > cutoff);
+    return recent.length >= 3;
+  } catch { return false; }
+}
+function recordAdImpression(adId: string): void {
+  try {
+    const key = `ts-adfreq-${adId}`;
+    const raw = localStorage.getItem(key);
+    const stamps: number[] = raw ? JSON.parse(raw) : [];
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const recent = stamps.filter(t => t > cutoff);
+    recent.push(Date.now());
+    localStorage.setItem(key, JSON.stringify(recent));
+  } catch {}
+}
+
 export function VideoAdSlide({ ad, isActive }: VideoAdSlideProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -40,7 +64,8 @@ export function VideoAdSlide({ ad, isActive }: VideoAdSlideProps) {
   const skipTracked = useRef(false);
   const watchStartRef = useRef<number>(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  // Check frequency cap before rendering — cap exceeded means hidden immediately
+  const [dismissed, setDismissed] = useState(() => checkAdFreqCap(ad.id));
   const [expanded, setExpanded] = useState(false);
   const [liked, setLiked] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -62,6 +87,7 @@ export function VideoAdSlide({ ad, isActive }: VideoAdSlideProps) {
     if (!impressionTracked.current) {
       impressionTracked.current = true;
       watchStartRef.current = Date.now();
+      recordAdImpression(ad.id);
       supabase.from('ad_impressions').insert({
         ad_id: ad.id,
         user_id: user?.id ?? null,

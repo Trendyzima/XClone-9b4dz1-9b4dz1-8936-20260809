@@ -18,6 +18,7 @@ interface VideoPlayerProps {
   isActive: boolean;
   onUpdate?: () => void;
   shouldPreload?: boolean;
+  cancelPreload?: boolean;
 }
 
 interface Reply {
@@ -30,7 +31,7 @@ interface Reply {
 // @__PURE__ annotation prevents esbuild non-determinism on module-level Map construction
 const authorPremiumCache: Map<string, boolean> = /* @__PURE__ */ new Map();
 
-export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPlayerProps) {
+export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPreload }: VideoPlayerProps) {
   const videoRef       = useRef<HTMLVideoElement>(null);
   const viewCounterRef = useRef(0); // per-page view counter — replaces module-level _counter
   const progressRef    = useRef<HTMLDivElement>(null);
@@ -556,7 +557,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload }: VideoPl
       {/* ── Video element ────────────────────────────────────────────────── */}
       <video
         ref={videoRef}
-        src={post.video_url || ''}
+        src={cancelPreload ? '' : (post.video_url || '')}
         loop
         playsInline
         muted={isMuted}

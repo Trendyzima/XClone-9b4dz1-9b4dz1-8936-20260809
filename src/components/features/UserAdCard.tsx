@@ -24,6 +24,28 @@ interface UserAdCardProps {
   };
 }
 
+// ── Ad Frequency Cap: max 3 impressions per ad per user per 24h ──────────────
+function checkAdFreqCapCard(adId: string): boolean {
+  try {
+    const key = `ts-adfreq-${adId}`;
+    const raw = localStorage.getItem(key);
+    const stamps: number[] = raw ? JSON.parse(raw) : [];
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return stamps.filter(t => t > cutoff).length >= 3;
+  } catch { return false; }
+}
+function recordAdImpressionCard(adId: string): void {
+  try {
+    const key = `ts-adfreq-${adId}`;
+    const raw = localStorage.getItem(key);
+    const stamps: number[] = raw ? JSON.parse(raw) : [];
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const recent = stamps.filter(t => t > cutoff);
+    recent.push(Date.now());
+    localStorage.setItem(key, JSON.stringify(recent));
+  } catch {}
+}
+
 /**
  * UserAdCard — Facebook-style sponsored post card.
  * Features: advertiser header with "Ad · 🌐" label, full-bleed media,
@@ -34,7 +56,7 @@ export function UserAdCard({ ad }: UserAdCardProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const impressionTracked = useRef(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => checkAdFreqCapCard(ad.id));
   const [expanded, setExpanded] = useState(false);
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(ad.impressions ? Math.floor(ad.impressions * 0.04) : 0);
@@ -50,6 +72,7 @@ export function UserAdCard({ ad }: UserAdCardProps) {
   useEffect(() => {
     if (impressionTracked.current) return;
     impressionTracked.current = true;
+    recordAdImpressionCard(ad.id);
     supabase.from('ad_impressions').insert({
       ad_id: ad.id,
       user_id: user?.id ?? null,
