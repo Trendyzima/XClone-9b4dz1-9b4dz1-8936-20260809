@@ -37,6 +37,8 @@ export function VideoAdSlide({ ad, isActive }: VideoAdSlideProps) {
   const navigate = useNavigate();
   const impressionTracked = useRef(false);
   const completionTracked = useRef(false);
+  const skipTracked = useRef(false);
+  const watchStartRef = useRef<number>(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -45,16 +47,43 @@ export function VideoAdSlide({ ad, isActive }: VideoAdSlideProps) {
   const [likeCount, setLikeCount] = useState(ad.impressions ? Math.floor(ad.impressions * 0.04) : Math.floor(Math.random() * 800 + 100));
   const [commentCount] = useState(ad.clicks ? Math.floor(ad.clicks * 0.12) : Math.floor(Math.random() * 50 + 5));
   const [shareCount] = useState(ad.clicks ? Math.floor(ad.clicks * 0.05) : Math.floor(Math.random() * 20 + 1));
+  // Skip button: counts down from 5 then shows "Skip Ad"
+  const [skipCountdown, setSkipCountdown] = useState(5);
+  const [canSkip, setCanSkip] = useState(false);
+  const skipTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Track impression once when slide becomes active
+  // Track impression once when slide becomes active + start skip countdown
   useEffect(() => {
-    if (!isActive || impressionTracked.current) return;
-    impressionTracked.current = true;
-    supabase.from('ad_impressions').insert({
-      ad_id: ad.id,
-      user_id: user?.id ?? null,
-      clicked: false,
-    }).catch(() => {});
+    if (!isActive) {
+      // Pause/clear skip timer when slide is not active
+      if (skipTimerRef.current) clearInterval(skipTimerRef.current);
+      return;
+    }
+    if (!impressionTracked.current) {
+      impressionTracked.current = true;
+      watchStartRef.current = Date.now();
+      supabase.from('ad_impressions').insert({
+        ad_id: ad.id,
+        user_id: user?.id ?? null,
+        clicked: false,
+        skipped: false,
+        completed: false,
+      }).catch(() => {});
+    }
+    // Start skip countdown
+    setSkipCountdown(5);
+    setCanSkip(false);
+    if (skipTimerRef.current) clearInterval(skipTimerRef.current);
+    let count = 5;
+    skipTimerRef.current = setInterval(() => {
+      count -= 1;
+      setSkipCountdown(count);
+      if (count <= 0) {
+        clearInterval(skipTimerRef.current!);
+        setCanSkip(true);
+      }
+    }, 1000);
+    return () => { if (skipTimerRef.current) clearInterval(skipTimerRef.current); };
   }, [isActive, ad.id, user?.id]);
 
   // Play/pause video with tab activity
@@ -75,13 +104,36 @@ export function VideoAdSlide({ ad, isActive }: VideoAdSlideProps) {
     if (!v || !v.duration) return;
     if (v.currentTime / v.duration >= 0.8) {
       completionTracked.current = true;
+      const watchSeconds = Math.round((Date.now() - watchStartRef.current) / 1000);
       supabase.from('ad_impressions').insert({
         ad_id: ad.id,
         user_id: user?.id ?? null,
-        clicked: false, // story completion — not a click
+        clicked: false,
+        completed: true,
+        skipped: false,
+        watch_seconds: watchSeconds,
       }).catch(() => {});
     }
   }, [ad.id, user?.id]);
+
+  // Handle skip button click
+  const handleSkip = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!canSkip) return;
+    if (!skipTracked.current) {
+      skipTracked.current = true;
+      const watchSeconds = Math.round((Date.now() - watchStartRef.current) / 1000);
+      supabase.from('ad_impressions').insert({
+        ad_id: ad.id,
+        user_id: user?.id ?? null,
+        clicked: false,
+        skipped: true,
+        completed: false,
+        watch_seconds: watchSeconds,
+      }).catch(() => {});
+    }
+    setDismissed(true);
+  }, [canSkip, ad.id, user?.id]);
 
   const handleClick = () => {
     supabase.from('ad_impressions').insert({ ad_id: ad.id, user_id: user?.id ?? null, clicked: true }).catch(() => {});
@@ -175,6 +227,39 @@ export function VideoAdSlide({ ad, isActive }: VideoAdSlideProps) {
       >
         <X className="w-4 h-4 text-white" />
       </button>
+
+      {/* ── Skip Ad Button (bottom-right, 5s countdown then skip) ── */}
+      <div className="absolute bottom-40 right-4 z-20">
+        {canSkip ? (
+          <button
+            onClick={handleSkip}
+            className="flex items-center gap-1.5 bg-black/70 backdrop-blur-sm border border-white/30 rounded-full px-4 py-2 text-white text-xs font-bold hover:bg-white/20 active:scale-95 transition-all animate-in fade-in duration-200"
+          >
+            Skip Ad
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3 3l10 5-10 5V3zm10 4V3l3 5-3 5V7z" />
+            </svg>
+          </button>
+        ) : (
+          <div className="relative w-12 h-12 flex items-center justify-center">
+            {/* Circular countdown SVG ring */}
+            <svg className="absolute inset-0 w-12 h-12 -rotate-90" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="3" />
+              <circle
+                cx="24" cy="24" r="20"
+                fill="none"
+                stroke="rgba(255,255,255,0.8)"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 20}`}
+                strokeDashoffset={`${2 * Math.PI * 20 * (skipCountdown / 5)}`}
+                style={{ transition: 'stroke-dashoffset 0.9s linear' }}
+              />
+            </svg>
+            <span className="text-white text-xs font-black z-10">{skipCountdown}</span>
+          </div>
+        )}
+      </div>
 
       {/* ── Bottom overlay content ── */}
       <div className="absolute bottom-0 left-0 right-0 z-10 px-4 pb-6 space-y-3">

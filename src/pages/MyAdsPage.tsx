@@ -6,8 +6,8 @@ import { supabase } from '@/lib/supabase';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/button';
 import {
-  Megaphone, Eye, MousePointer, DollarSign, Loader2, Plus,
-  Pause, Play, Trash2, CheckCircle2, Clock, XCircle, AlertCircle,
+  Megaphone, Eye, MousePointer, DollarSign, Loader2, Plus, Play,
+  Pause, Trash2, CheckCircle2, Clock, XCircle, AlertCircle,
   TrendingUp, BarChart3, RefreshCw, Target, Zap, ShieldCheck, ShieldAlert, ShieldX,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -86,6 +86,9 @@ export default function MyAdsPage() {
   // Ad Reaction Analytics: like/share/comment engagement counts per ad
   const [reactionStats, setReactionStats] = useState<{ adId: string; likes: number; comments: number; shares: number; total: number }[]>([]);
   const [loadingReactions, setLoadingReactions] = useState(false);
+  // Video Ad Performance: view-through rate, skip rate, completion rate, avg watch time
+  const [videoAdStats, setVideoAdStats] = useState<{ impressions: number; completed: number; skipped: number; avgWatchSeconds: number } | null>(null);
+  const [loadingVideoStats, setLoadingVideoStats] = useState(false);
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -156,8 +159,37 @@ export default function MyAdsPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'performance' && ads.length > 0) { fetchDailyStats(); fetchHeatmap(); fetchReactionStats(); }
+    if (activeTab === 'performance' && ads.length > 0) { fetchDailyStats(); fetchHeatmap(); fetchReactionStats(); fetchVideoAdStats(); }
   }, [activeTab, ads.length]);
+
+  const fetchVideoAdStats = async () => {
+    if (!user || ads.length === 0) return;
+    setLoadingVideoStats(true);
+    const videoAds = ads.filter((a: any) => a.video_url);
+    if (videoAds.length === 0) { setLoadingVideoStats(false); return; }
+    const adIds = videoAds.map((a: any) => a.id);
+    const { data: rows } = await supabase
+      .from('ad_impressions')
+      .select('skipped, completed, watch_seconds')
+      .in('ad_id', adIds);
+    if (!rows || rows.length === 0) { setLoadingVideoStats(false); return; }
+    const impressions = rows.length;
+    let completedCount = 0;
+    let skippedCount = 0;
+    let totalWatch = 0;
+    for (const row of rows) {
+      if (row.completed) completedCount++;
+      if (row.skipped) skippedCount++;
+      totalWatch += Number(row.watch_seconds ?? 0);
+    }
+    setVideoAdStats({
+      impressions,
+      completed: completedCount,
+      skipped: skippedCount,
+      avgWatchSeconds: impressions > 0 ? Math.round(totalWatch / impressions) : 0,
+    });
+    setLoadingVideoStats(false);
+  };
 
   const fetchReactionStats = async () => {
     if (!user || ads.length === 0) return;
@@ -702,6 +734,93 @@ export default function MyAdsPage() {
                     </div>
                   )}
                 </div>
+
+                {/* ── Video Ad Performance ── */}
+                {(loadingVideoStats || (videoAdStats && videoAdStats.impressions > 0)) && (
+                  <div className="bg-card border border-border rounded-2xl p-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Play className="w-5 h-5 text-blue-500" />
+                      <h3 className="font-bold">Video Ad Performance</h3>
+                      <span className="text-xs text-muted-foreground">view-through · skip · completion</span>
+                    </div>
+                    {loadingVideoStats ? (
+                      <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+                    ) : videoAdStats ? (
+                      <div className="space-y-4">
+                        {/* KPI row */}
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { label: 'Impressions', value: String(videoAdStats.impressions), color: 'text-blue-500',   bg: 'from-blue-500/10' },
+                            { label: 'Completed',   value: String(videoAdStats.completed),   color: 'text-green-500',  bg: 'from-green-500/10' },
+                            { label: 'Skipped',     value: String(videoAdStats.skipped),     color: 'text-orange-500', bg: 'from-orange-500/10' },
+                          ].map(k => (
+                            <div key={k.label} className={`bg-gradient-to-br ${k.bg} to-transparent border border-border rounded-xl p-2.5 text-center`}>
+                              <p className={`font-black text-lg leading-none ${k.color}`}>{k.value}</p>
+                              <p className="text-[10px] text-muted-foreground mt-1">{k.label}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Rate bars */}
+                        <div className="space-y-3">
+                          {/* View-Through Rate */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-semibold">View-Through Rate</span>
+                              <span className="text-xs font-black text-green-600">
+                                {videoAdStats.impressions > 0 ? ((videoAdStats.completed / videoAdStats.impressions) * 100).toFixed(1) : '0.0'}%
+                              </span>
+                            </div>
+                            <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-green-400 to-green-500 rounded-full transition-all duration-700"
+                                style={{ width: videoAdStats.impressions > 0 ? Math.max(2, (videoAdStats.completed / videoAdStats.impressions) * 100) + '%' : '0%' }}
+                              />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">% of viewers who watched ≥80% of the video</p>
+                          </div>
+                          {/* Skip Rate */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-semibold">Skip Rate</span>
+                              <span className="text-xs font-black text-orange-600">
+                                {videoAdStats.impressions > 0 ? ((videoAdStats.skipped / videoAdStats.impressions) * 100).toFixed(1) : '0.0'}%
+                              </span>
+                            </div>
+                            <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-orange-400 to-orange-500 rounded-full transition-all duration-700"
+                                style={{ width: videoAdStats.impressions > 0 ? Math.max(2, (videoAdStats.skipped / videoAdStats.impressions) * 100) + '%' : '0%' }}
+                              />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">% of viewers who tapped Skip after 5s countdown</p>
+                          </div>
+                          {/* Avg Watch Time */}
+                          <div className="flex items-center justify-between p-3 bg-muted/40 rounded-xl">
+                            <div>
+                              <p className="text-xs font-semibold">Avg Watch Time</p>
+                              <p className="text-[10px] text-muted-foreground">Per video ad impression</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-2xl font-black text-primary">{videoAdStats.avgWatchSeconds}s</p>
+                              <p className="text-[10px] text-muted-foreground">seconds</p>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Interpretation */}
+                        <div className="p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+                          <p className="text-xs font-bold text-blue-600 mb-1">💡 Insight</p>
+                          <p className="text-xs text-muted-foreground">
+                            {videoAdStats.impressions > 0 && (videoAdStats.completed / videoAdStats.impressions) >= 0.5
+                              ? 'Strong completion rate! Your video creative is engaging viewers effectively.'
+                              : videoAdStats.impressions > 0 && (videoAdStats.skipped / videoAdStats.impressions) >= 0.4
+                              ? 'High skip rate detected. Consider a stronger hook in the first 3 seconds.'
+                              : 'Keep monitoring — more data will reveal optimization opportunities.'}
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
 
                 {/* Growth tips */}
                 <div className="bg-gradient-to-br from-primary/5 to-purple-500/5 border border-primary/20 rounded-2xl p-4">

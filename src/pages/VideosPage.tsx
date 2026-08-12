@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { VideoPlayer } from '@/components/features/VideoPlayer';
 import { VideoAdSlide } from '@/components/features/VideoAdSlide';
 import { supabase } from '@/lib/supabase';
@@ -173,8 +173,8 @@ export default function VideosPage() {
   const [commentPost, setCommentPost] = useState<Post | null>(null);
   // Share card
   const [sharePost, setSharePost] = useState<Post | null>(null);
-  // Watch later
-  const [watchLaterIds, setWatchLaterIds] = useState<Set<string>>(new Set());
+  // Watch later — plain array (esbuild guard: no Set<string> state)
+  const [watchLaterIds, setWatchLaterIds] = useState<string[]>([]);
   // Speed overlay
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -235,8 +235,8 @@ export default function VideosPage() {
   const [rewardMessage, setRewardMessage] = useState('');
   const lastRewardedAt = useRef(0);
 
-  // Preload map: index → shouldPreload
-  const [preloadMap, setPreloadMap] = useState<Record<number, boolean>>({});
+  // Preload map: index → shouldPreload — plain untyped object (esbuild guard: no Record<N,T> annotation)
+  const [preloadMap, setPreloadMap] = useState<any>({});
 
   // Fetch active user-created video/image ads for injection
   useEffect(() => {
@@ -252,23 +252,25 @@ export default function VideosPage() {
 
   // Fetch following IDs + watch later when user logs in
   useEffect(() => {
-    if (!user) { setFollowingIds([]); setWatchLaterIds(new Set()); return; }
+    if (!user) { setFollowingIds([]); setWatchLaterIds([]); return; }
     supabase.from('follows').select('following_id').eq('follower_id', user.id)
       .then(({ data }) => setFollowingIds((data ?? []).map((f: any) => f.following_id)));
     // Load watch-later from localStorage (persists across sessions)
     const wl = localStorage.getItem(`ts-watchlater-${user.id}`);
-    if (wl) setWatchLaterIds(new Set(JSON.parse(wl)));
+    if (wl) { try { setWatchLaterIds(JSON.parse(wl) ?? []); } catch { setWatchLaterIds([]); } }
   }, [user?.id]);
 
   const toggleWatchLater = (e: React.MouseEvent, videoId: string) => {
     e.stopPropagation();
     if (!user) { navigate('/auth'); return; }
     setWatchLaterIds(prev => {
-      const s = new Set(prev);
-      if (s.has(videoId)) { s.delete(videoId); toast.success('Removed from Watch Later'); }
-      else { s.add(videoId); toast.success('Saved to Watch Later'); }
-      localStorage.setItem(`ts-watchlater-${user.id}`, JSON.stringify([...s]));
-      return s;
+      const next = prev.includes(videoId)
+        ? prev.filter(id => id !== videoId)
+        : [...prev, videoId];
+      if (prev.includes(videoId)) toast.success('Removed from Watch Later');
+      else toast.success('Saved to Watch Later');
+      localStorage.setItem(`ts-watchlater-${user.id}`, JSON.stringify(next));
+      return next;
     });
   };
 
@@ -287,7 +289,7 @@ export default function VideosPage() {
   }, []);
 
   // Watch Later tab: filter from loaded videos by id
-  const watchLaterVideos = useMemo(() => videos.filter(v => watchLaterIds.has(v.id)), [videos, watchLaterIds]);
+  const watchLaterVideos = useMemo(() => videos.filter(v => watchLaterIds.includes(v.id)), [videos, watchLaterIds]);
 
   // Re-fetch when tab changes (skip watch-later — uses local filter)
   useEffect(() => {
@@ -368,7 +370,8 @@ export default function VideosPage() {
 
       if (pageNum === 0) {
         setVideos(newVideos);
-        const init: Record<number, boolean> = {};
+        // esbuild guard: plain untyped object (no Record<N,T> annotation)
+        const init: any = {};
         for (let i = 0; i < Math.min(3, newVideos.length); i++) init[i] = true;
         setPreloadMap(init);
       } else {
@@ -439,6 +442,11 @@ export default function VideosPage() {
       setRewardPending(false);
     }
   };
+
+  // ── Pre-compute current video for quick-actions bar (esbuild guard: no IIFE in render) ──
+  const currentFeedVideos = activeTab === 'watchlater' ? watchLaterVideos : videos;
+  const currentVideo = currentFeedVideos[activeIndex] ?? null;
+  const currentIsWatchLater = currentVideo ? watchLaterIds.includes(currentVideo.id) : false;
 
   if (loading) {
     return (
@@ -601,7 +609,7 @@ export default function VideosPage() {
           const showAdBeforeThis = index > 0 && index % AD_INTERVAL === 0 && videoAds.length > 0;
           const adForSlot = showAdBeforeThis ? videoAds[(Math.floor(index / AD_INTERVAL) - 1) % videoAds.length] : null;
           return (
-            <>
+            <React.Fragment key={`slot-${video.id}`}>
               {/* Inject ad slide before every AD_INTERVAL-th video */}
               {adForSlot && (
                 <div
@@ -637,7 +645,7 @@ export default function VideosPage() {
                   shouldPreload={!!preloadMap[index]}
                 />
               </div>
-            </>
+            </React.Fragment>
           );
         })}
 
@@ -649,47 +657,40 @@ export default function VideosPage() {
         )}
       </div>
 
-      {/* Video index indicator + watch-later + comment + share quick actions */}
+      {/* Video index indicator */}
       <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
         <div className="bg-black/40 backdrop-blur-sm rounded-full px-3 py-1">
           <p className="text-white/70 text-xs font-medium">
-            {activeIndex + 1} / {(activeTab === 'watchlater' ? watchLaterVideos : videos).length}{hasMore ? '+' : ''}
+            {activeIndex + 1} / {currentFeedVideos.length}{hasMore ? '+' : ''}
           </p>
         </div>
       </div>
-      {/* Floating comment + share + watch-later quick actions over current video */}
-      {(activeTab === 'watchlater' ? watchLaterVideos : videos)[activeIndex] && (
+      {/* Floating comment + share + watch-later quick actions — esbuild guard: pre-computed above, no IIFE */}
+      {currentVideo && (
         <div className="absolute right-3 bottom-32 z-20 flex flex-col gap-4 pointer-events-auto">
-          {(() => {
-            const currentVideo = (activeTab === 'watchlater' ? watchLaterVideos : videos)[activeIndex];
-            return currentVideo ? (
-              <>
-                <button onClick={() => setCommentPost(currentVideo)}
-                  className="flex flex-col items-center gap-1">
-                  <div className="w-11 h-11 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
-                    <MessageCircle className="w-5 h-5 text-white" />
-                  </div>
-                  <span className="text-white text-[10px] font-semibold">{formatNumber(currentVideo.replies_count ?? 0)}</span>
-                </button>
-                <button onClick={e => toggleWatchLater(e, currentVideo.id)}
-                  className="flex flex-col items-center gap-1">
-                  <div className={`w-11 h-11 backdrop-blur-sm rounded-full flex items-center justify-center border ${
-                    watchLaterIds.has(currentVideo.id) ? 'bg-primary border-primary' : 'bg-black/50 border-white/20'
-                  }`}>
-                    <Bookmark className={`w-5 h-5 ${watchLaterIds.has(currentVideo.id) ? 'text-white fill-white' : 'text-white'}`} />
-                  </div>
-                  <span className="text-white text-[10px] font-semibold">{watchLaterIds.has(currentVideo.id) ? 'Saved' : 'Later'}</span>
-                </button>
-                <button onClick={() => setSharePost(currentVideo)}
-                  className="flex flex-col items-center gap-1">
-                  <div className="w-11 h-11 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
-                    <Share className="w-5 h-5 text-white" />
-                  </div>
-                  <span className="text-white text-[10px] font-semibold">Share</span>
-                </button>
-              </>
-            ) : null;
-          })()}
+          <button onClick={() => setCommentPost(currentVideo)}
+            className="flex flex-col items-center gap-1">
+            <div className="w-11 h-11 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
+              <MessageCircle className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-white text-[10px] font-semibold">{formatNumber(currentVideo.replies_count ?? 0)}</span>
+          </button>
+          <button onClick={e => toggleWatchLater(e, currentVideo.id)}
+            className="flex flex-col items-center gap-1">
+            <div className={`w-11 h-11 backdrop-blur-sm rounded-full flex items-center justify-center border ${
+              currentIsWatchLater ? 'bg-primary border-primary' : 'bg-black/50 border-white/20'
+            }`}>
+              <Bookmark className={`w-5 h-5 ${currentIsWatchLater ? 'text-white fill-white' : 'text-white'}`} />
+            </div>
+            <span className="text-white text-[10px] font-semibold">{currentIsWatchLater ? 'Saved' : 'Later'}</span>
+          </button>
+          <button onClick={() => setSharePost(currentVideo)}
+            className="flex flex-col items-center gap-1">
+            <div className="w-11 h-11 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
+              <Share className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-white text-[10px] font-semibold">Share</span>
+          </button>
         </div>
       )}
 

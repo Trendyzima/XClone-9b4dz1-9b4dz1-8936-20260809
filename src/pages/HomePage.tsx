@@ -127,6 +127,59 @@ export default function HomePage() {
   useEffect(() => { try { localStorage.setItem('ts-feed-video-weight', String(videoWeight)); } catch {} }, [videoWeight]);
   useEffect(() => { try { localStorage.setItem('ts-feed-min-engagement', String(minEngagement)); } catch {} }, [minEngagement]);
 
+  // ── Feed Tab Prefetch on Hover (50ms debounce) ────────────────────────────
+  const prefetchHoverRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefetchedTabs = useRef<string[]>([]);
+
+  const handleTabHover = useCallback((tabId: Tab) => {
+    // Skip foryou (already loaded), federated (different path), active tab, already prefetched
+    if (tabId === 'foryou' || tabId === 'federated' || tabId === activeTab) return;
+    if (prefetchedTabs.current.includes(tabId)) return;
+    if (prefetchHoverRef.current) clearTimeout(prefetchHoverRef.current);
+    prefetchHoverRef.current = setTimeout(async () => {
+      if (prefetchedTabs.current.includes(tabId)) return;
+      prefetchedTabs.current.push(tabId);
+      // Quick prefetch: query posts for the tab and store in cache
+      try {
+        const prevTab = activeTab;
+        // Temporarily set tab context for fetchFeed to use correct query
+        // We replicate the core query here to avoid mutating activeTab state
+        let query = supabase
+          .from('posts')
+          .select('*, user_profiles(*)')
+          .is('community_id', null)
+          .range(0, PAGE_SIZE - 1);
+        if (tabId === 'following' && user) {
+          const { data: followingData } = await supabase
+            .from('follows').select('following_id').eq('follower_id', user.id);
+          const ids = (followingData ?? []).map((f: any) => f.following_id);
+          if (ids.length === 0) return;
+          query = supabase.from('posts').select('*, user_profiles(*)')
+            .is('community_id', null).in('user_id', ids)
+            .order('created_at', { ascending: false }).range(0, PAGE_SIZE - 1);
+        } else if (tabId === 'popular') {
+          query = query.order('likes_count', { ascending: false }).order('views_count', { ascending: false });
+        } else {
+          query = query.order('created_at', { ascending: false });
+        }
+        const { data: posts } = await query;
+        if (posts && posts.length > 0) {
+          const items = posts.map((p: any) => ({ type: 'post' as const, data: p }));
+          setCachedFeed(tabId, items);
+          console.log(`[prefetch] cached ${items.length} posts for tab:${tabId}`);
+        }
+      } catch (err) {
+        console.warn('[prefetch] failed for', tabId, err);
+        // Remove from prefetched so it can retry
+        prefetchedTabs.current = prefetchedTabs.current.filter(t => t !== tabId);
+      }
+    }, 50);
+  }, [activeTab, user?.id]);
+
+  const handleTabHoverEnd = useCallback(() => {
+    if (prefetchHoverRef.current) clearTimeout(prefetchHoverRef.current);
+  }, []);
+
   // ── Debounced feed refresh on slider change (500ms) ───────────────────────
   const sliderMountedRef = useRef(false);
   const sliderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -896,6 +949,8 @@ export default function HomePage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
+                onMouseEnter={() => handleTabHover(tab.id)}
+                onMouseLeave={handleTabHoverEnd}
                 className={`flex-1 min-w-[90px] py-3.5 font-semibold transition-colors border-b-2 text-sm flex items-center justify-center gap-1.5 whitespace-nowrap ${
                   active
                     ? 'border-primary text-foreground'
