@@ -667,9 +667,42 @@ export default function ProfilePage() {
     }
   };
 
+  // ── Post Impression Milestone Alerts (1K / 10K views) ──────────────────────
+  const checkImpressionMilestones = async (userId: string, postList: Post[]) => {
+    if (!currentUser || currentUser.id !== userId) return;
+    const alertKey = `ts-impression-alerts-${userId}`;
+    let alerted: string[] = [];
+    try { alerted = JSON.parse(localStorage.getItem(alertKey) ?? '[]'); } catch { /* ignore */ }
+    const toNotify: { postId: string; views: number; milestone: number }[] = [];
+    const IMPRESSION_MILESTONES = [10000, 1000];
+    for (const post of postList) {
+      const views = post.views_count ?? 0;
+      for (const m of IMPRESSION_MILESTONES) {
+        if (views >= m) {
+          const key = `${post.id}-${m}`;
+          if (!alerted.includes(key)) { toNotify.push({ postId: post.id, views, milestone: m }); alerted.push(key); }
+        }
+      }
+    }
+    if (toNotify.length === 0) return;
+    localStorage.setItem(alertKey, JSON.stringify(alerted));
+    await Promise.allSettled(toNotify.map(({ postId, views, milestone }) =>
+      supabase.from('platform_inbox').insert({
+        user_id: userId,
+        subject: `🎉 Your post hit ${milestone >= 10000 ? '10K' : '1K'} views!`,
+        body: `One of your posts just crossed ${milestone.toLocaleString()} views (currently ${views.toLocaleString()}). Keep creating!`,
+        type: 'update', icon_emoji: milestone >= 10000 ? '🚀' : '⭐',
+        cta_label: 'View Post', cta_url: `/post/${postId}`,
+      })
+    ));
+  };
+
   const fetchPosts = async (userId: string) => {
     const { data } = await supabase.from('posts').select('*, user_profiles (*)').eq('user_id', userId).order('created_at', { ascending: false });
-    setPosts(data || []);
+    const postList = data || [];
+    setPosts(postList);
+    // Fire milestone alerts asynchronously — won't block UI
+    checkImpressionMilestones(userId, postList).catch(() => {});
   };
   const fetchThreads = async (userId: string) => {
     const { data } = await supabase.from('threads').select('*').eq('user_id', userId).eq('is_published', true).order('created_at', { ascending: false });
