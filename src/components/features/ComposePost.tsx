@@ -354,6 +354,14 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
       toast({ title: 'Success', description: 'Post created successfully' });
       pingGoogleSitemap();
 
+      // ── Background auto-moderation — fire and forget ───────────────────────────
+      // Runs silently after post creation — does NOT block user or show errors
+      if (postData?.id && content.trim().length >= 10) {
+        supabase.functions.invoke('ai-moderation', {
+          body: { post_id: postData.id, content: content.trim(), user_id: user.id },
+        }).catch(() => { /* silent — non-critical */ });
+      }
+
       // ── Hashtag Challenge Notifications ──────────────────────────────────
       const postContent = content.trim();
       const hashtagMatches = postContent.match(/#(\w+)/g);

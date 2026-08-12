@@ -26,6 +26,16 @@ interface ModerationResult {
   reason: string;
 }
 
+interface AdModerationResult {
+  overall_score: number;
+  nudity_score: number;
+  explicit_score: number;
+  violence_score: number;
+  spam_score: number;
+  action: 'approve' | 'flag' | 'reject';
+  reason: string;
+}
+
 async function analyzeContent(content: string): Promise<ModerationResult> {
   const prompt = `You are a professional AI content moderation system trained to detect policy violations on a social media platform. Analyze the following post content and return ONLY a JSON object (no markdown, no explanation).
 
@@ -80,13 +90,10 @@ Return only the JSON, no other text.`;
 
   const data = await response.json();
   const raw = data?.choices?.[0]?.message?.content ?? '{}';
-
-  // Strip markdown code fences if present
   const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
   try {
     const parsed = JSON.parse(cleaned);
-    // Clamp scores to 0-100
     const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n ?? 0)));
     return {
       overall_score: clamp(parsed.overall_score ?? 0),
@@ -102,12 +109,90 @@ Return only the JSON, no other text.`;
       reason: String(parsed.reason ?? '').slice(0, 120),
     };
   } catch {
-    // Fallback — low score, pass
     return {
       overall_score: 0,
       categories: { hate_speech: 0, harassment: 0, explicit_content: 0, violence: 0, spam: 0, misinformation: 0 },
       action: 'pass',
       reason: 'Unable to parse AI response',
+    };
+  }
+}
+
+// ── Ad-specific content moderation model ──────────────────────────────────────
+// Stricter than post moderation — zero tolerance for nudity/porn
+async function analyzeAdContent(title: string, description: string, imageUrl?: string): Promise<AdModerationResult> {
+  const adText = `Advertisement Title: "${title}"\n\nDescription: "${description}"${imageUrl ? `\n\nImage URL: ${imageUrl}` : ''}`;
+
+  const prompt = `You are a strict advertising content moderator for a social media platform. This platform has a ZERO TOLERANCE policy for:
+- Nudity, pornography, or sexual content of any kind
+- Graphic violence or gore
+- Drug promotion or illegal products/services
+- Scams, fake products, or misleading claims
+- Hate speech or discriminatory content
+
+Analyze this advertisement and return ONLY a JSON object:
+
+${adText.slice(0, 800)}
+
+Return this exact JSON structure:
+{
+  "overall_score": <0-100, higher = more problematic>,
+  "nudity_score": <0-100, any sexual or nude content>,
+  "explicit_score": <0-100, adult content, provocative material>,
+  "violence_score": <0-100, graphic violence or gore>,
+  "spam_score": <0-100, scam, fake, misleading, low quality>,
+  "action": "<approve|flag|reject>",
+  "reason": "<specific violation found or 'Content meets platform guidelines', max 120 chars>"
+}
+
+Scoring thresholds:
+- 0-29: Clean content → approve
+- 30-59: Questionable → flag for human review
+- 60-100: Clear violation → reject immediately
+
+IMPORTANT: Be strict. Any hint of sexual content, nudity, or pornography = reject (score 80+).
+Return ONLY the JSON object, no other text.`;
+
+  const response = await fetch(`${ONSPACE_AI_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${ONSPACE_AI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'google/gemini-flash-1.5',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 300,
+      temperature: 0.05,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Ad AI error: ${await response.text()}`);
+  }
+
+  const data = await response.json();
+  const raw = data?.choices?.[0]?.message?.content ?? '{}';
+  const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n ?? 0)));
+    const overall = clamp(parsed.overall_score ?? 0);
+    return {
+      overall_score: overall,
+      nudity_score:    clamp(parsed.nudity_score ?? 0),
+      explicit_score:  clamp(parsed.explicit_score ?? 0),
+      violence_score:  clamp(parsed.violence_score ?? 0),
+      spam_score:      clamp(parsed.spam_score ?? 0),
+      action: parsed.action === 'reject' ? 'reject' : parsed.action === 'flag' ? 'flag' : 'approve',
+      reason: String(parsed.reason ?? '').slice(0, 120),
+    };
+  } catch {
+    return {
+      overall_score: 0, nudity_score: 0, explicit_score: 0, violence_score: 0, spam_score: 0,
+      action: 'approve',
+      reason: 'Unable to parse AI response — manually review',
     };
   }
 }
@@ -119,9 +204,86 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const { post_id, content: rawContent, user_id: rawUserId, scan_recent } = body;
+    const { post_id, content: rawContent, user_id: rawUserId, scan_recent, ad_id, ad_title, ad_description, ad_image_url } = body;
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // ── AD MODERATION MODE ─────────────────────────────────────────────────
+    if (ad_id) {
+      const { data: adRow } = await supabaseAdmin
+        .from('user_ads')
+        .select('id, user_id, title, description, image_url, status')
+        .eq('id', ad_id)
+        .single();
+
+      if (!adRow) {
+        return new Response(JSON.stringify({ error: 'Ad not found' }), {
+          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const title = ad_title ?? adRow.title ?? '';
+      const description = ad_description ?? adRow.description ?? '';
+      const imageUrl = ad_image_url ?? adRow.image_url ?? undefined;
+      const adUserId = adRow.user_id;
+
+      console.log(`Analyzing ad ${ad_id} for user ${adUserId}`);
+
+      const result = await analyzeAdContent(title, description, imageUrl);
+
+      // Store AI verification results on the ad
+      await supabaseAdmin.from('user_ads').update({
+        ai_verification_score: result.overall_score,
+        ai_verification_notes: `${result.action.toUpperCase()}: ${result.reason} | Nudity:${result.nudity_score} Explicit:${result.explicit_score} Violence:${result.violence_score} Spam:${result.spam_score}`,
+        verified_at: new Date().toISOString(),
+      }).eq('id', ad_id);
+
+      const { data: regulators } = await supabaseAdmin.from('platform_regulators').select('user_id');
+
+      if (result.action === 'reject') {
+        // Reject the ad — update status
+        await supabaseAdmin.from('user_ads').update({ status: 'rejected' }).eq('id', ad_id);
+
+        // Notify advertiser
+        await supabaseAdmin.from('platform_inbox').insert({
+          user_id: adUserId,
+          subject: '❌ Your advertisement was rejected',
+          body: `Your ad "${title}" was rejected by our AI content moderation system (safety score: ${result.overall_score}/100).\n\nReason: ${result.reason}\n\nPlease ensure your ad complies with our content guidelines:\n• No nudity or sexual content\n• No graphic violence\n• No misleading claims\n• No illegal products\n\nYou may resubmit a revised version.`,
+          type: 'update', icon_emoji: '❌',
+          cta_label: 'Create New Ad', cta_url: '/create-ad',
+        }).catch(() => {});
+
+        // Notify regulators
+        for (const reg of regulators ?? []) {
+          await supabaseAdmin.from('platform_inbox').insert({
+            user_id: reg.user_id,
+            subject: `🚫 Ad auto-rejected: "${title.slice(0, 40)}"`,
+            body: `AI moderation rejected an ad (score: ${result.overall_score}/100).\nReason: ${result.reason}\nNudity: ${result.nudity_score}, Explicit: ${result.explicit_score}`,
+            type: 'update', icon_emoji: '🚫', cta_label: 'Ad Queue', cta_url: '/regulator',
+          }).catch(() => {});
+        }
+      } else if (result.action === 'flag') {
+        // Flag for human review
+        await supabaseAdmin.from('user_ads').update({ status: 'pending' }).eq('id', ad_id);
+
+        for (const reg of regulators ?? []) {
+          await supabaseAdmin.from('platform_inbox').insert({
+            user_id: reg.user_id,
+            subject: `🚩 Ad needs review: "${title.slice(0, 40)}"`,
+            body: `AI flagged an ad for human review (score: ${result.overall_score}/100).\nReason: ${result.reason}\nApprove or reject in Regulator Panel → Reports tab.`,
+            type: 'update', icon_emoji: '🚩', cta_label: 'Review Ads', cta_url: '/regulator',
+          }).catch(() => {});
+        }
+      } else {
+        // Approve — keep current status (payment flow handles activation)
+        // Don't auto-activate here — payment must come first
+        console.log(`Ad ${ad_id} passed content check with score ${result.overall_score}`);
+      }
+
+      return new Response(JSON.stringify({ ...result, ad_id }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // ── BATCH: scan recent posts ───────────────────────────────────────────
     if (scan_recent) {
@@ -135,15 +297,12 @@ Deno.serve(async (req: Request) => {
       const results: any[] = [];
       for (const post of recentPosts ?? []) {
         if (!post.content || post.content.length < 5) continue;
-
-        // Skip already moderated
         const { data: existing } = await supabaseAdmin
           .from('content_moderation_logs')
           .select('id')
           .eq('post_id', post.id)
           .maybeSingle();
         if (existing) continue;
-
         try {
           const result = await analyzeContent(post.content);
           results.push({ post_id: post.id, user_id: post.user_id, result, content: post.content });
@@ -152,12 +311,10 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Process results
       let flagged = 0; let banned = 0;
       for (const { post_id: pid, user_id: uid, result, content } of results) {
         if (result.action === 'pass') continue;
 
-        // Log it
         const { data: logRow } = await supabaseAdmin.from('content_moderation_logs').insert({
           post_id: pid, user_id: uid,
           content_snippet: content.slice(0, 200),
@@ -169,58 +326,44 @@ Deno.serve(async (req: Request) => {
 
         if (result.action === 'auto_ban') {
           banned++;
-          // Get strike count
           const { data: profile } = await supabaseAdmin.from('user_profiles').select('strike_count, username').eq('id', uid).single();
           const strikes = (profile?.strike_count ?? 0) + 1;
           const isPermanent = strikes >= PERM_BAN_STRIKES;
-
-          await supabaseAdmin.from('user_profiles').update({
-            is_blocked: true,
-            strike_count: strikes,
-          }).eq('id', uid);
-
+          await supabaseAdmin.from('user_profiles').update({ is_blocked: true, strike_count: strikes }).eq('id', uid);
           const expiresAt = isPermanent ? null : new Date(Date.now() + BAN_DURATION_HOURS * 3600000).toISOString();
           await supabaseAdmin.from('user_bans').insert({
             user_id: uid, banned_by: null,
             reason: `AI Auto-ban: ${result.reason}`,
             ban_type: isPermanent ? 'permanent' : 'temporary',
             duration_hours: isPermanent ? null : BAN_DURATION_HOURS,
-            expires_at: expiresAt,
-            moderation_log_id: logRow?.id,
-            strike_count: strikes,
+            expires_at: expiresAt, moderation_log_id: logRow?.id, strike_count: strikes,
           });
-
-          // Notify regulators
-          const { data: regulators } = await supabaseAdmin.from('platform_regulators').select('user_id');
-          for (const reg of regulators ?? []) {
+          const { data: regs } = await supabaseAdmin.from('platform_regulators').select('user_id');
+          for (const reg of regs ?? []) {
             await supabaseAdmin.from('platform_inbox').insert({
               user_id: reg.user_id,
               subject: `⚠️ Auto-ban: @${profile?.username ?? uid}`,
               body: `AI detected policy violation (score: ${result.overall_score}/100).\nCategory: ${result.reason}\n${isPermanent ? '🚫 PERMANENT BAN (3 strikes)' : `⏱ 24-hour ban (Strike ${strikes}/${PERM_BAN_STRIKES})`}\n\nReview in Regulator Panel → Moderation tab.`,
-              type: 'update', icon_emoji: '⚠️',
-              cta_label: 'Review in Regulator Panel', cta_url: '/regulator',
+              type: 'update', icon_emoji: '⚠️', cta_label: 'Review in Regulator Panel', cta_url: '/regulator',
             });
           }
         } else if (result.action === 'flag') {
           flagged++;
-          // Notify regulators
           const { data: profile } = await supabaseAdmin.from('user_profiles').select('username').eq('id', uid).single();
-          const { data: regulators } = await supabaseAdmin.from('platform_regulators').select('user_id');
-          for (const reg of regulators ?? []) {
+          const { data: regs } = await supabaseAdmin.from('platform_regulators').select('user_id');
+          for (const reg of regs ?? []) {
             await supabaseAdmin.from('platform_inbox').insert({
               user_id: reg.user_id,
               subject: `🚩 Flagged content: @${profile?.username ?? uid}`,
               body: `AI flagged a post for review (score: ${result.overall_score}/100).\nReason: ${result.reason}\n\nHuman review required. Check Regulator Panel → Moderation tab.`,
-              type: 'update', icon_emoji: '🚩',
-              cta_label: 'Review', cta_url: '/regulator',
+              type: 'update', icon_emoji: '🚩', cta_label: 'Review', cta_url: '/regulator',
             });
           }
         }
       }
 
       return new Response(JSON.stringify({
-        scanned: results.length,
-        flagged, banned,
+        scanned: results.length, flagged, banned,
         message: `Scanned ${results.length} posts. Flagged: ${flagged}, Auto-banned: ${banned}`,
       }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -249,44 +392,34 @@ Deno.serve(async (req: Request) => {
 
     const result = await analyzeContent(content);
 
-    // Log to DB
     const { data: logRow } = await supabaseAdmin.from('content_moderation_logs').insert({
-      post_id: post_id ?? null,
-      user_id: userId,
+      post_id: post_id ?? null, user_id: userId,
       content_snippet: content.slice(0, 200),
       overall_score: result.overall_score,
       categories: result.categories,
-      action: result.action,
-      reason: result.reason,
+      action: result.action, reason: result.reason,
     }).select().single();
 
-    // Execute action
     if (result.action === 'auto_ban' && userId) {
       const { data: profile } = await supabaseAdmin.from('user_profiles').select('strike_count, username').eq('id', userId).single();
       const strikes = (profile?.strike_count ?? 0) + 1;
       const isPermanent = strikes >= PERM_BAN_STRIKES;
-
       await supabaseAdmin.from('user_profiles').update({ is_blocked: true, strike_count: strikes }).eq('id', userId);
-
       const expiresAt = isPermanent ? null : new Date(Date.now() + BAN_DURATION_HOURS * 3600000).toISOString();
       await supabaseAdmin.from('user_bans').insert({
         user_id: userId, banned_by: null,
         reason: `AI Auto-ban: ${result.reason}`,
         ban_type: isPermanent ? 'permanent' : 'temporary',
         duration_hours: isPermanent ? null : BAN_DURATION_HOURS,
-        expires_at: expiresAt,
-        moderation_log_id: logRow?.id,
-        strike_count: strikes,
+        expires_at: expiresAt, moderation_log_id: logRow?.id, strike_count: strikes,
       });
-
       const { data: regulators } = await supabaseAdmin.from('platform_regulators').select('user_id');
       for (const reg of regulators ?? []) {
         await supabaseAdmin.from('platform_inbox').insert({
           user_id: reg.user_id,
           subject: `⚠️ Auto-ban triggered: @${profile?.username}`,
           body: `Score: ${result.overall_score}/100 — ${result.reason}. Strike ${strikes}/${PERM_BAN_STRIKES}. Review in Moderation tab.`,
-          type: 'update', icon_emoji: '⚠️',
-          cta_label: 'Review', cta_url: '/regulator',
+          type: 'update', icon_emoji: '⚠️', cta_label: 'Review', cta_url: '/regulator',
         });
       }
     } else if (result.action === 'flag' && userId) {
@@ -297,8 +430,7 @@ Deno.serve(async (req: Request) => {
           user_id: reg.user_id,
           subject: `🚩 Content flagged: @${profile?.username}`,
           body: `Score: ${result.overall_score}/100 — ${result.reason}. Human review needed.`,
-          type: 'update', icon_emoji: '🚩',
-          cta_label: 'Review', cta_url: '/regulator',
+          type: 'update', icon_emoji: '🚩', cta_label: 'Review', cta_url: '/regulator',
         });
       }
     }

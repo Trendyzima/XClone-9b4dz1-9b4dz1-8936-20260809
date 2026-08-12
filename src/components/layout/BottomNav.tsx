@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Bell, User, Flame, UserSearch, Inbox } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
+import { useIsRegulator } from '@/hooks/useFeatureUnlock';
 
 export function BottomNav() {
   const navigate = useNavigate();
@@ -21,6 +22,8 @@ export function BottomNav() {
   const prevNotifs = useRef(-1);
   const prevMessages = useRef(-1);
   const audioCtxRef = useRef<any>(null);
+  const isReg = useIsRegulator();
+  const [pendingAppeals, setPendingAppeals] = useState(0);
 
   const playBeep = () => {
     try {
@@ -112,6 +115,21 @@ export function BottomNav() {
     if (location.pathname === '/platform-inbox') setUnreadInbox(0);
   }, [location.pathname]);
 
+  // Fetch pending appeals count for regulators
+  useEffect(() => {
+    if (!user || !isReg) { setPendingAppeals(0); return; }
+    const fetchAppeals = async () => {
+      const { count } = await supabase
+        .from('moderation_appeals')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      setPendingAppeals(count ?? 0);
+    };
+    fetchAppeals();
+    const iv = setInterval(fetchAppeals, 30000);
+    return () => clearInterval(iv);
+  }, [user?.id, isReg]);
+
   // Fetch current streak on mount and after auth changes
   useEffect(() => {
     if (!user) { setStreakDay(0); setHasNewSuggestions(false); return; }
@@ -198,7 +216,7 @@ export function BottomNav() {
     { icon: Home,      label: 'Home',      path: '/',         badge: 0 },
     { icon: UserSearch, label: 'Discover',  path: '/discover', badge: 0, dot: hasNewSuggestions },
     { icon: Flame,  label: 'Streak',    path: '/daily-rewards',                                badge: streakDay, badgeStyle: 'bg-orange-500', requireAuth: true },
-    { icon: Inbox,  label: 'Inbox',     path: '/platform-inbox', requireAuth: true,            badge: unreadInbox },
+    { icon: Inbox,  label: 'Inbox',     path: '/platform-inbox', requireAuth: true,            badge: unreadInbox + (isReg ? pendingAppeals : 0) },
     { icon: Bell,   label: 'Alerts',    path: '/notifications',  requireAuth: true,              badge: unreadNotifs },
     { icon: User,   label: 'Profile',   path: user ? `/profile/${user.username}` : '/auth',     badge: 0, requireAuth: true },
   ];

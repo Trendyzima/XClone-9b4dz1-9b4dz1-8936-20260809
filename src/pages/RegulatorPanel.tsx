@@ -4,13 +4,14 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { TopBar } from '@/components/layout/TopBar';
 import { useIsRegulator, FEATURE_KEYS, FEATURE_LABELS, type FeatureKey } from '@/hooks/useFeatureUnlock';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Shield, Users, Unlock, Lock, Check, X, Loader2, Search,
   UserPlus, Briefcase, Trash2, Crown, Settings, ChevronRight,
   BarChart3, Bell, Star, Eye, TrendingUp, AlertTriangle,
   DollarSign, Wallet, Send, Megaphone, RefreshCw, Activity,
   ArrowUpRight, ArrowDownRight, Ban, AlertCircle, CheckCircle,
   XCircle, Zap, ShieldAlert, Flag, MessageSquare, BadgeCheck,
-  Download, FileText, BadgeX,
+  Download, FileText, BadgeX, Mail, AtSign, Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
@@ -107,6 +108,22 @@ export default function RegulatorPanel() {
   const [scanResult, setScanResult] = useState<{ scanned: number; flagged: number; banned: number } | null>(null);
   const [modFilter, setModFilter] = useState<'all' | 'flag' | 'auto_ban' | 'unreviewed'>('unreviewed');
   const [appealNote, setAppealNote] = useState<{ [id: string]: string }>({});
+  const [modChartData, setModChartData] = useState<{ date: string; flagged: number; banned: number }[]>([]);
+
+  // Announcements archive
+  const [annArchive, setAnnArchive] = useState<any[]>([]);
+  const [loadingArchive, setLoadingArchive] = useState(false);
+
+  // Platform user search
+  const [platformSearch, setPlatformSearch] = useState('');
+  const [platformSearchResults, setPlatformSearchResults] = useState<any[]>([]);
+  const [platformSelectedUser, setPlatformSelectedUser] = useState<any | null>(null);
+  const [platformUserBan, setPlatformUserBan] = useState<any | null>(null);
+
+  // Ad review queue
+  const [adQueue, setAdQueue] = useState<any[]>([]);
+  const [loadingAdQueue, setLoadingAdQueue] = useState(false);
+  const [verifyingAd, setVerifyingAd] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isReg) { navigate('/'); return; }
@@ -118,6 +135,9 @@ export default function RegulatorPanel() {
   useEffect(() => {
     if (activeTab === 'wallets' && topWallets.length === 0) fetchTopWallets();
     if (activeTab === 'moderation' && modLogs.length === 0) fetchModeration();
+    if (activeTab === 'moderation') fetchModChartData();
+    if (activeTab === 'announce') fetchAnnArchive();
+    if (activeTab === 'reports') fetchAdQueue();
   }, [activeTab]);
 
   const fetchEmployees = useCallback(async () => {
@@ -340,6 +360,118 @@ export default function RegulatorPanel() {
     setToppingUp(false);
     viewUserWallet(selectedWalletUser);
   }, [selectedWalletUser, topUpAmount, topUpNote, user, viewUserWallet]);
+
+  const fetchModChartData = useCallback(async () => {
+    const since = new Date(Date.now() - 30 * 24 * 3600000).toISOString();
+    const { data } = await supabase
+      .from('content_moderation_logs')
+      .select('action, created_at')
+      .gte('created_at', since)
+      .neq('action', 'pass');
+    const dateMap: { [d: string]: { flagged: number; banned: number } } = {};
+    for (const log of data ?? []) {
+      const d = (log.created_at as string).slice(0, 10);
+      if (!dateMap[d]) dateMap[d] = { flagged: 0, banned: 0 };
+      if (log.action === 'flag') dateMap[d].flagged++;
+      else if (log.action === 'auto_ban') dateMap[d].banned++;
+    }
+    const result: { date: string; flagged: number; banned: number }[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const iso = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      result.push({ date: iso.slice(5), flagged: dateMap[iso]?.flagged ?? 0, banned: dateMap[iso]?.banned ?? 0 });
+    }
+    setModChartData(result);
+  }, []);
+
+  const fetchAnnArchive = useCallback(async () => {
+    setLoadingArchive(true);
+    const { data } = await supabase
+      .from('platform_inbox')
+      .select('*')
+      .is('user_id', null)
+      .order('sent_at', { ascending: false })
+      .limit(20);
+    setAnnArchive(data ?? []);
+    setLoadingArchive(false);
+  }, []);
+
+  const searchPlatformUsers = useCallback(async (q: string) => {
+    if (!q.trim()) { setPlatformSearchResults([]); return; }
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('id, username, email, avatar_url, verified, is_blocked, strike_count, created_at, followers_count')
+      .or(`username.ilike.${q}%,email.ilike.${q}%`)
+      .limit(8);
+    setPlatformSearchResults(data ?? []);
+  }, []);
+
+  const selectPlatformUser = useCallback(async (profile: any) => {
+    setPlatformSelectedUser(profile);
+    setPlatformSearchResults([]);
+    setPlatformSearch(profile.username);
+    const { data: ban } = await supabase
+      .from('user_bans')
+      .select('*')
+      .eq('user_id', profile.id)
+      .eq('is_active', true)
+      .order('banned_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setPlatformUserBan(ban ?? null);
+  }, []);
+
+  const fetchAdQueue = useCallback(async () => {
+    setLoadingAdQueue(true);
+    const { data } = await supabase
+      .from('user_ads')
+      .select('*, user_profiles:user_id(id, username, avatar_url)')
+      .in('status', ['pending'])
+      .order('created_at', { ascending: false })
+      .limit(20);
+    setAdQueue(data ?? []);
+    setLoadingAdQueue(false);
+  }, []);
+
+  const handleVerifyAd = useCallback(async (ad: any) => {
+    if (!user) return;
+    setVerifyingAd(ad.id);
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-moderation', {
+        body: { ad_id: ad.id, ad_title: ad.title, ad_description: ad.description, ad_image_url: ad.image_url },
+      });
+      if (error) {
+        let msg = error.message;
+        if (error instanceof FunctionsHttpError) { msg = await error.context?.text?.() ?? msg; }
+        toast.error(`AI check failed: ${msg}`);
+      } else {
+        toast.success(`AI verified: ${data.action} (score ${data.overall_score}/100)`);
+        fetchAdQueue();
+      }
+    } catch (err: any) { toast.error(err.message ?? 'Verification failed'); }
+    setVerifyingAd(null);
+  }, [user, fetchAdQueue]);
+
+  const handleApproveAd = useCallback(async (adId: string, adUserId: string, adTitle: string) => {
+    await supabase.from('user_ads').update({ status: 'active', verified_by: user?.id ?? null, verified_at: new Date().toISOString() }).eq('id', adId);
+    await supabase.from('platform_inbox').insert({
+      user_id: adUserId, subject: '✅ Your advertisement is approved!',
+      body: `Your ad "${adTitle}" has been approved by the platform regulator and is now live.`,
+      type: 'update', icon_emoji: '✅',
+    }).catch(() => {});
+    toast.success('Ad approved!');
+    fetchAdQueue();
+  }, [user, fetchAdQueue]);
+
+  const handleRejectAd = useCallback(async (adId: string, adUserId: string, adTitle: string) => {
+    await supabase.from('user_ads').update({ status: 'rejected', verified_by: user?.id ?? null, verified_at: new Date().toISOString() }).eq('id', adId);
+    await supabase.from('platform_inbox').insert({
+      user_id: adUserId, subject: '❌ Your advertisement was rejected',
+      body: `Your ad "${adTitle}" was rejected for not meeting platform content guidelines. Please review our policies and resubmit.`,
+      type: 'update', icon_emoji: '❌', cta_label: 'Create New Ad', cta_url: '/create-ad',
+    }).catch(() => {});
+    toast.success('Ad rejected');
+    fetchAdQueue();
+  }, [user, fetchAdQueue]);
 
   const fetchModeration = useCallback(async () => {
     setLoadingMod(true);
@@ -1010,6 +1142,34 @@ export default function RegulatorPanel() {
         {/* ── MODERATION TAB ── */}
         {activeTab === 'moderation' && (
           <div className="space-y-4">
+            {/* 30-day moderation chart */}
+            {modChartData.length > 0 && (
+              <div className="bg-card border border-border rounded-2xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <BarChart3 className="w-4 h-4 text-primary" />
+                  <h3 className="font-bold text-sm">30-Day Moderation Activity</h3>
+                </div>
+                <ResponsiveContainer width="100%" height={120}>
+                  <BarChart data={modChartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="date" tick={{ fontSize: 8 }} interval={6} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 8 }} stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid hsl(var(--border))' }} />
+                    <Bar dataKey="flagged" name="Flagged" fill="hsl(32 95% 55%)" radius={[2,2,0,0]} />
+                    <Bar dataKey="banned" name="Auto-banned" fill="hsl(0 80% 55%)" radius={[2,2,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex items-center gap-4 mt-2 justify-center">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <span className="w-3 h-3 rounded-sm bg-orange-500 shrink-0" />Flagged
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <span className="w-3 h-3 rounded-sm bg-red-500 shrink-0" />Auto-banned
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-black text-base flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-red-500" />AI Moderation</h2>
@@ -1215,6 +1375,104 @@ export default function RegulatorPanel() {
         {activeTab === 'platform' && (
           <div className="space-y-4">
             <h2 className="font-black text-base">Platform Overview</h2>
+
+            {/* User Search by Email/Username */}
+            <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Search className="w-4 h-4 text-primary" />
+                <h3 className="font-bold text-sm">Find User by Email or Username</h3>
+              </div>
+              <div className="relative">
+                <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input type="text" value={platformSearch}
+                  onChange={e => { setPlatformSearch(e.target.value); searchPlatformUsers(e.target.value); }}
+                  placeholder="Search by @username or email…"
+                  className="w-full h-10 pl-9 pr-4 bg-muted/40 border border-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                {platformSearchResults.length > 0 && (
+                  <div className="absolute top-full mt-1 w-full bg-background border border-border rounded-xl shadow-xl z-10 overflow-hidden">
+                    {platformSearchResults.map((u: any) => (
+                      <button key={u.id} onClick={() => selectPlatformUser(u)}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-muted text-left">
+                        <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0">
+                          {u.avatar_url ? <img src={u.avatar_url} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{u.username?.[0]?.toUpperCase()}</div>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold">@{u.username}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{u.email}</p>
+                        </div>
+                        {u.is_blocked && <span className="text-[9px] bg-red-500/10 text-red-600 font-bold px-1.5 py-0.5 rounded-full shrink-0">Banned</span>}
+                        {u.verified && <span className="text-[9px] text-primary font-bold shrink-0">✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {platformSelectedUser && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-3 bg-primary/5 border border-primary/20 rounded-xl">
+                    <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
+                      {platformSelectedUser.avatar_url ? <img src={platformSelectedUser.avatar_url} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center font-bold">{platformSelectedUser.username?.[0]?.toUpperCase()}</div>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-bold text-sm">@{platformSelectedUser.username}</p>
+                        {platformSelectedUser.verified && <span className="text-[10px] text-primary font-bold">✓</span>}
+                        {platformSelectedUser.is_blocked && <span className="text-[9px] bg-red-500/10 text-red-600 font-bold px-1.5 py-0.5 rounded-full">Banned</span>}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{platformSelectedUser.email}</p>
+                    </div>
+                    <button onClick={() => { setPlatformSelectedUser(null); setPlatformSearch(''); setPlatformUserBan(null); }} className="text-muted-foreground"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="p-2 bg-muted/40 rounded-xl text-center">
+                      <p className="font-black text-base">{formatNumber(platformSelectedUser.followers_count ?? 0)}</p>
+                      <p className="text-muted-foreground">Followers</p>
+                    </div>
+                    <div className="p-2 bg-muted/40 rounded-xl text-center">
+                      <p className={`font-black text-base ${(platformSelectedUser.strike_count ?? 0) > 0 ? 'text-orange-500' : 'text-green-500'}`}>{platformSelectedUser.strike_count ?? 0}</p>
+                      <p className="text-muted-foreground">Strikes</p>
+                    </div>
+                    <div className="p-2 bg-muted/40 rounded-xl text-center">
+                      <p className="font-black text-base">{platformSelectedUser.verified ? '✓' : '—'}</p>
+                      <p className="text-muted-foreground">Verified</p>
+                    </div>
+                  </div>
+                  {platformUserBan && (
+                    <div className="p-3 bg-red-500/5 border border-red-500/20 rounded-xl">
+                      <p className="text-xs font-bold text-red-600 mb-1">🚫 Active Ban</p>
+                      <p className="text-xs text-muted-foreground">{platformUserBan.reason?.slice(0, 80)}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Type: {platformUserBan.ban_type} · Strike {platformUserBan.strike_count}/3</p>
+                    </div>
+                  )}
+                  <div className="flex gap-2 flex-wrap">
+                    <button onClick={() => navigate(`/profile/${platformSelectedUser.username}`)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-primary/10 text-primary border border-primary/20 rounded-xl text-[10px] font-bold hover:bg-primary/15">
+                      <Eye className="w-3 h-3" />View Profile
+                    </button>
+                    <button onClick={() => handleGrantVerified(platformSelectedUser.id, platformSelectedUser.username, platformSelectedUser.verified ?? false)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] font-bold border transition-all ${platformSelectedUser.verified ? 'border-destructive/20 bg-destructive/5 text-destructive' : 'border-primary/20 bg-primary/5 text-primary'}`}>
+                      <BadgeCheck className="w-3 h-3" />{platformSelectedUser.verified ? 'Remove ✓' : 'Grant ✓'}
+                    </button>
+                    <button onClick={() => handleResetStrikes(platformSelectedUser.id, platformSelectedUser.username)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/10 text-blue-600 border border-blue-500/20 rounded-xl text-[10px] font-bold hover:bg-blue-500/15">
+                      <RefreshCw className="w-3 h-3" />Reset Strikes
+                    </button>
+                    {platformUserBan && (
+                      <button onClick={() => handleLiftBan(platformUserBan.id, platformSelectedUser.id, platformSelectedUser.username)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/10 text-green-600 border border-green-500/20 rounded-xl text-[10px] font-bold hover:bg-green-500/15">
+                        <CheckCircle className="w-3 h-3" />Lift Ban
+                      </button>
+                    )}
+                    {!platformUserBan && (
+                      <button onClick={() => handleManualBan(platformSelectedUser.id, platformSelectedUser.username)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/10 text-red-600 border border-red-500/20 rounded-xl text-[10px] font-bold hover:bg-red-500/15">
+                        <Ban className="w-3 h-3" />Ban 24h
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               {[
                 { label: 'Total Users',   val: platformStats.users ?? 0,       color: 'from-blue-500/15',   icon: '👥' },
@@ -1277,6 +1535,33 @@ export default function RegulatorPanel() {
               <h2 className="font-black text-base">Broadcast Announcement</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Send a message to ALL users' platform inbox</p>
             </div>
+            {/* Announcements Archive */}
+            {annArchive.length > 0 && (
+              <div className="bg-card border border-border rounded-2xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-primary" />
+                  <h3 className="font-bold text-sm">Broadcast Archive</h3>
+                  <span className="text-xs text-muted-foreground ml-1">{annArchive.length} sent</span>
+                  <button onClick={fetchAnnArchive} className="ml-auto text-muted-foreground hover:text-foreground">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {loadingArchive ? <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div> : (
+                  <div className="divide-y divide-border max-h-64 overflow-y-auto">
+                    {annArchive.map((ann: any) => (
+                      <div key={ann.id} className="px-4 py-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-base shrink-0">{ann.icon_emoji ?? '📣'}</span>
+                          <p className="text-sm font-bold truncate flex-1">{ann.subject}</p>
+                          <span className="text-[10px] text-muted-foreground shrink-0">{formatDistanceToNow(new Date(ann.sent_at ?? ann.created_at), { addSuffix: true })}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2 pl-6">{ann.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {annSent && (
               <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-xl">
                 <Check className="w-4 h-4 text-green-600 shrink-0" />
@@ -1327,6 +1612,79 @@ export default function RegulatorPanel() {
         {activeTab === 'reports' && (
           <div className="space-y-4">
             <h2 className="font-black text-base">Platform Reports</h2>
+
+            {/* Ad Review Queue */}
+            <div className="bg-card border border-orange-500/20 rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-orange-500/15 bg-orange-500/5 flex items-center gap-2">
+                <Megaphone className="w-4 h-4 text-orange-500" />
+                <h3 className="font-bold text-sm text-orange-600">Ad Review Queue</h3>
+                <span className="text-xs text-muted-foreground ml-1">
+                  {adQueue.length > 0 ? `${adQueue.length} pending` : 'All clear'}
+                </span>
+                <button onClick={fetchAdQueue} className="ml-auto text-muted-foreground hover:text-foreground">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="p-4 space-y-2">
+                <p className="text-[10px] text-muted-foreground bg-muted/40 rounded-xl px-3 py-2">
+                  🛡️ Platform policy: <span className="font-bold text-red-600">No nudity, pornography, or sexual content.</span> Ads are AI-screened before human review. Score 0-29 = approve, 30-59 = flag, 60+ = reject.
+                </p>
+                {loadingAdQueue ? <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div> :
+                 adQueue.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <CheckCircle className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                    <p className="text-sm font-semibold">No ads pending review</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {adQueue.map((ad: any) => {
+                      const aiScore = ad.ai_verification_score;
+                      const hasAI = aiScore !== null && aiScore !== undefined;
+                      return (
+                        <div key={ad.id} className="p-3 bg-background border border-border rounded-xl space-y-2">
+                          <div className="flex items-center gap-2">
+                            {ad.image_url && (
+                              <div className="w-10 h-10 rounded-lg overflow-hidden bg-muted shrink-0">
+                                <img src={ad.image_url} className="w-full h-full object-cover" alt="" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold truncate">{ad.title}</p>
+                              <p className="text-[10px] text-muted-foreground truncate">@{ad.user_profiles?.username} · KES {Number(ad.budget ?? 0).toLocaleString()}</p>
+                            </div>
+                            {hasAI && (
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 ${aiScore >= 60 ? 'bg-red-500/10 text-red-600' : aiScore >= 30 ? 'bg-orange-500/10 text-orange-600' : 'bg-green-500/10 text-green-600'}`}>
+                                AI: {aiScore}/100
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground line-clamp-2">{ad.description}</p>
+                          {ad.ai_verification_notes && (
+                            <p className="text-[10px] text-orange-600 bg-orange-500/5 border border-orange-500/15 rounded-lg px-2 py-1 truncate">{ad.ai_verification_notes}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <button onClick={() => handleVerifyAd(ad)} disabled={verifyingAd === ad.id}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-violet-500/10 text-violet-600 border border-violet-500/20 rounded-xl text-[10px] font-bold hover:bg-violet-500/15 disabled:opacity-50">
+                              {verifyingAd === ad.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                              AI Check
+                            </button>
+                            <button onClick={() => handleApproveAd(ad.id, ad.user_profiles?.id, ad.title)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/10 text-green-600 border border-green-500/20 rounded-xl text-[10px] font-bold hover:bg-green-500/15">
+                              <CheckCircle className="w-3 h-3" />Approve
+                            </button>
+                            <button onClick={() => handleRejectAd(ad.id, ad.user_profiles?.id, ad.title)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-red-500/10 text-red-600 border border-red-500/20 rounded-xl text-[10px] font-bold hover:bg-red-500/15">
+                              <XCircle className="w-3 h-3" />Reject
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="space-y-2">
               {[
                 { label: 'AI Moderation Queue', icon: '🛡️', path: undefined, tab: 'moderation' as RegTab },
