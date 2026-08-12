@@ -1041,6 +1041,7 @@ function ReferralEarningsTab({ userId }: { userId: string }) {
           ))}
         </div>
       )}
+      <ReferralLeaderboard userId={userId} />
     </div>
   );
 }
@@ -1996,6 +1997,34 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
   const [filter,         setFilter]        = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
   const [search,         setSearch]        = useState('');
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
+  const [tags,       setTags]       = useState<Record<string, { text: string; color: string }>>({});
+  const [editingTag, setEditingTag] = useState<string | null>(null);
+  const [tagInput,   setTagInput]   = useState('');
+  const [tagColor,   setTagColor]   = useState('blue');
+  const tagsKey = useMemo(() => `ts-txn-notes-${userId}`, [userId]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(tagsKey);
+      if (raw) setTags(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, [tagsKey]);
+
+  const saveTag = (txnId: string) => {
+    if (!tagInput.trim()) return;
+    const next = { ...tags, [txnId]: { text: tagInput.trim(), color: tagColor } };
+    setTags(next);
+    localStorage.setItem(tagsKey, JSON.stringify(next));
+    setEditingTag(null); setTagInput('');
+    toast.success('Note saved!');
+  };
+
+  const removeTag = (txnId: string) => {
+    const next = { ...tags };
+    delete next[txnId];
+    setTags(next);
+    localStorage.setItem(tagsKey, JSON.stringify(next));
+  };
 
   useEffect(() => { fetchTxns(); }, [userId, filter]);
 
@@ -2089,32 +2118,71 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
           {filtered.map(tx => {
             const isIn = tx.type === 'deposit' || tx.type === 'earnings';
             const isMpesaDeposit = tx.type === 'deposit' && (tx.payment_method === 'mpesa' || tx.reference);
+            const txTag = tags[tx.id];
             return (
               <div key={tx.id}
-                className={`flex items-center gap-3 p-3.5 bg-card border border-border rounded-2xl transition-colors ${
+                className={`p-3.5 bg-card border border-border rounded-2xl transition-colors ${
                   isMpesaDeposit ? 'hover:border-green-500/40 hover:bg-green-500/5 cursor-pointer' : 'hover:bg-muted/30'
                 }`}
                 onClick={() => isMpesaDeposit && setSelectedReceipt(tx)}>
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isIn ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-500'}`}>
-                  {isIn ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p className="font-semibold text-sm capitalize">{tx.type.replace(/_/g,' ')}</p>
-                    {isMpesaDeposit && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Receipt</span>}
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isIn ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-500'}`}>
+                    {isIn ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
                   </div>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {tx.payment_method ? `${tx.payment_method.toUpperCase()} · ` : ''}{tx.description || new Date(tx.created_at).toLocaleDateString()}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-semibold text-sm capitalize">{tx.type.replace(/_/g,' ')}</p>
+                      {isMpesaDeposit && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 font-bold border border-green-500/20">Receipt</span>}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {tx.payment_method ? `${tx.payment_method.toUpperCase()} · ` : ''}{tx.description || new Date(tx.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`font-black text-base ${isIn ? 'text-green-600' : 'text-red-500'}`}>
+                      {isIn ? '+' : '-'}{fmtAmt(Number(tx.amount), currency)}
+                    </p>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${tx.status === 'completed' ? 'bg-green-500/10 text-green-600' : tx.status === 'pending' ? 'bg-orange-500/10 text-orange-600' : 'bg-red-500/10 text-red-500'}`}>
+                      {tx.status}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className={`font-black text-base ${isIn ? 'text-green-600' : 'text-red-500'}`}>
-                    {isIn ? '+' : '-'}{fmtAmt(Number(tx.amount), currency)}
-                  </p>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${tx.status === 'completed' ? 'bg-green-500/10 text-green-600' : tx.status === 'pending' ? 'bg-orange-500/10 text-orange-600' : 'bg-red-500/10 text-red-500'}`}>
-                    {tx.status}
-                  </span>
+                <div className="mt-1.5 flex items-center gap-2 flex-wrap pl-[52px]" onClick={e => e.stopPropagation()}>
+                  {txTag && (
+                    <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${TAG_COLOR_BG[txTag.color] ?? TAG_COLOR_BG.blue}`}>
+                      {txTag.text}
+                      <button onClick={() => removeTag(tx.id)} className="ml-0.5 opacity-60 hover:opacity-100 text-xs leading-none">×</button>
+                    </div>
+                  )}
+                  {!txTag && editingTag !== tx.id && (
+                    <button onClick={() => { setEditingTag(tx.id); setTagInput(''); setTagColor('blue'); }}
+                      className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+                      + add note
+                    </button>
+                  )}
                 </div>
+                {editingTag === tx.id && (
+                  <div className="mt-2 space-y-2" onClick={e => e.stopPropagation()}>
+                    <div className="flex gap-1.5 pl-[52px]">
+                      {TAG_COLORS_LIST.map(c => (
+                        <button key={c} onClick={() => setTagColor(c)}
+                          className={`w-5 h-5 rounded-full ${TAG_DOT_BG[c] ?? 'bg-gray-500'} border-2 transition-all ${
+                            tagColor === c ? 'border-foreground scale-110' : 'border-transparent opacity-50 hover:opacity-80'
+                          }`} />
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="text" maxLength={40} placeholder="Add a note…" value={tagInput}
+                        onChange={e => setTagInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveTag(tx.id); if (e.key === 'Escape') setEditingTag(null); }}
+                        className="flex-1 h-8 px-2.5 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary/40" />
+                      <button onClick={() => saveTag(tx.id)}
+                        className="px-3 h-8 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-opacity">Save</button>
+                      <button onClick={() => setEditingTag(null)}
+                        className="px-2 h-8 border border-border rounded-lg text-xs hover:bg-muted transition-colors">✕</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -2288,6 +2356,38 @@ function ReceiptModal({ tx, currency, onClose }: { tx: any; currency: CurrencyCo
   );
 }
 
+// ── Tag editor constants ─────────────────────────────────────────────────
+const TAG_COLORS_LIST = ['blue','green','purple','amber','red','pink','teal','orange'] as const;
+const TAG_COLOR_BG = {
+  blue:   'bg-blue-500/10 text-blue-600 border-blue-500/20',
+  green:  'bg-green-500/10 text-green-600 border-green-500/20',
+  purple: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+  amber:  'bg-amber-500/10 text-amber-600 border-amber-500/20',
+  red:    'bg-red-500/10 text-red-500 border-red-500/20',
+  pink:   'bg-pink-500/10 text-pink-600 border-pink-500/20',
+  teal:   'bg-teal-500/10 text-teal-600 border-teal-500/20',
+  orange: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
+} as const;
+const TAG_DOT_BG = {
+  blue: 'bg-blue-500', green: 'bg-green-500', purple: 'bg-purple-500', amber: 'bg-amber-500',
+  red: 'bg-red-500', pink: 'bg-pink-500', teal: 'bg-teal-500', orange: 'bg-orange-500',
+} as const;
+// ── Referral leaderboard ──────────────────────────────────────────────────
+const RANK_BADGES = ['🥇','🥈','🥉'];
+// ── Wallet search commands ────────────────────────────────────────────────
+const SEARCH_COMMANDS: { label: string; hint: string; emoji: string; tab: ActiveTab; keywords: string[] }[] = [
+  { label: 'Deposit via M-Pesa', hint: 'Top up your wallet',              emoji: '💰', tab: 'wallet',    keywords: ['deposit','top up','topup','add money','mpesa','funds']          },
+  { label: 'Send Money',         hint: 'P2P transfer to a user',          emoji: '💸', tab: 'send',      keywords: ['send','transfer','pay','wire']                                  },
+  { label: 'Receive Money',      hint: 'Show QR code & payment link',     emoji: '📥', tab: 'receive',   keywords: ['receive','qr','request','scan','link']                          },
+  { label: 'Transaction History',hint: 'View all transactions',           emoji: '📋', tab: 'history',   keywords: ['history','transactions','txn','records','log']                  },
+  { label: 'Analytics',          hint: 'Spending breakdown & charts',     emoji: '📊', tab: 'analytics', keywords: ['analytics','stats','spending','charts','insights']              },
+  { label: 'Referrals',          hint: 'Earn credits by inviting friends',emoji: '👥', tab: 'referrals', keywords: ['referral','refer','invite','credits','leaderboard']             },
+  { label: 'Scheduled Transfers',hint: 'Future & batch payments',         emoji: '⏰', tab: 'scheduled', keywords: ['scheduled','future','batch','automate']                         },
+  { label: 'Savings Goals',      hint: 'Track financial milestones',      emoji: '🎯', tab: 'savings',   keywords: ['savings','goals','save','target','milestone']                   },
+  { label: 'Reminders',          hint: 'Set payment reminders',           emoji: '🔔', tab: 'reminders', keywords: ['reminders','remind','alert','notify']                           },
+  { label: 'Security',           hint: 'PIN, biometric & lock',           emoji: '🔒', tab: 'security',  keywords: ['security','pin','biometric','lock','fingerprint','password']    },
+  { label: 'Currency Converter', hint: 'Convert between currencies',      emoji: '💱', tab: 'converter', keywords: ['convert','currency','exchange','forex','rate']                  },
+];
 // ── Module-level frequency / filter arrays (esbuild-safe) ─────────────
 const FREQ_WEEKLY_MONTHLY = ['weekly','monthly'] as const;
 const PERIOD_OPTIONS      = ['week','month','all'] as const;
@@ -2832,6 +2932,153 @@ function InactivityLockCard({ userId }: { userId: string }) {
 
 
 
+// ── Wallet Search Shortcut ───────────────────────────────────────────────
+function WalletSearchShortcut({ onNavigate }: { onNavigate: (tab: ActiveTab) => void }) {
+  const [open,  setOpen]  = useState(false);
+  const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 60);
+  }, [open]);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return SEARCH_COMMANDS;
+    return SEARCH_COMMANDS.filter(c =>
+      c.label.toLowerCase().includes(q) ||
+      c.hint.toLowerCase().includes(q) ||
+      c.keywords.some(k => k.includes(q))
+    );
+  }, [query]);
+
+  const handleSelect = (tab: ActiveTab) => {
+    onNavigate(tab);
+    setOpen(false);
+    setQuery('');
+  };
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-muted/40 text-muted-foreground hover:bg-muted transition-colors text-xs font-semibold">
+        <Search className="w-3.5 h-3.5" />
+        <span>Search…</span>
+        <kbd className="text-[9px] px-1 py-0.5 bg-background border border-border rounded leading-none">⌘K</kbd>
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => { setOpen(false); setQuery(''); }}>
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+              <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+              <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
+                placeholder="Search features… (e.g. 'send', 'goals', 'security')"
+                className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
+                onKeyDown={e => {
+                  if (e.key === 'Escape') { setOpen(false); setQuery(''); }
+                  if (e.key === 'Enter' && matches.length > 0) handleSelect(matches[0].tab);
+                }} />
+              <button onClick={() => { setOpen(false); setQuery(''); }} className="text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="max-h-80 overflow-y-auto divide-y divide-border">
+              {matches.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-6">No results for "{query}"</p>
+              ) : (
+                matches.map(cmd => (
+                  <button key={cmd.tab} onClick={() => handleSelect(cmd.tab)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/60 transition-colors text-left">
+                    <span className="text-xl w-8 text-center shrink-0">{cmd.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{cmd.label}</p>
+                      <p className="text-xs text-muted-foreground">{cmd.hint}</p>
+                    </div>
+                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground -rotate-90 shrink-0" />
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Referral Leaderboard ─────────────────────────────────────────────────
+function ReferralLeaderboard({ userId }: { userId: string }) {
+  const [leaders, setLeaders] = useState<{ uid: string; username: string; avatarUrl: string | null; count: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      const { data: allRefs } = await supabase
+        .from('referrals')
+        .select('invited_by')
+        .limit(500);
+      const counts: Record<string, number> = {};
+      (allRefs ?? []).forEach((r: any) => { counts[r.invited_by] = (counts[r.invited_by] ?? 0) + 1; });
+      const top10 = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      if (top10.length === 0) { setLeaders([]); setLoading(false); return; }
+      const { data: profiles } = await supabase.from('user_profiles')
+        .select('id,username,avatar_url').in('id', top10.map(([id]) => id));
+      const pm: Record<string, any> = {};
+      (profiles ?? []).forEach((p: any) => { pm[p.id] = p; });
+      setLeaders(top10.map(([uid, count]) => ({
+        uid, count,
+        username: pm[uid]?.username ?? 'Unknown',
+        avatarUrl: pm[uid]?.avatar_url ?? null,
+      })));
+      setLoading(false);
+    };
+    load();
+  }, []);
+
+  if (!loading && leaders.length === 0) return null;
+
+  return (
+    <div className="border border-border rounded-2xl overflow-hidden">
+      <div className="px-4 py-3 flex items-center gap-2 border-b border-border">
+        <TrendingUp className="w-4 h-4 text-primary" />
+        <h3 className="font-bold text-sm">Top Referrers</h3>
+        <span className="text-[10px] text-muted-foreground ml-auto">All time</span>
+      </div>
+      {loading ? (
+        <div className="flex justify-center p-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+      ) : (
+        <div className="divide-y divide-border">
+          {leaders.map((l, i) => (
+            <div key={l.uid} className={`flex items-center gap-3 px-4 py-3 ${l.uid === userId ? 'bg-primary/5' : ''}`}>
+              <div className="w-7 text-center shrink-0">
+                {i < 3
+                  ? <span className="text-lg">{RANK_BADGES[i]}</span>
+                  : <span className="text-xs font-black text-muted-foreground">#{i + 1}</span>}
+              </div>
+              <div className="w-9 h-9 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center font-bold text-sm">
+                {l.avatarUrl
+                  ? <img src={l.avatarUrl} alt={l.username} className="w-full h-full object-cover" />
+                  : l.username?.[0]?.toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm truncate">@{l.username}</p>
+                {l.uid === userId && <span className="text-[10px] text-primary font-semibold">You</span>}
+              </div>
+              <div className="text-right shrink-0">
+                <p className="font-black text-base text-primary">{l.count}</p>
+                <p className="text-[10px] text-muted-foreground">referral{l.count !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Module-level tab config ───────────────────────────────────────────────
 const WALLET_TABS: { key: ActiveTab; label: string }[] = [
   { key: 'wallet',    label: '💳 Wallet'    },
@@ -3119,6 +3366,9 @@ export default function WalletPage() {
 
       <TopBar title="My Wallet" showBack />
       <WalletAdBanner />
+      <div className="max-w-2xl mx-auto px-4 pt-2 pb-1 flex justify-end">
+        <WalletSearchShortcut onNavigate={setActiveTab} />
+      </div>
 
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
         <div className="flex max-w-2xl mx-auto overflow-x-auto scrollbar-hide">
