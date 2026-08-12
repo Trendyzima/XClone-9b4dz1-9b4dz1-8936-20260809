@@ -160,11 +160,11 @@ export default function SEOAuditPage() {
     ? routes
     : routes.filter(r => r.status === filterStatus);
 
-  // Use plain object without index-sig type annotation (esbuild guard)
-  const groupedRoutes = GROUPS.reduce((acc: { [k: string]: RouteAudit[] }, g) => {
-    acc[g] = filteredRoutes.filter(r => r.group === g);
-    return acc;
-  }, {});
+  // Use plain object — no index-sig annotation on accumulator (esbuild guard)
+  const groupedRoutes: any = {};
+  for (const g of GROUPS) {
+    groupedRoutes[g] = filteredRoutes.filter(r => r.group === g);
+  }
 
   if (checkingAdmin) {
     return (
