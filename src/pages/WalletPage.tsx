@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import SavingsGoalsTab from '@/components/features/SavingsGoalsTab';
 import TransactionRemindersTab from '@/components/features/TransactionRemindersTab';
 import FriendActivityFeed from '@/components/features/FriendActivityFeed';
-import { TwoFAModal, TwoFASetupCard, MpesaPaymentHistory, WalletBudgetPlanner, FriendBalanceComparison, WALLET_EXTRAS_OTP_EXPIRY_MS } from '@/components/features/WalletExtras';
+import { TwoFAModal, TwoFASetupCard, MpesaPaymentHistory, WalletBudgetPlanner, FriendBalanceComparison, DirectMpesaSendPanel, WALLET_EXTRAS_OTP_EXPIRY_MS } from '@/components/features/WalletExtras';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useSEO } from '@/hooks/useSEO';
 import { useSearchParams } from 'react-router-dom';
@@ -41,6 +41,9 @@ type TopUpStep    = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type WithdrawStep = 'idle' | 'sending' | 'polling' | 'success' | 'failed';
 type CurrencyCode = 'USD' | 'KES' | 'EUR';
 type ActiveTab    = 'wallet' | 'history' | 'send' | 'receive' | 'analytics' | 'referrals' | 'scheduled' | 'savings' | 'reminders' | 'security' | 'converter' | 'pocket' | 'mpesa';
+type SendMode     = 'send' | 'request' | 'mpesa-direct';
+const GOAL_MILESTONES = [25, 50, 75, 100] as const;
+const GOAL_MILESTONE_EMOJIS = { 25: '📈', 50: '🌟', 75: '🏆', 100: '🎉' } as const;
 
 const CURRENCIES: { code: CurrencyCode; symbol: string; rate: number }[] = [
   { code: 'USD', symbol: '$',    rate: 1    },
@@ -3294,12 +3297,33 @@ function SavingsPocketTab({ userId, mainBalance, savingsBalance, pinHash, curren
       const { data: goal } = await supabase.from('savings_goals')
         .select('current_amount,target_amount,name').eq('id', linkedGoalId).eq('user_id', userId).maybeSingle();
       if (goal) {
-        const newGoalAmt = Math.min(Number(goal.current_amount) + amt, Number(goal.target_amount));
-        const completed  = newGoalAmt >= Number(goal.target_amount);
+        const prevAmt    = Number(goal.current_amount);
+        const targetAmt  = Number(goal.target_amount);
+        const newGoalAmt = Math.min(prevAmt + amt, targetAmt);
+        const completed  = newGoalAmt >= targetAmt;
         await supabase.from('savings_goals')
           .update({ current_amount: newGoalAmt, is_completed: completed }).eq('id', linkedGoalId);
         if (completed) toast.success(`🎉 Goal "${goal.name}" completed!`);
-        else toast.info(`Goal progress: ${fmtAmt(newGoalAmt, currency)} / ${fmtAmt(Number(goal.target_amount), currency)}`);
+        else toast.info(`Goal progress: ${fmtAmt(newGoalAmt, currency)} / ${fmtAmt(targetAmt, currency)}`);
+        // Send milestone notifications
+        const prevPct = targetAmt > 0 ? (prevAmt / targetAmt) * 100 : 0;
+        const newPct  = targetAmt > 0 ? (newGoalAmt / targetAmt) * 100 : 0;
+        const crossed = GOAL_MILESTONES.filter(m => prevPct < m && newPct >= m);
+        for (const milestone of crossed) {
+          const milEmoji = GOAL_MILESTONE_EMOJIS[milestone] ?? '🌟';
+          supabase.from('platform_inbox').insert({
+            user_id: userId,
+            subject: `${milEmoji} Goal "${goal.name}" is ${milestone}% complete!`,
+            body: `You've saved ${fmtAmt(newGoalAmt, currency)} of your ${fmtAmt(targetAmt, currency)} goal. ${
+              milestone === 100 ? 'You did it — goal complete! 🎉' :
+              milestone === 75  ? 'Almost there! Just 25% to go.' :
+              milestone === 50  ? 'Halfway there! Keep it up.' :
+                                  'Great start on your savings goal!'
+            }`,
+            type: 'system', icon_emoji: milEmoji,
+            cta_label: 'View Goals', cta_url: '/wallet?tab=savings',
+          }).then(() => {});
+        }
       }
     }
     toast.success(type === 'in' ? `${fmtAmt(amt, currency)} moved to Savings Pocket` : `${fmtAmt(amt, currency)} returned to wallet`);
@@ -3903,7 +3927,7 @@ export default function WalletPage() {
     checkAndExecuteWithdraw();
   };
 
-  const [sendMode, setSendMode] = useState<'send' | 'request'>('send');
+  const [sendMode, setSendMode] = useState<SendMode>('send');
 
   const { walletBalance, username, totalDeposited, savingsBalance } = useMemo(() => ({
     walletBalance:  Number(wallet?.balance ?? 0),
@@ -3968,17 +3992,28 @@ export default function WalletPage() {
               <button onClick={() => setSendMode('send')}
                 className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                   sendMode === 'send' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-                }`}>💸 Send Money</button>
+                }`}>💸 Send</button>
               <button onClick={() => setSendMode('request')}
                 className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                   sendMode === 'request' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-                }`}>🙏 Request Money</button>
+                }`}>🙏 Request</button>
+              <button onClick={() => setSendMode('mpesa-direct')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  sendMode === 'mpesa-direct' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}>📲 M-Pesa</button>
             </div>
-            {sendMode === 'send'
-              ? <SendMoneyTab userId={user.id} senderUsername={username} walletBalance={walletBalance}
-                  pinHash={pinHash} biometricCredentialId={biometricCredentialId} onComplete={fetchWallet}
-                  prefillUsername={prefillTo} currency={currency} />
-              : <RequestMoneyPanel userId={user.id} senderUsername={username} currency={currency} />}
+            {sendMode === 'send' && (
+              <SendMoneyTab userId={user.id} senderUsername={username} walletBalance={walletBalance}
+                pinHash={pinHash} biometricCredentialId={biometricCredentialId} onComplete={fetchWallet}
+                prefillUsername={prefillTo} currency={currency} />
+            )}
+            {sendMode === 'request' && (
+              <RequestMoneyPanel userId={user.id} senderUsername={username} currency={currency} />
+            )}
+            {sendMode === 'mpesa-direct' && (
+              <DirectMpesaSendPanel userId={user.id} walletBalance={walletBalance}
+                pinHash={pinHash} currency={currency} onComplete={fetchWallet} />
+            )}
           </div>
         )}
         {activeTab === 'receive'   && user && <ReceiveMoneyTab username={username} walletBalance={walletBalance} currency={currency} />}
