@@ -81,6 +81,9 @@ export function StoriesStrip() {
   const [sendingReply, setSendingReply] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [sendingReaction, setSendingReaction] = useState(false);
+  // Quick emoji reaction bar — shown above reply input
+  const [showQuickReactionBar, setShowQuickReactionBar] = useState(false);
+  const QUICK_REACTION_EMOJIS = ['❤️', '🔥', '😮', '👏', '😍'] as const;
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Story Text Overlays ──────────────────────────────────────────────────────
@@ -1162,27 +1165,50 @@ export function StoriesStrip() {
 
           {/* Reply bar — other user's story only */}
           {user && !viewerIsOwn && (
-            <div className="absolute bottom-4 left-4 right-4 z-30 flex items-center gap-2" onClick={e => e.stopPropagation()}>
-              <button onClick={() => { const su = encodeURIComponent(viewerStory.media_url); navigate(`/messages?to=${viewerG.username}&storyUrl=${su}`); }}
-                className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center border border-white/20 shrink-0 hover:bg-white/25 transition-colors" title="Reply via DM">
-                <MessageCircle className="w-4 h-4 text-white" />
-              </button>
-              <button onMouseDown={() => { longPressTimer.current = setTimeout(() => setShowReactions(true), 400); }}
-                onMouseUp={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
-                onTouchStart={() => { longPressTimer.current = setTimeout(() => setShowReactions(true), 400); }}
-                onTouchEnd={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
-                onClick={() => setShowReactions(v => !v)}
-                className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center border border-white/20 text-lg shrink-0 hover:bg-white/25 transition-colors">
-                😊
-              </button>
-              <input type="text" value={replyText} onChange={e => setReplyText(e.target.value)}
-                onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') sendStoryReply(); }}
-                placeholder={`Reply to ${viewerG.username}…`}
-                className="flex-1 bg-white/10 text-white placeholder:text-white/50 border border-white/20 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-white/50 backdrop-blur-sm" />
-              <button onClick={e => { e.stopPropagation(); sendStoryReply(); }} disabled={sendingReply || !replyText.trim()}
-                className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0 disabled:opacity-50 transition-opacity hover:opacity-90">
-                {sendingReply ? <Loader2 className="w-4 h-4 text-white animate-spin" /> : <Send className="w-4 h-4 text-white" />}
-              </button>
+            <div className="absolute bottom-4 left-4 right-4 z-30 space-y-2" onClick={e => e.stopPropagation()}>
+              {/* Quick emoji reaction bar — tapping an emoji sends it instantly as a DM */}
+              {showQuickReactionBar && (
+                <div className="flex items-center justify-center gap-2 bg-black/70 backdrop-blur-sm rounded-2xl px-3 py-2.5 border border-white/20">
+                  {QUICK_REACTION_EMOJIS.map(emoji => (
+                    <button
+                      key={emoji}
+                      onClick={() => { sendReaction(emoji); setShowQuickReactionBar(false); }}
+                      disabled={sendingReaction}
+                      className="w-11 h-11 flex items-center justify-center text-2xl rounded-xl hover:bg-white/20 active:scale-125 transition-all duration-150 disabled:opacity-50"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setShowQuickReactionBar(false)}
+                    className="w-8 h-8 flex items-center justify-center text-white/50 hover:text-white ml-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+              {/* Text reply row */}
+              <div className="flex items-center gap-2">
+                <button onClick={() => { const su = encodeURIComponent(viewerStory.media_url); navigate(`/messages?to=${viewerG.username}&storyUrl=${su}`); }}
+                  className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center border border-white/20 shrink-0 hover:bg-white/25 transition-colors" title="Reply via DM">
+                  <MessageCircle className="w-4 h-4 text-white" />
+                </button>
+                <button
+                  onClick={() => setShowQuickReactionBar(v => !v)}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center border text-lg shrink-0 transition-all ${showQuickReactionBar ? 'bg-white/30 border-white/40 scale-105' : 'bg-white/15 border-white/20 hover:bg-white/25'}`}
+                  title="React with emoji"
+                >
+                  😊
+                </button>
+                <input type="text" value={replyText} onChange={e => setReplyText(e.target.value)}
+                  onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') sendStoryReply(); }}
+                  placeholder={`Reply to ${viewerG.username}…`}
+                  className="flex-1 bg-white/10 text-white placeholder:text-white/50 border border-white/20 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-white/50 backdrop-blur-sm" />
+                <button onClick={e => { e.stopPropagation(); sendStoryReply(); }} disabled={sendingReply || !replyText.trim()}
+                  className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0 disabled:opacity-50 transition-opacity hover:opacity-90">
+                  {sendingReply ? <Loader2 className="w-4 h-4 text-white animate-spin" /> : <Send className="w-4 h-4 text-white" />}
+                </button>
+              </div>
             </div>
           )}
 

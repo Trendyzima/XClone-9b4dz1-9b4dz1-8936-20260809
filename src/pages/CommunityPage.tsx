@@ -219,6 +219,34 @@ export default function CommunityPage() {
   // Chat state
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState('');
+  // @mention autocomplete state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionResults, setMentionResults] = useState<{ id: string; username: string; avatar_url: string | null }[]>([]);
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleChatInputChange = useCallback((val: string) => {
+    setChatInput(val);
+    const match = val.match(/@(\w*)$/);
+    if (match) {
+      const q = match[1].toLowerCase();
+      setMentionQuery(q);
+      const suggestions = members
+        .map(m => ({ id: m.user_profiles?.id ?? m.user_id ?? '', username: m.user_profiles?.username ?? '', avatar_url: m.user_profiles?.avatar_url ?? null }))
+        .filter(m => m.username && (q.length === 0 || m.username.toLowerCase().includes(q)))
+        .slice(0, 6);
+      setMentionResults(suggestions);
+    } else {
+      setMentionQuery(null);
+      setMentionResults([]);
+    }
+  }, [members]);
+
+  const insertMention = useCallback((uname: string) => {
+    setChatInput(prev => prev.replace(/@\w*$/, `@${uname} `));
+    setMentionQuery(null);
+    setMentionResults([]);
+    chatInputRef.current?.focus();
+  }, []);
   const [chatSending, setChatSending] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; username: string } | null>(null);
   const [showEmojiPickerFor, setShowEmojiPickerFor] = useState<string | null>(null);
@@ -332,6 +360,30 @@ export default function CommunityPage() {
     await supabase.from('community_chat').insert({ community_id: community.id, user_id: user.id, message: msgContent });
     await fetchChat();
     setChatSending(false);
+    // Send @mention notifications to mentioned users
+    const mentionMatches = text.match(/@(\w+)/g);
+    if (mentionMatches && mentionMatches.length > 0) {
+      const mentionedUsernames = mentionMatches.map(m => m.slice(1)).filter((u, i, a) => a.indexOf(u) === i).filter(u => u !== user.username);
+      if (mentionedUsernames.length > 0) {
+        const { data: mentionedProfiles } = await supabase
+          .from('user_profiles')
+          .select('id, username')
+          .in('username', mentionedUsernames.slice(0, 5));
+        if (mentionedProfiles && mentionedProfiles.length > 0) {
+          await Promise.allSettled(mentionedProfiles.map((p: any) =>
+            supabase.from('platform_inbox').insert({
+              user_id: p.id,
+              subject: `@${user.username} mentioned you in c/${community.name}`,
+              body: `"${text.slice(0, 120)}${text.length > 120 ? '…' : ''}"`,
+              type: 'update',
+              icon_emoji: '💬',
+              cta_label: `Go to c/${community.name}`,
+              cta_url: `/c/${community.name}`,
+            })
+          ));
+        }
+      }
+    }
   };
 
   // Events state
@@ -945,9 +997,30 @@ export default function CommunityPage() {
               </div>
               <div className="p-3 flex items-center gap-2">
                 <div className="flex-1 flex items-center gap-2 bg-muted/60 border border-border rounded-2xl px-3 py-2">
-                  <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)}
+                  {/* @mention autocomplete dropdown */}
+                  {mentionQuery !== null && mentionResults.length > 0 && (
+                    <div className="absolute bottom-full left-0 right-0 mb-2 bg-background border border-border rounded-2xl shadow-xl overflow-hidden z-50">
+                      {mentionResults.map(m => (
+                        <button
+                          key={m.id}
+                          onMouseDown={e => { e.preventDefault(); insertMention(m.username); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted transition-colors text-left"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0">
+                            {m.avatar_url
+                              ? <img src={m.avatar_url} alt={m.username} className="w-full h-full object-cover" />
+                              : <div className="w-full h-full flex items-center justify-center text-[11px] font-bold">{m.username[0]?.toUpperCase()}</div>}
+                          </div>
+                          <span className="text-sm font-semibold">@{m.username}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    ref={chatInputRef}
+                    type="text" value={chatInput} onChange={e => handleChatInputChange(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
-                    placeholder="Message the community…" maxLength={280}
+                    placeholder="Message the community… (@mention)" maxLength={280}
                     className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60" />
                   <span className="text-[10px] text-muted-foreground/50 shrink-0">{chatInput.length}/280</span>
                 </div>
