@@ -301,6 +301,21 @@ export function StoriesStrip() {
   const [showViewers, setShowViewers] = useState(false);
   const [storyViewers, setStoryViewers] = useState<any[]>([]);
   const [loadingViewers, setLoadingViewers] = useState(false);
+  // Story reply/reaction analytics — parallel arrays (esbuild guard)
+  const [replyCountIds, setReplyCountIds] = useState<string[]>([]);
+  const [replyCounts, setReplyCounts]   = useState<number[]>([]);
+  const getStoryReplyCount = (sid: string): number => {
+    const i = replyCountIds.indexOf(sid);
+    return i >= 0 ? (replyCounts[i] ?? 0) : 0;
+  };
+  const setStoryReplyCount = (sid: string, n: number) => {
+    setReplyCountIds(prev => {
+      const i = prev.indexOf(sid);
+      if (i >= 0) { setReplyCounts(c => { const next = [...c]; next[i] = n; return next; }); return prev; }
+      setReplyCounts(c => [...c, n]);
+      return [...prev, sid];
+    });
+  };
 
   const REACTIONS = ['❤️', '😂', '😮', '🔥', '👏', '😍'];
 
@@ -488,6 +503,26 @@ export function StoriesStrip() {
       .order('viewed_at', { ascending: false });
     setStoryViewers(data ?? []);
     setLoadingViewers(false);
+  };
+
+  // Fetch reply+reaction count for own story (DMs referencing the story)
+  const fetchStoryReplyCount = async (storyId: string, ownerId: string) => {
+    if (getStoryReplyCount(storyId) > 0) return; // cached
+    try {
+      const { data: convData } = await supabase
+        .from('conversations')
+        .select('id')
+        .or(`participant_1.eq.${ownerId},participant_2.eq.${ownerId}`);
+      const convIds = (convData ?? []).map((c: any) => c.id);
+      if (convIds.length === 0) { setStoryReplyCount(storyId, 0); return; }
+      const { count } = await supabase
+        .from('direct_messages')
+        .select('*', { count: 'exact', head: true })
+        .in('conversation_id', convIds)
+        .ilike('content', '%story%')
+        .neq('sender_id', ownerId);
+      setStoryReplyCount(storyId, count ?? 0);
+    } catch { setStoryReplyCount(storyId, 0); }
   };
 
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -680,6 +715,11 @@ export function StoriesStrip() {
   const viewerPollData   = viewerStory ? getPollVote(viewerStory.id) : undefined;
   const viewerTotalVotes = viewerPollData ? (viewerPollData.counts ?? [0, 0]).reduce((a, b) => a + b, 0) : 0;
   const viewerHasVoted   = viewerPollData !== undefined && viewerPollData.userVote !== null && viewerPollData.userVote !== undefined;
+  // Story reply count for own story — pre-fetched, safe to call (returns cached after first fetch)
+  const viewerReplyCount = viewerIsOwn && viewerStory ? (() => {
+    void fetchStoryReplyCount(viewerStory.id, viewerG!.userId);
+    return getStoryReplyCount(viewerStory.id);
+  })() : 0;
 
   return (
     <>
@@ -1024,10 +1064,17 @@ export function StoriesStrip() {
             </div>
             <span className="text-white font-semibold text-sm flex-1 truncate">{viewerG.username}</span>
             {viewerIsOwn && (
-              <button onClick={e => { e.stopPropagation(); fetchStoryViewers(viewerStory.id); }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white text-xs font-medium border border-white/20 transition-colors shrink-0">
-                <span>👁</span><span>{viewerStory.views_count ?? 0}</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={e => { e.stopPropagation(); fetchStoryViewers(viewerStory.id); }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white text-xs font-medium border border-white/20 transition-colors">
+                  <span>👁</span><span>{viewerStory.views_count ?? 0}</span>
+                </button>
+                {viewerReplyCount > 0 && (
+                  <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-pink-500/30 border border-pink-500/40 text-white text-xs font-medium">
+                    <span>💬</span><span>{viewerReplyCount}</span>
+                  </div>
+                )}
+              </div>
             )}
             <button onClick={e => { e.stopPropagation(); closeViewer(); }}
               className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors flex-shrink-0" aria-label="Close">
