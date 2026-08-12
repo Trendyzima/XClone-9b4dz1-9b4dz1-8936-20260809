@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useIsRegulator } from '@/hooks/useFeatureUnlock';
 import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
@@ -716,6 +717,7 @@ export default function ProfilePage() {
   if (!profile) return null;
 
   const isOwnProfile = currentUser?.id === profile.id;
+  const isRegulator = useIsRegulator();
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
@@ -820,6 +822,13 @@ export default function ProfilePage() {
             <div className="flex items-center gap-2 mb-1">
               <h2 className="text-xl font-bold">{profile.username}</h2>
               {profile.verified && <BadgeCheck className="w-5 h-5 text-primary" fill="currentColor" />}
+              {isRegulator && isOwnProfile && (
+                <button onClick={() => navigate('/regulator')}
+                  className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-violet-600/15 to-primary/10 border border-violet-500/30 text-[10px] font-black text-violet-600 dark:text-violet-400 hover:opacity-90 transition-opacity"
+                  title="Open Regulator Panel">
+                  👑 Regulator
+                </button>
+              )}
               {(isOwnProfile ? isPremiumUser : false) && <Crown className="w-4 h-4 text-amber-500" fill="currentColor" title="Premium Member" />}
               {(() => {
                 const tier = profile.creator_tier;

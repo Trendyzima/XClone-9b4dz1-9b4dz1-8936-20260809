@@ -82,6 +82,8 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const VideoWatchLaterPage = lazy(() => import('@/pages/VideoWatchLaterPage'));
 const HashtagDiscoveryPage = lazy(() => import('@/pages/HashtagDiscoveryPage'));
 const PodcastSearchPage = lazy(() => import('@/pages/PodcastSearchPage'));
+const RegulatorPanel = lazy(() => import('@/pages/RegulatorPanel'));
+const PodcastAnalyticsPage = lazy(() => import('@/pages/PodcastAnalyticsPage'));
 
 function PageLoader() {
   return (
@@ -191,6 +193,8 @@ function AppInner() {
               <Route path="/videos/watchlater" element={<VideoWatchLaterPage />} />
               <Route path="/hashtags" element={<HashtagDiscoveryPage />} />
               <Route path="/podcasts/search" element={<PodcastSearchPage />} />
+              <Route path="/regulator" element={<RegulatorPanel />} />
+              <Route path="/podcasts/analytics" element={<PodcastAnalyticsPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>

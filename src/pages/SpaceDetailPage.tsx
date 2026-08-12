@@ -4,7 +4,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { Radio, Users, Mic, Headphones, Video, BadgeCheck, Clock, Hash, Play, Loader2, ArrowLeft } from 'lucide-react';
+import { useFeatureUnlock } from '@/hooks/useFeatureUnlock';
+import { Radio, Users, Mic, Headphones, Video, BadgeCheck, Clock, Hash, Play, Loader2, ArrowLeft, DollarSign, X, Check } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -13,10 +14,61 @@ import { Button } from '@/components/ui/button';
 import { JoinSpaceDialog } from '@/components/features/JoinSpaceDialog';
 
 function SpaceDetailAdBanner() { return <PageAdBanner />; }
+// SuperChat tip amounts — module scope (esbuild guard)
+const SUPERCHAT_AMTS = [1, 2, 5, 10, 20, 50] as const;
+const SUPERCHAT_COLORS: { [k: number]: string } = {
+  1: 'bg-blue-500/10 border-blue-500/40 text-blue-600',
+  2: 'bg-teal-500/10 border-teal-500/40 text-teal-600',
+  5: 'bg-green-500/10 border-green-500/40 text-green-600',
+  10: 'bg-yellow-500/10 border-yellow-500/40 text-yellow-600',
+  20: 'bg-orange-500/10 border-orange-500/40 text-orange-600',
+  50: 'bg-red-500/10 border-red-500/40 text-red-600',
+};
+
 export default function SpaceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  const superChatUnlocked = useFeatureUnlock('superchat');
+  const [showSuperChat, setShowSuperChat] = useState(false);
+  const [superChatMsg, setSuperChatMsg] = useState('');
+  const [superChatAmt, setSuperChatAmt] = useState<number | null>(null);
+  const [sendingSuperChat, setSendingSuperChat] = useState(false);
+  const [superChats, setSuperChats] = useState<any[]>([]);
+
+  const fetchSuperChats = async (spaceId: string) => {
+    const { data } = await supabase
+      .from('space_superchats')
+      .select('*, user_profiles:user_id(username, avatar_url)')
+      .eq('space_id', spaceId)
+      .gte('pinned_until', new Date().toISOString())
+      .order('amount', { ascending: false })
+      .limit(5);
+    setSuperChats(data ?? []);
+  };
+
+  const handleSuperChat = async () => {
+    if (!user || !space || !superChatAmt || !superChatMsg.trim()) return;
+    setSendingSuperChat(true);
+    const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: superChatAmt });
+    if (deductErr) { toast.error('Insufficient wallet balance'); setSendingSuperChat(false); return; }
+    const pinnedUntil = new Date(Date.now() + 60000);
+    await supabase.from('space_superchats').insert({
+      space_id: space.id,
+      user_id: user.id,
+      message: superChatMsg.trim(),
+      amount: superChatAmt,
+      color: 'gold',
+      pinned_until: pinnedUntil.toISOString(),
+    });
+    toast.success(`💬 SuperChat $${superChatAmt} sent!`);
+    setSuperChatMsg('');
+    setSuperChatAmt(null);
+    setShowSuperChat(false);
+    setSendingSuperChat(false);
+    fetchSuperChats(space.id);
+  };
 
   const [space, setSpace] = useState<any>(null);
   const [recordings, setRecordings] = useState<any[]>([]);
@@ -75,6 +127,7 @@ export default function SpaceDetailPage() {
     fetchSpace();
     fetchRecordings();
     fetchParticipants();
+    fetchSuperChats(id);
   }, [id]);
 
   const fetchSpace = async () => {
@@ -207,6 +260,16 @@ export default function SpaceDetailPage() {
           <Button onClick={handleJoin} className="w-full mt-4 rounded-xl bg-gradient-to-r from-primary to-purple-600 text-white font-bold h-12">
             <Headphones className="w-5 h-5 mr-2" /> Join Live Space
           </Button>
+          {/* SuperChat button — locked unless unlocked by regulator */}
+          {superChatUnlocked && user && space.is_live && (
+            <button onClick={() => setShowSuperChat(true)}
+              className="w-full mt-2 py-3 rounded-xl border-2 border-yellow-500/30 bg-yellow-500/8 text-yellow-600 dark:text-yellow-400 font-bold text-sm flex items-center justify-center gap-2 hover:bg-yellow-500/12 transition-colors">
+              <DollarSign className="w-4 h-4" />Send SuperChat
+            </button>
+          )}
+          {!superChatUnlocked && user && space.is_live && (
+            <p className="text-center text-[10px] text-muted-foreground mt-1">• SuperChat locked — contact @Shee to unlock</p>
+          )}
         )}
       </div>
 
@@ -323,6 +386,43 @@ export default function SpaceDetailPage() {
         onOpenChange={setShowJoinDialog}
         spaceId={id ?? null}
       />
+
+      {/* ── SuperChat Modal ── */}
+      {showSuperChat && user && space && (
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-end" onClick={() => setShowSuperChat(false)}>
+          <div className="w-full bg-background rounded-t-3xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-yellow-500/10 flex items-center justify-center">
+                  <DollarSign className="w-4 h-4 text-yellow-600" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base">SuperChat</h3>
+                  <p className="text-xs text-muted-foreground">Pin your message for 60 seconds</p>
+                </div>
+              </div>
+              <button onClick={() => setShowSuperChat(false)} className="p-2 rounded-full hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <textarea value={superChatMsg} onChange={e => setSuperChatMsg(e.target.value)}
+              placeholder="Write your SuperChat message…" rows={3} maxLength={200}
+              className="w-full px-4 py-3 rounded-xl border-2 border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-yellow-500/30 focus:border-yellow-500/50" />
+            <p className="text-[10px] text-muted-foreground text-right mt-0.5">{superChatMsg.length}/200</p>
+            <div className="grid grid-cols-3 gap-2">
+              {SUPERCHAT_AMTS.map(amt => (
+                <button key={amt} onClick={() => setSuperChatAmt(amt)}
+                  className={`py-2.5 rounded-xl font-black text-base border-2 transition-all ${superChatAmt === amt ? (SUPERCHAT_COLORS[amt] ?? 'border-yellow-500 bg-yellow-500/10 text-yellow-600') : 'border-border hover:border-yellow-500/30'}`}>
+                  ${amt}
+                </button>
+              ))}
+            </div>
+            <button onClick={handleSuperChat} disabled={sendingSuperChat || !superChatAmt || !superChatMsg.trim()}
+              className="w-full py-3 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-xl font-black disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90">
+              {sendingSuperChat ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+              {sendingSuperChat ? 'Sending…' : `Send $${superChatAmt ?? '—'} SuperChat`}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

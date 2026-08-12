@@ -17,11 +17,13 @@ import {
   Camera, Check, Send, MessageCircle, Mail, Calendar,
   Trophy, Flame, Heart, Radio, BadgeCheck, Copy,
   CalendarDays, Clock, ChevronRight, BarChart3,
+  ShoppingBag, Star, ExternalLink, Sparkles, Award,
 } from 'lucide-react';
 import { SchedulePostDialog } from '@/components/features/SchedulePostDialog';
 import { CreatePollDialog } from '@/components/features/CreatePollDialog';
 import { GifPicker } from '@/components/features/GifPicker';
 import { useSEO, buildCommunityLD, buildOgImageUrl } from '@/hooks/useSEO';
+import { useFeatureUnlock } from '@/hooks/useFeatureUnlock';
 import { Post } from '@/types/app-types';
 import { formatNumber } from '@/lib/utils';
 import { toast as sonnerToast } from 'sonner';
@@ -32,6 +34,13 @@ const LEADERBOARD_MEDALS = ['🥇', '🥈', '🥉'] as const;
 const LEADERBOARD_PODIUM_H = ['h-16', 'h-20', 'h-14'] as const;
 // Community tip amounts at module scope (esbuild guard)
 const COMM_TIP_AMTS = [1, 5, 10] as const;
+// Community tab list at module scope
+// NFT badge tiers
+const NFT_TIERS = [
+  { min: 10,  tier: 'legendary', emoji: '💎', label: 'Legendary', color: 'from-cyan-500/20 to-blue-500/20', border: 'border-cyan-500/30' },
+  { min: 5,   tier: 'epic',      emoji: '🔮', label: 'Epic',      color: 'from-purple-500/20 to-violet-500/20', border: 'border-purple-500/30' },
+  { min: 1,   tier: 'rare',      emoji: '🏅', label: 'Rare',      color: 'from-amber-500/20 to-yellow-500/20', border: 'border-amber-500/30' },
+] as const;
 
 // Module-level RSS URL helper — avoids duplicate closure bindings (esbuild guard)
 function getCommunityRssUrl(communityName: string) {
@@ -100,7 +109,77 @@ export default function CommunityPage() {
   const [isMember, setIsMember] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
   const [members, setMembers] = useState<CommunityMember[]>([]);
-  const [activeTab, setActiveTab] = useState<CommPageTab>('posts');
+  // Feature gates
+  const shopUnlocked = useFeatureUnlock('community_shop');
+  const nftUnlocked  = useFeatureUnlock('nft_badges');
+  const [activeTab, setActiveTab] = useState<CommPageTab | 'shop'>('posts');
+
+  // Community Shop state
+  const [shopProducts, setShopProducts] = useState<any[]>([]);
+  const [loadingShop, setLoadingShop] = useState(false);
+  const [shopFetched, setShopFetched] = useState(false);
+
+  // NFT Badges state
+  const [nftBadges, setNftBadges] = useState<any[]>([]);
+  const [mintingNft, setMintingNft] = useState(false);
+
+  const fetchShopProducts = useCallback(async (communityId: string) => {
+    if (shopFetched) return;
+    setLoadingShop(true);
+    const keyword = community?.display_name?.split(' ')[0] ?? '';
+    const { data } = await supabase
+      .from('products')
+      .select('id, name, description, price, image_url, avg_rating, review_count, external_link, user_id, user_profiles:user_id(username, avatar_url)')
+      .eq('is_active', true)
+      .ilike('name', `%${keyword}%`)
+      .order('sales_count', { ascending: false })
+      .limit(20);
+    const { data: featured } = await supabase
+      .from('products')
+      .select('id, name, description, price, image_url, avg_rating, review_count, external_link, user_id, user_profiles:user_id(username, avatar_url)')
+      .eq('is_active', true)
+      .eq('is_featured', true)
+      .order('sales_count', { ascending: false })
+      .limit(10);
+    const combined = [...(featured ?? []), ...(data ?? [])];
+    const unique = combined.filter((p, i, arr) => arr.findIndex(x => x.id === p.id) === i);
+    setShopProducts(unique);
+    setLoadingShop(false);
+    setShopFetched(true);
+  }, [shopFetched, community?.display_name]);
+
+  const fetchNftBadges = useCallback(async (communityId: string) => {
+    const { data } = await supabase
+      .from('community_nft_badges')
+      .select('*, user_profiles:owner_id(username, avatar_url, verified)')
+      .eq('community_id', communityId)
+      .order('minted_at', { ascending: false });
+    setNftBadges(data ?? []);
+  }, []);
+
+  const handleMintNft = useCallback(async () => {
+    if (!user || !community) return;
+    setMintingNft(true);
+    // Determine tier based on user's like count in community
+    const { data: userPosts } = await supabase
+      .from('posts')
+      .select('likes_count')
+      .eq('community_id', community.id)
+      .eq('user_id', user.id);
+    const totalLikes = (userPosts ?? []).reduce((s: number, p: any) => s + (p.likes_count ?? 0), 0);
+    const nftDef = NFT_TIERS.find(t => totalLikes >= t.min) ?? NFT_TIERS[2];
+    const { error } = await supabase.from('community_nft_badges').upsert({
+      community_id: community.id,
+      owner_id: user.id,
+      badge_name: `${community.display_name} ${nftDef.label} Badge`,
+      badge_emoji: nftDef.emoji,
+      badge_tier: nftDef.tier,
+    }, { onConflict: 'community_id,owner_id' });
+    if (error) { sonnerToast.error('Could not mint badge'); setMintingNft(false); return; }
+    sonnerToast.success(`${nftDef.emoji} ${nftDef.label} Badge minted!`);
+    fetchNftBadges(community.id);
+    setMintingNft(false);
+  }, [user, community, fetchNftBadges]);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [editingRules, setEditingRules] = useState(false);
@@ -446,6 +525,14 @@ export default function CommunityPage() {
   useEffect(() => {
     if (activeTab === 'members' && community && !leaderboardFetched) fetchLeaderboard(community.id);
   }, [activeTab, community?.id, leaderboardFetched]);
+
+  useEffect(() => {
+    if (activeTab === 'shop' && community && !shopFetched) fetchShopProducts(community.id);
+  }, [activeTab, community?.id, shopFetched]);
+
+  useEffect(() => {
+    if (activeTab === 'members' && community && nftUnlocked) fetchNftBadges(community.id);
+  }, [activeTab, community?.id, nftUnlocked]);
 
   // ── Pinned posts ───────────────────────────────────────────────────────────
   const [pinnedPostIds, setPinnedPostIds] = useState<Set<string>>(() => new Set<string>());
@@ -1024,6 +1111,12 @@ export default function CommunityPage() {
             className={`flex-shrink-0 flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-1.5 border-b-2 transition-colors min-w-0 ${activeTab === 'events' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}>
             <CalendarDays className="w-4 h-4" /> Events
           </button>
+          {shopUnlocked && (
+            <button onClick={() => setActiveTab('shop')}
+              className={`flex-shrink-0 flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-1.5 border-b-2 transition-colors min-w-0 ${activeTab === 'shop' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}>
+              <ShoppingBag className="w-4 h-4" /> Shop
+            </button>
+          )}
         </div>
       </div>
 
@@ -1542,6 +1635,104 @@ export default function CommunityPage() {
           )}
         </div>
       )}
-    </div>
-  );
-}
+
+      {/* ── SHOP TAB ── */}
+      {activeTab === 'shop' && shopUnlocked && (
+        <div className="p-4 space-y-4">
+          <div className="flex items-center gap-3">
+            <ShoppingBag className="w-5 h-5 text-primary" />
+            <div>
+              <h3 className="font-bold text-base">Community Shop</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Products from community members</p>
+            </div>
+          </div>
+          {/* NFT Badges section */}
+          {nftUnlocked ? (
+            <div className="border border-cyan-500/20 bg-cyan-500/5 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-cyan-500/15">
+                <div className="flex items-center gap-2">
+                  <Award className="w-4 h-4 text-cyan-500" />
+                  <span className="text-sm font-bold">Community NFT Badges</span>
+                  <span className="text-[10px] text-muted-foreground">{nftBadges.length} minted</span>
+                </div>
+                {isMember && (
+                  <button onClick={handleMintNft} disabled={mintingNft}
+                    className="flex items-center gap-1 px-2.5 py-1.5 bg-cyan-500 text-white rounded-xl text-xs font-bold disabled:opacity-50 hover:opacity-90">
+                    {mintingNft ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                    {mintingNft ? 'Minting…' : 'Mint Badge'}
+                  </button>
+                )}
+              </div>
+              {nftBadges.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">No badges minted yet — be the first!</p>
+              ) : (
+                <div className="flex gap-3 px-4 py-3 overflow-x-auto scrollbar-hide">
+                  {nftBadges.slice(0, 8).map((b: any) => {
+                    const nftMeta = NFT_TIERS.find(t => t.tier === b.badge_tier) ?? NFT_TIERS[2];
+                    return (
+                      <div key={b.id} className={`flex flex-col items-center gap-1 p-2 rounded-xl bg-gradient-to-br ${nftMeta.color} border ${nftMeta.border} shrink-0 min-w-[60px]`}>
+                        <span className="text-2xl">{b.badge_emoji}</span>
+                        <p className="text-[9px] font-bold truncate w-full text-center">{b.user_profiles?.username}</p>
+                        <p className="text-[8px] text-muted-foreground">{nftMeta.label}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 px-4 py-3 bg-muted/40 border border-border rounded-xl">
+              <Lock className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div>
+                <p className="text-xs font-semibold">NFT Badges locked</p>
+                <p className="text-[10px] text-muted-foreground">Contact @Shee to unlock NFT badge minting</p>
+              </div>
+            </div>
+          )}
+          {loadingShop ? (
+            <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : shopProducts.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <ShoppingBag className="w-14 h-14 mx-auto mb-3 opacity-20" />
+              <p className="font-semibold">No products yet</p>
+              <p className="text-sm mt-1">Members can list products to appear here</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {shopProducts.map((p: any) => (
+                <div key={p.id} className="bg-card border border-border rounded-2xl overflow-hidden hover:border-primary/20 transition-colors">
+                  <div className="aspect-square bg-muted overflow-hidden">
+                    {p.image_url
+                      ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-8 h-8 text-muted-foreground opacity-30" /></div>}
+                  </div>
+                  <div className="p-3">
+                    <p className="font-bold text-sm line-clamp-2 leading-snug">{p.name}</p>
+                    {p.description && <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{p.description}</p>}
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="font-black text-base text-primary">${Number(p.price).toFixed(2)}</span>
+                      {(p.avg_rating ?? 0) > 0 && (
+                        <span className="flex items-center gap-0.5 text-[10px] text-amber-500 font-bold">
+                          <Star className="w-2.5 h-2.5 fill-current" />{Number(p.avg_rating).toFixed(1)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 mt-1">
+                      <div className="w-4 h-4 rounded-full bg-muted overflow-hidden shrink-0">
+                        {p.user_profiles?.avatar_url ? <img src={p.user_profiles.avatar_url} className="w-full h-full object-cover" alt="" /> : null}
+                      </div>
+                      <span className="text-[9px] text-muted-foreground truncate">@{p.user_profiles?.username}</span>
+                    </div>
+                    {p.external_link && (
+                      <a href={p.external_link} target="_blank" rel="noopener noreferrer"
+                        className="mt-2 flex items-center justify-center gap-1 w-full py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:opacity-90">
+                        <ExternalLink className="w-3 h-3" />Buy Now
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
