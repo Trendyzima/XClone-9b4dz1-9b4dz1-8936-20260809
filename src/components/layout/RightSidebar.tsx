@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check, RefreshCw, Trophy, DollarSign } from 'lucide-react';
+import { TrendingUp, Users, Hash, Radio, Sparkles, Plus, Check, RefreshCw, Trophy, Loader2, X } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { UserSuggestionsWidget } from '../features/UserSuggestionsWidget';
 import { ContentSuggestionsWidget } from '../features/ContentSuggestionsWidget';
@@ -68,14 +68,13 @@ function CreatorLeaderboardWidget() {
     if (!data) { setLoading(false); return; }
 
     // Aggregate by user
-    const totals: Record<string, number> = {};
+    const totals: { [uid: string]: number } = {};
     data.forEach(e => {
       totals[e.user_id] = (totals[e.user_id] ?? 0) + Number(e.amount);
     });
-    const topIds = Object.entries(totals)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id]) => id);
+    const topIds = (Object.keys(totals) as string[])
+      .sort((a, b) => (totals[b] ?? 0) - (totals[a] ?? 0))
+      .slice(0, 5);
 
     if (topIds.length === 0) { setLoading(false); return; }
 
@@ -148,6 +147,8 @@ export function RightSidebar() {
   const [followedTags, setFollowedTags] = useState<Set<string>>(new Set());
   const [suggestedCommunity, setSuggestedCommunity] = useState<Community | null>(null);
   const [suggestedSpace, setSuggestedSpace] = useState<Space | null>(null);
+  const [followedHashtags, setFollowedHashtags] = useState<any[]>([]);
+  const [followedHashtagsLoading, setFollowedHashtagsLoading] = useState(false);
 
   const pickRandomSuggestions = useCallback((comms: Community[], spaces: Space[]) => {
     if (comms.length > 0) setSuggestedCommunity(comms[Math.floor(Math.random() * comms.length)]);
@@ -159,7 +160,7 @@ export function RightSidebar() {
     fetchTrendingHashtags();
     fetchCommunities();
     fetchLiveSpaces();
-    if (user) fetchFollowedTags();
+    if (user) { fetchFollowedTags(); fetchFollowedHashtagsPanel(); }
 
     // Auto-refresh trending hashtags every 60s
     const iv = setInterval(fetchTrendingHashtags, 60_000);
@@ -169,6 +170,27 @@ export function RightSidebar() {
     }, 30_000);
     return () => { clearInterval(iv); clearInterval(sv); };
   }, [user?.id]);
+
+  const fetchFollowedHashtagsPanel = async () => {
+    if (!user) return;
+    setFollowedHashtagsLoading(true);
+    const { data } = await supabase
+      .from('hashtag_follows')
+      .select('hashtag_id, hashtags(id, tag, usage_count)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    setFollowedHashtags((data ?? []).map((d: any) => d.hashtags).filter(Boolean));
+    setFollowedHashtagsLoading(false);
+  };
+
+  const unfollowHashtag = async (hashtagId: string, tag: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) return;
+    await supabase.from('hashtag_follows').delete().eq('user_id', user.id).eq('hashtag_id', hashtagId);
+    setFollowedHashtags(prev => prev.filter(h => h.id !== hashtagId));
+    setFollowedTags(prev => { const s = new Set(prev); s.delete(hashtagId); return s; });
+  };
 
   const fetchFollowedTags = async () => {
     if (!user) return;
@@ -380,6 +402,63 @@ export function RightSidebar() {
           >
             View All Spaces
           </Button>
+        </div>
+      )}
+
+      {/* ── Followed Hashtags Panel ── */}
+      {user && (
+        <div className="bg-gradient-to-br from-primary/8 to-primary/3 rounded-xl p-4 border border-primary/20">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-sm flex items-center gap-1.5">
+              <Hash className="w-4 h-4 text-primary" />
+              Followed Hashtags
+            </h3>
+            <button onClick={() => navigate('/hashtags')}
+              className="text-xs text-primary font-semibold hover:underline transition-colors">
+              Manage
+            </button>
+          </div>
+          {followedHashtagsLoading ? (
+            <div className="flex justify-center py-3">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : followedHashtags.length === 0 ? (
+            <div className="text-center py-4">
+              <p className="text-xs text-muted-foreground mb-2">No hashtags followed yet</p>
+              <button onClick={() => navigate('/hashtags')}
+                className="flex items-center justify-center gap-1 w-full py-2 border border-dashed border-primary/30 rounded-xl text-xs font-semibold text-primary hover:bg-primary/5 transition-colors">
+                <Plus className="w-3 h-3" /> Discover hashtags
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {followedHashtags.map(h => (
+                <div key={h.id} className="group flex items-center gap-2">
+                  <button
+                    onClick={() => navigate(`/hashtag/${h.tag}`)}
+                    className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-muted/60 transition-colors text-left min-w-0">
+                    <Hash className="w-3 h-3 text-primary shrink-0" />
+                    <span className="text-sm font-semibold text-primary truncate">#{h.tag}</span>
+                    {h.usage_count > 0 && (
+                      <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                        {formatNumber(h.usage_count)}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={e => unfollowHashtag(h.id, h.tag, e)}
+                    className="p-1 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                    title="Unfollow">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              <button onClick={() => navigate('/hashtags')}
+                className="w-full mt-1 py-1.5 text-xs text-primary font-semibold hover:bg-primary/5 rounded-lg transition-colors">
+                + Discover more →
+              </button>
+            </div>
+          )}
         </div>
       )}
 

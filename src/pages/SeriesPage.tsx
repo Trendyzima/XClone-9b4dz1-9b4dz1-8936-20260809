@@ -10,14 +10,17 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Plus, BookOpen, ChevronRight, ChevronLeft, Layers, Loader2,
-  X, Trash2, Lock, Globe, Edit3, Check
+  X, Trash2, Lock, Globe, Edit3, Check, PlayCircle, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 
-// SeriesAdBanner is defined above
-
 function SeriesAdBanner() { return <PageAdBanner />; }
+
+// Module-level ring geometry — prevents duplicate binding names in map callbacks (esbuild guard)
+const RING_RADIUS = 22;
+const RING_CIRC = 2 * Math.PI * RING_RADIUS;
+
 export default function SeriesPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -38,6 +41,31 @@ export default function SeriesPage() {
   const [showAddPost, setShowAddPost] = useState(false);
   const [editingTitle, setEditingTitle] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // ── Reading progress from localStorage ──────────────────────────────────
+  const getSeriesProgress = (seriesId: string): { currentPart: number; totalParts: number } | null => {
+    try {
+      const raw = localStorage.getItem('series_progress');
+      if (!raw) return null;
+      return JSON.parse(raw)[seriesId] ?? null;
+    } catch { return null; }
+  };
+
+  const clearSeriesProgress = (seriesId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const raw = localStorage.getItem('series_progress');
+      if (!raw) return;
+      const all = JSON.parse(raw);
+      delete all[seriesId];
+      localStorage.setItem('series_progress', JSON.stringify(all));
+      setMySeriesList(prev => [...prev]);
+      setPublicSeries(prev => [...prev]);
+    } catch { /* ignore */ }
+  };
+
+  // Helper: compute SVG dash offset from pct (uses module-level RING_CIRC)
+  const ringDash = (pct: number) => ((100 - pct) / 100) * RING_CIRC;
 
   const seriesJsonLd = useMemo(() => {
     const items = publicSeries.slice(0, 5);
@@ -151,7 +179,6 @@ export default function SeriesPage() {
     toast.success('Post added to series!');
     setShowAddPost(false);
     await fetchSeriesPosts(selectedSeries);
-    // Notify users who have reading progress on this series
     try {
       await supabase.rpc('notify_series_episode_added', {
         p_series_id: selectedSeries.id,
@@ -200,7 +227,6 @@ export default function SeriesPage() {
       } catch { /* ignore */ }
     };
 
-    // Save on part change
     if (seriesPosts.length > 0) saveProgress(currentPostIdx);
 
     return (
@@ -255,10 +281,8 @@ export default function SeriesPage() {
             </div>
           ) : (
             <>
-              {/* Current post display */}
               {currentPost && (
                 <div className="bg-card border border-border rounded-2xl overflow-hidden">
-                  {/* Navigation header */}
                   <div className="flex items-center justify-between p-3 bg-muted/30 border-b border-border">
                     <button
                       disabled={currentPostIdx === 0}
@@ -267,7 +291,6 @@ export default function SeriesPage() {
                     >
                       <ChevronLeft className="w-4 h-4" /> Prev
                     </button>
-                    {/* The error was here, an extra button tag was opened without being closed. */}
                     <span className="text-sm font-bold text-muted-foreground">
                       Part {currentPostIdx + 1} of {seriesPosts.length}
                     </span>
@@ -280,7 +303,6 @@ export default function SeriesPage() {
                     </button>
                   </div>
 
-                  {/* Progress bar */}
                   <div className="h-1 bg-muted">
                     <div
                       className="h-full bg-primary transition-all duration-300"
@@ -288,7 +310,6 @@ export default function SeriesPage() {
                     />
                   </div>
 
-                  {/* Post content */}
                   <div
                     className="p-4 cursor-pointer hover:bg-muted/5 transition-colors"
                     onClick={() => navigate(`/post/${currentPost.id}`)}
@@ -322,7 +343,6 @@ export default function SeriesPage() {
                 </div>
               )}
 
-              {/* Series playlist */}
               <div className="bg-card border border-border rounded-2xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                   <Layers className="w-4 h-4 text-primary" />
@@ -358,7 +378,6 @@ export default function SeriesPage() {
           )}
         </div>
 
-        {/* Add Post Sheet */}
         {showAddPost && (
           <div className="fixed inset-0 z-[200] bg-black/60" onClick={() => setShowAddPost(false)}>
             <div className="absolute bottom-0 left-0 right-0 bg-background rounded-t-3xl max-h-[80vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
@@ -433,50 +452,103 @@ export default function SeriesPage() {
               </div>
             ) : (
               <div className="grid gap-3">
-                {mySeriesList.map(s => (
-                  <div key={s.id} className="bg-card border border-border rounded-2xl overflow-hidden">
-                    <button
-                      onClick={() => fetchSeriesPosts(s)}
-                      className="w-full p-4 text-left hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center shrink-0">
-                          <BookOpen className="w-6 h-6 text-primary" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          {editingId === s.id ? (
-                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                              <input
-                                value={editingTitle}
-                                onChange={e => setEditingTitle(e.target.value)}
-                                className="flex-1 text-sm font-bold bg-muted px-2 py-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                                autoFocus
-                                onKeyDown={e => { if (e.key === 'Enter') saveTitleEdit(s.id); if (e.key === 'Escape') setEditingId(null); }}
-                              />
-                              <button onClick={() => saveTitleEdit(s.id)} className="text-primary"><Check className="w-4 h-4" /></button>
+                {mySeriesList.map(s => {
+                  const prog = getSeriesProgress(s.id);
+                  const total = s.item_count ?? 0;
+                  const pct = prog && total > 0 ? Math.round((prog.currentPart / total) * 100) : 0;
+                  const dash = ringDash(pct);
+                  return (
+                    <div key={s.id} className="bg-card border border-border rounded-2xl overflow-hidden">
+                      <button
+                        onClick={() => fetchSeriesPosts(s)}
+                        className="w-full p-4 text-left hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="flex items-start gap-3">
+                          {/* Progress ring */}
+                          <div className="relative w-12 h-12 shrink-0 flex items-center justify-center">
+                            {prog && total > 0 ? (
+                              <>
+                                <svg width="48" height="48" className="absolute inset-0">
+                                  <circle cx="24" cy="24" r={RING_RADIUS} fill="none" stroke="var(--border)" strokeWidth="3" />
+                                  <circle
+                                    cx="24" cy="24" r={RING_RADIUS} fill="none"
+                                    stroke="var(--primary)" strokeWidth="3"
+                                    strokeDasharray={RING_CIRC}
+                                    strokeDashoffset={dash}
+                                    strokeLinecap="round"
+                                    transform="rotate(-90 24 24)"
+                                    style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+                                  />
+                                </svg>
+                                <span className="relative text-[10px] font-black text-primary">{pct}%</span>
+                              </>
+                            ) : (
+                              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center">
+                                <BookOpen className="w-6 h-6 text-primary" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            {editingId === s.id ? (
+                              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                <input
+                                  value={editingTitle}
+                                  onChange={e => setEditingTitle(e.target.value)}
+                                  className="flex-1 text-sm font-bold bg-muted px-2 py-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                                  autoFocus
+                                  onKeyDown={e => { if (e.key === 'Enter') saveTitleEdit(s.id); if (e.key === 'Escape') setEditingId(null); }}
+                                />
+                                <button onClick={() => saveTitleEdit(s.id)} className="text-primary"><Check className="w-4 h-4" /></button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-bold text-base truncate">{s.name}</h3>
+                                {s.is_public ? <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Lock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                              </div>
+                            )}
+                            {s.description && <p className="text-sm text-muted-foreground mt-0.5 truncate">{s.description}</p>}
+                            <div className="flex items-center gap-2 mt-1">
+                              <p className="text-xs text-muted-foreground">{total} posts · {formatDistanceToNow(new Date(s.created_at), { addSuffix: true })}</p>
+                              {prog && (
+                                <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
+                                  Part {prog.currentPart}/{total}
+                                </span>
+                              )}
                             </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-bold text-base truncate">{s.name}</h3>
-                              {s.is_public ? <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Lock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-                            </div>
-                          )}
-                          {s.description && <p className="text-sm text-muted-foreground mt-0.5 truncate">{s.description}</p>}
-                          <p className="text-xs text-muted-foreground mt-1">{s.item_count ?? 0} posts · {formatDistanceToNow(new Date(s.created_at), { addSuffix: true })}</p>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 mt-1" />
                         </div>
-                        <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 mt-1" />
+                      </button>
+                      {prog && total > 0 && (
+                        <div className="flex gap-2 px-4 pb-2">
+                          <button
+                            onClick={() => {
+                              fetchSeriesPosts(s).then(() => {
+                                setCurrentPostIdx(Math.max(0, (prog.currentPart ?? 1) - 1));
+                              });
+                            }}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-primary/10 text-primary text-xs font-bold rounded-xl hover:bg-primary/20 transition-colors">
+                            <PlayCircle className="w-3.5 h-3.5" /> Continue (Part {prog.currentPart})
+                          </button>
+                          <button
+                            onClick={e => clearSeriesProgress(s.id, e)}
+                            className="p-1.5 rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+                            title="Reset progress">
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1 px-4 py-2 bg-muted/20 border-t border-border">
+                        <button onClick={() => { setEditingId(s.id); setEditingTitle(s.name); }} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg hover:bg-muted">
+                          <Edit3 className="w-3 h-3" /> Rename
+                        </button>
+                        <button onClick={() => deleteSeries(s.id)} className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive px-2 py-1 rounded-lg hover:bg-destructive/5 ml-auto">
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </button>
                       </div>
-                    </button>
-                    <div className="flex items-center gap-1 px-4 py-2 bg-muted/20 border-t border-border">
-                      <button onClick={() => { setEditingId(s.id); setEditingTitle(s.name); }} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg hover:bg-muted">
-                        <Edit3 className="w-3 h-3" /> Rename
-                      </button>
-                      <button onClick={() => deleteSeries(s.id)} className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive px-2 py-1 rounded-lg hover:bg-destructive/5 ml-auto">
-                        <Trash2 className="w-3 h-3" /> Delete
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>
@@ -489,30 +561,89 @@ export default function SeriesPage() {
                 <BookOpen className="w-16 h-16 mx-auto mb-4 opacity-20" />
                 <p className="font-semibold">No public series yet</p>
               </div>
-            ) : publicSeries.map(s => (
-              <button key={s.id} onClick={() => fetchSeriesPosts(s)}
-                className="bg-card border border-border rounded-2xl p-4 text-left hover:border-primary/30 hover:bg-primary/5 transition-all">
-                <div className="flex items-start gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center shrink-0">
-                    <BookOpen className="w-6 h-6 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-base truncate">{s.name}</h3>
-                    {s.description && <p className="text-sm text-muted-foreground mt-0.5 truncate">{s.description}</p>}
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-muted-foreground">{s.item_count ?? 0} posts</span>
-                      {s.user_profiles && (
-                        <>
-                          <span className="text-muted-foreground">·</span>
-                          <span className="text-xs text-primary">by @{s.user_profiles.username}</span>
-                        </>
-                      )}
+            ) : publicSeries.map(s => {
+              const prog = getSeriesProgress(s.id);
+              const total = s.item_count ?? 0;
+              const pct = prog && total > 0 ? Math.round((prog.currentPart / total) * 100) : 0;
+              const dash = ringDash(pct);
+              return (
+                <div key={s.id} className="bg-card border border-border rounded-2xl overflow-hidden hover:border-primary/30 transition-all">
+                  <button onClick={() => fetchSeriesPosts(s)} className="w-full text-left p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="relative w-12 h-12 shrink-0 flex items-center justify-center">
+                        {prog && total > 0 ? (
+                          <>
+                            <svg width="48" height="48" className="absolute inset-0">
+                              <circle cx="24" cy="24" r={RING_RADIUS} fill="none" stroke="var(--border)" strokeWidth="3" />
+                              <circle
+                                cx="24" cy="24" r={RING_RADIUS} fill="none"
+                                stroke="var(--primary)" strokeWidth="3"
+                                strokeDasharray={RING_CIRC}
+                                strokeDashoffset={dash}
+                                strokeLinecap="round"
+                                transform="rotate(-90 24 24)"
+                                style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+                              />
+                            </svg>
+                            <span className="relative text-[10px] font-black text-primary">{pct}%</span>
+                          </>
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center">
+                            <BookOpen className="w-6 h-6 text-primary" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-base truncate">{s.name}</h3>
+                        {s.description && <p className="text-sm text-muted-foreground mt-0.5 truncate">{s.description}</p>}
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-muted-foreground">{total} posts</span>
+                          {s.user_profiles && (
+                            <>
+                              <span className="text-muted-foreground">·</span>
+                              <span className="text-xs text-primary">by @{s.user_profiles.username}</span>
+                            </>
+                          )}
+                          {prog && (
+                            <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
+                              Part {prog.currentPart}/{total}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0 mt-1" />
                     </div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
+                  </button>
+                  {prog ? (
+                    <div className="flex gap-2 px-4 pb-3">
+                      <button
+                        onClick={() => {
+                          fetchSeriesPosts(s).then(() => {
+                            setCurrentPostIdx(Math.max(0, (prog.currentPart ?? 1) - 1));
+                          });
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-xl hover:opacity-90 transition-opacity">
+                        <PlayCircle className="w-3.5 h-3.5" /> Continue (Part {prog.currentPart})
+                      </button>
+                      <button
+                        onClick={e => clearSeriesProgress(s.id, e)}
+                        className="p-2 rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+                        title="Reset progress">
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="px-4 pb-3">
+                      <button
+                        onClick={() => fetchSeriesPosts(s)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-muted hover:bg-muted/80 text-foreground text-xs font-semibold rounded-xl transition-colors">
+                        <PlayCircle className="w-3.5 h-3.5 text-primary" /> Start Reading
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
