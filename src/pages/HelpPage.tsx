@@ -388,6 +388,14 @@ function toSlug(q: string): string {
   return q.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+// esbuild guard: module-level helper — no `const Icon = cat.icon` inside .map()
+function getCatIconNode(title: string, colorClass: string) {
+  if (title === 'Account & Profile')       return <User className={`w-4.5 h-4.5 ${colorClass}`} size={18} />;
+  if (title === 'Posts & Engagement')      return <MessageCircle className={`w-4.5 h-4.5 ${colorClass}`} size={18} />;
+  if (title === 'Payments & Monetization') return <CreditCard className={`w-4.5 h-4.5 ${colorClass}`} size={18} />;
+  return <Shield className={`w-4.5 h-4.5 ${colorClass}`} size={18} />;
+}
+
 // ── Live support status (module-level — EAT UTC+3, Mon-Fri 08:00-18:00) ──────
 function getSupportStatus(): { online: boolean; label: string; sub: string } {
   const now = new Date();
@@ -418,7 +426,7 @@ function HelpAccordionItem({
   lastUpdated?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef(null);
 
   // When defaultOpen changes (e.g. deep link resolved), update open state
   useEffect(() => {
@@ -578,7 +586,7 @@ export default function HelpPage() {
   const [ticketDates, setTicketDates] = useState([]);
   const [ticketRead, setTicketRead] = useState([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchDebounceRef = useRef(null);
 
   // Pre-fill email from auth
   useEffect(() => {
@@ -768,7 +776,7 @@ export default function HelpPage() {
   const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
-  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const chatBottomRef = useRef(null);
 
   // Load chat history from localStorage on first open
   useEffect(() => {
@@ -1159,13 +1167,11 @@ export default function HelpPage() {
         )}
 
         {/* Category Sections */}
-        {!hasSearch && CATEGORIES.map(cat => {
-          const Icon = cat.icon;
-          return (
+        {!hasSearch && CATEGORIES.map(cat => (
             <div key={cat.title} id={cat.catId} className="border border-border rounded-2xl overflow-hidden">
               <div className="flex items-center gap-3 px-4 py-3.5 bg-muted/20 border-b border-border">
                 <div className={`w-9 h-9 rounded-xl ${cat.bg} flex items-center justify-center shrink-0`}>
-                  <Icon className={`w-4.5 h-4.5 ${cat.color}`} size={18} />
+                  {getCatIconNode(cat.title, cat.color)}
                 </div>
                 <h2 className="font-black text-base">{cat.title}</h2>
               </div>
@@ -1201,8 +1207,7 @@ export default function HelpPage() {
                 })}
               </div>
             </div>
-          );
-        })}
+        ))}
 
         {/* ── Contact Support Form ── */}
         <div className="border border-border rounded-2xl overflow-hidden" id="contact-support">
@@ -1510,9 +1515,9 @@ export default function HelpPage() {
             {chatLoading && (
               <div className="flex justify-start">
                 <div className="bg-muted rounded-2xl rounded-bl-sm px-3 py-2 flex gap-1 items-center">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:300ms]" />
                 </div>
               </div>
             )}
