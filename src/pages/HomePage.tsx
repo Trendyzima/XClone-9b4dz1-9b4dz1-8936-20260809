@@ -11,7 +11,7 @@ import {
   Loader2, Sparkles, Globe, Users, Rss, RefreshCw,
   MessageCircle, Repeat2, Heart, Languages, ChevronUp,
   TrendingUp, Hash, BookOpen, Flame, Eye, Play, ShoppingBag,
-  SlidersHorizontal, X as XIcon,
+  SlidersHorizontal, X as XIcon, Star, BadgeCheck,
 } from 'lucide-react';
 import { TrendingVideosSection } from '@/components/features/TrendingVideosSection';
 import { CommunitySpotlightStrip } from '@/components/features/CommunitySpotlightStrip';
@@ -196,6 +196,25 @@ export default function HomePage() {
     return () => { if (sliderDebounceRef.current) clearTimeout(sliderDebounceRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discoverMix, videoWeight, minEngagement]);
+
+  // ── Trending Now rail state ────────────────────────────────────────────────
+  const [trendingNowPosts, setTrendingNowPosts] = useState<any[]>([]);
+
+  const fetchTrendingNow = async () => {
+    const since24h = new Date(Date.now() - 24 * 3600000).toISOString();
+    const { data } = await supabase
+      .from('posts')
+      .select('id, content, image_url, video_url, is_video, views_count, likes_count, user_profiles(id, username, avatar_url, verified)')
+      .is('community_id', null)
+      .gte('created_at', since24h)
+      .order('views_count', { ascending: false })
+      .limit(5);
+    setTrendingNowPosts(data ?? []);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'foryou') fetchTrendingNow();
+  }, [activeTab]);
 
   const abortRef = useRef<AbortController | null>(null);
   // Keep ref for latest reco/product state so fetchFeed closure can read them
@@ -1065,6 +1084,67 @@ export default function HomePage() {
 
       {/* Stories — only visible on the For You tab */}
       {activeTab === 'foryou' && <StoriesStrip />}
+
+      {/* ── Trending Now Rail ── shows top 5 posts from last 24h */}
+      {activeTab === 'foryou' && trendingNowPosts.length > 0 && (
+        <div className="border-b border-border py-3 bg-gradient-to-r from-orange-500/5 to-background">
+          <div className="px-4 flex items-center justify-between mb-2.5">
+            <div className="flex items-center gap-1.5">
+              <Flame className="w-3.5 h-3.5 text-orange-500" />
+              <span className="text-xs font-bold text-foreground">Trending Now</span>
+              <span className="text-[10px] text-muted-foreground">· last 24h</span>
+            </div>
+            <button onClick={() => navigate('/explore')} className="text-xs text-primary font-semibold hover:underline">Explore →</button>
+          </div>
+          <div className="flex gap-2.5 overflow-x-auto scrollbar-hide px-4 pb-1">
+            {trendingNowPosts.map((post: any, idx: number) => {
+              const thumb = post.image_url ?? null;
+              const isVid = !!(post.is_video || post.video_url);
+              const uname = post.user_profiles?.username ?? '';
+              // esbuild guard: no inline ternary chains — pre-compute rank color
+              const rankColors = ['text-yellow-400','text-slate-300','text-amber-600','text-white/70','text-white/70'];
+              const rankColor = rankColors[idx] ?? 'text-white/70';
+              return (
+                <button
+                  key={post.id}
+                  onClick={() => navigate(`/post/${post.id}`)}
+                  className="shrink-0 w-32 rounded-2xl overflow-hidden bg-zinc-900 relative hover:scale-[1.04] active:scale-[0.97] transition-transform focus:outline-none"
+                  style={{ height: 160 }}
+                >
+                  {thumb
+                    ? <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                    : isVid && post.video_url
+                      ? <video src={`${post.video_url}#t=0.5`} className="absolute inset-0 w-full h-full object-cover" muted preload="metadata" />
+                      : <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-purple-500/20" />}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/10" />
+                  {/* Rank badge */}
+                  <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                    <span className={`text-[9px] font-black ${rankColor}`}>#{idx+1}</span>
+                  </div>
+                  {isVid && (
+                    <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
+                      <Play className="w-2.5 h-2.5 text-white fill-white" />
+                    </div>
+                  )}
+                  {post.user_profiles?.verified && (
+                    <div className="absolute top-2 right-2">
+                      <BadgeCheck className="w-3 h-3 text-primary" fill="currentColor" />
+                    </div>
+                  )}
+                  <div className="absolute bottom-0 left-0 right-0 p-2">
+                    <span className="text-white/70 text-[9px] font-semibold truncate block">@{uname}</span>
+                    <p className="text-white text-[10px] font-medium line-clamp-2 leading-tight mt-0.5">{(post.content ?? '').slice(0, 45)}</p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="flex items-center gap-0.5 text-white/60 text-[9px]"><Eye className="w-2 h-2" />{formatNumber(post.views_count ?? 0)}</span>
+                      <span className="flex items-center gap-0.5 text-white/60 text-[9px]"><Star className="w-2 h-2" />{formatNumber(post.likes_count ?? 0)}</span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Hashtag Feed ── */}
       {activeTab === 'hashtags' && (

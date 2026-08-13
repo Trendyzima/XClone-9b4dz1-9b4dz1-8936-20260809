@@ -45,6 +45,43 @@ const RANK_MEDAL = ['🥇','🥈','🥉'];
 // Rank badge colors pre-computed (esbuild guard: plain arrays, no inline ternary chains in render)
 const RANK_COLORS = ['text-yellow-400','text-slate-300','text-amber-600','text-muted-foreground'];
 
+// Reaction emojis — module-level (esbuild guard)
+const REACTION_EMOJIS = ['❤️', '🔥', '😮', '👏'];
+
+// ── PostReactionBar: extracted as module-level component (esbuild guard: no IIFE in render)
+function PostReactionBar({
+  postId, myEmoji, rxSummary, onReact,
+}: {
+  postId: string;
+  myEmoji: string | null;
+  rxSummary: { top2: string[]; total: number };
+  onReact: (postId: string, emoji: string) => void;
+}) {
+  const top2Str = rxSummary.top2.join('');
+  const hasCount = rxSummary.total > 0;
+  return (
+    <div className="flex items-center gap-1.5 px-4 pb-2.5 pt-0.5">
+      {REACTION_EMOJIS.map(emoji => {
+        const isActive = myEmoji === emoji;
+        return (
+          <button
+            key={emoji}
+            onClick={() => onReact(postId, emoji)}
+            className={`w-9 h-8 flex items-center justify-center rounded-full text-base transition-all active:scale-125 ${
+              isActive ? 'bg-primary/15 ring-1 ring-primary/30' : 'hover:bg-muted/60'
+            }`}
+          >{emoji}</button>
+        );
+      })}
+      {hasCount && (
+        <span className="ml-1 text-[11px] text-muted-foreground flex items-center gap-0.5">
+          {top2Str} {formatNumber(rxSummary.total)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function CategoryTabContent({
   activeTab, trendingTopics, navigateTopic, navigate,
 }: {
@@ -53,8 +90,17 @@ function CategoryTabContent({
   navigateTopic: (t: string) => void;
   navigate: (path: string) => void;
 }) {
+  const { user } = useAuth();
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // Reactions: parallel arrays — postId → emoji (user's own reaction)
+  // esbuild guard: plain useState([]) — no typed generics
+  const [rxPostIds, setRxPostIds] = useState([]);
+  const [rxEmojis, setRxEmojis] = useState([]);
+  // Reaction counts: postId → parallel arrays of emoji + count
+  const [rxCountPostIds, setRxCountPostIds] = useState([]);
+  const [rxCountEmojis, setRxCountEmojis] = useState([]);
+  const [rxCounts, setRxCounts] = useState([]);
 
   // esbuild guard: no typed ternary — use plain indexed access with fallback
   const catIdx = CAT_NAMES.indexOf(activeTab);
@@ -65,6 +111,11 @@ function CategoryTabContent({
     let cancelled = false;
     setLoading(true);
     setPosts([]);
+    setRxPostIds([]);
+    setRxEmojis([]);
+    setRxCountPostIds([]);
+    setRxCountEmojis([]);
+    setRxCounts([]);
     (async () => {
       const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
       // Build OR filter from keywords
@@ -78,8 +129,9 @@ function CategoryTabContent({
         .order('views_count', { ascending: false })
         .limit(30);
       if (!cancelled) {
+        let finalPosts = data ?? [];
         // Also fetch general trending posts if no category matches
-        if ((data ?? []).length < 5) {
+        if (finalPosts.length < 5) {
           const { data: fallback } = await supabase
             .from('posts')
             .select('id, content, image_url, video_url, is_video, views_count, likes_count, reposts_count, replies_count, created_at, user_profiles(id, username, avatar_url, verified)')
@@ -87,15 +139,114 @@ function CategoryTabContent({
             .gte('created_at', since7d)
             .order('views_count', { ascending: false })
             .limit(30);
-          setPosts(fallback ?? []);
-        } else {
-          setPosts(data ?? []);
+          finalPosts = fallback ?? [];
         }
+        setPosts(finalPosts);
         setLoading(false);
+        // Fetch reactions for these posts
+        if (finalPosts.length > 0) {
+          const pids = finalPosts.map((p: any) => p.id);
+          const { data: rxData } = await supabase
+            .from('post_reactions')
+            .select('post_id, user_id, emoji')
+            .in('post_id', pids);
+          if (!cancelled && rxData) {
+            // Build count map using parallel arrays (esbuild guard: no Record)
+            const cPostIds: any[] = [];
+            const cEmojis: any[] = [];
+            const cCounts: any[] = [];
+            for (const r of rxData) {
+              // find existing entry
+              let found = false;
+              for (let i = 0; i < cPostIds.length; i++) {
+                if (cPostIds[i] === r.post_id && cEmojis[i] === r.emoji) {
+                  cCounts[i] += 1;
+                  found = true;
+                  break;
+                }
+              }
+              if (!found) { cPostIds.push(r.post_id); cEmojis.push(r.emoji); cCounts.push(1); }
+            }
+            setRxCountPostIds(cPostIds as any);
+            setRxCountEmojis(cEmojis as any);
+            setRxCounts(cCounts as any);
+            // User's own reactions
+            if (user) {
+              const myRx = rxData.filter((r: any) => r.user_id === user.id);
+              setRxPostIds(myRx.map((r: any) => r.post_id) as any);
+              setRxEmojis(myRx.map((r: any) => r.emoji) as any);
+            }
+          }
+        }
       }
     })();
     return () => { cancelled = true; };
-  }, [activeTab]);
+  }, [activeTab, user?.id]);
+
+  const handleReaction = async (postId: string, emoji: string) => {
+    if (!user) { navigate('/auth'); return; }
+    // esbuild guard: plain array cast — typed operations before state update
+    const curPostIds = rxPostIds as any[];
+    const curEmojis = rxEmojis as any[];
+    const existIdx = curPostIds.indexOf(postId);
+    const curEmoji = existIdx >= 0 ? curEmojis[existIdx] : null;
+    if (curEmoji === emoji) {
+      // Remove reaction
+      await supabase.from('post_reactions').delete().eq('post_id', postId).eq('user_id', user.id);
+      const newIds = curPostIds.filter((_: any, i: number) => i !== existIdx);
+      const newEmojis = curEmojis.filter((_: any, i: number) => i !== existIdx);
+      setRxPostIds(newIds as any);
+      setRxEmojis(newEmojis as any);
+      // Decrement count
+      const cids = rxCountPostIds as any[];
+      const cems = rxCountEmojis as any[];
+      const cts = rxCounts as any[];
+      const ci = cids.findIndex((pid: any, i: number) => pid === postId && cems[i] === emoji);
+      if (ci >= 0) {
+        const newCts = [...cts];
+        newCts[ci] = Math.max(0, newCts[ci] - 1);
+        setRxCounts(newCts as any);
+      }
+    } else {
+      // Upsert reaction
+      await supabase.from('post_reactions').upsert({ post_id: postId, user_id: user.id, emoji }, { onConflict: 'post_id,user_id' });
+      const newIds = existIdx >= 0 ? curPostIds.map((id: any, i: number) => i === existIdx ? postId : id) : [...curPostIds, postId];
+      const newEmojis = existIdx >= 0 ? curEmojis.map((e: any, i: number) => i === existIdx ? emoji : e) : [...curEmojis, emoji];
+      setRxPostIds(newIds as any);
+      setRxEmojis(newEmojis as any);
+      // Update count
+      const cids = rxCountPostIds as any[];
+      const cems = rxCountEmojis as any[];
+      const cts = rxCounts as any[];
+      // Remove old emoji count if switching
+      const oldEmojiIdx = cids.findIndex((pid: any, i: number) => pid === postId && cems[i] === curEmoji);
+      const newCts = [...cts];
+      if (oldEmojiIdx >= 0 && curEmoji) newCts[oldEmojiIdx] = Math.max(0, newCts[oldEmojiIdx] - 1);
+      const newEmojiIdx = cids.findIndex((pid: any, i: number) => pid === postId && cems[i] === emoji);
+      if (newEmojiIdx >= 0) { newCts[newEmojiIdx] += 1; setRxCounts(newCts as any); }
+      else { setRxCountPostIds([...cids, postId] as any); setRxCountEmojis([...cems, emoji] as any); setRxCounts([...newCts, 1] as any); }
+    }
+  };
+
+  // Helper: get top 2 emojis + total count for a post (pre-computed per-post)
+  const getPostReactionSummary = (postId: string) => {
+    const cids = rxCountPostIds as any[];
+    const cems = rxCountEmojis as any[];
+    const cts = rxCounts as any[];
+    const emojiTotals: any[] = [];
+    const emojiNames: any[] = [];
+    for (let i = 0; i < cids.length; i++) {
+      if (cids[i] !== postId) continue;
+      const ei = emojiNames.indexOf(cems[i]);
+      if (ei >= 0) emojiTotals[ei] += cts[i];
+      else { emojiNames.push(cems[i]); emojiTotals.push(cts[i]); }
+    }
+    const total = emojiTotals.reduce((s: number, n: number) => s + n, 0);
+    // Sort by count descending, take top 2
+    const sorted = emojiNames.map((e: any, i: number) => ({ e, c: emojiTotals[i] })).sort((a: any, b: any) => b.c - a.c);
+    const top2 = sorted.slice(0, 2).map((x: any) => x.e);
+    return { top2, total };
+  };
 
   const hasTrends = trendingTopics.length > 0;
 
@@ -162,8 +313,15 @@ function CategoryTabContent({
               const rankColor = RANK_COLORS[rankColorIdx];
               const hasMedal = idx < 3;
               const medal = RANK_MEDAL[idx] ?? null;
+              // esbuild guard: pre-compute reaction props before return
+              const rxCurPostIds = rxPostIds as any[];
+              const rxCurEmojis = rxEmojis as any[];
+              const myRxIdx = rxCurPostIds.indexOf(post.id);
+              const myEmoji = myRxIdx >= 0 ? rxCurEmojis[myRxIdx] : null;
+              const rxSummary = getPostReactionSummary(post.id);
               return (
-                <button key={post.id} onClick={() => navigate(`/post/${post.id}`)}
+                <div key={post.id} className="border-b border-border last:border-b-0">
+                <button onClick={() => navigate(`/post/${post.id}`)}
                   className="w-full flex items-start gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left">
                   {/* Rank badge */}
                   <div className="w-8 shrink-0 flex flex-col items-center pt-1">
@@ -214,6 +372,13 @@ function CategoryTabContent({
                     </div>
                   </div>
                 </button>
+                <PostReactionBar
+                  postId={post.id}
+                  myEmoji={myEmoji}
+                  rxSummary={rxSummary}
+                  onReact={handleReaction}
+                />
+                </div>
               );
             })}
           </div>
@@ -259,6 +424,9 @@ export default function ExplorePage() {
   // ── Trending Posts Feed (top views in last 48h) ──
   const [trendingPosts, setTrendingPosts] = useState<any[]>([]);
   const [trendingPostsLoading, setTrendingPostsLoading] = useState(false);
+  // ── Category post counts for tab badges ──
+  // esbuild guard: plain number array, not Record<string,number>
+  const [catPostCounts, setCatPostCounts] = useState([0, 0, 0]);
   // ── Search History (localStorage, max 8) ─────────────────────────────────
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
@@ -356,7 +524,26 @@ export default function ExplorePage() {
     fetchActiveChallenges();
     fetchExploreStories();
     fetchTrendingPosts();
+    fetchCategoryPostCounts();
   }, [activeTab, user?.id]);
+
+  const fetchCategoryPostCounts = async () => {
+    // Fetch counts for News, Sports, Entertainment in parallel (esbuild guard: Promise.all with index)
+    const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
+    const results = await Promise.all(
+      CAT_KEYWORDS_MAP.map(async kws => {
+        const orFilter = kws.map(k => `content.ilike.%${k}%`).join(',');
+        const { count } = await supabase
+          .from('posts')
+          .select('id', { count: 'exact', head: true })
+          .or(orFilter)
+          .is('community_id', null)
+          .gte('created_at', since7d);
+        return count ?? 0;
+      })
+    );
+    setCatPostCounts(results);
+  };
 
   const fetchTrendingPosts = async () => {
     setTrendingPostsLoading(true);
@@ -683,12 +870,23 @@ export default function ExplorePage() {
           </button>
         </div>
         <div className="flex overflow-x-auto scrollbar-hide">
-          {tabs.map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`flex-shrink-0 px-5 py-3 font-semibold transition-colors border-b-2 whitespace-nowrap text-sm ${activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/50'}`}>
-              {tab}
-            </button>
-          ))}
+          {tabs.map((tab) => {
+            const catBadgeIdx = CAT_NAMES.indexOf(tab);
+            const catBadgeCount = catBadgeIdx >= 0 ? catPostCounts[catBadgeIdx] : 0;
+            return (
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={`flex-shrink-0 px-5 py-3 font-semibold transition-colors border-b-2 whitespace-nowrap text-sm relative ${activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted/50'}`}>
+                {tab}
+                {catBadgeCount > 0 && (
+                  <span className={`ml-1 text-[10px] font-black px-1 py-0.5 rounded-full ${
+                    activeTab === tab ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                  }`}>
+                    {catBadgeCount > 999 ? `${Math.round(catBadgeCount / 1000)}k` : catBadgeCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
