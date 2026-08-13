@@ -32,8 +32,8 @@ const SEARCH_HISTORY_KEY = 'ts-explore-search-history';
 
 function ExploreAdBanner() { return <PageAdBanner />; }
 
-// ── Category keywords for post-based feeds ────────────────────────────────
-const CAT_KEYWORDS_MAP: string[][] = [
+// ── Category keywords for post-based feeds (esbuild guard: no type annotation on module-level array)
+const CAT_KEYWORDS_MAP = [
   ['news','breaking','update','today','report','announce','latest','story','headlines','press','journalist'],
   ['sport','football','soccer','basketball','nba','nfl','tennis','cricket','athletics','run','goal','match','score','champion'],
   ['movie','music','film','actor','drama','show','tv','series','netflix','concert','dance','art','celebrity','vibe','entertainment','festival'],
@@ -56,9 +56,10 @@ function CategoryTabContent({
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // esbuild guard: no typed ternary — use plain indexed access with fallback
   const catIdx = CAT_NAMES.indexOf(activeTab);
-  const keywords: string[] = catIdx >= 0 ? CAT_KEYWORDS_MAP[catIdx] : [];
-  const catEmoji = catIdx >= 0 ? CAT_EMOJIS[catIdx] : '🔍';
+  const keywords = CAT_KEYWORDS_MAP[catIdx] ?? [];
+  const catEmoji = CAT_EMOJIS[catIdx] ?? '🔍';
 
   useEffect(() => {
     let cancelled = false;
@@ -152,17 +153,21 @@ function CategoryTabContent({
         ) : (
           <div className="divide-y divide-border">
             {posts.map((post: any, idx: number) => {
-              const uname: string = post.user_profiles?.username ?? '';
-              const isVid: boolean = !!(post.is_video || post.video_url);
-              const thumb: string = post.image_url ?? '';
-              const rankColor = RANK_COLORS[Math.min(idx, 3)];
-              const medal = idx < 3 ? RANK_MEDAL[idx] : null;
+              // esbuild guard: no typed const declarations inside .map()
+              const uname = post.user_profiles?.username ?? '';
+              const isVid = !!(post.is_video || post.video_url);
+              const thumb = post.image_url ?? '';
+              // esbuild guard: pre-compute rank values without ternary chain
+              const rankColorIdx = idx < 3 ? idx : 3;
+              const rankColor = RANK_COLORS[rankColorIdx];
+              const hasMedal = idx < 3;
+              const medal = RANK_MEDAL[idx] ?? null;
               return (
                 <button key={post.id} onClick={() => navigate(`/post/${post.id}`)}
                   className="w-full flex items-start gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left">
                   {/* Rank badge */}
                   <div className="w-8 shrink-0 flex flex-col items-center pt-1">
-                    {medal
+                    {hasMedal
                       ? <span className="text-xl">{medal}</span>
                       : <span className={`text-sm font-black ${rankColor}`}>#{idx + 1}</span>}
                   </div>
