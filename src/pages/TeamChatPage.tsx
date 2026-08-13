@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
@@ -15,6 +15,11 @@ import { formatNumber } from '@/lib/utils';
 
 // Module-level constants — esbuild-safe
 const TEAM_CHAT_EMOJIS = ['👍', '❤️', '🔥', '🎉', '💯', '👏'] as const;
+
+// esbuild guard: module-level style objects — no inline object literals in JSX
+const BOUNCE_DELAY_0: React.CSSProperties = { animationDelay: '0ms' };
+const BOUNCE_DELAY_1: React.CSSProperties = { animationDelay: '150ms' };
+const BOUNCE_DELAY_2: React.CSSProperties = { animationDelay: '300ms' };
 
 // esbuild guard: module-level function — no regex inside inline handler
 function parseTicketEmail(message: string): string {
@@ -84,10 +89,7 @@ export default function TeamChatPage() {
   const typingTimeoutRef = useRef(null);
   const typingThrottleRef = useRef(null);
 
-  useEffect(() => {
-    if (!user) return;
-    checkAccess();
-  }, [user]);
+  useEffect(() => { if (!user) return; checkAccess(); }, [user]);
 
   const checkAccess = useCallback(async () => {
     if (!user) return;
@@ -159,18 +161,15 @@ export default function TeamChatPage() {
     };
   }, [isEmployee, user, fetchAll]);
 
-  // ── Typing broadcast channel ───────────────────────────────────────────────
+  // ── Typing broadcast channel ─────────────────────────────────────────────
   useEffect(() => {
     if (!isEmployee || !user) return;
-    // All team members share the same channel name so broadcasts reach everyone
     const chan = supabase
       .channel('team-chat-typing')
       .on('broadcast', { event: 'typing' }, (payload: any) => {
-        const data = payload.payload ?? {};
-        if (!data.user_id || data.user_id === user.id) return; // ignore own events
-        const uname = data.username ?? 'Someone';
-        setTypingUsername(uname);
-        // Auto-clear after 3 seconds of silence
+        const d = payload.payload ?? {};
+        if (!d.user_id || d.user_id === user.id) return;
+        setTypingUsername(d.username ?? 'Someone');
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = setTimeout(() => setTypingUsername(''), 3000) as any;
       })
@@ -192,20 +191,16 @@ export default function TeamChatPage() {
     }
   }, [messages]);
 
-  // Broadcast typing event throttled to 500ms
+  // Broadcast typing event — throttled to 500ms (esbuild guard: payload built in handler, not JSX)
   const handleInputChange = (val: string) => {
     setInput(val);
-    if (!user || !val.trim()) return;
-    // esbuild guard: broadcast payload built here in handler — not in JSX
-    if (typingThrottleRef.current) return; // already throttled
+    if (!user || !val.trim() || typingThrottleRef.current) return;
     supabase.channel('team-chat-typing').send({
       type: 'broadcast',
       event: 'typing',
       payload: { user_id: user.id, username: user.username ?? 'Team member' },
     });
-    typingThrottleRef.current = setTimeout(() => {
-      typingThrottleRef.current = null;
-    }, 500) as any;
+    typingThrottleRef.current = setTimeout(() => { typingThrottleRef.current = null; }, 500) as any;
   };
 
   const handleSend = async () => {
@@ -582,9 +577,9 @@ export default function TeamChatPage() {
       {typingUsername !== '' && (
         <div className="flex items-center gap-2 px-4 py-1.5 bg-muted/30 border-t border-border/50">
           <div className="flex gap-0.5 items-center">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '0ms' }} />
-            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '150ms' }} />
-            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={BOUNCE_DELAY_0} />
+            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={BOUNCE_DELAY_1} />
+            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={BOUNCE_DELAY_2} />
           </div>
           <span className="text-[11px] text-muted-foreground">
             <span className="font-semibold text-foreground">@{typingUsername}</span> is typing…
