@@ -15,6 +15,17 @@ import { formatNumber } from '@/lib/utils';
 
 // Module-level constants — esbuild-safe
 const TEAM_CHAT_EMOJIS = ['👍', '❤️', '🔥', '🎉', '💯', '👏'] as const;
+
+// esbuild guard: module-level function — no regex inside inline handler
+function parseTicketEmail(message: string): string {
+  const match = message.match(/From:\s*([^\n]+)/);
+  return match ? match[1].trim() : '';
+}
+
+// esbuild guard: module-level — no inline regex in JSX
+function isTicketMessage(message: string): boolean {
+  return message.includes('[SUPPORT TICKET]');
+}
 // Pure helper — replaces Object.entries in render scope (esbuild guard)
 function getReactionEntries(reacts: any): { emoji: string; count: number }[] {
   const result: { emoji: string; count: number }[] = [];
@@ -53,6 +64,11 @@ export default function TeamChatPage() {
   const [reactions, setReactions] = useState<{ [msgId: string]: { [emoji: string]: number } }>(() => ({}));
   const [showEmojiFor, setShowEmojiFor] = useState<string | null>(null);
   const [showMsgMenu, setShowMsgMenu] = useState<string | null>(null);
+  // Support ticket reply state
+  const [replyTicketMsgId, setReplyTicketMsgId] = useState('');
+  const [replyTicketEmail, setReplyTicketEmail] = useState('');
+  const [replyTicketReplyText, setReplyTicketReplyText] = useState('');
+  const [replyTicketSending, setReplyTicketSending] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -135,6 +151,58 @@ export default function TeamChatPage() {
     });
     setShowEmojiFor(null);
   }, []);
+
+  const openTicketReply = useCallback((msg: any) => {
+    const email = parseTicketEmail(msg.message ?? '');
+    setReplyTicketMsgId(msg.id);
+    setReplyTicketEmail(email);
+    setReplyTicketReplyText('');
+  }, []);
+
+  const handleTicketReply = useCallback(async () => {
+    if (!user || !replyTicketReplyText.trim() || replyTicketSending) return;
+    if (!replyTicketEmail) { toast.error('Could not find user email in ticket'); return; }
+    setReplyTicketSending(true);
+    // Look up user by email
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('id, username')
+      .eq('email', replyTicketEmail)
+      .maybeSingle();
+    if (!profile?.id) {
+      // Insert generic reply without user_id — staff will follow up via email
+      await supabase.from('team_chat_messages').insert({
+        user_id: user.id,
+        message: `[↩ TICKET REPLY to ${replyTicketEmail}]: ${replyTicketReplyText.trim()}`,
+        department: myJobInfo?.department ?? (isReg ? 'Regulator' : 'Support'),
+      });
+      toast.info('Reply posted to team chat — user not found by email, follow up manually.');
+    } else {
+      // Insert into platform_inbox so user sees it in their inbox
+      const staffName = user.username ?? 'Testagram Support';
+      const { error } = await supabase.from('platform_inbox').insert({
+        user_id: profile.id,
+        subject: '[Support Reply] Our team has responded to your ticket',
+        body: `Hi @${profile.username},\n\nOur support team has replied to your request:\n\n${replyTicketReplyText.trim()}\n\n— ${staffName}`,
+        type: 'news',
+        icon_emoji: '💬',
+        cta_label: 'Contact Support Again',
+        cta_url: '/help#contact-support',
+      });
+      if (error) { toast.error(error.message); setReplyTicketSending(false); return; }
+      // Also echo reply to team chat for audit trail
+      await supabase.from('team_chat_messages').insert({
+        user_id: user.id,
+        message: `[↩ TICKET REPLY → @${profile.username}]: ${replyTicketReplyText.trim()}`,
+        department: myJobInfo?.department ?? (isReg ? 'Regulator' : 'Support'),
+      });
+      toast.success(`Reply sent to @${profile.username} via inbox!`);
+    }
+    setReplyTicketMsgId('');
+    setReplyTicketReplyText('');
+    setReplyTicketSending(false);
+    await fetchAll();
+  }, [user, replyTicketEmail, replyTicketReplyText, replyTicketSending, myJobInfo, isReg, fetchAll]);
 
   const handleDelete = useCallback(async (msgId: string) => {
     if (!isReg) return;
@@ -272,9 +340,21 @@ export default function TeamChatPage() {
                   <div className={`relative rounded-2xl px-3 py-2 text-sm leading-relaxed break-words ${
                     isOwn
                       ? 'bg-primary text-primary-foreground rounded-br-sm'
-                      : 'bg-muted text-foreground rounded-bl-sm'
+                      : isTicketMessage(msg.message ?? '') ? 'bg-amber-500/10 border border-amber-500/25 text-foreground rounded-bl-sm' : 'bg-muted text-foreground rounded-bl-sm'
                   }`}>
+                    {isTicketMessage(msg.message ?? '') && (
+                      <span className="block text-[9px] font-black text-amber-600 mb-1 uppercase tracking-wide">📩 Support Ticket</span>
+                    )}
                     {msg.message}
+                    {/* Reply to ticket button — staff only, visible on ticket messages */}
+                    {isTicketMessage(msg.message ?? '') && !isOwn && (
+                      <button
+                        onClick={() => openTicketReply(msg)}
+                        className="mt-2 flex items-center gap-1 text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-500/15 hover:bg-amber-500/25 px-2 py-1 rounded-full transition-colors"
+                      >
+                        <span>↩</span> Reply to user
+                      </button>
+                    )}
                   </div>
                   {/* Reactions */}
                   {Object.keys(msgReactions).length > 0 && (
@@ -339,6 +419,49 @@ export default function TeamChatPage() {
           <button onClick={() => setReplyingTo(null)} className="text-muted-foreground">
             <X className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* ── Ticket Reply Modal ── */}
+      {replyTicketMsgId !== '' && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end justify-center p-4" onClick={() => setReplyTicketMsgId('')}>
+          <div className="w-full max-w-md bg-background border border-border rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2.5 px-4 py-3.5 border-b border-border bg-amber-500/8">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/15 flex items-center justify-center">
+                <Shield className="w-4 h-4 text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-black">Reply to Support Ticket</p>
+                <p className="text-[10px] text-muted-foreground truncate">→ {replyTicketEmail || 'user'}</p>
+              </div>
+              <button onClick={() => setReplyTicketMsgId('')} className="text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-[11px] text-amber-700 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+                This reply will be sent to the user's inbox as a platform message.
+              </p>
+              <textarea
+                value={replyTicketReplyText}
+                onChange={e => setReplyTicketReplyText(e.target.value)}
+                placeholder="Type your reply to the user…"
+                rows={4}
+                className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 leading-relaxed"
+                maxLength={800}
+              />
+              <p className="text-[10px] text-muted-foreground text-right">{replyTicketReplyText.length}/800</p>
+              <button
+                onClick={handleTicketReply}
+                disabled={!replyTicketReplyText.trim() || replyTicketSending}
+                className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 transition-opacity"
+              >
+                {replyTicketSending
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                  : <><Send className="w-4 h-4" /> Send Reply to User</>}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
