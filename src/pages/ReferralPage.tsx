@@ -14,6 +14,10 @@ import {
   PartyPopper,
   TrendingUp,
   Calendar,
+  Trophy,
+  Crown,
+  Loader2,
+  BadgeCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -38,14 +42,26 @@ interface ReferralRecord {
   } | null;
 }
 
+interface LeaderEntry {
+  userId: string;
+  username: string;
+  avatar: string | null;
+  verified: boolean;
+  count: number;
+  credits: number;
+}
+
 export default function ReferralPage() {
   useSEO({ noindex: true, title: 'Referrals', url: '/referrals' });
   const { user } = useAuth();
-  const [referrals, setReferrals] = useState<ReferralRecord[]>([]);
+  const [referrals, setReferrals] = useState([]);  // esbuild guard: no explicit generic
   const [totalCredits, setTotalCredits] = useState(0);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartData, setChartData] = useState([]);  // esbuild guard: no explicit generic
+  // Leaderboard
+  const [leaderboard, setLeaderboard] = useState([]);  // esbuild guard: no explicit generic
+  const [leaderLoading, setLeaderLoading] = useState(true);
 
   const referralLink = user
     ? `${window.location.origin}/auth?ref=${user.id}`
@@ -54,6 +70,7 @@ export default function ReferralPage() {
   useEffect(() => {
     if (!user) { setLoading(false); return; }
     loadReferrals();
+    loadLeaderboard();
   }, [user]);
 
   const loadReferrals = async () => {
@@ -70,12 +87,58 @@ export default function ReferralPage() {
       .order('created_at', { ascending: false });
 
     if (data) {
-      const list = data as ReferralRecord[];
+      const list = data as any[];
       setReferrals(list);
       setTotalCredits(list.reduce((s, r) => s + (r.credits_awarded ?? 0), 0));
       buildChart(list);
     }
     setLoading(false);
+  };
+
+  const loadLeaderboard = async () => {
+    setLeaderLoading(true);
+    // Aggregate top referrers by count
+    const { data } = await supabase
+      .from('referrals')
+      .select('invited_by, credits_awarded, user_profiles!referrals_invited_by_fkey(id, username, avatar_url, verified)');
+    if (!data) { setLeaderLoading(false); return; }
+    // Build parallel arrays for aggregation
+    const ids: string[] = [];
+    const counts: number[] = [];
+    const credits: number[] = [];
+    const usernames: string[] = [];
+    const avatars: (string | null)[] = [];
+    const verifieds: boolean[] = [];
+    for (const row of data) {
+      const p = (row as any).user_profiles;
+      const uid = row.invited_by;
+      if (!uid || !p) continue;
+      const idx = ids.indexOf(uid);
+      if (idx >= 0) {
+        counts[idx] += 1;
+        credits[idx] += row.credits_awarded ?? 100;
+      } else {
+        ids.push(uid);
+        counts.push(1);
+        credits.push(row.credits_awarded ?? 100);
+        usernames.push(p.username ?? 'user');
+        avatars.push(p.avatar_url ?? null);
+        verifieds.push(!!p.verified);
+      }
+    }
+    // Sort by count desc, take top 10
+    const idxArr = ids.map((_, i) => i);
+    idxArr.sort((a, b) => counts[b] - counts[a]);
+    const top = idxArr.slice(0, 10).map(i => ({
+      userId: ids[i],
+      username: usernames[i],
+      avatar: avatars[i],
+      verified: verifieds[i],
+      count: counts[i],
+      credits: credits[i],
+    }));
+    setLeaderboard(top);
+    setLeaderLoading(false);
   };
 
   const buildChart = (list: ReferralRecord[]) => {
@@ -295,6 +358,73 @@ export default function ReferralPage() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* ── Referral Leaderboard ── */}
+      <div className="mt-4">
+        <div className="flex items-center gap-2 px-4 py-3 border-y border-border">
+          <Trophy className="w-4 h-4 text-amber-500" />
+          <p className="font-semibold text-sm">Top Referrers</p>
+          <span className="ml-auto text-[10px] text-muted-foreground">Platform-wide ranking</span>
+        </div>
+        {leaderLoading ? (
+          <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading leaderboard…</span>
+          </div>
+        ) : leaderboard.length === 0 ? (
+          <div className="px-4 py-8 text-center text-muted-foreground">
+            <Trophy className="w-8 h-8 mx-auto mb-2 opacity-20" />
+            <p className="text-sm">No referrals yet — be the first!</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {leaderboard.map((entry, i) => {
+              const isCurrentUser = user && entry.userId === user.id;
+              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null;
+              const rankLabel = medal ? medal : `#${i + 1}`;
+              const rankColor = i === 0 ? 'text-yellow-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-amber-600' : 'text-muted-foreground';
+              const countLabel = entry.count !== 1 ? `${entry.count} referrals` : '1 referral';
+              return (
+                <div
+                  key={entry.userId}
+                  className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+                    isCurrentUser ? 'bg-primary/5 border-l-2 border-primary' : 'hover:bg-muted/20'
+                  }`}
+                >
+                  {/* Rank */}
+                  <div className="w-8 text-center shrink-0">
+                    <span className={`font-black text-base ${rankColor}`}>{rankLabel}</span>
+                  </div>
+                  {/* Avatar */}
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center overflow-hidden shrink-0">
+                    {entry.avatar ? (
+                      <img src={entry.avatar} alt={entry.username} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm font-bold text-primary">{entry.username[0]?.toUpperCase()}</span>
+                    )}
+                  </div>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-sm truncate">{entry.username}</span>
+                      {entry.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary shrink-0" />}
+                      {isCurrentUser && (
+                        <span className="text-[9px] font-black text-primary bg-primary/10 px-1.5 py-0.5 rounded-full ml-1">You</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{countLabel}</p>
+                  </div>
+                  {/* Credits */}
+                  <div className="flex items-center gap-1 text-amber-500 font-bold text-sm shrink-0">
+                    <Coins className="w-3.5 h-3.5" />
+                    {entry.credits.toLocaleString()}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Referrals list */}
