@@ -9,7 +9,7 @@ import {
   Search, HelpCircle, MessageCircle, Shield, CreditCard, User,
   ChevronDown, ChevronUp, ExternalLink, Send, Loader2,
   TrendingUp, CheckCircle2, Hash, ThumbsUp, ThumbsDown, Star,
-  Play, X, Clock, FileText, Ticket,
+  Play, X, Clock, FileText, Ticket, Bot, Printer, ChevronRight,
 } from 'lucide-react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { toast } from 'sonner';
@@ -291,6 +291,20 @@ const HELP_ANALYTICS_KEY = 'ts-help-search-analytics';
 // ── Article ratings storage key (module-level) ────────────────────────────────
 const HELP_RATINGS_KEY = 'ts-help-article-ratings';
 
+// esbuild guard: module-level — no inline array literal inside JSX .map() callback
+const CHAT_SUGGESTION_QUESTIONS = [
+  'How do I get verified?',
+  'How does creator earnings work?',
+  'How do I send money via M-Pesa?',
+];
+
+// esbuild guard: module-level helper — no inline object creation in .map() inside component
+function buildChatMessages(roles: string[], texts: string[]): { role: string; content: string }[] {
+  const out: { role: string; content: string }[] = [];
+  for (let i = 0; i < roles.length; i++) out.push({ role: roles[i], content: texts[i] });
+  return out;
+}
+
 // ── FAQ structured data — module-level (esbuild guard: no map() with inline nested objects inside component) ──
 const HELP_FAQ_STRUCTURED_DATA = ALL_TOPICS.map(t => ({
   '@type': 'Question',
@@ -448,17 +462,33 @@ function HelpAccordionItem({
             </div>
           )}
 
-          {/* Deep-link share button */}
+          {/* Actions row: Print + Copy link */}
           {itemId && (
-            <button
-              onClick={() => {
-                const url = `${window.location.origin}/help#${itemId}`;
-                navigator.clipboard.writeText(url).then(() => toast.success('Link copied!')).catch(() => {});
-              }}
-              className="mt-3 text-[10px] text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
-            >
-              <Hash className="w-3 h-3" /> Copy link to this answer
-            </button>
+            <div className="mt-3 flex items-center gap-4">
+              {/* Print / Export */}
+              <button
+                onClick={() => {
+                  const win = window.open('', '_blank', 'width=700,height=600');
+                  if (!win) { toast.error('Allow popups to print articles'); return; }
+                  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${q}</title><style>body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 24px;color:#111}h1{font-size:20px;font-weight:800;margin-bottom:16px;color:#111}ul{padding-left:0;list-style:none;margin:0}li{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;font-size:15px;line-height:1.6;color:#333}.dot{width:6px;height:6px;border-radius:50%;background:#4f46e5;margin-top:8px;flex-shrink:0}footer{margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280}@media print{body{margin:20px}}</style></head><body><h1>${q}</h1><ul>${a.map(l => `<li><span class="dot"></span><span>${l}</span></li>`).join('')}</ul><footer>Testagram Help Center — testagram.site/help#${itemId}</footer><script>window.onload=function(){window.print();}<\/script></body></html>`;
+                  win.document.write(html);
+                  win.document.close();
+                }}
+                className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+              >
+                <Printer className="w-3 h-3" /> Print / Export
+              </button>
+              {/* Copy link */}
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/help#${itemId}`;
+                  navigator.clipboard.writeText(url).then(() => toast.success('Link copied!')).catch(() => {});
+                }}
+                className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+              >
+                <Hash className="w-3 h-3" /> Copy link
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -647,6 +677,7 @@ export default function HelpPage() {
     if (!contactEmail.trim()) { toast.error('Please provide your email'); return; }
     setContactSending(true);
     try {
+      // Insert into platform_inbox for user record
       const { error } = await supabase.from('platform_inbox').insert({
         user_id: user?.id ?? null,
         subject: `[Support] ${contactSubject}: from ${contactEmail}`,
@@ -657,6 +688,14 @@ export default function HelpPage() {
         cta_url: '/admin',
       });
       if (error) throw error;
+
+      // Also post to team_chat_messages so staff see it in Team Chat immediately
+      await supabase.from('team_chat_messages').insert({
+        user_id: user?.id ?? null,
+        message: `📩 [SUPPORT TICKET] Subject: ${contactSubject}\nFrom: ${contactEmail}\n\n${contactMessage.trim()}`,
+        department: 'Support',
+      });
+
       setContactSent(true);
       setContactMessage('');
       toast.success("Support request sent! We'll get back to you soon.");
@@ -666,6 +705,53 @@ export default function HelpPage() {
       setContactSending(false);
     }
   };
+
+  // ── AI Chatbot state ──────────────────────────────────────────────────────
+  const [chatOpen, setChatOpen] = useState(false);
+  // esbuild guard: parallel arrays instead of {role,content}[] typed array
+  const [chatRoles, setChatRoles] = useState([]);
+  const [chatTexts, setChatTexts] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Scroll chat to bottom when messages change
+  useEffect(() => {
+    if (chatOpen) chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatRoles.length, chatOpen]);
+
+  const handleChatSend = async () => {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
+    setChatInput('');
+
+    // Append user message
+    const newRoles = [...(chatRoles as string[]), 'user'];
+    const newTexts = [...(chatTexts as string[]), text];
+    setChatRoles(newRoles as any);
+    setChatTexts(newTexts as any);
+    setChatLoading(true);
+
+    // Build messages array for edge function
+    const msgs = buildChatMessages(newRoles, newTexts);
+
+    const { data, error } = await supabase.functions.invoke('help-chatbot', { body: { messages: msgs } });
+
+    if (error || !data?.reply) {
+      const errMsg = 'Sorry, I could not connect to support AI. Please try again.';
+      setChatRoles([...newRoles, 'assistant'] as any);
+      setChatTexts([...newTexts, errMsg] as any);
+    } else {
+      setChatRoles([...newRoles, 'assistant'] as any);
+      setChatTexts([...newTexts, data.reply] as any);
+    }
+    setChatLoading(false);
+  };
+
+  // ── Pre-compute chat display values (esbuild guard: no inline ops in JSX) ──
+  const chatRolesArr = chatRoles as string[];
+  const chatTextsArr = chatTexts as string[];
+  const hasChatMessages = chatRolesArr.length > 0;
 
   // ── Pre-compute values before JSX (esbuild guard) ──────────────────────────
   const searchLow = searchQuery.toLowerCase().trim();
@@ -1221,6 +1307,93 @@ export default function HelpPage() {
         </div>
 
       </div>
+
+      {/* ── AI Chatbot floating button ── */}
+      <button
+        onClick={() => setChatOpen(o => !o)}
+        aria-label="Open help chatbot"
+        className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-2xl shadow-primary/30 flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
+      >
+        {chatOpen ? <X className="w-6 h-6" /> : <Bot className="w-6 h-6" />}
+      </button>
+
+      {/* ── AI Chatbot panel ── */}
+      {chatOpen && (
+        <div className="fixed bottom-36 right-4 md:bottom-24 md:right-6 z-40 w-80 max-h-[480px] bg-background border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2 duration-200">
+          {/* Header */}
+          <div className="flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-primary/10 to-primary/5 border-b border-border">
+            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+              <Bot className="w-4 h-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs font-black">Testagram AI Support</p>
+              <p className="text-[10px] text-muted-foreground">Powered by Gemini 3 Flash</p>
+            </div>
+            <button onClick={() => setChatOpen(false)} className="ml-auto text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {!hasChatMessages && (
+              <div className="text-center py-4">
+                <Bot className="w-8 h-8 text-primary/30 mx-auto mb-2" />
+                <p className="text-xs font-semibold text-foreground">Hi! I'm your Testagram assistant.</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Ask me anything about the platform.</p>
+                <div className="mt-3 space-y-1.5">
+                  {CHAT_SUGGESTION_QUESTIONS.map((q, qi) => (
+                    <button key={qi} onClick={() => { setChatInput(q); }}
+                      className="w-full text-left text-[11px] px-3 py-2 rounded-xl bg-muted/60 hover:bg-primary/10 border border-border hover:border-primary/30 transition-colors flex items-center gap-2">
+                      <ChevronRight className="w-3 h-3 text-primary shrink-0" />{q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {chatRolesArr.map((role, ci) => (
+              <div key={ci} className={`flex ${role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                  role === 'user'
+                    ? 'bg-primary text-primary-foreground rounded-br-sm'
+                    : 'bg-muted text-foreground rounded-bl-sm'
+                }`}>
+                  {chatTextsArr[ci]}
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="flex justify-start">
+                <div className="bg-muted rounded-2xl rounded-bl-sm px-3 py-2 flex gap-1 items-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+              </div>
+            )}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Input */}
+          <div className="p-3 border-t border-border flex items-center gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
+              placeholder="Ask a question…"
+              className="flex-1 text-xs bg-muted/60 border border-border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/60"
+            />
+            <button
+              onClick={handleChatSend}
+              disabled={!chatInput.trim() || chatLoading}
+              className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:opacity-90 transition-opacity shrink-0"
+            >
+              {chatLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Video Guide Modal ── */}
       {videoModalActive && (
