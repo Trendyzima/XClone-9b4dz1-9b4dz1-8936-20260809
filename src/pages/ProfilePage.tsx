@@ -7,6 +7,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { PostCard } from '@/components/features/PostCard';
 import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
+import { StoryHighlights } from '@/components/features/StoryHighlights';
 import CreatorMonetizationHub, { SubscriptionTiersDisplay, TipGoalWidget, SubscriberBadge } from '@/components/features/CreatorMonetizationHub';
 import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart, BookOpen, ChevronRight, Headphones, Clock, Users } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
@@ -1068,6 +1069,10 @@ export default function ProfilePage() {
           )}
 
           {/* Story Highlights */}
+          {/* StoryHighlights component */}
+          {profile && (
+            <StoryHighlights profileUserId={profile.id} isOwnProfile={isOwnProfile} />
+          )}
           {(highlights.length > 0 || isOwnProfile) && (
             <div className="flex items-start gap-4 py-3 overflow-x-auto scrollbar-hide">
               {isOwnProfile && (

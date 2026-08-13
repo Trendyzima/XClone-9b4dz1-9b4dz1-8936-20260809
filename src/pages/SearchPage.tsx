@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
 import {
   Search, Loader2, BadgeCheck, Globe, ExternalLink, UserPlus, Hash, Users, Clock, X, TrendingUp,
-  Sparkles, Flame, Brain, Filter, Image, Video, CheckCircle2, Calendar, History, BarChart2
+  Sparkles, Flame, Brain, Filter, Image, Video, CheckCircle2, Calendar, History, BarChart2, Download, Trash2
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PostCard } from '@/components/features/PostCard';
@@ -19,6 +19,13 @@ import { DynamicAd } from '@/components/features/DynamicAd';
 import { useSEO } from '@/hooks/useSEO';
 
 function SearchAdBanner() { return <PageAdBanner />; }
+
+// esbuild guard: module-level plain arrays (no 'as const', not inside component body)
+const CONTENT_TYPE_FILTERS: string[] = ['All', 'Posts', 'Videos', 'Users', 'Hashtags', 'Threads'];
+const SORT_OPTIONS: string[] = ['Newest', 'Most Liked', 'Most Viewed'];
+// esbuild guard: parallel arrays replace Record<tier,meta> inside .map()
+const TIER_KEYS: string[] = ['gold', 'silver', 'bronze'];
+const TIER_EMOJIS: string[] = ['🥇', '🥈', '🥉'];
 
 export default function SearchPage() {
   const [searchParams] = useSearchParams();
@@ -60,26 +67,20 @@ export default function SearchPage() {
   const [hashtags, setHashtags] = useState<any[]>([]);
   const [communities, setCommunities] = useState<any[]>([]);
   const [fediverseResults, setFediverseResults] = useState<any[]>([]);
-  // ── Content-type filter chips ──────────────────────────────────────────────
-  // esbuild guard: plain string[] constant at module level (no 'as const')
-  const CONTENT_TYPE_FILTERS: string[] = ['All', 'Posts', 'Videos', 'Users', 'Hashtags', 'Threads'];
+  // ── Content-type filter + sort state ──────────────────────────────────────
+  // (CONTENT_TYPE_FILTERS and SORT_OPTIONS are at module level — esbuild guard)
   const [contentTypeFilter, setContentTypeFilter] = useState('All');
-  // Sort options
-  const SORT_OPTIONS: string[] = ['Newest', 'Most Liked', 'Most Viewed'];
   const [sortOption, setSortOption] = useState('Most Viewed');
   const [showSortDropdown, setShowSortDropdown] = useState(false);
 
   const [threads, setThreads] = useState<any[]>([]);
 
   // Apply content-type filter to re-route the active tab
+  // esbuild guard: plain untyped object (no Record<string,string> annotation)
+  const ctfTabMap = { Posts: 'Posts', Videos: 'Posts', Users: 'Users', Hashtags: 'Hashtags', Threads: 'For You' };
   useEffect(() => {
     if (contentTypeFilter === 'All') return;
-    const typeTabMap: Record<string, string> = {
-      Posts: 'Posts', Videos: 'Posts', Users: 'Users',
-      Hashtags: 'Hashtags', Threads: 'For You',
-    };
-    // Switch tab automatically when type chip changes
-    setActiveTab(typeTabMap[contentTypeFilter] ?? activeTab);
+    setActiveTab((ctfTabMap as any)[contentTypeFilter] ?? activeTab);
   }, [contentTypeFilter]);
 
   const sortPosts = (rawPosts: any[]) => {
@@ -770,12 +771,9 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
                       <div className="grid grid-cols-2 gap-2.5">
                         {suggestedUsers.map((u: any) => {
                           const tier = u.creator_tier;
-                          const tierConfig: Record<string, { emoji: string; color: string }> = {
-                            gold: { emoji: '🥇', color: 'text-yellow-600' },
-                            silver: { emoji: '🥈', color: 'text-slate-500' },
-                            bronze: { emoji: '🥉', color: 'text-amber-600' },
-                          };
-                          const tierMeta = tier && tier !== 'free' ? tierConfig[tier] : null;
+                          // esbuild guard: parallel arrays instead of Record<string,meta> in .map()
+                          const tierIdx = TIER_KEYS.indexOf(tier ?? '');
+                          const tierMeta = tierIdx >= 0 ? { emoji: TIER_EMOJIS[tierIdx] } : null;
                           return (
                             <div key={u.id} onClick={() => navigate(`/profile/${u.username}`)}
                               className="flex flex-col items-center gap-2 p-3 border border-border rounded-2xl bg-card hover:border-primary/30 hover:bg-muted/20 transition-all cursor-pointer">
@@ -815,6 +813,53 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
                       {forYouPosts.map((post: any) => (
                         <PostCard key={post.id} post={post} onUpdate={loadDiscovery} />
                       ))}
+                    </div>
+                  )}
+
+                  {/* Search Data Export + Clear */}
+                  {(searchTermFrequency.length > 0 || userInterests.length > 0) && (
+                    <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <BarChart2 className="w-4 h-4 text-primary" />
+                        <h3 className="font-bold text-sm">Your Search Data</h3>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            const exportData = {
+                              exported_at: new Date().toISOString(),
+                              frequent_searches: searchTermFrequency.map(([term, freq]) => ({ term, count: freq })),
+                              interests: userInterests.map(({ tag, score }) => ({ hashtag: tag, interest_score: score })),
+                              recent_searches: recentSearches,
+                            };
+                            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `testagram-search-data-${new Date().toISOString().slice(0,10)}.json`;
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 500);
+                            import('sonner').then(({ toast }) => toast.success('Search data exported!'));
+                          }}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/8 hover:bg-primary/15 border border-primary/20 rounded-full text-xs font-bold text-primary transition-colors"
+                        >
+                          <Download className="w-3 h-3" /> Export
+                        </button>
+                        <button
+                          onClick={() => {
+                            setRecentSearches([]);
+                            try {
+                              localStorage.removeItem('tsocial_recent_searches');
+                              localStorage.removeItem('tsocial_all_searches');
+                            } catch {}
+                            import('sonner').then(({ toast }) => toast.success('Search data cleared'));
+                          }}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-destructive/8 hover:bg-destructive/15 border border-destructive/20 rounded-full text-xs font-bold text-destructive transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" /> Clear
+                        </button>
+                      </div>
                     </div>
                   )}
 

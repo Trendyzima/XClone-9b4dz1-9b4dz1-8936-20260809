@@ -6,7 +6,8 @@ import { supabase } from '@/lib/supabase';
 import { pingGoogleSitemap } from '@/lib/pingGoogle';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe, Wand2, AtSign, Sparkles, Layers, Quote, Hash, Link2 } from 'lucide-react';
+import { Image, Video, Loader2, X, BarChart3, Smile, Calendar, ShoppingBag, Globe, Wand2, AtSign, Sparkles, Layers, Quote, Hash, Link2, Camera } from 'lucide-react';
+import { VideoDuetRecorder } from './VideoDuetRecorder';
 import { useToast } from '@/hooks/use-toast';
 import { CreatePollDialog } from './CreatePollDialog';
 import { SchedulePostDialog } from './SchedulePostDialog';
@@ -28,6 +29,8 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
 
   // Duet/quote params — set by VideoPlayer when user taps Duet or Quote
   const duetUrl          = searchParams.get('duet_url')      ? decodeURIComponent(searchParams.get('duet_url')!)      : null;
+  // Duet recorder modal state
+  const [showDuetRecorder, setShowDuetRecorder] = useState(false);
   const duetMeta         = searchParams.get('duet_meta')     ? decodeURIComponent(searchParams.get('duet_meta')!)     : null;
   const quoteText        = searchParams.get('quote')         ? decodeURIComponent(searchParams.get('quote')!)         : null;
   const quotedPostId     = searchParams.get('quote_post_id') ?? null;
@@ -493,6 +496,21 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
         </div>
       )}
 
+      {/* ── Duet Recorder Modal ── */}
+      {showDuetRecorder && duetUrl && (
+        <VideoDuetRecorder
+          originalVideoUrl={duetUrl}
+          duetMeta={duetMeta ?? undefined}
+          onDuetReady={(file) => {
+            setVideo(file);
+            setImages([]);
+            setGifUrl(null);
+            setShowDuetRecorder(false);
+          }}
+          onClose={() => setShowDuetRecorder(false)}
+        />
+      )}
+
       {duetUrl && (
         <div className="mb-3 rounded-xl overflow-hidden border border-sky-500/30 bg-sky-500/5">
           <div className="flex items-center gap-2 px-3 py-2 bg-sky-500/10 border-b border-sky-500/20">
@@ -508,11 +526,20 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
               </div>
             </div>
             {/* Right: user's reaction upload slot */}
-            <label className="w-1/2 rounded-lg border-2 border-dashed border-sky-400/40 bg-muted/30 aspect-video flex flex-col items-center justify-center gap-1 text-sky-500/60 cursor-pointer hover:bg-sky-500/5 transition-colors">
-              <Video className="w-6 h-6" />
-              <span className="text-[10px] font-semibold text-center leading-tight px-1">Upload your reaction</span>
-              <input type="file" accept="video/*" className="hidden" onChange={handleVideoChange} disabled={loading} />
-            </label>
+            <div className="w-1/2 flex flex-col gap-1.5">
+              <label className="flex-1 rounded-xl border-2 border-dashed border-sky-400/40 bg-muted/30 aspect-video flex flex-col items-center justify-center gap-1 text-sky-500/60 cursor-pointer hover:bg-sky-500/5 transition-colors">
+                <Video className="w-5 h-5" />
+                <span className="text-[9px] font-semibold text-center px-1">Upload file</span>
+                <input type="file" accept="video/*" className="hidden" onChange={handleVideoChange} disabled={loading} />
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowDuetRecorder(true)}
+                className="flex items-center justify-center gap-1 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 rounded-xl text-sky-500 text-[10px] font-bold transition-colors"
+              >
+                <Camera className="w-3 h-3" /> Record
+              </button>
+            </div>
           </div>
         </div>
       )}

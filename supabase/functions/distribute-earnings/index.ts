@@ -150,6 +150,32 @@ serve(async (req) => {
         });
         if (walletErr) { results.errors.push(`wallet ${video.id}: ${walletErr.message}`); continue; }
 
+        // Track platform vs creator split in revenue_shares (70% platform for video fund)
+        const platformCut = parseFloat((earned * 0.70).toFixed(6));
+        const creatorCut  = parseFloat((earned * 0.30).toFixed(6));
+        await supabase.from('revenue_shares').upsert({
+          user_id:         video.user_id,
+          total_revenue:   earned,
+          platform_share:  platformCut,
+          user_share:      creatorCut,
+          paid_to_platform: platformCut,
+          paid_to_user:    earned, // full earned credited to creator wallet
+        }, { onConflict: 'user_id' }).then(({ error: rsErr }) => {
+          if (!rsErr) return;
+          // On conflict, update incrementally
+          return supabase.from('revenue_shares').select('total_revenue,platform_share,user_share,paid_to_platform,paid_to_user').eq('user_id', video.user_id).maybeSingle().then(({ data }) => {
+            if (!data) return;
+            return supabase.from('revenue_shares').update({
+              total_revenue:    parseFloat((Number(data.total_revenue) + earned).toFixed(6)),
+              platform_share:   parseFloat((Number(data.platform_share) + platformCut).toFixed(6)),
+              user_share:       parseFloat((Number(data.user_share) + creatorCut).toFixed(6)),
+              paid_to_platform: parseFloat((Number(data.paid_to_platform) + platformCut).toFixed(6)),
+              paid_to_user:     parseFloat((Number(data.paid_to_user) + earned).toFixed(6)),
+              updated_at:       new Date().toISOString(),
+            }).eq('user_id', video.user_id);
+          });
+        });
+
         // Mark as paid + update period revenue in rates table
         await supabase.from('posts').update({ fund_earnings_paid: true }).eq('id', video.id);
         // Update period_revenue atomically via read-then-write
