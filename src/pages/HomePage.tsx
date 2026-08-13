@@ -45,6 +45,9 @@ function setCachedFeed(tab: string, items: FeedItem[]) {
   feedCache.push({ tab, items, ts: Date.now() });
 }
 
+// esbuild guard: rank badge colors for Trending Now rail — must be module-level (not inside .map())
+const TRENDING_NOW_RANK_COLORS = ['text-yellow-400','text-slate-300','text-amber-600','text-white/70','text-white/70'];
+
 // Module-level helpers — esbuild guard: no IIFEs in render
 function extractHostname(url: string): string {
   try { return new URL(url).hostname; } catch { return ''; }
@@ -1101,9 +1104,8 @@ export default function HomePage() {
               const thumb = post.image_url ?? null;
               const isVid = !!(post.is_video || post.video_url);
               const uname = post.user_profiles?.username ?? '';
-              // esbuild guard: no inline ternary chains — pre-compute rank color
-              const rankColors = ['text-yellow-400','text-slate-300','text-amber-600','text-white/70','text-white/70'];
-              const rankColor = rankColors[idx] ?? 'text-white/70';
+              // esbuild guard: use module-level array for rank colors (no array literal inside .map())
+              const rankColor = TRENDING_NOW_RANK_COLORS[idx] ?? 'text-white/70';
               return (
                 <button
                   key={post.id}
