@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import {
   Search, HelpCircle, MessageCircle, Shield, CreditCard, User,
   ChevronDown, ChevronUp, ExternalLink, Send, Loader2,
-  TrendingUp, CheckCircle2, Hash,
+  TrendingUp, CheckCircle2, Hash, ThumbsUp, ThumbsDown, Star,
 } from 'lucide-react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { toast } from 'sonner';
@@ -255,20 +255,70 @@ const CONTACT_SUBJECTS = [
 // ── Analytics storage key (module-level) ─────────────────────────────────────
 const HELP_ANALYTICS_KEY = 'ts-help-search-analytics';
 
+// ── Article ratings storage key (module-level) ────────────────────────────────
+const HELP_RATINGS_KEY = 'ts-help-article-ratings';
+
+// ── FAQ structured data — module-level (esbuild guard: no map() with inline nested objects inside component) ──
+const HELP_FAQ_STRUCTURED_DATA = ALL_TOPICS.map(t => ({
+  '@type': 'Question',
+  name: t.q,
+  acceptedAnswer: { '@type': 'Answer', text: t.a.join(' ') },
+}));
+
+// ── Static structured data for SEO — module-level (esbuild guard: no inline object arrays in component body) ──
+const HELP_STRUCTURED_DATA = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: HELP_FAQ_STRUCTURED_DATA,
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://testagram.site' },
+      { '@type': 'ListItem', position: 2, name: 'Help Center', item: 'https://testagram.site/help' },
+    ],
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: 'Testagram Help Center',
+    description: 'Comprehensive help and support documentation for Testagram users and creators.',
+    url: 'https://testagram.site/help',
+  },
+];
+
 // ── URL slug generator (module-level) ────────────────────────────────────────
 function toSlug(q: string): string {
   return q.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+// ── Live support status (module-level — EAT UTC+3, Mon-Fri 08:00-18:00) ──────
+function getSupportStatus(): { online: boolean; label: string; sub: string } {
+  const now = new Date();
+  const eatH = (now.getUTCHours() + 3) % 24;
+  const day = now.getUTCDay(); // 0=Sun, 6=Sat
+  const online = day >= 1 && day <= 5 && eatH >= 8 && eatH < 18;
+  if (online) return { online: true, label: 'Support is online', sub: 'Typically replies within 2 hours' };
+  // Calculate next open time
+  const nextDay = day === 0 ? 'Monday' : day === 6 ? 'Monday' : 'next business day';
+  return { online: false, label: 'Support is offline', sub: `Replies by ${nextDay} (EAT business hours)` };
+}
+
 // ── Accordion item ────────────────────────────────────────────────────────────
 function HelpAccordionItem({
-  q, a, defaultOpen, itemId, onOpen,
+  q, a, defaultOpen, itemId, onOpen, myVote, upCount, downCount, onRate,
 }: {
   q: string;
   a: string[];
   defaultOpen?: boolean;
   itemId?: string;
   onOpen?: (slug: string) => void;
+  myVote?: string | null;
+  upCount?: number;
+  downCount?: number;
+  onRate?: (slug: string, vote: string) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const ref = useRef<HTMLDivElement>(null);
@@ -284,6 +334,12 @@ function HelpAccordionItem({
     if (next && itemId && onOpen) onOpen(itemId);
   };
 
+  // Pre-compute rating values before render
+  const totalVotes = (upCount ?? 0) + (downCount ?? 0);
+  const helpfulPct = totalVotes > 0 ? Math.round(((upCount ?? 0) / totalVotes) * 100) : null;
+  const votedUp = myVote === 'up';
+  const votedDown = myVote === 'down';
+
   return (
     <div id={itemId} ref={ref} className="border-b border-border last:border-b-0">
       <button
@@ -291,9 +347,16 @@ function HelpAccordionItem({
         className="w-full px-4 py-4 text-left hover:bg-muted/40 transition-colors flex items-center justify-between gap-3 group"
       >
         <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">{q}</span>
-        {open
-          ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
-          : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
+        <div className="flex items-center gap-2 shrink-0">
+          {totalVotes > 0 && (
+            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+              <ThumbsUp className="w-2.5 h-2.5" />{helpfulPct}%
+            </span>
+          )}
+          {open
+            ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
+            : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
       </button>
       {open && (
         <div className="px-4 pb-4 bg-muted/20 border-t border-border/50 animate-in slide-in-from-top-1 duration-150">
@@ -305,6 +368,43 @@ function HelpAccordionItem({
               </li>
             ))}
           </ul>
+
+          {/* ── Article Rating ── */}
+          {itemId && onRate && (
+            <div className="mt-4 pt-3 border-t border-border/40">
+              <p className="text-[11px] font-semibold text-muted-foreground mb-2">Was this helpful?</p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => onRate(itemId, 'up')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all active:scale-95 ${
+                    votedUp
+                      ? 'bg-green-500/10 border-green-500/40 text-green-600'
+                      : 'border-border hover:border-green-500/40 hover:text-green-600 text-muted-foreground'
+                  }`}
+                >
+                  <ThumbsUp className="w-3 h-3" />
+                  Yes {upCount && upCount > 0 ? `(${upCount})` : ''}
+                </button>
+                <button
+                  onClick={() => onRate(itemId, 'down')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all active:scale-95 ${
+                    votedDown
+                      ? 'bg-red-500/10 border-red-500/40 text-red-600'
+                      : 'border-border hover:border-red-500/40 hover:text-red-600 text-muted-foreground'
+                  }`}
+                >
+                  <ThumbsDown className="w-3 h-3" />
+                  No {downCount && downCount > 0 ? `(${downCount})` : ''}
+                </button>
+                {totalVotes > 0 && (
+                  <span className="text-[10px] text-muted-foreground ml-1">
+                    {helpfulPct}% of {totalVotes} found this helpful
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Deep-link share button */}
           {itemId && (
             <button
@@ -332,6 +432,12 @@ export default function HelpPage() {
   // esbuild guard: plain parallel arrays — no Record<string,number>
   const [analyticsQueries, setAnalyticsQueries] = useState([]);
   const [analyticsCounts, setAnalyticsCounts] = useState([]);
+  // Article ratings — parallel arrays: slugs, myVotes (per user), upCounts, downCounts
+  // esbuild guard: plain useState([]) — no typed generics
+  const [ratingSlugs, setRatingSlugs] = useState([]);
+  const [ratingMyVotes, setRatingMyVotes] = useState([]);
+  const [ratingUpCounts, setRatingUpCounts] = useState([]);
+  const [ratingDownCounts, setRatingDownCounts] = useState([]);
   // Contact form
   const [contactSubject, setContactSubject] = useState('Account Issues');
   const [contactMessage, setContactMessage] = useState('');
@@ -353,6 +459,20 @@ export default function HelpPage() {
         const parsed = JSON.parse(raw);
         setAnalyticsQueries(parsed.queries ?? []);
         setAnalyticsCounts(parsed.counts ?? []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Load article ratings from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HELP_RATINGS_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        setRatingSlugs(data.slugs ?? []);
+        setRatingMyVotes(data.myVotes ?? []);
+        setRatingUpCounts(data.upCounts ?? []);
+        setRatingDownCounts(data.downCounts ?? []);
       }
     } catch { /* ignore */ }
   }, []);
@@ -394,6 +514,56 @@ export default function HelpPage() {
     }, 1000);
   };
 
+  // Article rating handler
+  const handleRate = (slug: string, vote: string) => {
+    const slugs = ratingSlugs as string[];
+    const myVotes = ratingMyVotes as string[];
+    const upCounts = ratingUpCounts as number[];
+    const downCounts = ratingDownCounts as number[];
+
+    const idx = slugs.indexOf(slug);
+    const prev = idx >= 0 ? myVotes[idx] : null;
+
+    let newSlugs = [...slugs];
+    let newMyVotes = [...myVotes];
+    let newUp = [...upCounts];
+    let newDown = [...downCounts];
+
+    if (idx < 0) {
+      // New entry
+      newSlugs.push(slug);
+      newMyVotes.push(vote);
+      newUp.push(vote === 'up' ? 1 : 0);
+      newDown.push(vote === 'down' ? 1 : 0);
+    } else if (prev === vote) {
+      // Toggle off
+      newMyVotes[idx] = '';
+      if (vote === 'up') newUp[idx] = Math.max(0, newUp[idx] - 1);
+      else newDown[idx] = Math.max(0, newDown[idx] - 1);
+    } else {
+      // Switch vote
+      newMyVotes[idx] = vote;
+      if (prev === 'up') newUp[idx] = Math.max(0, newUp[idx] - 1);
+      if (prev === 'down') newDown[idx] = Math.max(0, newDown[idx] - 1);
+      if (vote === 'up') newUp[idx] = (newUp[idx] ?? 0) + 1;
+      if (vote === 'down') newDown[idx] = (newDown[idx] ?? 0) + 1;
+    }
+
+    setRatingSlugs(newSlugs as any);
+    setRatingMyVotes(newMyVotes as any);
+    setRatingUpCounts(newUp as any);
+    setRatingDownCounts(newDown as any);
+
+    try {
+      localStorage.setItem(HELP_RATINGS_KEY, JSON.stringify({
+        slugs: newSlugs, myVotes: newMyVotes, upCounts: newUp, downCounts: newDown,
+      }));
+    } catch { /* ignore */ }
+
+    const feedbackVote = prev === vote ? 'removed' : vote === 'up' ? 'helpful ✓' : 'not helpful';
+    toast.success(`Feedback: ${feedbackVote}`, { duration: 1200 });
+  };
+
   const handleContactSubmit = async () => {
     if (!contactMessage.trim()) { toast.error('Please write a message'); return; }
     if (!contactEmail.trim()) { toast.error('Please provide your email'); return; }
@@ -422,6 +592,33 @@ export default function HelpPage() {
   // ── Pre-compute values before JSX (esbuild guard) ──────────────────────────
   const searchLow = searchQuery.toLowerCase().trim();
   const hasSearch = searchLow.length >= 2;
+
+  // esbuild guard: pre-compute live support status before JSX
+  const supportStatus = getSupportStatus();
+
+  // esbuild guard: pre-compute rating helpers — no typed casts in JSX
+  const rSlugArr = ratingSlugs as string[];
+  const rVoteArr = ratingMyVotes as string[];
+  const rUpArr = ratingUpCounts as number[];
+  const rDownArr = ratingDownCounts as number[];
+  const getRatingProps = (slug: string) => {
+    const i = rSlugArr.indexOf(slug);
+    return {
+      myVote: i >= 0 ? rVoteArr[i] : null,
+      upCount: i >= 0 ? rUpArr[i] : 0,
+      downCount: i >= 0 ? rDownArr[i] : 0,
+    };
+  };
+
+  // esbuild guard: pre-compute top 3 most-helpful articles (no inline sort in JSX)
+  const mostHelpfulTopics = ALL_TOPICS.map(t => {
+    const slug = toSlug(t.q);
+    const i = rSlugArr.indexOf(slug);
+    const up = i >= 0 ? rUpArr[i] : 0;
+    const down = i >= 0 ? rDownArr[i] : 0;
+    return { q: t.q, a: t.a, category: t.category, slug, up, down, net: up - down };
+  }).filter(t => t.up > 0).sort((a, b) => b.net - a.net).slice(0, 3);
+  const hasMostHelpful = mostHelpfulTopics.length > 0;
   const searchResults = hasSearch
     ? ALL_TOPICS.filter(t => t.q.toLowerCase().includes(searchLow) || t.a.some(l => l.toLowerCase().includes(searchLow)))
     : [];
@@ -430,10 +627,11 @@ export default function HelpPage() {
     ? `${searchResults.length} result${searchResultsSuffix} for "${searchQuery}"`
     : `No results for "${searchQuery}"`;
 
-  // esbuild guard: pre-compute top searches — no inline object creation in sort
+  // esbuild guard: pre-compute top searches — no typed annotation, no inline object creation in sort
   const analyticsQueriesArr = analyticsQueries as string[];
   const analyticsCountsArr = analyticsCounts as number[];
-  let topSearches: string[] = [];
+  // esbuild guard: no ': string[]' type annotation on let declaration
+  let topSearches = [] as any[];
   if (analyticsQueriesArr.length > 0) {
     const idxArr = analyticsQueriesArr.map((_, i) => i);
     idxArr.sort((a, b) => (analyticsCountsArr[b] ?? 0) - (analyticsCountsArr[a] ?? 0));
@@ -441,45 +639,14 @@ export default function HelpPage() {
   }
   const hasTopSearches = topSearches.length > 0 && !hasSearch;
 
-  // All 20 FAQs for structured data (esbuild guard: pre-computed, not inline)
-  const faqStructuredData = ALL_TOPICS.map(t => ({
-    '@type': 'Question',
-    name: t.q,
-    acceptedAnswer: { '@type': 'Answer', text: t.a.join(' ') },
-  }));
-
+  // esbuild guard: use module-level HELP_STRUCTURED_DATA — no inline object construction inside component
   useSEO({
     title: 'Help Center — Testagram Support & FAQ',
     description: 'Find step-by-step answers to common questions about Testagram. Learn how to post videos, earn money, manage your account, use M-Pesa, report issues, and get the most from your creator experience.',
     url: '/help',
     type: 'website',
     keywords: 'testagram help, support faq, how to post videos, creator earnings, mpesa payments, account settings, verify account, privacy settings, report abuse, schedule posts',
-    structuredData: [
-      {
-        '@context': 'https://schema.org',
-        '@type': 'FAQPage',
-        mainEntity: faqStructuredData,
-      },
-      {
-        '@context': 'https://schema.org',
-        '@type': 'BreadcrumbList',
-        itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://testagram.site' },
-          { '@type': 'ListItem', position: 2, name: 'Help Center', item: 'https://testagram.site/help' },
-        ],
-      },
-      {
-        '@context': 'https://schema.org',
-        '@type': 'WebPage',
-        name: 'Testagram Help Center',
-        description: 'Comprehensive help and support documentation for Testagram users and creators.',
-        url: 'https://testagram.site/help',
-        breadcrumb: { '@type': 'BreadcrumbList', itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://testagram.site' },
-          { '@type': 'ListItem', position: 2, name: 'Help Center', item: 'https://testagram.site/help' },
-        ]},
-      },
-    ],
+    structuredData: HELP_STRUCTURED_DATA,
   });
 
   return (
@@ -497,6 +664,37 @@ export default function HelpPage() {
           <h1 className="text-2xl font-black mb-1">How can we help you?</h1>
           <p className="text-sm text-muted-foreground">Search for answers or browse categories below</p>
         </div>
+
+        {/* ── Most Helpful Articles ── (shown when users have rated articles) */}
+        {hasMostHelpful && (
+          <div className="border border-border rounded-2xl overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 bg-muted/20 border-b border-border">
+              <Star className="w-4 h-4 text-amber-500" />
+              <h2 className="font-black text-sm">Most Helpful Articles</h2>
+              <span className="text-[10px] text-muted-foreground ml-auto">Based on reader ratings</span>
+            </div>
+            {mostHelpfulTopics.map((t, i) => {
+              const rProps = getRatingProps(t.slug);
+              const tTotal = rProps.upCount + rProps.downCount;
+              const tPct = tTotal > 0 ? Math.round((rProps.upCount / tTotal) * 100) : 0;
+              return (
+                <HelpAccordionItem
+                  key={i}
+                  q={t.q}
+                  a={t.a}
+                  itemId={t.slug}
+                  myVote={rProps.myVote}
+                  upCount={rProps.upCount}
+                  downCount={rProps.downCount}
+                  onRate={handleRate}
+                  onOpen={(s) => {
+                    if (window.history.replaceState) window.history.replaceState(null, '', `/help#${s}`);
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative">
@@ -559,6 +757,7 @@ export default function HelpPage() {
               <div>
                 {searchResults.map((item, i) => {
                   const slug = toSlug(item.q);
+                  const rProps = getRatingProps(slug);
                   return (
                     <div key={i}>
                       <div className="px-4 pt-2 pb-0">
@@ -569,6 +768,10 @@ export default function HelpPage() {
                         a={item.a}
                         defaultOpen
                         itemId={slug}
+                        myVote={rProps.myVote}
+                        upCount={rProps.upCount}
+                        downCount={rProps.downCount}
+                        onRate={handleRate}
                         onOpen={trackSearch}
                       />
                     </div>
@@ -594,6 +797,7 @@ export default function HelpPage() {
                 {cat.topics.map((topic, ti) => {
                   const slug = toSlug(topic.q);
                   const isDeepLinked = deepLinkSlug === slug;
+                  const rProps = getRatingProps(slug);
                   return (
                     <HelpAccordionItem
                       key={ti}
@@ -601,8 +805,11 @@ export default function HelpPage() {
                       a={Array.isArray(topic.a) ? topic.a : [topic.a]}
                       defaultOpen={isDeepLinked}
                       itemId={slug}
+                      myVote={rProps.myVote}
+                      upCount={rProps.upCount}
+                      downCount={rProps.downCount}
+                      onRate={handleRate}
                       onOpen={(s) => {
-                        // Update URL hash without page reload
                         if (window.history.replaceState) {
                           window.history.replaceState(null, '', `/help#${s}`);
                         }
@@ -624,6 +831,21 @@ export default function HelpPage() {
             <div>
               <h2 className="font-black text-base">Contact Support</h2>
               <p className="text-xs text-muted-foreground">Send a request to our team</p>
+            </div>
+          </div>
+
+          {/* Live Support Status Banner */}
+          <div className={`flex items-center gap-2.5 px-4 py-2.5 border-b border-border ${
+            supportStatus.online ? 'bg-green-500/5' : 'bg-muted/20'
+          }`}>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${
+              supportStatus.online ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground/40'
+            }`} />
+            <div>
+              <p className={`text-xs font-bold ${
+                supportStatus.online ? 'text-green-600' : 'text-muted-foreground'
+              }`}>{supportStatus.label}</p>
+              <p className="text-[10px] text-muted-foreground">{supportStatus.sub}</p>
             </div>
           </div>
 
