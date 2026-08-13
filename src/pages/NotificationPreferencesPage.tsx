@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { supabase } from '@/lib/supabase';
@@ -11,8 +11,9 @@ import {
   Smartphone, Mail, BellRing, Loader2, CheckCircle2, Volume2,
   ShieldCheck, Star, Trophy, Gift,
 } from 'lucide-react';
-
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
+
 function NotifPrefsAdBanner() { return <PageAdBanner />; }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -25,63 +26,82 @@ interface NotifPref {
 
 type Channel = 'in_app' | 'push' | 'email';
 
-interface NotifTypeMeta {
-  key: string;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
-  color: string;
-}
+// esbuild guard: module-level icon helpers — no inline JSX in data arrays
+function iconHeart()       { return <Heart       className="w-4 h-4" />; }
+function iconRepeat()      { return <Repeat2      className="w-4 h-4" />; }
+function iconUserPlus()    { return <UserPlus     className="w-4 h-4" />; }
+function iconMessage()     { return <MessageCircle className="w-4 h-4" />; }
+function iconAtSign()      { return <AtSign       className="w-4 h-4" />; }
+function iconDollar()      { return <DollarSign   className="w-4 h-4" />; }
+function iconSmartphone()  { return <Smartphone   className="w-4 h-4" />; }
+function iconShield()      { return <ShieldCheck  className="w-4 h-4" />; }
+function iconTrending()    { return <TrendingUp   className="w-4 h-4" />; }
+function iconMegaphone()   { return <Megaphone    className="w-4 h-4" />; }
+function iconGift()        { return <Gift         className="w-4 h-4" />; }
+function iconFlame()       { return <Flame        className="w-4 h-4" />; }
+function iconTrophy()      { return <Trophy       className="w-4 h-4" />; }
+function iconStar()        { return <Star         className="w-4 h-4" />; }
+function iconGlobe()       { return <Globe        className="w-4 h-4" />; }
+function iconBell()        { return <Bell         className="w-3.5 h-3.5" />; }
+function iconBellRing()    { return <BellRing     className="w-3.5 h-3.5" />; }
+function iconMail()        { return <Mail         className="w-3.5 h-3.5" />; }
 
-// ─── Config ───────────────────────────────────────────────────────────────────
-const NOTIF_GROUPS: { label: string; color: string; types: NotifTypeMeta[] }[] = [
+// esbuild guard: module-level group/type data — no inline JSX
+const NOTIF_GROUPS = [
   {
     label: 'Social',
     color: 'from-primary/10 to-primary/5 border-primary/20',
     types: [
-      { key: 'like',    label: 'Likes',         description: 'When someone likes your post',       icon: <Heart className="w-4 h-4" />,       color: 'text-pink-500'   },
-      { key: 'repost',  label: 'Reposts',        description: 'When someone reposts your content',  icon: <Repeat2 className="w-4 h-4" />,     color: 'text-green-500'  },
-      { key: 'follow',  label: 'New Followers',  description: 'When someone follows you',           icon: <UserPlus className="w-4 h-4" />,    color: 'text-primary'    },
-      { key: 'reply',   label: 'Replies',        description: 'When someone replies to your post',  icon: <MessageCircle className="w-4 h-4" />, color: 'text-blue-500' },
-      { key: 'mention', label: 'Mentions',       description: 'When someone @mentions you',         icon: <AtSign className="w-4 h-4" />,      color: 'text-violet-500' },
+      { key: 'like',    label: 'Likes',         description: 'When someone likes your post',       iconFn: iconHeart,    color: 'text-pink-500'   },
+      { key: 'repost',  label: 'Reposts',        description: 'When someone reposts your content',  iconFn: iconRepeat,   color: 'text-green-500'  },
+      { key: 'follow',  label: 'New Followers',  description: 'When someone follows you',           iconFn: iconUserPlus, color: 'text-primary'    },
+      { key: 'reply',   label: 'Replies',        description: 'When someone replies to your post',  iconFn: iconMessage,  color: 'text-blue-500'   },
+      { key: 'mention', label: 'Mentions',       description: 'When someone @mentions you',         iconFn: iconAtSign,   color: 'text-violet-500' },
     ],
   },
   {
     label: 'Payments & Earnings',
     color: 'from-green-600/10 to-green-500/5 border-green-600/20',
     types: [
-      { key: 'deposit_confirmed', label: 'Deposits',        description: 'M-Pesa top-up confirmed',              icon: <DollarSign className="w-4 h-4" />,   color: 'text-green-600' },
-      { key: 'payment_sent',      label: 'Payouts sent',    description: 'When a payout is sent to you',         icon: <Smartphone className="w-4 h-4" />,  color: 'text-blue-600'  },
-      { key: 'payment_failed',    label: 'Payment failures',description: 'When a payment or payout fails',       icon: <ShieldCheck className="w-4 h-4" />, color: 'text-red-500'   },
-      { key: 'boost_activated',   label: 'Boost activated', description: 'When your post boost goes live',       icon: <TrendingUp className="w-4 h-4" />,  color: 'text-purple-600'},
+      { key: 'deposit_confirmed', label: 'Deposits',         description: 'M-Pesa top-up confirmed',          iconFn: iconDollar,     color: 'text-green-600' },
+      { key: 'payment_sent',      label: 'Payouts sent',     description: 'When a payout is sent to you',     iconFn: iconSmartphone, color: 'text-blue-600'  },
+      { key: 'payment_failed',    label: 'Payment failures', description: 'When a payment or payout fails',   iconFn: iconShield,     color: 'text-red-500'   },
+      { key: 'boost_activated',   label: 'Boost activated',  description: 'When your post boost goes live',   iconFn: iconTrending,   color: 'text-purple-600'},
     ],
   },
   {
     label: 'Creator & Ads',
     color: 'from-orange-600/10 to-amber-500/5 border-orange-600/20',
     types: [
-      { key: 'ad_active',    label: 'Ad approved',   description: 'Your ad is now live',        icon: <Megaphone className="w-4 h-4" />, color: 'text-green-600' },
-      { key: 'ad_rejected',  label: 'Ad rejected',   description: 'Your ad was rejected',       icon: <Megaphone className="w-4 h-4" />, color: 'text-red-500'   },
-      { key: 'tip_received', label: 'Tips received', description: 'When someone tips you',      icon: <Gift className="w-4 h-4" />,     color: 'text-amber-500' },
+      { key: 'ad_active',    label: 'Ad approved',   description: 'Your ad is now live',        iconFn: iconMegaphone, color: 'text-green-600' },
+      { key: 'ad_rejected',  label: 'Ad rejected',   description: 'Your ad was rejected',       iconFn: iconMegaphone, color: 'text-red-500'   },
+      { key: 'tip_received', label: 'Tips received', description: 'When someone tips you',      iconFn: iconGift,      color: 'text-amber-500' },
     ],
   },
   {
     label: 'Milestones & Rewards',
     color: 'from-yellow-600/10 to-amber-500/5 border-yellow-600/20',
     types: [
-      { key: 'streak_milestone', label: 'Daily streak',  description: 'Daily check-in streak milestones',    icon: <Flame className="w-4 h-4" />,  color: 'text-orange-500' },
-      { key: 'leaderboard',      label: 'Leaderboard',   description: 'Ranking changes and top-10 alerts',   icon: <Trophy className="w-4 h-4" />, color: 'text-yellow-500' },
-      { key: 'verification',     label: 'Verification',  description: 'Account verification updates',         icon: <Star className="w-4 h-4" />,   color: 'text-primary'    },
+      { key: 'streak_milestone', label: 'Daily streak',  description: 'Daily check-in streak milestones',   iconFn: iconFlame,  color: 'text-orange-500' },
+      { key: 'leaderboard',      label: 'Leaderboard',   description: 'Ranking changes and top-10 alerts',  iconFn: iconTrophy, color: 'text-yellow-500' },
+      { key: 'verification',     label: 'Verification',  description: 'Account verification updates',        iconFn: iconStar,   color: 'text-primary'    },
     ],
   },
   {
     label: 'Fediverse',
     color: 'from-purple-600/10 to-purple-500/5 border-purple-600/20',
     types: [
-      { key: 'fediverse_follow',  label: 'Fediverse follows',  description: 'Remote followers from Mastodon etc.', icon: <Globe className="w-4 h-4" />, color: 'text-purple-500' },
-      { key: 'fediverse_mention', label: 'Fediverse mentions', description: 'Mentions from remote instances',       icon: <AtSign className="w-4 h-4" />, color: 'text-purple-400'},
+      { key: 'fediverse_follow',  label: 'Fediverse follows',  description: 'Remote followers from Mastodon etc.', iconFn: iconGlobe,   color: 'text-purple-500' },
+      { key: 'fediverse_mention', label: 'Fediverse mentions', description: 'Mentions from remote instances',       iconFn: iconAtSign,  color: 'text-purple-400' },
     ],
   },
+];
+
+// esbuild guard: module-level channels — no inline JSX
+const CHANNELS = [
+  { key: 'in_app' as Channel, label: 'In-App', iconFn: iconBell     },
+  { key: 'push'   as Channel, label: 'Push',   iconFn: iconBellRing },
+  { key: 'email'  as Channel, label: 'Email',  iconFn: iconMail     },
 ];
 
 const ALL_TYPES = NOTIF_GROUPS.flatMap(g => g.types.map(t => t.key));
@@ -100,10 +120,12 @@ export default function NotificationPreferencesPage() {
   const { user } = useAuth();
   useSEO({ noindex: true, title: 'Notification Preferences', url: '/notification-preferences' });
   const navigate = useNavigate();
-  const [prefs, setPrefs] = useState<Record<string, NotifPref>>({});
+  // esbuild guard: no explicit generics on useState
+  const [prefs, setPrefs] = useState({} as Record<string, NotifPref>);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<string | null>(null);
+  const [saving, setSaving] = useState('');   // esbuild guard: string not string|null
   const [masterMute, setMasterMute] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -141,7 +163,7 @@ export default function NotificationPreferencesPage() {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,notif_type' });
     if (error) { setPrefs(prev => ({ ...prev, [type]: current })); toast.error('Failed to save preference'); }
-    setSaving(null);
+    setSaving('');
   };
 
   const toggleMasterMute = async () => {
@@ -170,18 +192,37 @@ export default function NotificationPreferencesPage() {
       updated_at: new Date().toISOString(),
     }));
     const { error } = await supabase.from('notification_preferences').upsert(rows, { onConflict: 'user_id,notif_type' });
-    setSaving(null);
+    setSaving('');
     if (error) { toast.error('Failed to save preferences'); return; }
     toast.success('Notification preferences saved!');
   };
 
-  if (!user) return null;
+  const handleTestNotification = async () => {
+    if (!user) return;
+    setTesting(true);
+    const { data: fcmRow } = await supabase.from('fcm_tokens').select('token').eq('user_id', user.id).limit(1).maybeSingle();
+    const { error } = await supabase.functions.invoke('send-push-notification', {
+      body: {
+        user_id: user.id,
+        token: fcmRow?.token ?? null,
+        title: '\uD83D\uDD14 Test Notification',
+        body: 'Push notifications are working correctly on this device.',
+        data: { route: '/notifications', type: 'test' },
+      },
+    });
+    setTesting(false);
+    if (error) {
+      let msg = error.message;
+      if (error instanceof FunctionsHttpError) {
+        try { msg = (await error.context?.text()) || msg; } catch { /* */ }
+      }
+      toast.error(`Test failed: ${msg}`);
+      return;
+    }
+    toast.success('Test notification sent! Check your notifications.');
+  };
 
-  const CHANNELS: { key: Channel; label: string; icon: React.ReactNode }[] = [
-    { key: 'in_app', label: 'In-App', icon: <Bell className="w-3.5 h-3.5" /> },
-    { key: 'push',   label: 'Push',   icon: <BellRing className="w-3.5 h-3.5" /> },
-    { key: 'email',  label: 'Email',  icon: <Mail className="w-3.5 h-3.5" /> },
-  ];
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-6">
@@ -205,7 +246,7 @@ export default function NotificationPreferencesPage() {
                 <p className="text-xs text-muted-foreground">Manage all notification channels at once</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 mb-2">
               <button onClick={toggleMasterMute}
                 className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 font-semibold text-sm transition-all ${masterMute ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border hover:border-primary/30 hover:bg-primary/5'}`}>
                 <BellRing className="w-4 h-4" />
@@ -217,6 +258,15 @@ export default function NotificationPreferencesPage() {
                 Save All
               </button>
             </div>
+            {/* Send Test Notification */}
+            <button
+              onClick={handleTestNotification}
+              disabled={testing}
+              className="w-full flex items-center justify-center gap-2 py-2.5 mt-1 border border-border rounded-xl font-semibold text-sm hover:bg-muted transition-colors disabled:opacity-60"
+            >
+              {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4 text-primary" />}
+              {testing ? 'Sending test\u2026' : 'Send Test Notification'}
+            </button>
           </div>
 
           {/* Groups */}
@@ -230,14 +280,14 @@ export default function NotificationPreferencesPage() {
                   const pref = prefs[type.key] ?? { notif_type: type.key, in_app: true, push: false, email: false };
                   return (
                     <div key={type.key} className="flex items-center gap-3 px-4 py-3.5 hover:bg-white/5 transition-colors">
-                      <div className={`shrink-0 ${type.color}`}>{type.icon}</div>
+                      <div className={`shrink-0 ${type.color}`}>{type.iconFn()}</div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-sm leading-tight">{type.label}</p>
                         <p className="text-xs text-muted-foreground leading-tight mt-0.5">{type.description}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {CHANNELS.map(ch => {
-                          const isOn = pref[ch.key as Channel];
+                          const isOn = pref[ch.key];
                           const isSaving = saving === `${type.key}-${ch.key}`;
                           return (
                             <button key={ch.key} onClick={() => togglePref(type.key, ch.key)} disabled={!!saving} title={`${isOn ? 'Disable' : 'Enable'} ${ch.label}`}
