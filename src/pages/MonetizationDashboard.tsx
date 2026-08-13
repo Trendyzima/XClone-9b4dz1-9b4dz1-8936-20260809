@@ -37,8 +37,6 @@ const CREDIT_COSTS = {
   'Profile Boost': 10, 'Post Promotion': 50, 'Verification': 50,
 } as const;
 
-import { Crown, Loader2 as _L } from 'lucide-react';
-
 // esbuild guard: module-level creator tier config — no inline objects in render
 const CREATOR_TIERS = [
   { key: 'free',    label: 'Free',    emoji: '\uD83C\uDF31', cpm: 0,    followerThreshold: 0,    videoThreshold: 0,   color: 'text-muted-foreground',   bg: 'bg-muted/30 border-border'  },
@@ -69,21 +67,22 @@ export function MonetizationDashboard() {
     totalEarnings: 0, videoRevenue: 0, subscriptions: 0,
     tips: 0, videoViews: 0, productSales: 0, rewardedAdEarnings: 0,
   });
-  const [earnings, setEarnings]   = useState<any[]>([]);
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [monthlyChartData, setMonthlyChartData] = useState<any[]>([]);
-  const [sourceChartData, setSourceChartData] = useState<any[]>([]);
+  // esbuild guard: no explicit generic annotations on useState
+  const [earnings, setEarnings]   = useState([]);
+  const [chartData, setChartData] = useState([]);
+  const [monthlyChartData, setMonthlyChartData] = useState([]);
+  const [sourceChartData, setSourceChartData] = useState([]);
   const [loading, setLoading]     = useState(true);
-  const [monetizationStatus, setMonetizationStatus] = useState<any>(null);
-  const [userProfile, setUserProfile]   = useState<any>(null);
-  const [walletData, setWalletData]     = useState<any>(null);
+  const [monetizationStatus, setMonetizationStatus] = useState(null);
+  const [userProfile, setUserProfile]   = useState(null);
+  const [walletData, setWalletData]     = useState(null);
   const [credits, setCredits]           = useState(0);
-  const [dailyReward, setDailyReward]   = useState<any>(null);
+  const [dailyReward, setDailyReward]   = useState(null);
   const [claimingReward, setClaimingReward] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'credits' | 'earnings' | 'mentions'>('overview');
-  const [mentionChartData, setMentionChartData] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [mentionChartData, setMentionChartData] = useState([]);
   const [mentionTotal, setMentionTotal] = useState(0);
-  const [rateInfo,   setRateInfo]   = useState<any | null>(null);
+  const [rateInfo, setRateInfo] = useState(null);
 
   // ── Earnings Milestone Alerts ──────────────────────────────────────────────
   const MILESTONES = [1, 10, 50, 100, 500, 1000];
