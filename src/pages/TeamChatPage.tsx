@@ -69,8 +69,20 @@ export default function TeamChatPage() {
   const [replyTicketEmail, setReplyTicketEmail] = useState('');
   const [replyTicketReplyText, setReplyTicketReplyText] = useState('');
   const [replyTicketSending, setReplyTicketSending] = useState(false);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  // esbuild guard: plain useRef(null) — no explicit generic type annotations
+  const pollingRef = useRef(null);
+  const bottomRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  // esbuild guard: plain useRef([]) — no explicit generic type annotation
+  const employeesRef = useRef([]);
+  // Track whether the user is scrolled away from the bottom
+  const isAtBottomRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  // Typing indicator — broadcast-based
+  const [typingUsername, setTypingUsername] = useState('');
+  // esbuild guard: plain useRef(null) — no explicit generic type annotations
+  const typingTimeoutRef = useRef(null);
+  const typingThrottleRef = useRef(null);
 
   useEffect(() => {
     if (!user) return;
@@ -115,13 +127,86 @@ export default function TeamChatPage() {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   }, []);
 
-  useEffect(() => {
-    if (!isEmployee) return;
-    pollingRef.current = setInterval(fetchAll, 3000);
-    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
-  }, [isEmployee, fetchAll]);
+  // Keep ref in sync so realtime callback always reads fresh employee list
+  useEffect(() => { employeesRef.current = employees; }, [employees]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    if (!isEmployee || !user) return;
+    pollingRef.current = setInterval(fetchAll, 3000);
+
+    // Real-time subscription — show toast when another member sends a message
+    const sub = supabase
+      .channel(`team-chat-rt-${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'team_chat_messages',
+      }, (payload: any) => {
+        const msg = payload.new;
+        if (!msg || msg.user_id === user.id) return; // skip own messages
+        fetchAll(); // refresh message list
+        const sender = employeesRef.current.find((e: any) => e.user_id === msg.user_id);
+        const username = sender?.user_profiles?.username ?? 'Team member';
+        const preview = (msg.message ?? '').slice(0, 80);
+        // esbuild guard: use static import — no dynamic import('sonner') inside callback closure
+        toast(`@${username}: ${preview}`, { duration: 3000 });
+      })
+      .subscribe();
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      supabase.removeChannel(sub);
+    };
+  }, [isEmployee, user, fetchAll]);
+
+  // ── Typing broadcast channel ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!isEmployee || !user) return;
+    // All team members share the same channel name so broadcasts reach everyone
+    const chan = supabase
+      .channel('team-chat-typing')
+      .on('broadcast', { event: 'typing' }, (payload: any) => {
+        const data = payload.payload ?? {};
+        if (!data.user_id || data.user_id === user.id) return; // ignore own events
+        const uname = data.username ?? 'Someone';
+        setTypingUsername(uname);
+        // Auto-clear after 3 seconds of silence
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setTypingUsername(''), 3000) as any;
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(chan);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (typingThrottleRef.current) clearTimeout(typingThrottleRef.current);
+    };
+  }, [isEmployee, user?.id]);
+
+  // When messages update: auto-scroll if already at bottom, otherwise show jump pill
+  useEffect(() => {
+    if (isAtBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      setShowJumpToLatest(false);
+    } else {
+      setShowJumpToLatest(true);
+    }
+  }, [messages]);
+
+  // Broadcast typing event throttled to 500ms
+  const handleInputChange = (val: string) => {
+    setInput(val);
+    if (!user || !val.trim()) return;
+    // esbuild guard: broadcast payload built here in handler — not in JSX
+    if (typingThrottleRef.current) return; // already throttled
+    supabase.channel('team-chat-typing').send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { user_id: user.id, username: user.username ?? 'Team member' },
+    });
+    typingThrottleRef.current = setTimeout(() => {
+      typingThrottleRef.current = null;
+    }, 500) as any;
+  };
 
   const handleSend = async () => {
     if (!user || !input.trim() || sending) return;
@@ -303,7 +388,19 @@ export default function TeamChatPage() {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2" style={{ minHeight: 0, maxHeight: 'calc(100vh - 320px)' }}>
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-2"
+        style={{ minHeight: 0, maxHeight: 'calc(100vh - 320px)' }}
+        onScroll={() => {
+          const el = messagesContainerRef.current;
+          if (!el) return;
+          const threshold = 60;
+          const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+          isAtBottomRef.current = atBottom;
+          if (atBottom) setShowJumpToLatest(false);
+        }}
+      >
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
             <MessageSquare className="w-14 h-14 mx-auto mb-3 opacity-20" />
@@ -409,6 +506,22 @@ export default function TeamChatPage() {
         <div ref={bottomRef} />
       </div>
 
+      {/* ── Jump to latest pill ── */}
+      {showJumpToLatest && (
+        <div className="flex justify-center pb-1">
+          <button
+            onClick={() => {
+              bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+              isAtBottomRef.current = true;
+              setShowJumpToLatest(false);
+            }}
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-primary-foreground rounded-full text-xs font-bold shadow-lg shadow-primary/25 hover:opacity-90 active:scale-95 transition-all animate-in slide-in-from-bottom-2 duration-200"
+          >
+            <span>↓</span> Jump to latest
+          </button>
+        </div>
+      )}
+
       {/* Reply indicator */}
       {replyingTo && (
         <div className="flex items-center gap-2 px-4 py-2 bg-primary/5 border-t border-primary/15">
@@ -465,13 +578,27 @@ export default function TeamChatPage() {
         </div>
       )}
 
+      {/* ── Typing indicator ── */}
+      {typingUsername !== '' && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-muted/30 border-t border-border/50">
+          <div className="flex gap-0.5 items-center">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            <span className="font-semibold text-foreground">@{typingUsername}</span> is typing…
+          </span>
+        </div>
+      )}
+
       {/* Input */}
       <div className="border-t border-border bg-background p-3 pb-safe flex items-center gap-2">
         <div className="flex-1 flex items-center gap-2 bg-muted/60 border border-border rounded-2xl px-3 py-2.5">
           <input
             type="text"
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={e => handleInputChange(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             placeholder="Message the team…"
             maxLength={500}
