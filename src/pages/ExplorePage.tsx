@@ -557,7 +557,7 @@ export default function ExplorePage() {
     users: any[]; hashtags: any[]; posts: any[];
   } | null);
   const [inlineSearchLoading, setInlineSearchLoading] = useState(false);
-  const inlineSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inlineSearchTimer = useRef(null as ReturnType<typeof setTimeout> | null);
   const [trending, setTrending] = useState([] as any[]);
   const [trendingHashtags, setTrendingHashtags] = useState([] as any[]);
   const [whoToFollow, setWhoToFollow] = useState([] as any[]);
@@ -566,9 +566,9 @@ export default function ExplorePage() {
   const isFollowingId = (id: string) => followingIdArr.indexOf(id) >= 0;
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [prefCategories, setPrefCategories] = useState([] as string[]);
-  // init
-  const [_prefCatsInit] = useState(() => { setPrefCategories(['News', 'Sports', 'Entertainment', 'Politics', 'Technology']); return null; });
+  const [prefCategories, setPrefCategories] = useState(['News', 'Sports', 'Entertainment', 'Politics', 'Technology'] as string[]);
+  // esbuild guard: remove unused init slot
+
   const [prefCountry, setPrefCountry] = useState('Kenya');
   const [showWhoToFollow, setShowWhoToFollow] = useState(true);
   const [activeChallenges, setActiveChallenges] = useState([] as any[]);
@@ -576,7 +576,7 @@ export default function ExplorePage() {
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [activeStoryIdx, setActiveStoryIdx] = useState(null as number | null);
   const [storyProgress, setStoryProgress] = useState(0);
-  const storyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const storyTimerRef = useRef(null as ReturnType<typeof setInterval> | null);
   const [showCreateChallenge, setShowCreateChallenge] = useState(false);
   const [challengeForm, setChallengeForm] = useState({ title: '', description: '', prize: '', end_date: '', hashtag: '' });
   const [creatingChallenge, setCreatingChallenge] = useState(false);
@@ -594,7 +594,7 @@ export default function ExplorePage() {
   // ── Live user autocomplete (debounced 250ms) — esbuild guard: plain arrays ──
   const [searchSuggestions, setSearchSuggestions] = useState([] as any[]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestTimerRef = useRef(null as ReturnType<typeof setTimeout> | null);
 
   // Fetch user suggestions with debounce
   const fetchUserSuggestions = (q: string) => {

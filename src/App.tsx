@@ -98,6 +98,7 @@ const TermsOfServicePage = lazy(() => import('@/pages/TermsOfServicePage'));
 const ActiveSessionsPage = lazy(() => import('@/pages/ActiveSessionsPage'));
 const BlockedUsersPage = lazy(() => import('@/pages/BlockedUsersPage'));
 const SellerStorefrontPage = lazy(() => import('@/pages/SellerStorefrontPage'));
+const OrdersPage = lazy(() => import('@/pages/OrdersPage'));
 
 function PageLoader() {
   return (
@@ -360,6 +361,7 @@ function AppInner() {
               <Route path="/sessions" element={<ActiveSessionsPage />} />
               <Route path="/blocked" element={<BlockedUsersPage />} />
               <Route path="/seller/:username" element={<SellerStorefrontPage />} />
+              <Route path="/orders" element={<OrdersPage />} />
               <Route path="/story-analytics" element={<StoryAnalyticsDashboard />} />
               <Route path="/admin/platform-revenue" element={<PlatformRevenueDashboard />} />
               <Route path="*" element={<NotFoundPage />} />
