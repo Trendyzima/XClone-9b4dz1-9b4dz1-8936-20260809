@@ -92,6 +92,8 @@ const StoryAnalyticsDashboard = lazy(() => import('@/pages/StoryAnalyticsDashboa
 const PlatformRevenueDashboard = lazy(() => import('@/pages/PlatformRevenueDashboard'));
 
 const ContentPolicyPage = lazy(() => import('@/pages/ContentPolicyPage'));
+const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'));
+const TermsOfServicePage = lazy(() => import('@/pages/TermsOfServicePage'));
 
 function PageLoader() {
   return (
@@ -348,6 +350,8 @@ function AppInner() {
               <Route path="/appeals" element={<AppealsPage />} />
               <Route path="/leaderboard/creators" element={<CreatorLeaderboardPage />} />
               <Route path="/policy" element={<ContentPolicyPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
+              <Route path="/terms" element={<TermsOfServicePage />} />
               <Route path="/story-analytics" element={<StoryAnalyticsDashboard />} />
               <Route path="/admin/platform-revenue" element={<PlatformRevenueDashboard />} />
               <Route path="*" element={<NotFoundPage />} />

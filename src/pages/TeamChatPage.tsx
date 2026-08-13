@@ -7,7 +7,7 @@ import { useIsRegulator } from '@/hooks/useFeatureUnlock';
 import {
   Send, Loader2, Lock, MessageSquare, Users,
   Crown, Briefcase, Hash, Reply, X, MoreVertical, Trash2,
-  Shield, Pencil, Check,
+  Shield, Pencil, Check, Pin,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -41,6 +41,16 @@ function getReactionEntries(reacts: any): { emoji: string; count: number }[] {
   return result;
 }
 
+// Module-level helpers for localStorage pin state (esbuild guard: no inline function in useState)
+function readPinnedId(): string {
+  try { const d = JSON.parse(localStorage.getItem('ts-teamchat-pinned') ?? 'null'); return d?.id ?? ''; }
+  catch { return ''; }
+}
+function readPinnedBy(): string {
+  try { const d = JSON.parse(localStorage.getItem('ts-teamchat-pinned') ?? 'null'); return d?.by ?? ''; }
+  catch { return ''; }
+}
+
 // Pure function replaces index-signature object (esbuild guard)
 function getDeptColor(dept: string): string {
   if (dept === 'Engineering')  return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
@@ -60,15 +70,15 @@ export default function TeamChatPage() {
 
   const [loading, setLoading] = useState(true);
   const [isEmployee, setIsEmployee] = useState(false);
-  const [myJobInfo, setMyJobInfo] = useState<any | null>(null);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [messages, setMessages] = useState<any[]>([]);
+  const [myJobInfo, setMyJobInfo] = useState(null);
+  const [employees, setEmployees] = useState([]);;
+  const [messages, setMessages] = useState([]);;
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<{ id: string; text: string; username: string } | null>(null);
-  const [reactions, setReactions] = useState<{ [msgId: string]: { [emoji: string]: number } }>(() => ({}));
-  const [showEmojiFor, setShowEmojiFor] = useState<string | null>(null);
-  const [showMsgMenu, setShowMsgMenu] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [reactions, setReactions] = useState(() => ({}));;
+  const [showEmojiFor, setShowEmojiFor] = useState(null);
+  const [showMsgMenu, setShowMsgMenu] = useState(null);
   // Inline edit state (esbuild guard: plain useState('') — no explicit typed generics)
   const [editingMsgId, setEditingMsgId] = useState('');
   const [editingText, setEditingText] = useState('');
@@ -86,6 +96,9 @@ export default function TeamChatPage() {
   // Track whether the user is scrolled away from the bottom
   const isAtBottomRef = useRef(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  // Pinned message (esbuild guard: module-level initializers — no inline function in useState)
+  const [pinnedMsgId, setPinnedMsgId] = useState(readPinnedId);
+  const [pinnedBy, setPinnedBy] = useState(readPinnedBy);
   // Typing indicator — broadcast-based
   const [typingUsername, setTypingUsername] = useState('');
   // esbuild guard: plain useRef(null) — no explicit generic type annotations
@@ -317,6 +330,51 @@ export default function TeamChatPage() {
     if (e.key === 'Escape') { cancelEdit(); }
   }, [handleEditSave, cancelEdit]);
 
+  // esbuild guard: named handler — no multi-statement inline onScroll closure in JSX
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesContainerRef.current as HTMLDivElement | null;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    isAtBottomRef.current = atBottom;
+    if (atBottom) setShowJumpToLatest(false);
+  }, []);
+
+  // esbuild guard: named handler — no multi-statement inline onClick closure in JSX
+  const handleJumpToLatest = useCallback(() => {
+    (bottomRef.current as HTMLDivElement | null)?.scrollIntoView({ behavior: 'smooth' });
+    isAtBottomRef.current = true;
+    setShowJumpToLatest(false);
+  }, []);
+
+  // esbuild guard: named handler — no multi-statement inline onKeyDown closure in JSX
+  const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  }, [handleSend]);
+
+  const handlePin = useCallback((msgId: string) => {
+    const by = user?.username ?? 'Regulator';
+    setPinnedMsgId(msgId);
+    setPinnedBy(by);
+    setShowMsgMenu(null);
+    localStorage.setItem('ts-teamchat-pinned', JSON.stringify({ id: msgId, by }));
+    toast.success('Message pinned');
+  }, [user]);
+
+  const handleUnpin = useCallback(() => {
+    setPinnedMsgId('');
+    setPinnedBy('');
+    localStorage.removeItem('ts-teamchat-pinned');
+    toast.success('Message unpinned');
+  }, []);
+
+  // esbuild guard: named handler — no inline object literal in .map() onClick
+  const handleSetReplyingTo = useCallback((msg: any) => {
+    const username = msg.user_profiles?.username ?? 'user';
+    const text = msg.message ?? '';
+    const id = msg.id;
+    setReplyingTo({ id, text, username });
+  }, []);
+
   const handleDelete = useCallback(async (msgId: string) => {
     if (!isReg) return;
     await supabase.from('team_chat_messages').delete().eq('id', msgId);
@@ -324,6 +382,11 @@ export default function TeamChatPage() {
     setShowMsgMenu(null);
     toast.success('Message deleted');
   }, [isReg]);
+
+  // Pinned message — all values computed before JSX to avoid complex inline expressions in render
+  const pinnedMsg = messages.find(m => m.id === pinnedMsgId) ?? null;
+  const pinnedRaw = pinnedMsg?.message ?? '';
+  const pinnedText = pinnedRaw.length > 100 ? pinnedRaw.slice(0, 100) + '…' : pinnedRaw;
 
   if (loading) {
     return (
@@ -420,15 +483,25 @@ export default function TeamChatPage() {
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-2"
         style={{ minHeight: 0, maxHeight: 'calc(100vh - 320px)' }}
-        onScroll={() => {
-          const el = messagesContainerRef.current;
-          if (!el) return;
-          const threshold = 60;
-          const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-          isAtBottomRef.current = atBottom;
-          if (atBottom) setShowJumpToLatest(false);
-        }}
+        onScroll={handleMessagesScroll}
       >
+        {/* Pinned message banner */}
+        {pinnedMsgId !== '' && pinnedMsg && (
+          <div className="sticky top-0 z-20 mb-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-primary/8 border border-primary/20 shadow-sm">
+            <Pin className="w-3 h-3 text-primary mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <span className="text-[10px] font-black text-primary">@{pinnedBy} pinned · </span>
+              <span className="text-[11px] text-foreground/80 leading-snug line-clamp-2">
+                {pinnedText}
+              </span>
+            </div>
+            {isReg && (
+              <button onClick={handleUnpin} className="text-muted-foreground hover:text-foreground ml-1 shrink-0 p-0.5 hover:bg-muted rounded">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
             <MessageSquare className="w-14 h-14 mx-auto mb-3 opacity-20" />
@@ -531,7 +604,7 @@ export default function TeamChatPage() {
                   {/* Hover actions */}
                   <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-1 ${isOwn ? 'flex-row-reverse' : ''}`}>
                     <button onClick={() => setShowEmojiFor(p => p === msg.id ? null : msg.id)} className="text-base hover:scale-110 transition-transform">😊</button>
-                    <button onClick={() => setReplyingTo({ id: msg.id, text: msg.message, username: msg.user_profiles?.username ?? 'user' })}
+                    <button onClick={() => handleSetReplyingTo(msg)}
                       className="text-[10px] text-muted-foreground hover:text-primary font-semibold px-1">
                       <Reply className="w-3 h-3" />
                     </button>
@@ -549,6 +622,14 @@ export default function TeamChatPage() {
                                   className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-muted"
                                 >
                                   <Pencil className="w-3.5 h-3.5" />Edit
+                                </button>
+                              )}
+                              {isReg && (
+                                <button
+                                  onClick={() => handlePin(msg.id)}
+                                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-muted"
+                                >
+                                  <Pin className="w-3.5 h-3.5" />Pin
                                 </button>
                               )}
                               <button onClick={() => handleDelete(msg.id)}
@@ -585,11 +666,7 @@ export default function TeamChatPage() {
       {showJumpToLatest && (
         <div className="flex justify-center pb-1">
           <button
-            onClick={() => {
-              bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-              isAtBottomRef.current = true;
-              setShowJumpToLatest(false);
-            }}
+            onClick={handleJumpToLatest}
             className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-primary-foreground rounded-full text-xs font-bold shadow-lg shadow-primary/25 hover:opacity-90 active:scale-95 transition-all animate-in slide-in-from-bottom-2 duration-200"
           >
             <span>↓</span> Jump to latest
@@ -674,7 +751,7 @@ export default function TeamChatPage() {
             type="text"
             value={input}
             onChange={e => handleInputChange(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            onKeyDown={handleInputKeyDown}
             placeholder="Message the team…"
             maxLength={500}
             className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60"
