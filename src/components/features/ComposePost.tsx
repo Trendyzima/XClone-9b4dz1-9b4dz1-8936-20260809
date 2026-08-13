@@ -39,23 +39,23 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   // Content creation is free for ALL users — no follower gate.
   // Monetization is separately gated in MonetizationDashboard (500 followers + 3000 posts + 100 videos).
   const [content, setContent] = useState(quoteText ? `${quoteText}\n` : duetMeta ? `${duetMeta}\n` : '');
-  const [images, setImages] = useState<File[]>([]);
-  const [video, setVideo] = useState<File | null>(null);
+  const [images, setImages] = useState([] as File[]);
+  const [video, setVideo] = useState(null as File | null);
   const [loading, setLoading] = useState(false);
   const [showPollDialog, setShowPollDialog] = useState(false);
-  const [pollData, setPollData] = useState<any>(null);
-  const [gifUrl, setGifUrl] = useState<string | null>(null);
+  const [pollData, setPollData] = useState(null);
+  const [gifUrl, setGifUrl] = useState(null as string | null);
   const [showGifDialog, setShowGifDialog] = useState(false);
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
-  const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
+  const [scheduledDate, setScheduledDate] = useState(null as Date | null);
   const [showProductDialog, setShowProductDialog] = useState(false);
-  const [taggedProducts, setTaggedProducts] = useState<any[]>([]);
+  const [taggedProducts, setTaggedProducts] = useState([]);
   const [postToFediverse, setPostToFediverse] = useState(false);
   // Thread composer (multi-tweet chain)
   const [showThreadMode, setShowThreadMode] = useState(false);
-  const [threadParts, setThreadParts] = useState<string[]>(['', '']);
+  const [threadParts, setThreadParts] = useState(['', '']);
   // Link preview detection
-  const [linkPreview, setLinkPreview] = useState<{ url: string } | null>(null);
+  const [linkPreview, setLinkPreview] = useState(null as { url: string } | null);
   // Embed dialog
   const [showEmbedDialog, setShowEmbedDialog] = useState(false);
   const [embedUrl, setEmbedUrl] = useState('');
@@ -66,13 +66,13 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const [violationReason, setViolationReason] = useState('');
   const [checkingContent, setCheckingContent] = useState(false);
   const violationCheckedRef = useRef(false);
-  const [embedPlatform, setEmbedPlatform] = useState<string | null>(null);
+  const [embedPlatform, setEmbedPlatform] = useState(null as string | null);
   const { toast } = useToast();
 
   // ── @Mentions Autocomplete ─────────────────────────────────────────────────
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [mentionResults, setMentionResults] = useState<any[]>([]);
+  const [mentionQuery, setMentionQuery] = useState(null as string | null);
+  const [mentionResults, setMentionResults] = useState([]);
   const [mentionIdx, setMentionIdx] = useState(0);
   const mentionSearchRef = useRef<string | null>(null);
 
@@ -137,7 +137,7 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   // ── AI Caption Generator ─────────────────────────────────────────────────
   const [showCaptionGen, setShowCaptionGen] = useState(false);
   const [captionContext, setCaptionContext] = useState('');
-  const [captionSuggestions, setCaptionSuggestions] = useState<string[]>([]);
+  const [captionSuggestions, setCaptionSuggestions] = useState([]);
   const [captionLoading, setCaptionLoading] = useState(false);
 
   const handleGenerateCaptions = async () => {
@@ -170,7 +170,7 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   // ── AI Post Writer ────────────────────────────────────────────────────────
   const [showAiWriter, setShowAiWriter] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
-  const [aiDrafts, setAiDrafts] = useState<string[]>([]);
+  const [aiDrafts, setAiDrafts] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
 
   const handleAiWrite = async () => {

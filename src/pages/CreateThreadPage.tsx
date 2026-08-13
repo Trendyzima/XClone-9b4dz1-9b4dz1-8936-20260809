@@ -15,7 +15,7 @@ import { toast as sonnerToast } from 'sonner';
 import { pingGoogleSitemap } from '@/lib/pingGoogle';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
-import { detectEmbed } from '@/components/features/EmbedRenderer';
+import { detectEmbed, ComposeEmbedPreview } from '@/components/features/EmbedRenderer';
 function CreateThreadAdBanner() { return <PageAdBanner />; }
 
 // Module-level constant — esbuild-safe
@@ -35,19 +35,19 @@ export default function CreateThreadPage() {
   const { toast } = useToast();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [coverImage, setCoverImage] = useState<File | null>(null);
-  const [coverPreview, setCoverPreview] = useState<string | null>(null);
-  const [coverVideo, setCoverVideo] = useState<File | null>(null);
-  const [coverVideoPreview, setCoverVideoPreview] = useState<string | null>(null);
-  const [extraImages, setExtraImages] = useState<File[]>([]);
-  const [extraPreviews, setExtraPreviews] = useState<string[]>([]);
+  const [coverImage, setCoverImage] = useState(null as File | null);
+  const [coverPreview, setCoverPreview] = useState(null as string | null);
+  const [coverVideo, setCoverVideo] = useState(null as File | null);
+  const [coverVideoPreview, setCoverVideoPreview] = useState(null as string | null);
+  const [extraImages, setExtraImages] = useState([] as File[]);
+  const [extraPreviews, setExtraPreviews] = useState([] as string[]);
   const [loading, setLoading] = useState(false);
 
   // ── Rich Editor ──────────────────────────────────────────────────────────
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const DRAFT_KEY = user ? `ts-thread-draft-${user.id}` : 'thread_draft_v2';
   const [wordCount, setWordCount] = useState(0);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [lastSaved, setLastSaved] = useState(null as Date | null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load draft on mount
@@ -152,8 +152,8 @@ export default function CreateThreadPage() {
 
   // ── Series Linking ─────────────────────────────────────────────────────
   const [showSeriesDialog, setShowSeriesDialog] = useState(false);
-  const [seriesList, setSeriesList] = useState<any[]>([]);
-  const [selectedSeries, setSelectedSeries] = useState<{ id: string; name: string } | null>(null);
+  const [seriesList, setSeriesList] = useState([]);
+  const [selectedSeries, setSelectedSeries] = useState(null as { id: string; name: string } | null);
   const [seriesLoading, setSeriesLoading] = useState(false);
 
   const loadSeries = async () => {
@@ -176,7 +176,7 @@ export default function CreateThreadPage() {
   // ── Embed URL Dialog ───────────────────────────────────────────────────
   const [showEmbedDialog, setShowEmbedDialog] = useState(false);
   const [embedUrl, setEmbedUrl] = useState('');
-  const [embedPreview, setEmbedPreview] = useState<{ type: string; url: string } | null>(null);
+  const [embedPreview, setEmbedPreview] = useState(null as { type: string; url: string } | null);
 
   const handleEmbedUrlChange = (url: string) => {
     setEmbedUrl(url);
@@ -197,7 +197,7 @@ export default function CreateThreadPage() {
   };
 
   // ── Video Chapters ──────────────────────────────────────────────────────
-  const [chapters, setChapters] = useState<{ time: string; title: string }[]>([]);
+  const [chapters, setChapters] = useState([] as { time: string; title: string }[]);
   const [showChapterEditor, setShowChapterEditor] = useState(false);
 
   const addChapter = () => setChapters(prev => [...prev, { time: '0:00', title: '' }]);
@@ -215,7 +215,7 @@ export default function CreateThreadPage() {
 
   // ── AI Outline ─────────────────────────────────────────────────────────────
   const [outlineLoading, setOutlineLoading] = useState(false);
-  const [outlinePreview, setOutlinePreview] = useState<string | null>(null);
+  const [outlinePreview, setOutlinePreview] = useState(null as string | null);
   const [showOutlinePreview, setShowOutlinePreview] = useState(false);
 
   const handleAutoOutline = async () => {
@@ -266,9 +266,9 @@ Requirements:
 
   // ── AI Writer ────────────────────────────────────────────────────────────
   const [showAiWriter, setShowAiWriter] = useState(false);
-  const [aiTarget, setAiTarget] = useState<'title' | 'content'>('content');
+  const [aiTarget, setAiTarget] = useState('content' as 'title' | 'content');
   const [aiPrompt, setAiPrompt] = useState('');
-  const [aiDrafts, setAiDrafts] = useState<string[]>([]);
+  const [aiDrafts, setAiDrafts] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
 
   if (!user) {
@@ -718,7 +718,11 @@ Requirements:
                   Insert
                 </button>
               </div>
-              {/* Live preview chip */}
+              {/* Live embed preview */}
+              {embedPreview && (
+                <ComposeEmbedPreview url={embedPreview.url} onRemove={() => { setEmbedUrl(''); setEmbedPreview(null); }} />
+              )}
+              {/* Detection chip */}
               {embedPreview && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-green-500/8 border border-green-500/20 rounded-xl">
                   {embedPreview.type === 'youtube' && <Play className="w-4 h-4 text-red-500 shrink-0" />}
