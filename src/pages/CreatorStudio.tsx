@@ -574,9 +574,14 @@ export default function CreatorStudio() {
     { tier: 'Top Creator', emoji: '👑', cpm: '$3.50', req: 'Verified + 100K+ views' },
   ];
 
-  // esbuild guard: pre-compute alert values before JSX — no inline parseFloat() or new Date() in render
+  // esbuild guard: pre-compute ALL values before JSX — no inline casts or ternaries in render
   const alertThresholdNum = parseFloat(alertThreshold || '0');
   const alertTodayKey = new Date().toISOString().split('T')[0];
+  // esbuild guard: pre-compute alertHistory as plain array before JSX (no 'as any[]' cast in render)
+  const alertHistoryList: any[] = Array.isArray(alertHistory) ? (alertHistory as any[]) : [];
+  const alertHistoryLen = alertHistoryList.length;
+  // esbuild guard: pre-compute streak plural before JSX (no ternary in render attribute)
+  const earningsStreakSuffix = earningsStreak !== 1 ? 's' : '';
   const alertTodayMet = alertTodayEarnings >= 0 && alertTodayEarnings >= alertThresholdNum;
   const alertTodayGap = alertTodayEarnings >= 0 ? Math.max(0, alertThresholdNum - alertTodayEarnings).toFixed(2) : '0.00';
 
@@ -1202,18 +1207,18 @@ export default function CreatorStudio() {
                 )}
 
                 {/* ── Alert History Log ── */}
-                {(alertHistory as any[]).length > 0 && (
+                {alertHistoryLen > 0 && (
                   <div>
                     <button
                       onClick={() => setShowAlertHistory(v => !v)}
                       className="w-full flex items-center justify-between py-2 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
                     >
-                      <span>📋 Alert History ({(alertHistory as any[]).length})</span>
+                      <span>📋 Alert History ({alertHistoryLen})</span>
                       <span>{showAlertHistory ? '▲' : '▼'}</span>
                     </button>
                     {showAlertHistory && (
                       <div className="space-y-1.5 mt-1">
-                        {(alertHistory as any[]).map((entry: any, i: number) => (
+                        {alertHistoryList.map((entry: any, i: number) => (
                           <div key={i} className="flex items-center justify-between px-3 py-2 bg-muted/30 rounded-xl">
                             <div className="flex items-center gap-2">
                               <span className="text-amber-500 text-sm">💰</span>
@@ -1264,7 +1269,7 @@ export default function CreatorStudio() {
                     <span className="text-2xl">🔥</span>
                     <div>
                       <p className="text-sm font-bold text-orange-600">{earningsStreak}-Day Earning Streak!</p>
-                      <p className="text-[10px] text-muted-foreground">You've earned money {earningsStreak} consecutive day{earningsStreak !== 1 ? 's' : ''}</p>
+                      <p className="text-[10px] text-muted-foreground">You've earned money {earningsStreak} consecutive day{earningsStreakSuffix}</p>
                     </div>
                   </div>
                 )}

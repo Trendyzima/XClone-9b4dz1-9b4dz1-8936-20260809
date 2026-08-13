@@ -32,6 +32,192 @@ const SEARCH_HISTORY_KEY = 'ts-explore-search-history';
 
 function ExploreAdBanner() { return <PageAdBanner />; }
 
+// ── Category keywords for post-based feeds ────────────────────────────────
+const CAT_KEYWORDS_MAP: string[][] = [
+  ['news','breaking','update','today','report','announce','latest','story','headlines','press','journalist'],
+  ['sport','football','soccer','basketball','nba','nfl','tennis','cricket','athletics','run','goal','match','score','champion'],
+  ['movie','music','film','actor','drama','show','tv','series','netflix','concert','dance','art','celebrity','vibe','entertainment','festival'],
+];
+const CAT_NAMES = ['News', 'Sports', 'Entertainment'];
+const CAT_EMOJIS = ['📰', '⚽', '🎬'];
+const RANK_MEDAL = ['🥇','🥈','🥉'];
+
+// Rank badge colors pre-computed (esbuild guard: plain arrays, no inline ternary chains in render)
+const RANK_COLORS = ['text-yellow-400','text-slate-300','text-amber-600','text-muted-foreground'];
+
+function CategoryTabContent({
+  activeTab, trendingTopics, navigateTopic, navigate,
+}: {
+  activeTab: string;
+  trendingTopics: any[];
+  navigateTopic: (t: string) => void;
+  navigate: (path: string) => void;
+}) {
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const catIdx = CAT_NAMES.indexOf(activeTab);
+  const keywords: string[] = catIdx >= 0 ? CAT_KEYWORDS_MAP[catIdx] : [];
+  const catEmoji = catIdx >= 0 ? CAT_EMOJIS[catIdx] : '🔍';
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setPosts([]);
+    (async () => {
+      const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
+      // Build OR filter from keywords
+      const orFilter = keywords.map(k => `content.ilike.%${k}%`).join(',');
+      const { data } = await supabase
+        .from('posts')
+        .select('id, content, image_url, video_url, is_video, views_count, likes_count, reposts_count, replies_count, created_at, user_profiles(id, username, avatar_url, verified)')
+        .or(orFilter)
+        .is('community_id', null)
+        .gte('created_at', since7d)
+        .order('views_count', { ascending: false })
+        .limit(30);
+      if (!cancelled) {
+        // Also fetch general trending posts if no category matches
+        if ((data ?? []).length < 5) {
+          const { data: fallback } = await supabase
+            .from('posts')
+            .select('id, content, image_url, video_url, is_video, views_count, likes_count, reposts_count, replies_count, created_at, user_profiles(id, username, avatar_url, verified)')
+            .is('community_id', null)
+            .gte('created_at', since7d)
+            .order('views_count', { ascending: false })
+            .limit(30);
+          setPosts(fallback ?? []);
+        } else {
+          setPosts(data ?? []);
+        }
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
+  const hasTrends = trendingTopics.length > 0;
+
+  return (
+    <div>
+      {/* Header hero strip */}
+      <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-border bg-gradient-to-r from-primary/5 to-background">
+        <span className="text-3xl">{catEmoji}</span>
+        <div>
+          <h2 className="font-black text-xl">{activeTab}</h2>
+          <p className="text-xs text-muted-foreground">Ranked posts · last 7 days</p>
+        </div>
+      </div>
+
+      {/* Trending topics (if any) */}
+      {hasTrends && (
+        <div className="border-b border-border">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-4 pt-3 pb-1">Trending Topics</p>
+          <div className="divide-y divide-border">
+            {trendingTopics.map((topic, i) => (
+              <button key={topic.id} onClick={() => navigateTopic(topic.topic)}
+                className="w-full text-left px-4 py-3 hover:bg-muted/30 transition-colors flex items-center gap-3">
+                <span className={`text-sm font-black w-6 shrink-0 ${RANK_COLORS[Math.min(i, 3)]}`}>
+                  {i < 3 ? RANK_MEDAL[i] : `#${i + 1}`}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm">{topic.topic}</p>
+                  <p className="text-xs text-muted-foreground">{formatNumber(topic.posts_count)} posts</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Ranked post feed */}
+      <div>
+        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-4 pt-3 pb-1">
+          {posts.length > 0 ? `Top ${posts.length} Posts` : 'Posts'}
+        </p>
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-7 h-7 animate-spin text-primary" />
+          </div>
+        ) : posts.length === 0 ? (
+          <div className="py-16 text-center text-muted-foreground space-y-2">
+            <span className="text-5xl">{catEmoji}</span>
+            <p className="font-semibold">No {activeTab} posts yet</p>
+            <p className="text-sm">Be the first to post about {activeTab.toLowerCase()}!</p>
+            <button onClick={() => navigate('/')}
+              className="mt-3 px-5 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold hover:opacity-90">
+              Write a post
+            </button>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {posts.map((post: any, idx: number) => {
+              const uname: string = post.user_profiles?.username ?? '';
+              const isVid: boolean = !!(post.is_video || post.video_url);
+              const thumb: string = post.image_url ?? '';
+              const rankColor = RANK_COLORS[Math.min(idx, 3)];
+              const medal = idx < 3 ? RANK_MEDAL[idx] : null;
+              return (
+                <button key={post.id} onClick={() => navigate(`/post/${post.id}`)}
+                  className="w-full flex items-start gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left">
+                  {/* Rank badge */}
+                  <div className="w-8 shrink-0 flex flex-col items-center pt-1">
+                    {medal
+                      ? <span className="text-xl">{medal}</span>
+                      : <span className={`text-sm font-black ${rankColor}`}>#{idx + 1}</span>}
+                  </div>
+                  {/* Thumbnail */}
+                  {(thumb || isVid) && (
+                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-muted shrink-0 relative">
+                      {thumb
+                        ? <img src={thumb} alt="" className="w-full h-full object-cover" loading="lazy" />
+                        : isVid && post.video_url
+                          ? <video src={`${post.video_url}#t=0.5`} className="w-full h-full object-cover" muted preload="metadata" />
+                          : null}
+                      {isVid && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                          <Play className="w-5 h-5 text-white fill-white" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <div className="w-5 h-5 rounded-full bg-muted overflow-hidden shrink-0">
+                        {post.user_profiles?.avatar_url
+                          ? <img src={post.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center text-[8px] font-bold">{uname[0]?.toUpperCase()}</div>}
+                      </div>
+                      <span className="text-xs font-semibold text-muted-foreground truncate">@{uname}</span>
+                      {post.user_profiles?.verified && <BadgeCheck className="w-3 h-3 text-primary shrink-0" fill="currentColor" />}
+                    </div>
+                    <p className="text-sm font-medium line-clamp-2 leading-snug">{post.content ?? ''}</p>
+                    {/* Engagement stats */}
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+                        <Eye className="w-3 h-3" />{formatNumber(post.views_count ?? 0)}
+                      </span>
+                      <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+                        <Star className="w-3 h-3" />{formatNumber(post.likes_count ?? 0)}
+                      </span>
+                      {post.reposts_count > 0 && (
+                        <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+                          <TrendingUp className="w-3 h-3" />{formatNumber(post.reposts_count)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ExplorePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -1048,24 +1234,12 @@ export default function ExplorePage() {
       )}
 
       {(['News', 'Sports', 'Entertainment'] as ExploreTab[]).includes(activeTab) && !inlineSearchResults && (
-        <div>
-          {getFilteredTrending().length === 0 ? (
-            <div className="py-20 text-center text-muted-foreground"><TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-20" /><p className="font-semibold">No {activeTab} trends yet</p></div>
-          ) : (
-            <div className="divide-y divide-border">
-              {getFilteredTrending().map((topic, i) => (
-                <button key={topic.id} onClick={() => navigateTopic(topic.topic)} className="w-full text-left px-4 py-3.5 hover:bg-muted/30 transition-colors flex items-start justify-between group">
-                  <div>
-                    <p className="text-xs text-muted-foreground">{i + 1} · {activeTab}</p>
-                    <p className="font-bold text-base mt-0.5">{topic.topic}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{formatNumber(topic.posts_count)} posts</p>
-                  </div>
-                  <span className="text-muted-foreground/50 text-lg leading-none mt-1 group-hover:text-muted-foreground transition-colors">···</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <CategoryTabContent
+          activeTab={activeTab}
+          trendingTopics={getFilteredTrending()}
+          navigateTopic={navigateTopic}
+          navigate={navigate}
+        />
       )}
     </div>
   );
