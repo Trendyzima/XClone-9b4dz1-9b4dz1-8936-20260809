@@ -42,24 +42,24 @@ export default function PostThreadPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const [post, setPost] = useState<Post | null>(null);
+  const [post, setPost] = useState(null as Post | null);
   // useSEO — placed after ALL useState/useRef declarations below
 
-  const [replies, setReplies] = useState<Reply[]>([]);
+  const [replies, setReplies] = useState([] as Reply[]);
   const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [liveReplyCount, setLiveReplyCount] = useState<number | null>(null);
+  const [liveReplyCount, setLiveReplyCount] = useState(null as number | null);
   const [newReplyCount, setNewReplyCount] = useState(0);
   const knownReplyCount = useRef<number | null>(null);
   // Maps reply.id → pollPost.id for inline poll display
-  const [replyPollPostIds, setReplyPollPostIds] = useState<Record<string, string>>({});
-  const [replyLikes, setReplyLikes] = useState<Record<string, { count: number; liked: boolean }>>({});
+  const [replyPollPostIds, setReplyPollPostIds] = useState({} as Record<string, string>);
+  const [replyLikes, setReplyLikes] = useState({} as Record<string, { count: number; liked: boolean }>);
 
   // Poll in reply state
   const [showPollDialog, setShowPollDialog] = useState(false);
-  const [replyPollData, setReplyPollData] = useState<{ question: string; options: string[]; duration: number } | null>(null);
+  const [replyPollData, setReplyPollData] = useState(null as { question: string; options: string[]; duration: number } | null);
 
   // Dynamic SEO — injected once post loads, upgrades to og-image edge function card
   useSEO({
