@@ -1352,7 +1352,7 @@ export default function HelpPage() {
         {/* Quick Links */}
         <div className="space-y-3">
           <button
-            onClick={() => navigate('/content-policy')}
+            onClick={() => navigate('/policy')}
             className="w-full flex items-center justify-between p-4 border border-border rounded-xl hover:bg-muted/40 transition-colors text-left"
           >
             <div>
@@ -1362,7 +1362,7 @@ export default function HelpPage() {
             <ExternalLink className="w-4 h-4 text-muted-foreground shrink-0" />
           </button>
           <button
-            onClick={() => navigate('/help#privacy-settings')}
+            onClick={() => navigate('/privacy')}
             className="w-full flex items-center justify-between p-4 border border-border rounded-xl hover:bg-muted/40 transition-colors text-left"
           >
             <div>
@@ -1372,7 +1372,7 @@ export default function HelpPage() {
             <ExternalLink className="w-4 h-4 text-muted-foreground shrink-0" />
           </button>
           <button
-            onClick={() => navigate('/help#content-guidelines')}
+            onClick={() => navigate('/terms')}
             className="w-full flex items-center justify-between p-4 border border-border rounded-xl hover:bg-muted/40 transition-colors text-left"
           >
             <div>
