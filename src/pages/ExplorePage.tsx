@@ -37,6 +37,12 @@ export default function ExplorePage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<ExploreTab>('Explore');
+  // ── In-page Search Results (mixed: users + posts + hashtags) ────────────
+  const [inlineSearchResults, setInlineSearchResults] = useState<{
+    users: any[]; hashtags: any[]; posts: any[];
+  } | null>(null);
+  const [inlineSearchLoading, setInlineSearchLoading] = useState(false);
+  const inlineSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [trending, setTrending] = useState<any[]>([]);
   const [trendingHashtags, setTrendingHashtags] = useState<any[]>([]);
   const [whoToFollow, setWhoToFollow] = useState<any[]>([]);
@@ -84,6 +90,30 @@ export default function ExplorePage() {
       if (data && data.length > 0) { setSearchSuggestions(data); setShowSuggestions(true); }
       else { setSearchSuggestions([]); setShowSuggestions(false); }
     }, 250);
+  };
+
+  // ── Inline mixed search (users + hashtags + posts) ──────────────────────
+  const doInlineSearch = (q: string) => {
+    if (inlineSearchTimer.current) clearTimeout(inlineSearchTimer.current);
+    if (!q.trim() || q.trim().length < 2) { setInlineSearchResults(null); return; }
+    inlineSearchTimer.current = setTimeout(async () => {
+      setInlineSearchLoading(true);
+      const clean = q.trim();
+      const [usersRes, hashtagsRes, postsRes] = await Promise.all([
+        supabase.from('user_profiles').select('id, username, avatar_url, verified, followers_count, bio')
+          .ilike('username', `%${clean}%`).order('followers_count', { ascending: false }).limit(5),
+        supabase.from('hashtags').select('id, tag, usage_count')
+          .ilike('tag', `${clean.replace(/^#/, '')}%`).order('usage_count', { ascending: false }).limit(5),
+        supabase.from('posts').select('id, content, image_url, is_video, views_count, likes_count, user_profiles(id, username, avatar_url, verified)')
+          .ilike('content', `%${clean}%`).is('community_id', null).order('likes_count', { ascending: false }).limit(5),
+      ]);
+      setInlineSearchResults({
+        users: usersRes.data ?? [],
+        hashtags: hashtagsRes.data ?? [],
+        posts: postsRes.data ?? [],
+      });
+      setInlineSearchLoading(false);
+    }, 350);
   };
 
   useEffect(() => {
@@ -392,7 +422,7 @@ export default function ExplorePage() {
                 type="text"
                 placeholder="Search Tsocial"
                 value={searchQuery}
-                onChange={e => { setSearchQuery(e.target.value); fetchUserSuggestions(e.target.value); }}
+                onChange={e => { setSearchQuery(e.target.value); fetchUserSuggestions(e.target.value); doInlineSearch(e.target.value); if (!e.target.value.trim()) setInlineSearchResults(null); }}
                 onFocus={() => { setShowSearchHistory(true); if (searchQuery.trim().length >= 2) setShowSuggestions(true); }}
                 onBlur={() => setTimeout(() => { setShowSearchHistory(false); setShowSuggestions(false); }, 200)}
                 className="pl-10 h-10 rounded-full bg-muted/80 border-0 focus-visible:ring-1 focus-visible:ring-primary text-sm"
@@ -471,7 +501,118 @@ export default function ExplorePage() {
         </div>
       </div>
 
-      {activeTab === 'Explore' && (
+      {/* ── Inline Mixed Search Results ──────────────────────────── */}
+      {(inlineSearchLoading || inlineSearchResults) && searchQuery.trim().length >= 2 && (
+        <div className="border-b border-border bg-background">
+          {inlineSearchLoading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {inlineSearchResults && !inlineSearchLoading && (
+            <div className="max-w-2xl mx-auto">
+              {/* Creators */}
+              {inlineSearchResults.users.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between px-4 pt-3 pb-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">People</p>
+                    <button onClick={() => navigate(`/search?q=${encodeURIComponent(searchQuery)}&type=users`)}
+                      className="text-[10px] text-primary font-bold hover:underline">See all</button>
+                  </div>
+                  {inlineSearchResults.users.map((u: any) => (
+                    <button key={u.id} onClick={() => { addToSearchHistory(searchQuery); navigate(`/profile/${u.username}`); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left">
+                      <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
+                        {u.avatar_url ? <img src={u.avatar_url} alt={u.username} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-sm">{u.username[0]?.toUpperCase()}</div>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className="font-bold text-sm truncate">@{u.username}</span>
+                          {u.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary shrink-0" fill="currentColor" />}
+                        </div>
+                        {u.bio && <p className="text-xs text-muted-foreground truncate">{u.bio.slice(0, 50)}</p>}
+                        <p className="text-[10px] text-muted-foreground">{(u.followers_count ?? 0).toLocaleString()} followers</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Hashtags */}
+              {inlineSearchResults.hashtags.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between px-4 pt-3 pb-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Hashtags</p>
+                    <button onClick={() => navigate(`/hashtags?q=${encodeURIComponent(searchQuery)}`)}
+                      className="text-[10px] text-primary font-bold hover:underline">See all</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 px-4 pb-3">
+                    {inlineSearchResults.hashtags.map((h: any) => (
+                      <button key={h.id} onClick={() => { addToSearchHistory(searchQuery); navigate(`/hashtag/${h.tag}`); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/8 border border-primary/20 rounded-full hover:bg-primary/15 transition-colors">
+                        <Hash className="w-3 h-3 text-primary" />
+                        <span className="text-sm font-bold text-primary">#{h.tag}</span>
+                        <span className="text-[10px] text-muted-foreground">{formatNumber(h.usage_count ?? 0)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Posts */}
+              {inlineSearchResults.posts.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between px-4 pt-1 pb-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Posts</p>
+                    <button onClick={() => { addToSearchHistory(searchQuery); navigate(`/search?q=${encodeURIComponent(searchQuery)}`); }}
+                      className="text-[10px] text-primary font-bold hover:underline">See all</button>
+                  </div>
+                  {inlineSearchResults.posts.map((post: any) => (
+                    <button key={post.id} onClick={() => { addToSearchHistory(searchQuery); navigate(`/post/${post.id}`); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left">
+                      {post.image_url && (
+                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-muted shrink-0">
+                          <img src={post.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <span className="text-[10px] font-bold text-muted-foreground">@{post.user_profiles?.username}</span>
+                          {post.user_profiles?.verified && <BadgeCheck className="w-3 h-3 text-primary" fill="currentColor" />}
+                          {post.is_video && <Play className="w-3 h-3 text-primary" />}
+                        </div>
+                        <p className="text-sm line-clamp-2 leading-snug">{post.content?.slice(0, 100)}</p>
+                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                          <span>{formatNumber(post.likes_count ?? 0)} likes</span>
+                          <span>{formatNumber(post.views_count ?? 0)} views</span>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* No results */}
+              {inlineSearchResults.users.length === 0 && inlineSearchResults.hashtags.length === 0 && inlineSearchResults.posts.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
+                  <Search className="w-8 h-8 opacity-20" />
+                  <p className="text-sm font-medium">No results for "{searchQuery}"</p>
+                  <button onClick={() => navigate(`/search?q=${encodeURIComponent(searchQuery)}`)}
+                    className="text-xs text-primary font-semibold hover:underline">Full search →</button>
+                </div>
+              )}
+              {/* Full search CTA */}
+              {(inlineSearchResults.users.length > 0 || inlineSearchResults.hashtags.length > 0 || inlineSearchResults.posts.length > 0) && (
+                <div className="px-4 py-3 border-t border-border">
+                  <button onClick={() => { addToSearchHistory(searchQuery); navigate(`/search?q=${encodeURIComponent(searchQuery)}`); }}
+                    className="w-full py-2.5 bg-primary/8 hover:bg-primary/15 text-primary text-sm font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
+                    <Search className="w-4 h-4" />Full search for "{searchQuery}"
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'Explore' && !inlineSearchResults && (
         <div>
           {(storiesLoading || exploreStories.length > 0) && (
             <section className="border-b border-border">
@@ -778,7 +919,7 @@ export default function ExplorePage() {
         </div>
       )}
 
-      {activeTab === 'Trending' && (
+      {activeTab === 'Trending' && !inlineSearchResults && (
         <div>
           <div className="relative overflow-hidden border-b border-border mx-4 my-4 rounded-2xl">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-950 via-indigo-900 to-purple-900" />
@@ -906,7 +1047,7 @@ export default function ExplorePage() {
         </div>
       )}
 
-      {(['News', 'Sports', 'Entertainment'] as ExploreTab[]).includes(activeTab) && (
+      {(['News', 'Sports', 'Entertainment'] as ExploreTab[]).includes(activeTab) && !inlineSearchResults && (
         <div>
           {getFilteredTrending().length === 0 ? (
             <div className="py-20 text-center text-muted-foreground"><TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-20" /><p className="font-semibold">No {activeTab} trends yet</p></div>

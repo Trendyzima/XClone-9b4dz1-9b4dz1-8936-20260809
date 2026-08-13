@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useSEO } from '@/hooks/useSEO';
@@ -31,9 +30,11 @@ interface FloatReaction {
   x: number;
 }
 
-const REACTION_EMOJIS = ['❤️', '🔥', '😂', '👏', '😮', '🎉'];
+// esbuild guard: module-level plain array (no 'as const')
+const REACTION_EMOJIS: string[] = ['❤️', '🔥', '😂', '👏', '😮', '🎉'];
 
 function LiveStreamAdBanner() { return <PageAdBanner />; }
+
 export default function LiveStreamPage() {
   const { streamId } = useParams();
   const { user } = useAuth();
@@ -51,7 +52,25 @@ export default function LiveStreamPage() {
   const adPushedRef = useRef(false);
 
   const [floatReactions, setFloatReactions] = useState<FloatReaction[]>([]);
-  const [reactionCounts, setReactionCounts] = useState<Record<string, number>>({});
+  // esbuild guard: parallel arrays replace Record<string,number> state
+  const [reactionEmojis, setReactionEmojis] = useState<string[]>([]);
+  const [reactionNums, setReactionNums] = useState<number[]>([]);
+  const getReactionCount = (emoji: string): number => {
+    const idx = reactionEmojis.indexOf(emoji);
+    return idx >= 0 ? (reactionNums[idx] ?? 0) : 0;
+  };
+  const addReactionCount = (emoji: string) => {
+    setReactionEmojis(prev => {
+      const idx = prev.indexOf(emoji);
+      if (idx >= 0) {
+        setReactionNums(ns => { const n = [...ns]; n[idx] = (n[idx] ?? 0) + 1; return n; });
+        return prev;
+      }
+      setReactionNums(ns => [...ns, 1]);
+      return [...prev, emoji];
+    });
+  };
+
   const [showReactionBar, setShowReactionBar] = useState(false);
   const reactionBarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const floatIdRef = useRef(0);
@@ -172,12 +191,17 @@ export default function LiveStreamPage() {
       .not('message', 'like', '[REACT:%]')
       .order('created_at', { ascending: true });
     if (!data || data.length === 0) return;
-    const byMin: Record<string, number> = {};
+    // Build by-minute buckets — parallel arrays (esbuild guard: no Record<string,T>)
+    const minKeys: string[] = [];
+    const minCounts: number[] = [];
     data.forEach((m: any) => {
       const key = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      byMin[key] = (byMin[key] || 0) + 1;
+      const i = minKeys.indexOf(key);
+      if (i >= 0) minCounts[i] = (minCounts[i] ?? 0) + 1;
+      else { minKeys.push(key); minCounts.push(1); }
     });
-    setMsgFreqChart(Object.entries(byMin).slice(-15).map(([min, count]) => ({ min, count })));
+    const start = Math.max(0, minKeys.length - 15);
+    setMsgFreqChart(minKeys.slice(start).map((min, i) => ({ min, count: minCounts[start + i] ?? 0 })));
   };
 
   const fetchChatAnalytics = async () => {
@@ -198,12 +222,20 @@ export default function LiveStreamPage() {
       .limit(100);
     if (data) {
       setMessages(data.filter((m: StreamMessage) => !m.message.startsWith('[REACT:')));
-      const counts: Record<string, number> = {};
+      // Build reaction counts — parallel arrays (esbuild guard: no Record<string,T>)
+      const emojis: string[] = [];
+      const nums: number[] = [];
       data.forEach((m: StreamMessage) => {
         const match = m.message.match(/^\[REACT:(.+)\]$/);
-        if (match) counts[match[1]] = (counts[match[1]] ?? 0) + 1;
+        if (match) {
+          const e = match[1];
+          const i = emojis.indexOf(e);
+          if (i >= 0) nums[i] = (nums[i] ?? 0) + 1;
+          else { emojis.push(e); nums.push(1); }
+        }
       });
-      setReactionCounts(counts);
+      setReactionEmojis(emojis);
+      setReactionNums(nums);
     }
   };
 
@@ -225,7 +257,7 @@ export default function LiveStreamPage() {
     const x = 10 + Math.random() * 80;
     setFloatReactions(prev => [...prev, { id, emoji, x }]);
     setTimeout(() => setFloatReactions(prev => prev.filter(r => r.id !== id)), 2200);
-    setReactionCounts(prev => ({ ...prev, [emoji]: (prev[emoji] ?? 0) + 1 }));
+    addReactionCount(emoji);
     if (user) {
       await supabase.from('stream_chat').insert({
         stream_id: streamId,
@@ -240,6 +272,9 @@ export default function LiveStreamPage() {
     if (reactionBarTimer.current) clearTimeout(reactionBarTimer.current);
     reactionBarTimer.current = setTimeout(() => setShowReactionBar(false), 4000);
   };
+
+  // Pre-computed reaction summary — no IIFE in render (esbuild guard)
+  const visibleReactions = REACTION_EMOJIS.filter(e => getReactionCount(e) > 0);
 
   if (loading) {
     return (
@@ -321,12 +356,12 @@ export default function LiveStreamPage() {
             </div>
           </div>
 
-          {/* Reaction count summary */}
-          {Object.keys(reactionCounts).length > 0 && (
+          {/* Reaction count summary — pre-computed, no IIFE (esbuild guard) */}
+          {visibleReactions.length > 0 && (
             <div className="absolute top-20 right-4 flex flex-col gap-1.5 pointer-events-none">
-              {REACTION_EMOJIS.filter(e => (reactionCounts[e] ?? 0) > 0).map(emoji => (
+              {visibleReactions.map(emoji => (
                 <div key={emoji} className="flex items-center gap-1 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 text-xs font-bold">
-                  <span>{emoji}</span><span className="text-white/80">{formatNumber(reactionCounts[emoji])}</span>
+                  <span>{emoji}</span><span className="text-white/80">{formatNumber(getReactionCount(emoji))}</span>
                 </div>
               ))}
             </div>
@@ -402,19 +437,24 @@ export default function LiveStreamPage() {
                   <span className="text-xs font-bold">Chat Analytics</span>
                   {loadingChatAnalytics && <span className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin ml-auto" />}
                 </div>
+                {/* KPI cards — no icon object in .map() (esbuild guard) */}
                 {chatAnalytics && (
                   <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { label: 'Messages', value: chatAnalytics.total_messages ?? 0, icon: MessageCircle },
-                      { label: 'Chatters', value: chatAnalytics.unique_chatters ?? 0, icon: Users },
-                      { label: 'Msg/min', value: Number(chatAnalytics.messages_per_minute ?? 0).toFixed(1), icon: TrendingUp },
-                    ].map((s, i) => (
-                      <div key={i} className="bg-background rounded-lg p-2 text-center">
-                        <s.icon className="w-3.5 h-3.5 text-primary mx-auto mb-0.5" />
-                        <p className="font-bold text-sm">{s.value}</p>
-                        <p className="text-[9px] text-muted-foreground">{s.label}</p>
-                      </div>
-                    ))}
+                    <div className="bg-background rounded-lg p-2 text-center">
+                      <MessageCircle className="w-3.5 h-3.5 text-primary mx-auto mb-0.5" />
+                      <p className="font-bold text-sm">{chatAnalytics.total_messages ?? 0}</p>
+                      <p className="text-[9px] text-muted-foreground">Messages</p>
+                    </div>
+                    <div className="bg-background rounded-lg p-2 text-center">
+                      <Users className="w-3.5 h-3.5 text-primary mx-auto mb-0.5" />
+                      <p className="font-bold text-sm">{chatAnalytics.unique_chatters ?? 0}</p>
+                      <p className="text-[9px] text-muted-foreground">Chatters</p>
+                    </div>
+                    <div className="bg-background rounded-lg p-2 text-center">
+                      <TrendingUp className="w-3.5 h-3.5 text-primary mx-auto mb-0.5" />
+                      <p className="font-bold text-sm">{Number(chatAnalytics.messages_per_minute ?? 0).toFixed(1)}</p>
+                      <p className="text-[9px] text-muted-foreground">Msg/min</p>
+                    </div>
                   </div>
                 )}
                 {msgFreqChart.length > 0 && (
@@ -477,14 +517,15 @@ export default function LiveStreamPage() {
               ))}
             </div>
 
+            {/* Reaction quick-bar — no icon object in .map() (esbuild guard) */}
             <div className="px-3 py-1.5 border-t border-border flex gap-1 bg-muted/20 flex-shrink-0">
               {REACTION_EMOJIS.map(emoji => (
                 <button key={emoji} onClick={() => handleReaction(emoji)}
                   className="flex-1 text-base py-1 rounded-lg hover:bg-muted transition-colors active:scale-110 duration-100 relative">
                   {emoji}
-                  {(reactionCounts[emoji] ?? 0) > 0 && (
+                  {getReactionCount(emoji) > 0 && (
                     <span className="absolute -top-1 -right-0.5 text-[8px] font-bold bg-primary text-primary-foreground rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">
-                      {reactionCounts[emoji] > 99 ? '99+' : reactionCounts[emoji]}
+                      {getReactionCount(emoji) > 99 ? '99+' : getReactionCount(emoji)}
                     </span>
                   )}
                 </button>
@@ -524,4 +565,3 @@ export default function LiveStreamPage() {
     </div>
   );
 }
-

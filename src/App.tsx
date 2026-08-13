@@ -88,6 +88,7 @@ const PodcastAnalyticsPage = lazy(() => import('@/pages/PodcastAnalyticsPage'));
 const TeamChatPage = lazy(() => import('@/pages/TeamChatPage'));
 const AppealsPage = lazy(() => import('@/pages/AppealsPage'));
 const CreatorLeaderboardPage = lazy(() => import('@/pages/CreatorLeaderboardPage'));
+const StoryAnalyticsDashboard = lazy(() => import('@/pages/StoryAnalyticsDashboard'));
 
 const ContentPolicyPage = lazy(() => import('@/pages/ContentPolicyPage'));
 
@@ -346,6 +347,7 @@ function AppInner() {
               <Route path="/appeals" element={<AppealsPage />} />
               <Route path="/leaderboard/creators" element={<CreatorLeaderboardPage />} />
               <Route path="/policy" element={<ContentPolicyPage />} />
+              <Route path="/story-analytics" element={<StoryAnalyticsDashboard />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>

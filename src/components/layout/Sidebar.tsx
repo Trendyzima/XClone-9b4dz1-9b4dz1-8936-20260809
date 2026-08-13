@@ -205,6 +205,7 @@ export function Sidebar() {
     { icon: LineChart, label: 'Ad Analytics', path: '/ad-analytics', requireAuth: true },
     { icon: BookOpen, label: 'Series', path: '/series', requireAuth: false },
     { icon: Inbox, label: 'Wise Brain', path: '/platform-inbox', requireAuth: true },
+    { icon: BarChart3, label: 'Story Analytics', path: '/story-analytics', requireAuth: true },
   ];
 
   // Team chat — employees & regulator only
