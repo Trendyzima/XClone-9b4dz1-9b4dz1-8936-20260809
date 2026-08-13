@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Play, ExternalLink } from 'lucide-react';
+import { Play, ExternalLink, X } from 'lucide-react';
 
 // ── esbuild-safe module-level constants ──────────────────────────────────────
 const YT_PATTERN = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
@@ -194,6 +194,78 @@ export function LinkPreview({ url }: { url: string }) {
         </p>
       </div>
     </a>
+  );
+}
+
+// ── Platform label helpers — module-level, no closures (esbuild guard) ────────
+function getPlatformLabel(type: string): string {
+  if (type === 'youtube')    return 'YouTube';
+  if (type === 'spotify')    return 'Spotify';
+  if (type === 'soundcloud') return 'SoundCloud';
+  if (type === 'twitter')    return 'X / Twitter';
+  if (type === 'giphy')      return 'Giphy GIF';
+  if (type === 'codepen')    return 'CodePen';
+  if (type === 'tiktok')     return 'TikTok';
+  if (type === 'instagram')  return 'Instagram';
+  return 'Link';
+}
+
+function getPlatformBadgeCls(type: string): string {
+  if (type === 'youtube')    return 'bg-red-600/10 text-red-600 border-red-600/20';
+  if (type === 'spotify')    return 'bg-green-600/10 text-green-600 border-green-600/20';
+  if (type === 'soundcloud') return 'bg-orange-500/10 text-orange-600 border-orange-500/20';
+  if (type === 'twitter')    return 'bg-sky-500/10 text-sky-600 border-sky-500/20';
+  if (type === 'giphy')      return 'bg-purple-500/10 text-purple-600 border-purple-500/20';
+  if (type === 'codepen')    return 'bg-foreground/8 text-foreground border-border';
+  if (type === 'tiktok')     return 'bg-foreground/8 text-foreground border-border';
+  if (type === 'instagram')  return 'bg-pink-500/10 text-pink-600 border-pink-500/20';
+  return 'bg-primary/10 text-primary border-primary/20';
+}
+
+// ── ComposeEmbedPreview — live embed card shown while composing ───────────────
+// esbuild guard: module-level component, no inline objects in render
+export function ComposeEmbedPreview({ url, onRemove }: { url: string; onRemove?: () => void }) {
+  const info = detectEmbed(url);
+  let domain = url;
+  try { domain = new URL(url).hostname.replace('www.', ''); } catch { /* keep raw */ }
+
+  const badgeCls   = info ? getPlatformBadgeCls(info.type) : 'bg-primary/10 text-primary border-primary/20';
+  const badgeLabel = info ? getPlatformLabel(info.type) : domain;
+
+  return (
+    <div className="relative mt-2 rounded-2xl overflow-hidden border border-border bg-card shadow-sm">
+      {/* Header bar */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/30">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeCls}`}>
+            {badgeLabel}
+          </span>
+          <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[180px]">
+            {url.length > 50 ? url.slice(0, 50) + '\u2026' : url}
+          </span>
+        </div>
+        {onRemove && (
+          <button
+            onClick={onRemove}
+            className="ml-2 p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Remove embed preview"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Live embed */}
+      <div className="p-2" onClick={e => e.stopPropagation()}>
+        {info?.type === 'youtube' && info.id && <YouTubeEmbed id={info.id} />}
+        {info?.type === 'spotify' && info.id && info.subtype && <SpotifyEmbed id={info.id} subtype={info.subtype} />}
+        {info?.type === 'soundcloud' && <SoundCloudEmbed url={url} />}
+        {info?.type === 'twitter' && info.id && <TwitterEmbed id={info.id} />}
+        {info?.type === 'giphy' && info.id && <GiphyEmbed id={info.id} />}
+        {info?.type === 'codepen' && info.id && <CodePenEmbed id={info.id} url={url} />}
+        {(!info || info.type === 'tiktok' || info.type === 'instagram') && <LinkPreview url={url} />}
+      </div>
+    </div>
   );
 }
 

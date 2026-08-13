@@ -15,7 +15,7 @@ import { ProductTagDialog } from './ProductTagDialog';
 import { GifPicker } from './GifPicker';
 import { toast as sonnerToast } from 'sonner';
 import * as federation from '@/api/federation';
-import { detectEmbed } from './EmbedRenderer';
+import { detectEmbed, ComposeEmbedPreview } from './EmbedRenderer';
 
 interface ComposePostProps {
   onSuccess?: () => void;
@@ -584,13 +584,9 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
             )}
           </div>
 
-          {/* Link preview chip */}
+          {/* Link / Embed preview — live visual card while composing */}
           {linkPreview && !images.length && !video && !gifUrl && (
-            <div className="mt-2 flex items-center gap-2 p-2.5 bg-muted/40 border border-border rounded-xl">
-              <Link2 className="w-4 h-4 text-muted-foreground shrink-0" />
-              <p className="text-xs text-muted-foreground font-mono truncate flex-1">{linkPreview.url}</p>
-              <button onClick={() => setLinkPreview(null)} className="text-muted-foreground hover:text-foreground"><X className="w-3 h-3" /></button>
-            </div>
+            <ComposeEmbedPreview url={linkPreview.url} onRemove={() => setLinkPreview(null)} />
           )}
 
           {/* Image grid */}
