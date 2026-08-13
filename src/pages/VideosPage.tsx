@@ -630,6 +630,46 @@ export default function VideosPage() {
           <p className="text-white/50 text-sm">Loading duets…</p>
         </div>
       )}
+      {/* Duet Challenge launcher — shown on duets tab */}
+      {activeTab === 'duets' && !duetsLoading && duetVideos.length > 0 && currentVideo && (
+        <div className="absolute bottom-28 left-4 right-4 z-50 pointer-events-auto">
+          <div className="bg-black/80 backdrop-blur-md border border-white/15 rounded-2xl p-4 flex items-center gap-4">
+            <div className="w-11 h-11 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center shrink-0">
+              <span className="text-xl">🎭</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-bold text-sm">Start Duet Challenge</p>
+              <p className="text-white/60 text-xs">Launch a challenge on this duet</p>
+            </div>
+            <button
+              onClick={async () => {
+                if (!user) { navigate('/auth'); return; }
+                const tag = `duet${Date.now().toString(36)}`;
+                const { data: htag } = await import('@/lib/supabase').then(m =>
+                  m.supabase.from('hashtags').upsert({ tag }, { onConflict: 'tag' }).select('id').single()
+                );
+                if (htag?.id) {
+                  await import('@/lib/supabase').then(m =>
+                    m.supabase.from('hashtag_challenges').insert({
+                      hashtag_id: htag.id,
+                      created_by: user.id,
+                      title: 'Duet Challenge',
+                      description: `Record your duet reaction to join! Tag #${tag} in your video.`,
+                      end_date: new Date(Date.now() + 7 * 86400000).toISOString(),
+                      is_active: true,
+                    })
+                  );
+                }
+                toast.success(`🎭 Duet Challenge launched! #${tag}`);
+                navigate(`/videos?duet_url=${encodeURIComponent(currentVideo.video_url ?? '')}&duet_meta=${encodeURIComponent('Duet Challenge 🎭')}`);
+              }}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-sky-500 hover:bg-sky-400 active:scale-95 transition-all rounded-xl text-white text-xs font-bold"
+            >
+              <span>🚀</span> Launch
+            </button>
+          </div>
+        </div>
+      )}
       {activeTab === 'duets' && !duetsLoading && duetVideos.length === 0 && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black gap-4 px-8 text-center">
           <span className="text-6xl">🎭</span>
