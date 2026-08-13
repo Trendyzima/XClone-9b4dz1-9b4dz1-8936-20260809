@@ -9,12 +9,12 @@ import { Switch } from '@/components/ui/switch';
 import {
   Bell, Lock, Shield, HelpCircle, FileText, LogOut,
   Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check,
-  Sparkles, Heart, Volume2, VolumeX, Play, Trash2, AlertTriangle
+  Sparkles, Heart, Volume2, VolumeX, Play, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { applyTheme, getStoredThemeChoice } from '@/components/layout/ThemeToggle';
 import { authService } from '@/lib/auth';
-
+import { toast } from 'sonner';
 
 type ThemeChoice = 'light' | 'dark' | 'system';
 
@@ -36,8 +36,8 @@ const SOUND_PREVIEW_ITEMS = [
 
 function ThemeIcon({ id, cls, active }: { id: ThemeChoice; cls: string; active: boolean }) {
   const iconCls = `w-6 h-6 ${active ? 'text-primary' : cls}`;
-  if (id === 'light')  return <Sun className={iconCls} />;
-  if (id === 'dark')   return <Moon className={iconCls} />;
+  if (id === 'light') return <Sun className={iconCls} />;
+  if (id === 'dark')  return <Moon className={iconCls} />;
   return <Monitor className={iconCls} />;
 }
 
@@ -129,7 +129,6 @@ export default function SettingsPage() {
   const handleDeleteAccount = async () => {
     if (!user || deleteInput !== user.username) return;
     setDeleting(true);
-    // Delete user_profiles row — RLS allows own deletion; cascades all child tables
     await supabase.from('user_profiles').delete().eq('id', user.id);
     await authService.signOut();
     logout();
@@ -141,7 +140,6 @@ export default function SettingsPage() {
     applyTheme(choice);
   };
 
-  // Detect effective theme for display
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const effectiveTheme = themeChoice === 'system' ? (systemDark ? 'dark' : 'light') : themeChoice;
 
@@ -150,10 +148,12 @@ export default function SettingsPage() {
       <TopBar title="Settings" showBack />
       <div className="divide-y divide-border">
 
-        {/* Account */}
+        {/* ── Account ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Account</h2>
           <div className="space-y-1">
+
+            {/* View Profile */}
             <button
               onClick={() => navigate(`/profile/${user.username}`)}
               className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors"
@@ -170,6 +170,7 @@ export default function SettingsPage() {
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </button>
 
+            {/* Private Account */}
             <div className="flex items-center justify-between p-3 hover:bg-muted/50 rounded-xl transition-colors">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-orange-500/10 flex items-center justify-center">
@@ -183,7 +184,7 @@ export default function SettingsPage() {
               <Switch checked={privateAccount} onCheckedChange={setPrivateAccount} />
             </div>
 
-            {/* ── Change Password ── */}
+            {/* Change Password */}
             {!showPasswordForm ? (
               <button
                 onClick={() => setShowPasswordForm(true)}
@@ -204,7 +205,10 @@ export default function SettingsPage() {
               <div className="p-3 bg-muted/30 border border-border rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-bold">Change Password</p>
-                  <button onClick={() => { setShowPasswordForm(false); setNewPassword(''); setConfirmPassword(''); }} className="text-xs text-muted-foreground hover:text-foreground">
+                  <button
+                    onClick={() => { setShowPasswordForm(false); setNewPassword(''); setConfirmPassword(''); }}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
                     Cancel
                   </button>
                 </div>
@@ -243,7 +247,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* ── Export My Data ── */}
+            {/* Export My Data */}
             <button
               onClick={handleExportData}
               disabled={exporting}
@@ -255,13 +259,15 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <p className="font-semibold text-sm">Export My Data</p>
-                  <p className="text-xs text-muted-foreground">{exporting ? 'Preparing download…' : 'Download profile, posts & transactions as JSON'}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {exporting ? 'Preparing download…' : 'Download profile, posts & transactions as JSON'}
+                  </p>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </button>
 
-            {/* ── Delete Account ── */}
+            {/* Delete Account */}
             {!showDeleteConfirm ? (
               <button
                 onClick={() => setShowDeleteConfirm(true)}
@@ -308,9 +314,8 @@ export default function SettingsPage() {
                   <button
                     onClick={handleDeleteAccount}
                     disabled={deleting || deleteInput !== user.username}
-                    className="flex-1 py-2 bg-destructive text-destructive-foreground rounded-lg text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 bg-destructive text-destructive-foreground rounded-lg text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-opacity"
                   >
-                    {/* esbuild guard: no inline JSX fragment in ternary — use string when deleting */}
                     {deleting ? 'Deleting…' : 'Delete'}
                   </button>
                 </div>
@@ -319,11 +324,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Appearance */}
+        {/* ── Appearance ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Appearance</h2>
-
-          {/* Theme row label */}
           <div className="flex items-center gap-3 p-3 rounded-xl mb-2">
             <div className="w-9 h-9 rounded-full bg-purple-500/10 flex items-center justify-center shrink-0">
               <Palette className="w-4 h-4 text-purple-500" />
@@ -337,8 +340,6 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-
-          {/* 3-pill selector */}
           <div className="grid grid-cols-3 gap-2 px-3 pb-1">
             {THEME_IDS.map((id, i) => {
               const label = THEME_LABELS[i];
@@ -374,7 +375,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Personalisation */}
+        {/* ── Feed & Personalisation ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Feed & Personalisation</h2>
           <div className="space-y-1">
@@ -411,7 +412,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Notifications */}
+        {/* ── Notifications ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Notifications</h2>
           <div className="space-y-1">
@@ -427,7 +428,6 @@ export default function SettingsPage() {
               </div>
               <Switch checked={notifications} onCheckedChange={setNotifications} />
             </div>
-            {/* Notification Preferences link */}
             <button
               onClick={() => navigate('/notification-preferences')}
               className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
@@ -446,10 +446,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Sound Settings */}
+        {/* ── Notification Sounds ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Notification Sounds</h2>
-          {/* Master toggle */}
           <div className="flex items-center justify-between p-3 hover:bg-muted/50 rounded-xl transition-colors mb-2">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-violet-500/10 flex items-center justify-center">
@@ -462,8 +461,6 @@ export default function SettingsPage() {
             </div>
             <Switch checked={soundsOn} onCheckedChange={toggleSounds} />
           </div>
-
-          {/* Per-type preview */}
           {soundsOn && (
             <div className="bg-muted/30 rounded-2xl p-3 space-y-1">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-1 mb-2">Preview sounds</p>
@@ -489,12 +486,14 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Privacy & Security */}
+        {/* ── Privacy & Security ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Privacy & Security</h2>
           <div className="space-y-1">
-            {/* Active Sessions link */}
-            <button onClick={() => navigate('/sessions')} className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left">
+            <button
+              onClick={() => navigate('/sessions')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+            >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-violet-500/10 flex items-center justify-center">
                   <Monitor className="w-4 h-4 text-violet-500" />
@@ -506,7 +505,10 @@ export default function SettingsPage() {
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </button>
-            <button onClick={() => navigate('/policy')} className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left">
+            <button
+              onClick={() => navigate('/policy')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+            >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center">
                   <Shield className="w-4 h-4 text-blue-500" />
@@ -518,7 +520,10 @@ export default function SettingsPage() {
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </button>
-            <button onClick={() => navigate('/privacy')} className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left">
+            <button
+              onClick={() => navigate('/privacy')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+            >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-green-500/10 flex items-center justify-center">
                   <Shield className="w-4 h-4 text-green-500" />
@@ -530,7 +535,10 @@ export default function SettingsPage() {
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </button>
-            <button onClick={() => navigate('/terms')} className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left">
+            <button
+              onClick={() => navigate('/terms')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+            >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-gray-500/10 flex items-center justify-center">
                   <FileText className="w-4 h-4 text-gray-500" />
@@ -545,7 +553,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Help & Support */}
+        {/* ── Help & Support ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Help & Support</h2>
           <button
@@ -565,7 +573,7 @@ export default function SettingsPage() {
           </button>
         </div>
 
-        {/* About */}
+        {/* ── About ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">About</h2>
           <div className="p-3 bg-muted/30 rounded-xl space-y-1.5">
@@ -578,13 +586,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Logout */}
+        {/* ── Logout ── */}
         <div className="p-4">
-          <Button
-            onClick={handleLogout}
-            variant="destructive"
-            className="w-full rounded-xl py-5"
-          >
+          <Button onClick={handleLogout} variant="destructive" className="w-full rounded-xl py-5">
             <LogOut className="w-4 h-4 mr-2" />
             Log Out
           </Button>
