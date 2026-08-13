@@ -9,7 +9,7 @@ import {
   Search, HelpCircle, MessageCircle, Shield, CreditCard, User,
   ChevronDown, ChevronUp, ExternalLink, Send, Loader2,
   TrendingUp, CheckCircle2, Hash, ThumbsUp, ThumbsDown, Star,
-  Play, X, Clock, FileText, Ticket, Bot, Printer, ChevronRight,
+  Play, X, Clock, FileText, Ticket, Bot, Printer, ChevronRight, Share2,
 } from 'lucide-react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { toast } from 'sonner';
@@ -291,6 +291,14 @@ const HELP_ANALYTICS_KEY = 'ts-help-search-analytics';
 // ── Article ratings storage key (module-level) ────────────────────────────────
 const HELP_RATINGS_KEY = 'ts-help-article-ratings';
 
+// esbuild guard: module-level constant — no inline string in useEffect dep
+const HELP_CHAT_HISTORY_KEY = 'ts-help-chat-history';
+
+// esbuild guard: module-level helper — no inline object literal creation inside component function body
+function buildShareData(q: string, firstBullet: string, url: string) {
+  return { title: `Testagram Help: ${q}`, text: firstBullet, url };
+}
+
 // esbuild guard: module-level — no inline array literal inside JSX .map() callback
 const CHAT_SUGGESTION_QUESTIONS = [
   'How do I get verified?',
@@ -365,7 +373,7 @@ function getSupportStatus(): { online: boolean; label: string; sub: string } {
 
 // ── Accordion item ────────────────────────────────────────────────────────────
 function HelpAccordionItem({
-  q, a, defaultOpen, itemId, onOpen, myVote, upCount, downCount, onRate,
+  q, a, defaultOpen, itemId, onOpen, myVote, upCount, downCount, onRate, onShare,
 }: {
   q: string;
   a: string[];
@@ -376,6 +384,8 @@ function HelpAccordionItem({
   upCount?: number;
   downCount?: number;
   onRate?: (slug: string, vote: string) => void;
+  // esbuild guard: no complex function type annotation on optional prop — use any
+  onShare?: any;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const ref = useRef<HTMLDivElement>(null);
@@ -488,6 +498,15 @@ function HelpAccordionItem({
               >
                 <Hash className="w-3 h-3" /> Copy link
               </button>
+              {/* Share */}
+              {onShare && (
+                <button
+                  onClick={() => onShare(itemId!, q, a[0] ?? '')}
+                  className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                >
+                  <Share2 className="w-3 h-3" /> Share
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -711,14 +730,69 @@ export default function HelpPage() {
   // esbuild guard: parallel arrays instead of {role,content}[] typed array
   const [chatRoles, setChatRoles] = useState([]);
   const [chatTexts, setChatTexts] = useState([]);
+  const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Load chat history from localStorage on first open
+  useEffect(() => {
+    if (!chatOpen || chatHistoryLoaded) return;
+    try {
+      const raw = localStorage.getItem(HELP_CHAT_HISTORY_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        const savedRoles = (data.roles ?? []).slice(-40);
+        const savedTexts = (data.texts ?? []).slice(-40);
+        if (savedRoles.length > 0) {
+          setChatRoles(savedRoles);
+          setChatTexts(savedTexts);
+        }
+      }
+    } catch { /* ignore */ }
+    setChatHistoryLoaded(true);
+  }, [chatOpen, chatHistoryLoaded]);
+
+  // Persist chat history to localStorage whenever messages change
+  useEffect(() => {
+    if (!chatHistoryLoaded) return;
+    try {
+      const roles = chatRoles as string[];
+      const texts = chatTexts as string[];
+      if (roles.length === 0) { localStorage.removeItem(HELP_CHAT_HISTORY_KEY); return; }
+      localStorage.setItem(HELP_CHAT_HISTORY_KEY, JSON.stringify({
+        roles: roles.slice(-40),
+        texts: texts.slice(-40),
+      }));
+    } catch { /* ignore */ }
+  }, [chatRoles, chatTexts, chatHistoryLoaded]);
 
   // Scroll chat to bottom when messages change
   useEffect(() => {
     if (chatOpen) chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatRoles.length, chatOpen]);
+
+  // Clear chat history
+  const handleClearChat = () => {
+    setChatRoles([] as any);
+    setChatTexts([] as any);
+    try { localStorage.removeItem(HELP_CHAT_HISTORY_KEY); } catch { /* ignore */ }
+    toast.success('Chat cleared', { duration: 1200 });
+  };
+
+  // Article share handler (module-level-safe: no inline object in JSX)
+  const handleArticleShare = (slug: string, q: string, firstBullet: string) => {
+    const url = `${window.location.origin}/help#${slug}`;
+    // esbuild guard: use module-level buildShareData — no inline object literal in component function body
+    const shareData = buildShareData(q, firstBullet, url);
+    if (navigator.share) {
+      navigator.share(shareData).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(url)
+        .then(() => toast.success('Link copied!'))
+        .catch(() => toast.error('Could not copy link'));
+    }
+  };
 
   const handleChatSend = async () => {
     const text = chatInput.trim();
@@ -914,6 +988,7 @@ export default function HelpPage() {
                 upCount={t.up}
                 downCount={t.down}
                 onRate={handleRate}
+                onShare={handleArticleShare}
                 onOpen={(s) => {
                   if (window.history.replaceState) window.history.replaceState(null, '', `/help#${s}`);
                 }}
@@ -1037,6 +1112,7 @@ export default function HelpPage() {
                         upCount={srUp}
                         downCount={srDown}
                         onRate={handleRate}
+                        onShare={handleArticleShare}
                         onOpen={trackSearch}
                       />
                     </div>
@@ -1078,6 +1154,7 @@ export default function HelpPage() {
                       upCount={catUp}
                       downCount={catDown}
                       onRate={handleRate}
+                      onShare={handleArticleShare}
                       onOpen={(s) => {
                         if (window.history.replaceState) {
                           window.history.replaceState(null, '', `/help#${s}`);
@@ -1329,7 +1406,12 @@ export default function HelpPage() {
               <p className="text-xs font-black">Testagram AI Support</p>
               <p className="text-[10px] text-muted-foreground">Powered by Gemini 3 Flash</p>
             </div>
-            <button onClick={() => setChatOpen(false)} className="ml-auto text-muted-foreground hover:text-foreground">
+            {hasChatMessages && (
+              <button onClick={handleClearChat} className="text-[10px] text-muted-foreground hover:text-destructive font-semibold transition-colors px-1.5 py-0.5 rounded-lg hover:bg-destructive/10">
+                Clear
+              </button>
+            )}
+            <button onClick={() => setChatOpen(false)} className="text-muted-foreground hover:text-foreground">
               <X className="w-4 h-4" />
             </button>
           </div>
