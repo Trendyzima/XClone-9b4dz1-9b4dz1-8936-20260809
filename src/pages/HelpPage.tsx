@@ -410,7 +410,7 @@ function getSupportStatus(): { online: boolean; label: string; sub: string } {
 
 // ── Accordion item ────────────────────────────────────────────────────────────
 function HelpAccordionItem({
-  q, a, defaultOpen, itemId, onOpen, myVote, upCount, downCount, onRate, onShare,
+  q, a, defaultOpen, itemId, onOpen, myVote, upCount, downCount, onRate, onShare, lastUpdated,
 }: {
   q: string;
   a: string[];
@@ -421,7 +421,6 @@ function HelpAccordionItem({
   upCount?: number;
   downCount?: number;
   onRate?: (slug: string, vote: string) => void;
-  // esbuild guard: no complex function type annotation on optional prop — use any
   onShare?: any;
   lastUpdated?: string;
 }) {

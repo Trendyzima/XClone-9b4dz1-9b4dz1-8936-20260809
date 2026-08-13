@@ -662,6 +662,21 @@ export default function MarketplacePage() {
     setWishlistIds(prev => {
       const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
       try { localStorage.setItem('mkt_wishlist_v2', JSON.stringify(next)); } catch { /* ignore */ }
+      // Sync to DB for price-drop alerts (fire-and-forget)
+      if (user) {
+        if (!prev.includes(id)) {
+          // Adding — upsert with current price
+          const product = (products as any[]).find((p: any) => p.id === id);
+          supabase.from('product_wishlists').upsert(
+            { user_id: user.id, product_id: id, last_price: product?.price ?? null },
+            { onConflict: 'user_id,product_id' }
+          ).catch(() => {});
+        } else {
+          // Removing
+          supabase.from('product_wishlists').delete()
+            .eq('user_id', user.id).eq('product_id', id).catch(() => {});
+        }
+      }
       return next;
     });
   };

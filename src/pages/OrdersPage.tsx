@@ -9,10 +9,11 @@ import {
   ShoppingBag, ShoppingCart, Package, Truck, CheckCircle2,
   Loader2, MessageSquare, X, Star, Clock, ChevronRight,
   DollarSign, BadgeCheck, ArrowRight, AlertCircle, Search,
-  Filter, Send
+  Send, Copy, MapPin, Hash, TrendingUp, Calendar
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format, subDays } from 'date-fns';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 // ── Module-level status config (esbuild-safe: no inline objects in render) ──
 const STATUS_CFG = {
@@ -40,6 +41,255 @@ function StatusBadge({ status }: { status: string }) {
       {cfg.icon === 'cancelled'  && <X            className="w-3 h-3" />}
       {cfg.label}
     </span>
+  );
+}
+
+// ── Order Detail Sheet ─────────────────────────────────────────────────────
+function OrderDetailSheet({ order, isSeller, onClose, navigate, onStatusUpdate }: {
+  order: any; isSeller: boolean; onClose: () => void;
+  navigate: (p: string) => void;
+  onStatusUpdate?: (id: string, status: string) => void;
+}) {
+  const { user } = useAuth();
+  const product = order.products ?? {};
+  const buyer   = order.buyer   ?? {};
+  const seller  = order.seller  ?? {};
+  const other   = isSeller ? buyer : seller;
+  const total   = Number(order.total_amount ?? 0);
+  const unit    = Number(order.unit_price   ?? 0);
+  const [updating, setUpdating] = useState(false);
+
+  const handleCopyId = () => {
+    navigator.clipboard.writeText(order.id).then(() => toast.success('Order ID copied')).catch(() => {});
+  };
+
+  const handleDM = async () => {
+    if (!user || !other.id) return;
+    const p1 = isSeller ? order.seller_id : order.buyer_id;
+    const p2 = isSeller ? order.buyer_id  : order.seller_id;
+    const { data: existing } = await supabase
+      .from('conversations').select('id')
+      .or(`and(participant_1.eq.${p1},participant_2.eq.${p2}),and(participant_1.eq.${p2},participant_2.eq.${p1})`)
+      .maybeSingle();
+    if (existing?.id) { navigate(`/messages?conv=${existing.id}`); onClose(); return; }
+    const { data: conv } = await supabase.from('conversations')
+      .insert({ participant_1: p1, participant_2: p2 }).select('id').single();
+    if (conv?.id) { navigate(`/messages?conv=${conv.id}`); onClose(); }
+  };
+
+  const handleStatusChange = async (newStatus: string) => {
+    setUpdating(true);
+    const { error } = await supabase.from('orders').update({
+      status: newStatus,
+      ...(newStatus === 'shipped'   ? { shipped_at:   new Date().toISOString() } : {}),
+      ...(newStatus === 'delivered' ? { delivered_at: new Date().toISOString() } : {}),
+    }).eq('id', order.id);
+    if (error) { toast.error(error.message); setUpdating(false); return; }
+    supabase.functions.invoke('send-push-notification', {
+      body: {
+        user_id: order.buyer_id,
+        title:   newStatus === 'shipped' ? '📦 Order Shipped!' : '✅ Order Delivered!',
+        body:    newStatus === 'shipped'
+          ? `Your order for "${product.name ?? 'your item'}" has been shipped.`
+          : `Your order for "${product.name ?? 'your item'}" has been delivered!`,
+        data: { route: '/orders', type: 'order_status' },
+      },
+    }).catch(() => {});
+    toast.success(`Order marked as ${newStatus}`);
+    onStatusUpdate?.(order.id, newStatus);
+    onClose();
+    setUpdating(false);
+  };
+
+  // Timeline events
+  const timeline = [
+    { label: 'Order Confirmed', date: order.created_at, icon: 'confirmed', done: true },
+    { label: 'Shipped',         date: order.shipped_at,  icon: 'shipped',  done: !!order.shipped_at },
+    { label: 'Delivered',       date: order.delivered_at,icon: 'delivered',done: !!order.delivered_at },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[400] bg-black/60 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="bg-background w-full max-w-lg max-h-[92vh] rounded-t-3xl sm:rounded-2xl overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div>
+            <h3 className="font-bold text-base">Order Details</h3>
+            <button onClick={handleCopyId} className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors">
+              <Hash className="w-2.5 h-2.5" />{order.id.slice(0, 8)}…
+              <Copy className="w-2.5 h-2.5" />
+            </button>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-muted flex items-center justify-center"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+          {/* Product */}
+          <div className="flex gap-3 p-3 rounded-2xl bg-muted/40 border border-border">
+            <div className="w-16 h-16 rounded-xl bg-muted overflow-hidden shrink-0">
+              {product.image_url
+                ? <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-6 h-6 text-muted-foreground/40" /></div>}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm line-clamp-2">{product.name ?? 'Product'}</p>
+              <p className="text-xl font-black text-primary mt-0.5">${total.toFixed(2)}</p>
+              <p className="text-[11px] text-muted-foreground">${unit.toFixed(2)} × {order.quantity ?? 1} unit{(order.quantity ?? 1) !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+
+          {/* Status badge */}
+          <div className="flex items-center gap-2">
+            <StatusBadge status={order.status ?? 'confirmed'} />
+            <span className="text-xs text-muted-foreground">
+              {formatDistanceToNow(new Date(order.created_at), { addSuffix: true })}
+            </span>
+          </div>
+
+          {/* Other party */}
+          <div className="p-3 rounded-2xl border border-border">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">{isSeller ? 'Buyer' : 'Seller'}</p>
+            <div className="flex items-center gap-3">
+              <button onClick={() => { navigate(`/profile/${other.username}`); onClose(); }}
+                className="flex items-center gap-2 flex-1 hover:opacity-80 transition-opacity">
+                <div className="w-9 h-9 rounded-full bg-muted overflow-hidden shrink-0">
+                  {other.avatar_url
+                    ? <img src={other.avatar_url} alt="" className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{other.username?.[0]?.toUpperCase()}</div>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1">
+                    <span className="font-semibold text-sm">@{other.username}</span>
+                    {other.verified && <BadgeCheck className="w-3.5 h-3.5 text-primary" />}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Tap to view profile</p>
+                </div>
+              </button>
+              <button onClick={handleDM}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-full text-xs font-bold transition-colors shrink-0">
+                <MessageSquare className="w-3.5 h-3.5" /> Message
+              </button>
+            </div>
+          </div>
+
+          {/* Buyer note */}
+          {order.note && (
+            <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
+              <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Note from buyer</p>
+              <p className="text-sm italic text-foreground">"{order.note}"</p>
+            </div>
+          )}
+
+          {/* Order timeline */}
+          <div className="p-3 rounded-2xl border border-border">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Order Timeline</p>
+            <div className="space-y-3">
+              {timeline.map((step, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${step.done ? 'bg-green-500/15 text-green-600' : 'bg-muted text-muted-foreground/40'}`}>
+                    {step.icon === 'confirmed'  && <CheckCircle2 className="w-3.5 h-3.5" />}
+                    {step.icon === 'shipped'    && <Truck        className="w-3.5 h-3.5" />}
+                    {step.icon === 'delivered'  && <Package      className="w-3.5 h-3.5" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className={`text-sm font-semibold ${step.done ? 'text-foreground' : 'text-muted-foreground/50'}`}>{step.label}</p>
+                    {step.date && (
+                      <p className="text-[10px] text-muted-foreground">{format(new Date(step.date), 'MMM d, yyyy · h:mm a')}</p>
+                    )}
+                  </div>
+                  {i < timeline.length - 1 && (
+                    <div className={`absolute ml-3.5 mt-7 w-0.5 h-3 ${step.done ? 'bg-green-500/30' : 'bg-border'}`} style={{ position: 'relative', left: '10px', marginLeft: '-22px', marginTop: '28px' }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Seller note */}
+          {order.seller_note && (
+            <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20">
+              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Seller note</p>
+              <p className="text-sm text-foreground">{order.seller_note}</p>
+            </div>
+          )}
+
+          {/* Seller action buttons */}
+          {isSeller && order.status === 'confirmed' && (
+            <button onClick={() => handleStatusChange('shipped')} disabled={updating}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-amber-500 text-white rounded-2xl font-bold hover:bg-amber-600 transition-colors disabled:opacity-50">
+              {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
+              Mark as Shipped
+            </button>
+          )}
+          {isSeller && order.status === 'shipped' && (
+            <button onClick={() => handleStatusChange('delivered')} disabled={updating}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-green-500 text-white rounded-2xl font-bold hover:bg-green-600 transition-colors disabled:opacity-50">
+              {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              Mark as Delivered
+            </button>
+          )}
+
+          {/* View full orders */}
+          <button onClick={() => { navigate('/orders'); onClose(); }}
+            className="w-full py-2.5 border border-border rounded-xl text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5">
+            <ShoppingCart className="w-4 h-4" /> View All Orders
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Seller Earnings Chart ────────────────────────────────────────────────────
+function SellerEarningsChart({ sales }: { sales: any[] }) {
+  // Build 7-day revenue chart from sales orders
+  const days: string[] = [];
+  const labels: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = subDays(new Date(), i);
+    days.push(format(d, 'yyyy-MM-dd'));
+    labels.push(format(d, 'MM/dd'));
+  }
+  const revenue = days.map(day =>
+    sales
+      .filter(o => format(new Date(o.created_at), 'yyyy-MM-dd') === day)
+      .reduce((s, o) => s + Number(o.total_amount ?? 0), 0)
+  );
+  const hasData = revenue.some(v => v > 0);
+  const chartData = days.map((_, i) => ({ date: labels[i], revenue: revenue[i] }));
+  const maxRev = Math.max(...revenue, 0.01);
+
+  return (
+    <div className="p-4 rounded-2xl border border-border bg-card">
+      <div className="flex items-center gap-2 mb-3">
+        <TrendingUp className="w-4 h-4 text-green-500" />
+        <p className="font-bold text-sm">Revenue — Last 7 Days</p>
+        <span className="text-[10px] text-muted-foreground ml-auto">
+          ${revenue.reduce((s, v) => s + v, 0).toFixed(2)} total
+        </span>
+      </div>
+      {hasData ? (
+        <ResponsiveContainer width="100%" height={120}>
+          <BarChart data={chartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+            <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }} />
+            <YAxis hide />
+            <Tooltip
+              formatter={(v: any) => [`$${Number(v).toFixed(2)}`, 'Revenue']}
+              contentStyle={{ fontSize: 11, borderRadius: 8, padding: '4px 10px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))' }}
+            />
+            <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+              {chartData.map((entry, i) => (
+                <Cell key={i} fill={entry.revenue > 0 ? '#22c55e' : 'hsl(var(--muted))'} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="flex items-center justify-center h-20 text-muted-foreground text-xs">
+          No revenue in the last 7 days
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -131,8 +381,8 @@ function ReviewDialog({ order, onClose, onDone }: {
 }
 
 // ── Order Card — Buyer view ────────────────────────────────────────────────
-function BuyerOrderCard({ order, navigate, onReview }: {
-  order: any; navigate: (p: string) => void; onReview: (order: any) => void;
+function BuyerOrderCard({ order, navigate, onReview, onDetail }: {
+  order: any; navigate: (p: string) => void; onReview: (order: any) => void; onDetail: (order: any) => void;
 }) {
   const { user } = useAuth();
   const product   = order.products ?? {};
@@ -163,6 +413,7 @@ function BuyerOrderCard({ order, navigate, onReview }: {
 
   return (
     <div className="bg-card border border-border rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+      <button className="w-full text-left" onClick={() => onDetail(order)}>
       <div className="flex gap-3 p-4">
         {/* Product image */}
         <div className="w-20 h-20 rounded-xl bg-muted overflow-hidden shrink-0">
@@ -186,8 +437,10 @@ function BuyerOrderCard({ order, navigate, onReview }: {
           {order.note && (
             <p className="mt-1.5 text-xs text-muted-foreground italic line-clamp-2">"{order.note}"</p>
           )}
+          <p className="text-[10px] text-primary font-semibold mt-1">Tap for details →</p>
         </div>
       </div>
+      </button>
 
       {/* Seller row + actions */}
       <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/20">
@@ -239,8 +492,8 @@ function BuyerOrderCard({ order, navigate, onReview }: {
 }
 
 // ── Order Card — Seller view ───────────────────────────────────────────────
-function SellerOrderCard({ order, onStatusUpdate, navigate }: {
-  order: any; onStatusUpdate: (id: string, status: string) => void; navigate: (p: string) => void;
+function SellerOrderCard({ order, onStatusUpdate, navigate, onDetail }: {
+  order: any; onStatusUpdate: (id: string, status: string) => void; navigate: (p: string) => void; onDetail: (order: any) => void;
 }) {
   const product = order.products ?? {};
   const buyer   = order.buyer   ?? {};
@@ -301,6 +554,7 @@ function SellerOrderCard({ order, onStatusUpdate, navigate }: {
 
   return (
     <div className="bg-card border border-border rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+      <button className="w-full text-left" onClick={() => onDetail(order)}>
       <div className="flex gap-3 p-4">
         {/* Product image */}
         <div className="w-20 h-20 rounded-xl bg-muted overflow-hidden shrink-0">
@@ -324,8 +578,10 @@ function SellerOrderCard({ order, onStatusUpdate, navigate }: {
           {order.note && (
             <p className="mt-1.5 text-xs text-muted-foreground italic line-clamp-2">Buyer: "{order.note}"</p>
           )}
+          <p className="text-[10px] text-primary font-semibold mt-1">Tap for details →</p>
         </div>
       </div>
+      </button>
 
       {/* Buyer row */}
       <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/20">
@@ -388,6 +644,8 @@ export default function OrdersPage() {
 
   // Review dialog
   const [reviewOrder, setReviewOrder] = useState(null as any);
+  // Detail sheet
+  const [detailOrder, setDetailOrder] = useState(null as any);
 
   useSEO({ noindex: true, title: 'My Orders — Testagram', url: '/orders' });
 
@@ -571,7 +829,7 @@ export default function OrdersPage() {
             </div>
           ) : (
             filteredPurchases.map(order => (
-              <BuyerOrderCard key={order.id} order={order} navigate={navigate} onReview={setReviewOrder} />
+              <BuyerOrderCard key={order.id} order={order} navigate={navigate} onReview={setReviewOrder} onDetail={setDetailOrder} />
             ))
           )}
         </div>
@@ -611,6 +869,11 @@ export default function OrdersPage() {
             </div>
           </div>
 
+          {/* Earnings chart — shown when no search/filter active */}
+          {!saleSearch && saleFilter === 'all' && sales.length > 0 && (
+            <SellerEarningsChart sales={sales} />
+          )}
+
           {loadingS ? (
             <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
           ) : filteredSales.length === 0 ? (
@@ -642,6 +905,7 @@ export default function OrdersPage() {
                     order={order}
                     onStatusUpdate={handleStatusUpdate}
                     navigate={navigate}
+                    onDetail={setDetailOrder}
                   />
                 ))
               }
@@ -672,6 +936,20 @@ export default function OrdersPage() {
             </>
           )}
         </div>
+      )}
+
+      {/* Order Detail Sheet */}
+      {detailOrder && (
+        <OrderDetailSheet
+          order={detailOrder}
+          isSeller={tab === 'sales'}
+          onClose={() => setDetailOrder(null)}
+          navigate={navigate}
+          onStatusUpdate={(id, status) => {
+            handleStatusUpdate(id, status);
+            setDetailOrder((prev: any) => prev ? { ...prev, status } : null);
+          }}
+        />
       )}
 
       {/* Review Dialog */}
