@@ -10,7 +10,7 @@ import {
   Bell, Lock, Shield, HelpCircle, FileText, LogOut,
   Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check,
   Sparkles, Heart, Volume2, VolumeX, Play, Trash2, AlertTriangle,
-  Copy, AtSign, Globe, UserX,
+  Copy, AtSign, Globe, UserX, BadgeCheck, Crown,
 } from 'lucide-react';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { applyTheme, getStoredThemeChoice } from '@/components/layout/ThemeToggle';
@@ -60,6 +60,9 @@ export default function SettingsPage() {
   const [passwordChanging, setPasswordChanging] = useState(false);
   // Export data
   const [exporting, setExporting] = useState(false);
+  // Verification status
+  const [verifiedStatus, setVerifiedStatus] = useState(false);
+  const [creatorTier, setCreatorTier] = useState('');
   // Referral
   const [referralCount, setReferralCount] = useState(0);
   // Connected accounts
@@ -76,6 +79,17 @@ export default function SettingsPage() {
     setSoundsOn(v);
     if (v) playSound('dm');
   };
+
+  // Verification + creator tier
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('user_profiles').select('verified, creator_tier').eq('id', user.id).single()
+      .then(({ data }) => {
+        if (!data) return;
+        setVerifiedStatus(!!(data as any).verified);
+        setCreatorTier((data as any).creator_tier ?? 'free');
+      });
+  }, [user?.id]);
 
   // Referral count
   useEffect(() => {
@@ -230,6 +244,50 @@ export default function SettingsPage() {
                 </div>
               </div>
               <Switch checked={privateAccount} onCheckedChange={setPrivateAccount} />
+            </div>
+
+            {/* ── Verification Status ── */}
+            <div className="p-3 border border-border rounded-xl space-y-2">
+              <div className="flex items-center gap-2">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${verifiedStatus ? 'bg-primary/10' : 'bg-muted'}`}>
+                  {verifiedStatus
+                    ? <BadgeCheck className="w-4 h-4 text-primary" />
+                    : <BadgeCheck className="w-4 h-4 text-muted-foreground" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold">
+                    {verifiedStatus ? 'Verified Account ✓' : 'Not Verified'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {creatorTier && creatorTier !== 'free'
+                      ? `Creator tier: ${creatorTier.charAt(0).toUpperCase() + creatorTier.slice(1)}`
+                      : 'Free tier'}
+                  </p>
+                </div>
+                {verifiedStatus
+                  ? <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">Verified</span>
+                  : <button
+                      onClick={() => navigate('/verify')}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity shrink-0"
+                    >
+                      <Crown className="w-3 h-3" /> Apply
+                    </button>}
+              </div>
+              {!verifiedStatus && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Get a verified badge to stand out and unlock creator monetization features.
+                </p>
+              )}
+              {verifiedStatus && creatorTier && creatorTier !== 'free' && (
+                <div className="flex items-center gap-2 pt-1">
+                  <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <p className="text-[11px] text-muted-foreground">
+                    {creatorTier === 'gold' ? 'Gold Creator — highest CPM tier ($3.50/1K views)'
+                     : creatorTier === 'silver' ? 'Silver Creator — mid CPM tier ($2.50/1K views)'
+                     : 'Bronze Creator — base CPM tier ($1.50/1K views)'}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Change Password */}

@@ -30,7 +30,8 @@ function AuthAdBanner() {
 
 export default function AuthPage() {
   useSEO({ noindex: true, title: 'Sign In', url: '/auth' });
-  const [mode, setMode] = useState<'signin' | 'signup' | 'verify'>('signin');
+  // esbuild guard: no explicit generic on useState — infer from initial value
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'verify'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
@@ -40,6 +41,15 @@ export default function AuthPage() {
   const [searchParams] = useSearchParams();
   const referrerIdRef = useRef<string | null>(searchParams.get('ref'));
   const { login } = useAuthStore();
+
+  // esbuild guard: ref param is stored in localStorage on mount so it survives OTP redirect
+  useEffect(() => {
+    const ref = searchParams.get('ref');
+    if (ref) {
+      localStorage.setItem('ts-pending-ref', ref);
+      if (mode === 'signin') setMode('signup');
+    }
+  }, []);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +79,19 @@ export default function AuthPage() {
   };
 
   const recordReferral = async (newUserId: string) => {
-    const referrerId = referrerIdRef.current;
+    // esbuild guard: read from localStorage (survives OTP redirect)
+    const refUsername = localStorage.getItem('ts-pending-ref') ?? referrerIdRef.current;
+    if (!refUsername) return;
+    localStorage.removeItem('ts-pending-ref');
+    // Look up referrer by username (ref param is username, not UUID)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(refUsername);
+    let referrerId: string | null = null;
+    if (isUuid) {
+      referrerId = refUsername;
+    } else {
+      const { data: refProfile } = await supabase.from('user_profiles').select('id').eq('username', refUsername).maybeSingle();
+      referrerId = refProfile?.id ?? null;
+    }
     if (!referrerId || referrerId === newUserId) return;
     const { error } = await supabase
       .from('referrals')
@@ -77,6 +99,7 @@ export default function AuthPage() {
       .select()
       .single();
     if (error) return;
+    // Award 100 credits to both referrer and new user
     await supabase.rpc('add_to_wallet', { p_user_id: referrerId, p_amount: 100 }).catch(() => {});
     await supabase.rpc('add_to_wallet', { p_user_id: newUserId, p_amount: 100 }).catch(() => {});
   };
@@ -95,6 +118,9 @@ export default function AuthPage() {
     }
   };
 
+  // Pre-compute referral context for display
+  const pendingRef = typeof window !== 'undefined' ? (localStorage.getItem('ts-pending-ref') ?? searchParams.get('ref')) : null;
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4">
       <AuthAdBanner />
@@ -106,6 +132,12 @@ export default function AuthPage() {
           <h2 className="text-3xl font-bold">
             {mode === 'signin' ? 'Sign in to T' : mode === 'signup' ? 'Join T today' : 'Verify your email'}
           </h2>
+          {pendingRef && mode !== 'signin' && (
+            <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20">
+              <span className="text-xs font-bold text-primary">🎁 Invited by @{pendingRef}</span>
+              <span className="text-[10px] text-muted-foreground">· You'll both get 100 credits</span>
+            </div>
+          )}
         </div>
 
         {mode === 'signin' && (
