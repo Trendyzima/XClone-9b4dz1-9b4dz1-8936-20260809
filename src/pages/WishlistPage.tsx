@@ -34,8 +34,8 @@ export default function WishlistPage() {
   const { user } = useAuth();
   useSEO({ noindex: true, title: 'Wishlist', url: '/wishlist' });
   const navigate = useNavigate();
-  const [wishlistIds, setWishlistIds] = useState<string[]>([]);
-  const [products, setProducts] = useState<WishlistProduct[]>([]);
+  const [wishlistIds, setWishlistIds] = useState([] as string[]);
+  const [products, setProducts] = useState([] as WishlistProduct[]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

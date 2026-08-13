@@ -23,7 +23,7 @@ export function BottomNav() {
   const [unreadHelpReplies, setUnreadHelpReplies] = useState(0);
   const prevNotifs = useRef(-1);
   const prevMessages = useRef(-1);
-  const audioCtxRef = useRef<any>(null);
+  const audioCtxRef = useRef(null as any);
   const isReg = useIsRegulator();
   const [pendingAppeals, setPendingAppeals] = useState(0);
 
