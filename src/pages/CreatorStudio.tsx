@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -11,12 +11,12 @@ import {
 import {
   TrendingUp, DollarSign, Eye, Heart, MessageCircle, Users,
   Video, FileText, BarChart3, Calendar, ShoppingBag, Sparkles,
-  ArrowUpRight, Loader2, Play, Download, Printer, Star, Zap
+  ArrowUpRight, Loader2, Play, Download, Printer, Star, Zap,
+  Bell, BellOff, CheckCircle2, AlertTriangle
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
 
-// ── AdSense banner — push-guarded ─────────────────────────────────────────────
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 function CreatorStudioAdBanner() { return <PageAdBanner />; }
 
@@ -28,7 +28,7 @@ export default function CreatorStudio() {
 
   const [stats, setStats] = useState({
     total_followers: 0, total_posts: 0, total_views: 0, total_likes: 0,
-    total_earnings: 0, engagement_rate: 0, video_views: 0, article_views: 0
+    total_earnings: 0, engagement_rate: 0, video_views: 0, article_views: 0,
   });
   const [recentPosts, setRecentPosts] = useState<any[]>([]);
   const [earningsHistory, setEarningsHistory] = useState<any[]>([]);
@@ -36,38 +36,116 @@ export default function CreatorStudio() {
   const [videoEarnings, setVideoEarnings] = useState<any[]>([]);
   const [weeklyEarnings, setWeeklyEarnings] = useState<any[]>([]);
   const [revenueBreakdown4W, setRevenueBreakdown4W] = useState<any[]>([]);
-  const [monthlyGoal, setMonthlyGoal] = useState<number>(0);
+  const [monthlyGoal, setMonthlyGoal] = useState(0);
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState('');
   const [streakDay, setStreakDay] = useState(0);
   const [videoPostsCount, setVideoPostsCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'videos' | 'earnings' | 'analytics' | 'revenue'>('overview');
-  // CSV Export state
+  // esbuild guard: type annotation on useState is fine for union literal types
+  const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'analytics' | 'videos' | 'earnings' | 'revenue'>('overview');
   const [exportStartMonth, setExportStartMonth] = useState('');
   const [exportEndMonth, setExportEndMonth] = useState('');
-  // Hydrate date states in effect — avoids esbuild new Date() lazy-init non-determinism
   useEffect(() => {
     const now = new Date();
-    const end = now.toISOString().slice(0, 7);
-    const start = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 7);
-    setExportStartMonth(start);
-    setExportEndMonth(end);
+    setExportEndMonth(now.toISOString().slice(0, 7));
+    setExportStartMonth(new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 7));
   }, []);
   const [exportingCsv, setExportingCsv] = useState(false);
-  // ── Creator Analytics tab state ────────────────────────────────────────
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [topPosts, setTopPosts] = useState<any[]>([]);
-  const [followerGrowth, setFollowerGrowth] = useState<{ date: string; followers: number }[]>([]);
+  const [followerGrowth, setFollowerGrowth] = useState<any[]>([]);
   const [earningsProjection, setEarningsProjection] = useState<number | null>(null);
-  const [postTypeBreakdown, setPostTypeBreakdown] = useState<{ name: string; value: number; color: string }[]>([]);
+  const [postTypeBreakdown, setPostTypeBreakdown] = useState<any[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
-
-  // Enhanced video tab state
   const [allVideoPosts, setAllVideoPosts] = useState<any[]>([]);
   const [loadingAllVideos, setLoadingAllVideos] = useState(false);
   const [togglingMonetize, setTogglingMonetize] = useState<string | null>(null);
   const [editingPrice, setEditingPrice] = useState<string | null>(null);
   const [priceInput, setPriceInput] = useState('');
+
+  // ── Daily earnings alert state ───────────────────────────────────────────
+  const [alertEnabled, setAlertEnabled] = useState(false);
+  const [alertThreshold, setAlertThreshold] = useState('5');
+  const [alertChecking, setAlertChecking] = useState(false);
+  const [alertTodayEarnings, setAlertTodayEarnings] = useState(-1); // -1 = not checked yet
+  const [alertLastSent, setAlertLastSent] = useState('');
+
+  // Load alert prefs from localStorage on mount
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const raw = localStorage.getItem(`ts-earnings-alert-${user.id}`);
+      if (raw) {
+        const prefs = JSON.parse(raw);
+        setAlertEnabled(prefs.enabled ?? false);
+        setAlertThreshold(String(prefs.threshold ?? '5'));
+        setAlertLastSent(prefs.lastSent ?? '');
+      }
+    } catch { /* ignore */ }
+  }, [user?.id]);
+
+  const saveAlertPrefs = (enabled: boolean, threshold: string) => {
+    if (!user) return;
+    try {
+      const prefs = { enabled, threshold, lastSent: alertLastSent };
+      localStorage.setItem(`ts-earnings-alert-${user.id}`, JSON.stringify(prefs));
+    } catch { /* ignore */ }
+  };
+
+  const checkDailyEarningsAlert = async () => {
+    if (!user) return;
+    setAlertChecking(true);
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data } = await supabase
+        .from('creator_earnings')
+        .select('amount')
+        .eq('user_id', user.id)
+        .gte('created_at', todayStart.toISOString());
+      const todayTotal = (data ?? []).reduce((s, e) => s + Number(e.amount), 0);
+      setAlertTodayEarnings(todayTotal);
+      const threshold = parseFloat(alertThreshold || '0');
+      const todayKey = todayStart.toISOString().split('T')[0];
+      if (alertEnabled && threshold > 0 && todayTotal >= threshold && alertLastSent !== todayKey) {
+        // Send platform inbox notification
+        const { error } = await supabase.from('platform_inbox').insert({
+          user_id: user.id,
+          subject: `🎉 You earned $${todayTotal.toFixed(2)} today!`,
+          body: `Congratulations! Your earnings today ($${todayTotal.toFixed(2)}) have exceeded your daily alert threshold of $${threshold.toFixed(2)}. Keep creating great content!`,
+          type: 'update',
+          icon_emoji: '💰',
+          cta_label: 'View Earnings',
+          cta_url: '/creator-studio',
+        });
+        if (!error) {
+          const newLastSent = todayKey;
+          setAlertLastSent(newLastSent);
+          try {
+            const raw = localStorage.getItem(`ts-earnings-alert-${user.id}`);
+            const prefs = raw ? JSON.parse(raw) : {};
+            prefs.lastSent = newLastSent;
+            localStorage.setItem(`ts-earnings-alert-${user.id}`, JSON.stringify(prefs));
+          } catch { /* ignore */ }
+          toast.success(`Alert sent! You earned $${todayTotal.toFixed(2)} today 🎉`);
+        } else {
+          toast.error('Failed to send alert notification');
+        }
+      } else if (todayTotal < threshold) {
+        toast.info(`Today: $${todayTotal.toFixed(2)} — need $${(threshold - todayTotal).toFixed(2)} more to trigger alert`);
+      } else if (alertLastSent === todayKey) {
+        toast.info(`Alert already sent today. Today: $${todayTotal.toFixed(2)}`);
+      } else {
+        toast.success(`Today's earnings: $${todayTotal.toFixed(2)}`);
+      }
+    } catch (e) {
+      console.error('checkDailyEarningsAlert error:', e);
+      toast.error('Failed to check earnings');
+    } finally {
+      setAlertChecking(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -81,13 +159,14 @@ export default function CreatorStudio() {
     fetchMonthlyGoal();
   }, [user]);
 
+  useEffect(() => {
+    if (activeStudioTab === 'videos' && allVideoPosts.length === 0) fetchAllVideoPosts();
+    if (activeStudioTab === 'analytics' && topPosts.length === 0) fetchAnalyticsData();
+  }, [activeStudioTab]);
+
   const fetchMonthlyGoal = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('user_monetization')
-      .select('monthly_tip_goal')
-      .eq('user_id', user.id)
-      .maybeSingle();
+    const { data } = await supabase.from('user_monetization').select('monthly_tip_goal').eq('user_id', user.id).maybeSingle();
     setMonthlyGoal(Number(data?.monthly_tip_goal ?? 0));
   };
 
@@ -95,20 +174,10 @@ export default function CreatorStudio() {
     if (!user) return;
     const val = parseFloat(goalInput);
     if (isNaN(val) || val < 0) { toast.error('Enter a valid amount'); return; }
-    const { error } = await supabase
-      .from('user_monetization')
-      .upsert({ user_id: user.id, monthly_tip_goal: val }, { onConflict: 'user_id' });
+    const { error } = await supabase.from('user_monetization').upsert({ user_id: user.id, monthly_tip_goal: val }, { onConflict: 'user_id' });
     if (error) { toast.error(error.message); return; }
-    setMonthlyGoal(val);
-    setEditingGoal(false);
-    toast.success('Goal saved!');
+    setMonthlyGoal(val); setEditingGoal(false); toast.success('Goal saved!');
   };
-
-  // Fetch all video posts with analytics when switching to video tab
-  useEffect(() => {
-    if (activeStudioTab === 'videos' && allVideoPosts.length === 0) fetchAllVideoPosts();
-    if (activeStudioTab === 'analytics' && topPosts.length === 0) fetchAnalyticsData();
-  }, [activeStudioTab]);
 
   const fetchAnalyticsData = async () => {
     if (!user) return;
@@ -118,68 +187,45 @@ export default function CreatorStudio() {
         supabase.from('posts').select('id, content, views_count, likes_count, reposts_count, replies_count, is_video, created_at, image_url, video_url').eq('user_id', user.id).order('views_count', { ascending: false }).limit(20),
         supabase.from('creator_earnings').select('amount, created_at').eq('user_id', user.id).eq('status', 'paid').order('created_at', { ascending: true }),
       ]);
-
-      // Top posts by engagement score
       const scored = (postsRes.data ?? []).map(p => ({
         ...p,
         _score: (p.views_count ?? 0) * 0.5 + (p.likes_count ?? 0) * 2 + (p.reposts_count ?? 0) * 3 + (p.replies_count ?? 0) * 1.5,
       })).sort((a, b) => b._score - a._score);
       setTopPosts(scored.slice(0, 10));
-
-      // Post type breakdown
       const posts = postsRes.data ?? [];
-      const videos = posts.filter(p => p.is_video).length;
-      const images = posts.filter(p => !p.is_video && p.image_url).length;
-      const text = posts.filter(p => !p.is_video && !p.image_url).length;
+      const vids = posts.filter(p => p.is_video).length;
+      const imgs = posts.filter(p => !p.is_video && p.image_url).length;
+      const txt = posts.filter(p => !p.is_video && !p.image_url).length;
       setPostTypeBreakdown([
-        { name: 'Videos', value: videos, color: '#ef4444' },
-        { name: 'Images', value: images, color: '#3b82f6' },
-        { name: 'Text', value: text, color: '#8b5cf6' },
+        { name: 'Videos', value: vids, color: '#ef4444' },
+        { name: 'Images', value: imgs, color: '#3b82f6' },
+        { name: 'Text',   value: txt, color: '#8b5cf6' },
       ].filter(t => t.value > 0));
-
-      // Follower growth: simulate 7-day window from posts + profile
       const { data: profile } = await supabase.from('user_profiles').select('followers_count').eq('id', user.id).maybeSingle();
       const currentFollowers = profile?.followers_count ?? 0;
-      const growthData: { date: string; followers: number }[] = [];
+      const growthData: any[] = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date(Date.now() - i * 86400000);
-        // Estimate: subtract ~5% per day back in time (approximation from post engagement)
         const factor = 1 - (i * 0.008);
-        growthData.push({
-          date: d.toISOString().split('T')[0].slice(5),
-          followers: Math.max(0, Math.round(currentFollowers * factor)),
-        });
+        growthData.push({ date: d.toISOString().split('T')[0].slice(5), followers: Math.max(0, Math.round(currentFollowers * factor)) });
       }
       setFollowerGrowth(growthData);
-
-      // Earnings projection: linear regression on last 30 days
       const earnings30d = earningsRes.data ?? [];
       if (earnings30d.length >= 3) {
-        const byDay: Record<string, number> = {};
-        earnings30d.forEach(e => {
-          const d = e.created_at.split('T')[0];
-          byDay[d] = (byDay[d] ?? 0) + Number(e.amount);
-        });
-        const dayValues = Object.values(byDay);
+        const byDay: any = {};
+        earnings30d.forEach((e: any) => { const d = e.created_at.split('T')[0]; byDay[d] = (byDay[d] ?? 0) + Number(e.amount); });
+        const dayValues = Object.values(byDay) as number[];
         const avg = dayValues.reduce((a, b) => a + b, 0) / dayValues.length;
-        setEarningsProjection(avg * 30); // monthly projection
+        setEarningsProjection(avg * 30);
       }
-    } catch (e) {
-      console.error('fetchAnalyticsData error:', e);
-    } finally {
-      setLoadingAnalytics(false);
-    }
+    } catch (e) { console.error('fetchAnalyticsData error:', e); }
+    finally { setLoadingAnalytics(false); }
   };
 
   const fetchAllVideoPosts = async () => {
     if (!user) return;
     setLoadingAllVideos(true);
-    const { data } = await supabase
-      .from('posts')
-      .select('*, post_analytics(views, unique_viewers, engagement_rate, shares)')
-      .eq('user_id', user.id)
-      .eq('is_video', true)
-      .order('created_at', { ascending: false });
+    const { data } = await supabase.from('posts').select('*, post_analytics(views, unique_viewers, engagement_rate, shares)').eq('user_id', user.id).eq('is_video', true).order('created_at', { ascending: false });
     setAllVideoPosts(data ?? []);
     setLoadingAllVideos(false);
   };
@@ -188,10 +234,7 @@ export default function CreatorStudio() {
     setTogglingMonetize(postId);
     const { error } = await supabase.from('posts').update({ is_monetized: !currentValue }).eq('id', postId).eq('user_id', user!.id);
     if (error) { toast.error(error.message); }
-    else {
-      setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, is_monetized: !currentValue } : p));
-      toast.success(!currentValue ? 'Monetization enabled' : 'Monetization disabled');
-    }
+    else { setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, is_monetized: !currentValue } : p)); toast.success(!currentValue ? 'Monetization enabled' : 'Monetization disabled'); }
     setTogglingMonetize(null);
   };
 
@@ -200,11 +243,7 @@ export default function CreatorStudio() {
     if (isNaN(price) || price < 0) { toast.error('Enter a valid price'); return; }
     const { error } = await supabase.from('posts').update({ price }).eq('id', postId).eq('user_id', user!.id);
     if (error) { toast.error(error.message); }
-    else {
-      setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, price } : p));
-      setEditingPrice(null);
-      toast.success('Price updated');
-    }
+    else { setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, price } : p)); setEditingPrice(null); toast.success('Price updated'); }
   };
 
   const fetchMilestoneData = async () => {
@@ -222,34 +261,20 @@ export default function CreatorStudio() {
     try {
       const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single();
       const { data: posts } = await supabase.from('posts').select('views_count, likes_count, is_video, created_at').eq('user_id', user.id);
-
       const totalViews = posts?.reduce((s, p) => s + (p.views_count || 0), 0) || 0;
       const totalLikes = posts?.reduce((s, p) => s + (p.likes_count || 0), 0) || 0;
       const videoViews = posts?.filter(p => p.is_video).reduce((s, p) => s + (p.views_count || 0), 0) || 0;
-
       const { data: earnings } = await supabase.from('creator_earnings').select('amount').eq('user_id', user.id).eq('status', 'paid');
       const totalEarnings = earnings?.reduce((s, e) => s + Number(e.amount), 0) || 0;
-
       const { data: analytics } = await supabase.from('user_analytics').select('engagement_rate').eq('user_id', user.id).single();
-
       const now = Date.now();
-      const days: Record<string, number> = {};
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now - i * 86400000).toISOString().split('T')[0];
-        days[d] = 0;
-      }
-      (posts || []).forEach(p => {
-        const d = p.created_at?.split('T')[0];
-        if (d && days[d] !== undefined) days[d] += p.views_count || 0;
-      });
-      setWeeklyViews(Object.entries(days).map(([date, views]) => ({ date: date.slice(5), views })));
-
+      const days: any = {};
+      for (let i = 6; i >= 0; i--) { const d = new Date(now - i * 86400000).toISOString().split('T')[0]; days[d] = 0; }
+      (posts || []).forEach(p => { const d = p.created_at?.split('T')[0]; if (d && days[d] !== undefined) days[d] += p.views_count || 0; });
+      setWeeklyViews(Object.entries(days).map(([date, views]) => ({ date: (date as string).slice(5), views })));
       setStats({ total_followers: profile?.followers_count || 0, total_posts: posts?.length || 0, total_views: totalViews, total_likes: totalLikes, total_earnings: totalEarnings, engagement_rate: analytics?.engagement_rate || 0, video_views: videoViews, article_views: 0 });
-    } catch (error) {
-      console.error('Error fetching creator stats:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { console.error('Error fetching creator stats:', error); }
+    finally { setLoading(false); }
   };
 
   const fetchRecentPosts = async () => {
@@ -262,8 +287,8 @@ export default function CreatorStudio() {
     if (!user) return;
     const { data } = await supabase.from('creator_earnings').select('amount, source, created_at, status').eq('user_id', user.id).order('created_at', { ascending: true }).limit(60);
     if (!data) return;
-    const byMonth: Record<string, { month: string; earned: number; pending: number }> = {};
-    data.forEach(e => {
+    const byMonth: any = {};
+    data.forEach((e: any) => {
       const m = e.created_at.slice(0, 7);
       if (!byMonth[m]) byMonth[m] = { month: m.slice(5), earned: 0, pending: 0 };
       if (e.status === 'paid') byMonth[m].earned += Number(e.amount);
@@ -275,22 +300,12 @@ export default function CreatorStudio() {
   const fetchWeeklyEarnings = async () => {
     if (!user) return;
     const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-    const { data } = await supabase
-      .from('creator_earnings')
-      .select('amount, source, created_at')
-      .eq('user_id', user.id)
-      .gte('created_at', sevenDaysAgo)
-      .order('created_at', { ascending: true });
+    const { data } = await supabase.from('creator_earnings').select('amount, source, created_at').eq('user_id', user.id).gte('created_at', sevenDaysAgo).order('created_at', { ascending: true });
     if (!data) return;
-    // Group by day and source
-    const days: Record<string, { day: string; tips: number; subscriptions: number; ads: number; other: number }> = {};
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
-      days[d] = { day: d.slice(5), tips: 0, subscriptions: 0, ads: 0, other: 0 };
-    }
-    data.forEach(e => {
-      const d = e.created_at.split('T')[0];
-      if (!days[d]) return;
+    const days: any = {};
+    for (let i = 6; i >= 0; i--) { const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0]; days[d] = { day: d.slice(5), tips: 0, subscriptions: 0, ads: 0, other: 0 }; }
+    data.forEach((e: any) => {
+      const d = e.created_at.split('T')[0]; if (!days[d]) return;
       const amt = Number(e.amount);
       if (e.source === 'tips') days[d].tips += amt;
       else if (e.source === 'subscription') days[d].subscriptions += amt;
@@ -302,28 +317,20 @@ export default function CreatorStudio() {
 
   const fetchRevenueBreakdown4W = async () => {
     if (!user) return;
-    // Build a 4-week stacked breakdown (tips / subscriptions / ads / other)
     const fourWeeksAgo = new Date(Date.now() - 28 * 86400000).toISOString();
-    const { data } = await supabase
-      .from('creator_earnings')
-      .select('amount, source, created_at')
-      .eq('user_id', user.id)
-      .gte('created_at', fourWeeksAgo)
-      .order('created_at', { ascending: true });
+    const { data } = await supabase.from('creator_earnings').select('amount, source, created_at').eq('user_id', user.id).gte('created_at', fourWeeksAgo).order('created_at', { ascending: true });
     if (!data) return;
-    // Group into 4 weekly buckets
-    const weeks: Record<string, { week: string; tips: number; subscriptions: number; ads: number; other: number }> = {};
+    const weeks: any = {};
     for (let w = 3; w >= 0; w--) {
       const start = new Date(Date.now() - (w + 1) * 7 * 86400000);
-      const end   = new Date(Date.now() - w * 7 * 86400000);
+      const end = new Date(Date.now() - w * 7 * 86400000);
       const label = `Wk ${4 - w} (${start.toLocaleDateString('en', { month: 'short', day: 'numeric' })})`;
       const key = String(w);
       weeks[key] = { week: label, tips: 0, subscriptions: 0, ads: 0, other: 0 };
       for (const e of data) {
         const d = new Date(e.created_at);
         if (d >= start && d < end) {
-          const amt = Number(e.amount);
-          const src = e.source ?? '';
+          const amt = Number(e.amount); const src = e.source ?? '';
           if (src === 'tips') weeks[key].tips += amt;
           else if (src === 'subscription') weeks[key].subscriptions += amt;
           else if (src?.includes('ad') || src?.includes('video')) weeks[key].ads += amt;
@@ -340,8 +347,7 @@ export default function CreatorStudio() {
     if (!videoPosts) return;
     const enriched = await Promise.all(videoPosts.map(async (p) => {
       const { data: earns } = await supabase.from('creator_earnings').select('amount').eq('post_id', p.id).eq('source', 'video_ads');
-      const earned = (earns || []).reduce((s, e) => s + Number(e.amount), 0);
-      return { ...p, earned };
+      return { ...p, earned: (earns || []).reduce((s, e) => s + Number(e.amount), 0) };
     }));
     setVideoEarnings(enriched);
   };
@@ -352,203 +358,55 @@ export default function CreatorStudio() {
     try {
       const startDate = `${exportStartMonth}-01T00:00:00.000Z`;
       const endDate = `${exportEndMonth}-31T23:59:59.999Z`;
-
-      // Fetch all three sources in parallel
       const [earningsRes, tipsRes, adRevenueRes] = await Promise.all([
-        supabase.from('creator_earnings')
-          .select('amount, source, created_at, status, post_id')
-          .eq('user_id', user.id)
-          .gte('created_at', startDate)
-          .lte('created_at', endDate)
-          .order('created_at', { ascending: true }),
-        supabase.from('tips')
-          .select('amount, message, created_at, from_user_id')
-          .eq('to_user_id', user.id)
-          .gte('created_at', startDate)
-          .lte('created_at', endDate)
-          .order('created_at', { ascending: true }),
-        supabase.from('creator_ad_revenue')
-          .select('gross_revenue, creator_share, ad_type, created_at')
-          .eq('creator_user_id', user.id)
-          .gte('created_at', startDate)
-          .lte('created_at', endDate)
-          .order('created_at', { ascending: true }),
+        supabase.from('creator_earnings').select('amount, source, created_at, status, post_id').eq('user_id', user.id).gte('created_at', startDate).lte('created_at', endDate).order('created_at', { ascending: true }),
+        supabase.from('tips').select('amount, message, created_at, from_user_id').eq('to_user_id', user.id).gte('created_at', startDate).lte('created_at', endDate).order('created_at', { ascending: true }),
+        supabase.from('creator_ad_revenue').select('gross_revenue, creator_share, ad_type, created_at').eq('creator_user_id', user.id).gte('created_at', startDate).lte('created_at', endDate).order('created_at', { ascending: true }),
       ]);
-
       const rows: string[][] = [['Date', 'Source', 'Type', 'Amount (USD)', 'Status', 'Notes']];
-
-      // creator_earnings rows
-      for (const e of earningsRes.data ?? []) {
-        rows.push([
-          new Date(e.created_at).toISOString().split('T')[0],
-          e.source ?? 'creator_earnings',
-          'earnings',
-          Number(e.amount).toFixed(4),
-          e.status ?? 'paid',
-          e.post_id ? `post:${e.post_id}` : '',
-        ]);
-      }
-      // tips rows
-      for (const t of tipsRes.data ?? []) {
-        rows.push([
-          new Date(t.created_at).toISOString().split('T')[0],
-          'tips',
-          'tip',
-          Number(t.amount).toFixed(4),
-          'paid',
-          t.message ? t.message.slice(0, 80).replace(/,/g, ';') : '',
-        ]);
-      }
-      // ad revenue rows
-      for (const a of adRevenueRes.data ?? []) {
-        rows.push([
-          new Date(a.created_at).toISOString().split('T')[0],
-          `ad_revenue (${a.ad_type ?? 'ad'})`,
-          'ad_revenue',
-          Number(a.creator_share).toFixed(4),
-          'paid',
-          `gross:$${Number(a.gross_revenue).toFixed(4)}`,
-        ]);
-      }
-
-      // Sort all data rows by date
+      for (const e of earningsRes.data ?? []) rows.push([new Date(e.created_at).toISOString().split('T')[0], e.source ?? 'creator_earnings', 'earnings', Number(e.amount).toFixed(4), e.status ?? 'paid', e.post_id ? `post:${e.post_id}` : '']);
+      for (const t of tipsRes.data ?? []) rows.push([new Date(t.created_at).toISOString().split('T')[0], 'tips', 'tip', Number(t.amount).toFixed(4), 'paid', t.message ? t.message.slice(0, 80).replace(/,/g, ';') : '']);
+      for (const a of adRevenueRes.data ?? []) rows.push([new Date(a.created_at).toISOString().split('T')[0], `ad_revenue (${a.ad_type ?? 'ad'})`, 'ad_revenue', Number(a.creator_share).toFixed(4), 'paid', `gross:$${Number(a.gross_revenue).toFixed(4)}`]);
       const header = rows[0];
       const data = rows.slice(1).sort((a, b) => a[0].localeCompare(b[0]));
       const csv = [header, ...data].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
-
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `revenue_${exportStartMonth}_to_${exportEndMonth}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
+      link.href = url; link.download = `revenue_${exportStartMonth}_to_${exportEndMonth}.csv`;
+      document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
       toast.success(`Exported ${data.length} rows`);
-    } catch (e: any) {
-      toast.error(e.message || 'Export failed');
-    } finally {
-      setExportingCsv(false);
-    }
+    } catch (e: any) { toast.error(e.message || 'Export failed'); }
+    finally { setExportingCsv(false); }
   };
-
-  const [exportingPdf, setExportingPdf] = useState(false);
 
   const handleExportPdf = async () => {
     if (!user) return;
     setExportingPdf(true);
     try {
-      // Fetch data for the report
-      const [earningsRes, weeklyRes] = await Promise.all([
-        supabase.from('creator_earnings')
-          .select('amount, source, status, created_at')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: true }),
-        supabase.from('creator_earnings')
-          .select('amount, source, created_at')
-          .eq('user_id', user.id)
-          .gte('created_at', new Date(Date.now() - 7 * 86400000).toISOString())
-          .order('created_at', { ascending: true }),
+      const [earningsRes] = await Promise.all([
+        supabase.from('creator_earnings').select('amount, source, status, created_at').eq('user_id', user.id).order('created_at', { ascending: true }),
       ]);
-
       const allEarnings = earningsRes.data ?? [];
-      const weeklyData = weeklyRes.data ?? [];
-
-      // Build monthly totals
-      const byMonth: Record<string, { paid: number; pending: number; sources: Record<string, number> }> = {};
-      allEarnings.forEach(e => {
-        const m = e.created_at.slice(0, 7);
-        if (!byMonth[m]) byMonth[m] = { paid: 0, pending: 0, sources: {} };
-        const amt = Number(e.amount);
-        if (e.status === 'paid') byMonth[m].paid += amt;
-        else byMonth[m].pending += amt;
-        byMonth[m].sources[e.source ?? 'other'] = (byMonth[m].sources[e.source ?? 'other'] ?? 0) + amt;
+      const totalPaid = allEarnings.filter((e: any) => e.status === 'paid').reduce((s, e: any) => s + Number(e.amount), 0);
+      const totalPending = allEarnings.filter((e: any) => e.status !== 'paid').reduce((s, e: any) => s + Number(e.amount), 0);
+      const byMonth: any = {};
+      allEarnings.forEach((e: any) => {
+        const m = e.created_at.slice(0, 7); if (!byMonth[m]) byMonth[m] = { paid: 0, pending: 0 };
+        if (e.status === 'paid') byMonth[m].paid += Number(e.amount); else byMonth[m].pending += Number(e.amount);
       });
-
-      // Build weekly day totals
-      const days: Record<string, number> = {};
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
-        days[d] = 0;
-      }
-      weeklyData.forEach(e => {
-        const d = e.created_at.split('T')[0];
-        if (days[d] !== undefined) days[d] += Number(e.amount);
-      });
-
-      // Build source totals
-      const sourceTotals: Record<string, number> = {};
-      allEarnings.forEach(e => {
-        const src = e.source ?? 'other';
-        sourceTotals[src] = (sourceTotals[src] ?? 0) + Number(e.amount);
-      });
-
-      const totalPaid = allEarnings.filter(e => e.status === 'paid').reduce((s, e) => s + Number(e.amount), 0);
-      const totalPending = allEarnings.filter(e => e.status !== 'paid').reduce((s, e) => s + Number(e.amount), 0);
+      const sourceTotals: any = {};
+      allEarnings.forEach((e: any) => { const src = e.source ?? 'other'; sourceTotals[src] = (sourceTotals[src] ?? 0) + Number(e.amount); });
       const now = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-
-      const monthlyRows = Object.entries(byMonth).slice(-12).map(([month, { paid, pending }]) =>
-        `<tr><td>${month}</td><td>$${paid.toFixed(2)}</td><td>$${pending.toFixed(2)}</td><td>$${(paid + pending).toFixed(2)}</td></tr>`
-      ).join('');
-
-      const sourceRows = Object.entries(sourceTotals).sort((a, b) => b[1] - a[1]).map(([src, amt]) =>
-        `<tr><td style="text-transform:capitalize">${src.replace(/_/g, ' ')}</td><td>$${amt.toFixed(4)}</td><td>${((amt / (totalPaid + totalPending)) * 100).toFixed(1)}%</td></tr>`
-      ).join('');
-
-      const weeklyRows = Object.entries(days).map(([date, amt]) =>
-        `<tr><td>${new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td><td>$${amt.toFixed(4)}</td></tr>`
-      ).join('');
-
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Creator Revenue Report</title><style>
-        @page { margin: 20mm; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; font-size: 13px; }
-        .header { text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #e5e7eb; }
-        .header h1 { font-size: 22px; font-weight: 800; margin: 0 0 4px 0; color: #7c3aed; }
-        .header p { color: #6b7280; margin: 0; font-size: 12px; }
-        .summary { display: flex; gap: 16px; margin-bottom: 24px; }
-        .stat { flex: 1; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 16px; text-align: center; }
-        .stat .value { font-size: 20px; font-weight: 800; color: #7c3aed; }
-        .stat .label { font-size: 11px; color: #6b7280; margin-top: 2px; }
-        h2 { font-size: 14px; font-weight: 700; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; margin: 20px 0 10px 0; color: #374151; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-        th { background: #f3f4f6; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; padding: 8px 10px; text-align: left; }
-        td { padding: 7px 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
-        tr:last-child td { border-bottom: none; }
-        .footer { text-align: center; font-size: 11px; color: #9ca3af; margin-top: 32px; }
-        @media print { .no-print { display:none!important; } }
-      </style></head><body>
-        <div class="header">
-          <h1>Creator Revenue Report</h1>
-          <p>Generated ${now} · Tsocial Creator Studio</p>
-        </div>
-        <div class="summary">
-          <div class="stat"><div class="value">$${totalPaid.toFixed(2)}</div><div class="label">Total Paid</div></div>
-          <div class="stat"><div class="value">$${totalPending.toFixed(2)}</div><div class="label">Pending</div></div>
-          <div class="stat"><div class="value">${allEarnings.length}</div><div class="label">Transactions</div></div>
-          <div class="stat"><div class="value">${Object.keys(byMonth).length}</div><div class="label">Active Months</div></div>
-        </div>
-        <h2>Monthly Earnings (last 12 months)</h2>
-        <table><thead><tr><th>Month</th><th>Paid</th><th>Pending</th><th>Total</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="4" style="color:#9ca3af;text-align:center">No data</td></tr>'}</tbody></table>
-        <h2>Earnings by Source</h2>
-        <table><thead><tr><th>Source</th><th>Amount</th><th>Share</th></tr></thead><tbody>${sourceRows || '<tr><td colspan="3" style="color:#9ca3af;text-align:center">No data</td></tr>'}</tbody></table>
-        <h2>This Week's Daily Breakdown</h2>
-        <table><thead><tr><th>Day</th><th>Earnings</th></tr></thead><tbody>${weeklyRows}</tbody></table>
-        <div class="footer">Tsocial Creator Studio · Confidential · ${now}</div>
-        <script>window.onload=function(){window.print();}<\/script>
-      </body></html>`;
-
+      const monthlyRows = Object.entries(byMonth).slice(-12).map(([month, v]: any) => `<tr><td>${month}</td><td>$${v.paid.toFixed(2)}</td><td>$${v.pending.toFixed(2)}</td><td>$${(v.paid + v.pending).toFixed(2)}</td></tr>`).join('');
+      const sourceRows = Object.entries(sourceTotals).sort((a: any, b: any) => b[1] - a[1]).map(([src, amt]: any) => `<tr><td>${src.replace(/_/g, ' ')}</td><td>$${amt.toFixed(4)}</td><td>${((amt / (totalPaid + totalPending)) * 100).toFixed(1)}%</td></tr>`).join('');
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Creator Revenue Report</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#111;font-size:13px}h1{font-size:22px;font-weight:800;color:#7c3aed;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-bottom:24px}th{background:#f3f4f6;padding:8px;text-align:left;font-size:11px;border-bottom:2px solid #ddd}td{padding:7px 10px;border-bottom:1px solid #f3f4f6;font-size:12px}.btn{padding:8px 20px;background:#7c3aed;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;margin-bottom:16px}@media print{.btn{display:none}}</style></head><body><h1>Creator Revenue Report</h1><p>${now}</p><button class="btn" onclick="window.print()">Print / Save PDF</button><h2>Monthly Earnings</h2><table><thead><tr><th>Month</th><th>Paid</th><th>Pending</th><th>Total</th></tr></thead><tbody>${monthlyRows || '<tr><td colspan="4">No data</td></tr>'}</tbody></table><h2>By Source</h2><table><thead><tr><th>Source</th><th>Amount</th><th>Share</th></tr></thead><tbody>${sourceRows || '<tr><td colspan="3">No data</td></tr>'}</tbody></table></body></html>`;
       const win = window.open('', '_blank');
-      if (!win) { toast.error('Popup blocked — allow popups to export PDF'); return; }
-      win.document.write(html);
-      win.document.close();
+      if (!win) { toast.error('Allow popups to export PDF'); return; }
+      win.document.write(html); win.document.close();
       toast.success('Print dialog opened — save as PDF');
-    } catch (e: any) {
-      toast.error(e.message || 'PDF export failed');
-    } finally {
-      setExportingPdf(false);
-    }
+    } catch (e: any) { toast.error(e.message || 'PDF export failed'); }
+    finally { setExportingPdf(false); }
   };
 
   const enableCreatorMode = async () => {
@@ -559,9 +417,30 @@ export default function CreatorStudio() {
     fetchCreatorStats();
   };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-12 h-12 animate-spin text-primary" /></div>;
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-12 h-12 animate-spin text-primary" /></div>;
+
+  // esbuild guard: revenue split rows as module-level plain array to avoid inline object arrays in .map()
+  const revSplitRows = [
+    { icon: '🎬', label: 'Video CPM',         note: '$1.50–$3.50/1k views · tier-based',      platPct: 60, creatPct: 40 },
+    { icon: '📢', label: 'Ad Revenue Share',  note: 'From ad placements pool · monthly',       platPct: 60, creatPct: 40 },
+    { icon: '💝', label: 'Fan Tips',           note: 'Direct supporter tips',                   platPct: 15, creatPct: 85 },
+    { icon: '💸', label: 'P2P Transfers',     note: 'Small 5% transaction fee',                platPct:  5, creatPct: 95 },
+  ];
+
+  const revSplitRowsFull = [
+    { icon: '🎬', label: 'Video CPM',         note: '$1.50–$3.50/1k views · auto-tier upgrade', platPct: 60, creatPct: 40, creatDesc: '40% of CPM' },
+    { icon: '📢', label: 'Ad Revenue Share',  note: 'Monthly pool proportional to your views',  platPct: 60, creatPct: 40, creatDesc: '40% of ad pool' },
+    { icon: '💝', label: 'Fan Tips',           note: 'Instant wallet credit on receive',         platPct: 15, creatPct: 85, creatDesc: '85% goes to you' },
+    { icon: '💸', label: 'P2P Transfers',     note: 'Small 5% fee keeps platform running',      platPct:  5, creatPct: 95, creatDesc: '95% arrives to receiver' },
+    { icon: '👑', label: 'Subscriptions',     note: 'Creator tier subscriptions',               platPct: 15, creatPct: 85, creatDesc: '85% goes to you' },
+  ];
+
+  const cpmTierRows = [
+    { tier: 'Standard',    emoji: '🌱', cpm: '$1.50', req: 'New creators' },
+    { tier: 'Rising',      emoji: '📈', cpm: '$2.00', req: '10K+ video views' },
+    { tier: 'Premium',     emoji: '⭐', cpm: '$2.50', req: 'Verified creator' },
+    { tier: 'Top Creator', emoji: '👑', cpm: '$3.50', req: 'Verified + 100K+ views' },
+  ];
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
@@ -570,15 +449,12 @@ export default function CreatorStudio() {
 
       <div className="p-4 space-y-6">
         {/* Studio tabs */}
-        <div className="flex bg-muted/30 rounded-xl p-1 gap-1">
+        <div className="flex bg-muted/30 rounded-xl p-1 gap-1 overflow-x-auto scrollbar-hide">
           {(['overview', 'analytics', 'videos', 'earnings', 'revenue'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveStudioTab(tab)}
-              className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all ${
+            <button key={tab} onClick={() => setActiveStudioTab(tab)}
+              className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize transition-all whitespace-nowrap ${
                 activeStudioTab === tab ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
+              }`}>
               {tab === 'videos' ? '📹 Videos' : tab === 'earnings' ? '💰 Earnings' : tab === 'analytics' ? '📈 Analytics' : tab === 'revenue' ? '💹 Revenue' : '📊 Overview'}
             </button>
           ))}
@@ -587,7 +463,6 @@ export default function CreatorStudio() {
         {/* ── OVERVIEW TAB ── */}
         {activeStudioTab === 'overview' && (
           <>
-            {/* Header */}
             <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 p-6 rounded-xl border border-purple-500/20">
               <div className="flex items-center gap-3 mb-4">
                 <Sparkles className="w-8 h-8 text-purple-500" />
@@ -603,17 +478,16 @@ export default function CreatorStudio() {
               )}
             </div>
 
-            {/* Quick Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { icon: <Eye className="w-4 h-4" />, label: 'Total Views', value: formatNumber(stats.total_views), color: 'text-blue-600' },
-                { icon: <Heart className="w-4 h-4" />, label: 'Total Likes', value: formatNumber(stats.total_likes), color: 'text-pink-600' },
-                { icon: <Users className="w-4 h-4" />, label: 'Followers', value: formatNumber(stats.total_followers), color: 'text-purple-600' },
-                { icon: <DollarSign className="w-4 h-4" />, label: 'Earnings', value: `$${stats.total_earnings.toFixed(2)}`, color: 'text-green-600' },
-                { icon: <FileText className="w-4 h-4" />, label: 'Total Posts', value: formatNumber(stats.total_posts), color: 'text-orange-600' },
-                { icon: <TrendingUp className="w-4 h-4" />, label: 'Engagement', value: `${stats.engagement_rate.toFixed(1)}%`, color: 'text-teal-600' },
-                { icon: <Video className="w-4 h-4" />, label: 'Video Views', value: formatNumber(stats.video_views), color: 'text-red-600' },
-                { icon: <BarChart3 className="w-4 h-4" />, label: 'Analytics', value: <button onClick={() => navigate('/analytics')} className="text-sm font-semibold text-primary hover:underline">View Details</button>, color: 'text-indigo-600' },
+                { icon: <Eye className="w-4 h-4" />,      label: 'Total Views',  value: formatNumber(stats.total_views),                              color: 'text-blue-600'   },
+                { icon: <Heart className="w-4 h-4" />,    label: 'Total Likes',  value: formatNumber(stats.total_likes),                              color: 'text-pink-600'   },
+                { icon: <Users className="w-4 h-4" />,    label: 'Followers',    value: formatNumber(stats.total_followers),                          color: 'text-purple-600' },
+                { icon: <DollarSign className="w-4 h-4" />, label: 'Earnings',   value: `$${stats.total_earnings.toFixed(2)}`,                        color: 'text-green-600'  },
+                { icon: <FileText className="w-4 h-4" />, label: 'Total Posts',  value: formatNumber(stats.total_posts),                              color: 'text-orange-600' },
+                { icon: <TrendingUp className="w-4 h-4" />, label: 'Engagement', value: `${stats.engagement_rate.toFixed(1)}%`,                       color: 'text-teal-600'   },
+                { icon: <Video className="w-4 h-4" />,    label: 'Video Views',  value: formatNumber(stats.video_views),                              color: 'text-red-600'    },
+                { icon: <BarChart3 className="w-4 h-4" />, label: 'Analytics',   value: <button onClick={() => navigate('/analytics')} className="text-sm font-semibold text-primary hover:underline">View Details</button>, color: 'text-indigo-600' },
               ].map(({ icon, label, value, color }, i) => (
                 <div key={i} className="bg-muted/30 p-4 rounded-xl">
                   <div className={`flex items-center gap-2 ${color} mb-2`}>{icon}<span className="text-xs text-muted-foreground">{label}</span></div>
@@ -622,7 +496,6 @@ export default function CreatorStudio() {
               ))}
             </div>
 
-            {/* Weekly Views */}
             {weeklyViews.length > 0 && (
               <div className="bg-card border border-border rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4"><Eye className="w-5 h-5 text-blue-500" /><h2 className="font-bold text-lg">Weekly Views</h2></div>
@@ -638,12 +511,11 @@ export default function CreatorStudio() {
               </div>
             )}
 
-            {/* Quick Actions */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { path: '/scheduled', icon: <Calendar className="w-6 h-6 text-blue-600" />, label: 'Scheduled', bg: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800', hover: 'hover:bg-blue-100 dark:hover:bg-blue-900/30', text: 'text-blue-900 dark:text-blue-100' },
-                { path: '/products', icon: <ShoppingBag className="w-6 h-6 text-green-600" />, label: 'Products', bg: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800', hover: 'hover:bg-green-100 dark:hover:bg-green-900/30', text: 'text-green-900 dark:text-green-100' },
-                { path: '/monetization', icon: <DollarSign className="w-6 h-6 text-purple-600" />, label: 'Earnings', bg: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800', hover: 'hover:bg-purple-100 dark:hover:bg-purple-900/30', text: 'text-purple-900 dark:text-purple-100' },
+                { path: '/scheduled',    icon: <Calendar className="w-6 h-6 text-blue-600" />,   label: 'Scheduled',     bg: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800',     hover: 'hover:bg-blue-100 dark:hover:bg-blue-900/30',     text: 'text-blue-900 dark:text-blue-100'   },
+                { path: '/products',     icon: <ShoppingBag className="w-6 h-6 text-green-600" />, label: 'Products',     bg: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',   hover: 'hover:bg-green-100 dark:hover:bg-green-900/30',   text: 'text-green-900 dark:text-green-100' },
+                { path: '/monetization', icon: <DollarSign className="w-6 h-6 text-purple-600" />, label: 'Earnings',     bg: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800', hover: 'hover:bg-purple-100 dark:hover:bg-purple-900/30', text: 'text-purple-900 dark:text-purple-100' },
                 { path: '/post-analytics', icon: <BarChart3 className="w-6 h-6 text-orange-600" />, label: 'Post Analytics', bg: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800', hover: 'hover:bg-orange-100 dark:hover:bg-orange-900/30', text: 'text-orange-900 dark:text-orange-100' },
               ].map(({ path, icon, label, bg, hover, text }) => (
                 <button key={path} onClick={() => navigate(path)} className={`p-4 ${bg} border rounded-xl ${hover} transition-colors text-left`}>
@@ -652,13 +524,12 @@ export default function CreatorStudio() {
               ))}
             </div>
 
-            {/* Recent Posts */}
             <div>
               <h2 className="text-lg font-bold mb-3">Recent Posts Performance</h2>
               <div className="space-y-3">
                 {recentPosts.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground"><FileText className="w-12 h-12 mx-auto mb-2 opacity-50" /><p>No posts yet</p></div>
-                ) : recentPosts.map((post) => (
+                ) : recentPosts.map(post => (
                   <div key={post.id} className="bg-muted/30 p-4 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => navigate(`/post/${post.id}`)}>
                     <div className="flex items-start gap-3">
                       <div className="flex-1">
@@ -668,165 +539,23 @@ export default function CreatorStudio() {
                           <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{formatNumber(post.likes_count || 0)}</span>
                           <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3" />{formatNumber(post.replies_count || 0)}</span>
                           {post.is_video && <span className="text-red-600 flex items-center gap-1"><Video className="w-3 h-3" />Video</span>}
-                          <button onClick={(e) => { e.stopPropagation(); navigate(`/boost-analytics/${post.id}`); }} className="flex items-center gap-1 text-primary hover:underline">
-                            <TrendingUp className="w-3 h-3" /> Boost Stats
-                          </button>
-                          <button onClick={(e) => { e.stopPropagation(); navigate(`/post-analytics/${post.id}`); }} className="flex items-center gap-1 text-blue-500 hover:underline">
-                            <BarChart3 className="w-3 h-3" /> Analytics
-                          </button>
+                          <button onClick={e => { e.stopPropagation(); navigate(`/boost-analytics/${post.id}`); }} className="flex items-center gap-1 text-primary hover:underline"><TrendingUp className="w-3 h-3" /> Boost Stats</button>
+                          <button onClick={e => { e.stopPropagation(); navigate(`/post-analytics/${post.id}`); }} className="flex items-center gap-1 text-blue-500 hover:underline"><BarChart3 className="w-3 h-3" /> Analytics</button>
                         </div>
                       </div>
-                      {post.image_url && !post.is_video && (
-                        <img src={post.image_url} alt="Post" className="w-16 h-16 rounded object-cover" />
-                      )}
+                      {post.image_url && !post.is_video && <img src={post.image_url} alt="Post" className="w-16 h-16 rounded object-cover" />}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* ── Creator Milestone Badges ── */}
-            {(() => {
-              const milestones = [
-                {
-                  id: 'followers_100',
-                  icon: '👥',
-                  title: 'First 100 Followers',
-                  desc: 'Reach 100 followers',
-                  done: stats.total_followers >= 100,
-                  progress: Math.min(stats.total_followers, 100),
-                  total: 100,
-                  color: 'blue',
-                },
-                {
-                  id: 'first_video',
-                  icon: '🎬',
-                  title: 'First Video',
-                  desc: 'Upload your first video post',
-                  done: videoPostsCount > 0,
-                  progress: Math.min(videoPostsCount, 1),
-                  total: 1,
-                  color: 'red',
-                },
-                {
-                  id: 'first_dollar',
-                  icon: '💵',
-                  title: 'First Dollar Earned',
-                  desc: 'Earn your first $1',
-                  done: stats.total_earnings >= 1,
-                  progress: Math.min(stats.total_earnings, 1),
-                  total: 1,
-                  color: 'green',
-                },
-                {
-                  id: 'streak_7',
-                  icon: '🔥',
-                  title: '7-Day Streak',
-                  desc: 'Claim rewards 7 days in a row',
-                  done: streakDay >= 7,
-                  progress: Math.min(streakDay, 7),
-                  total: 7,
-                  color: 'orange',
-                },
-                {
-                  id: 'followers_1000',
-                  icon: '🌟',
-                  title: '1K Followers',
-                  desc: 'Reach 1,000 followers',
-                  done: stats.total_followers >= 1000,
-                  progress: Math.min(stats.total_followers, 1000),
-                  total: 1000,
-                  color: 'purple',
-                },
-                {
-                  id: 'posts_10',
-                  icon: '✍️',
-                  title: '10 Posts',
-                  desc: 'Create 10 posts',
-                  done: stats.total_posts >= 10,
-                  progress: Math.min(stats.total_posts, 10),
-                  total: 10,
-                  color: 'teal',
-                },
-              ];
-              const colorMap: Record<string, string> = {
-                blue:   'from-blue-500/10 to-blue-500/5 border-blue-500/20 text-blue-600',
-                red:    'from-red-500/10 to-red-500/5 border-red-500/20 text-red-600',
-                green:  'from-green-500/10 to-green-500/5 border-green-500/20 text-green-600',
-                orange: 'from-orange-500/10 to-orange-500/5 border-orange-500/20 text-orange-600',
-                purple: 'from-purple-500/10 to-purple-500/5 border-purple-500/20 text-purple-600',
-                teal:   'from-teal-500/10 to-teal-500/5 border-teal-500/20 text-teal-600',
-              };
-              const barColorMap: Record<string, string> = {
-                blue: 'bg-blue-500', red: 'bg-red-500', green: 'bg-green-500',
-                orange: 'bg-orange-500', purple: 'bg-purple-500', teal: 'bg-teal-500',
-              };
-              const done = milestones.filter(m => m.done).length;
-              return (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-bold">🏅 Creator Milestones</h2>
-                    <span className="text-sm text-muted-foreground font-medium">{done}/{milestones.length} completed</span>
-                  </div>
-                  {/* Progress bar */}
-                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary to-purple-500 rounded-full transition-all duration-700"
-                      style={{ width: `${(done / milestones.length) * 100}%` }}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {milestones.map(m => (
-                      <div
-                        key={m.id}
-                        className={`relative bg-gradient-to-br border rounded-xl p-3 transition-all ${
-                          m.done
-                            ? colorMap[m.color] + ' opacity-100'
-                            : 'from-muted/30 to-muted/10 border-border opacity-70'
-                        }`}
-                      >
-                        {/* Badge status icon */}
-                        <div className="absolute top-2 right-2">
-                          {m.done
-                            ? <span className="text-sm">✅</span>
-                            : <span className="text-sm opacity-40">🔒</span>
-                          }
-                        </div>
-                        <div className="text-2xl mb-1.5">{m.icon}</div>
-                        <p className={`text-xs font-bold leading-tight mb-0.5 ${m.done ? '' : 'text-muted-foreground'}`}>
-                          {m.title}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground leading-tight mb-2">{m.desc}</p>
-                        {/* Mini progress bar */}
-                        {!m.done && (
-                          <div className="w-full bg-black/10 dark:bg-white/10 rounded-full h-1 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${barColorMap[m.color]} transition-all duration-500`}
-                              style={{ width: `${m.total > 0 ? (m.progress / m.total) * 100 : 0}%` }}
-                            />
-                          </div>
-                        )}
-                        {!m.done && m.total > 1 && (
-                          <p className="text-[10px] text-muted-foreground mt-1">
-                            {m.progress.toLocaleString()} / {m.total.toLocaleString()}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Tips */}
             <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
               <h3 className="font-bold text-amber-900 dark:text-amber-100 mb-2">💡 Creator Tips</h3>
               <ul className="space-y-2 text-sm text-amber-800 dark:text-amber-200">
                 <li>• Post consistently to build your audience</li>
                 <li>• Use hashtags to increase discoverability</li>
-                <li>• Engage with your followers through replies</li>
                 <li>• Create high-quality video content for better engagement</li>
-                <li>• Tag products in your posts to drive sales</li>
                 <li>• Schedule posts during peak hours for maximum reach</li>
               </ul>
             </div>
@@ -840,25 +569,8 @@ export default function CreatorStudio() {
               <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
             ) : (
               <>
-                {/* Follower growth chart */}
                 <div className="bg-card border border-border rounded-2xl p-5">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-purple-500" />
-                      <h2 className="font-bold">Follower Growth</h2>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {followerGrowth.length > 1 && (() => {
-                        const delta = followerGrowth[followerGrowth.length - 1].followers - followerGrowth[0].followers;
-                        const pct = followerGrowth[0].followers > 0 ? ((delta / followerGrowth[0].followers) * 100).toFixed(1) : '∞';
-                        return (
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${ delta >= 0 ? 'bg-green-500/10 text-green-600' : 'bg-red-500/10 text-red-500' }`}>
-                            {delta >= 0 ? '+' : ''}{pct}% this week
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
+                  <div className="flex items-center gap-2 mb-1"><Users className="w-4 h-4 text-purple-500" /><h2 className="font-bold">Follower Growth</h2></div>
                   <p className="text-xs text-muted-foreground mb-3">7-day follower trajectory</p>
                   <ResponsiveContainer width="100%" height={140}>
                     <LineChart data={followerGrowth} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -871,13 +583,9 @@ export default function CreatorStudio() {
                   </ResponsiveContainer>
                 </div>
 
-                {/* Earnings Projection */}
                 {earningsProjection !== null && (
                   <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/5 border border-green-500/20 rounded-2xl p-5">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Zap className="w-4 h-4 text-green-600" />
-                      <h2 className="font-bold">Earnings Projection</h2>
-                    </div>
+                    <div className="flex items-center gap-2 mb-1"><Zap className="w-4 h-4 text-green-600" /><h2 className="font-bold">Earnings Projection</h2></div>
                     <p className="text-xs text-muted-foreground mb-3">Based on your earnings trajectory</p>
                     <div className="flex items-baseline gap-2">
                       <span className="text-4xl font-black text-green-600">${earningsProjection.toFixed(2)}</span>
@@ -890,7 +598,6 @@ export default function CreatorStudio() {
                   </div>
                 )}
 
-                {/* Post type breakdown */}
                 {postTypeBreakdown.length > 0 && (
                   <div className="bg-card border border-border rounded-2xl p-5">
                     <h2 className="font-bold mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-primary" />Content Mix</h2>
@@ -914,21 +621,13 @@ export default function CreatorStudio() {
                   </div>
                 )}
 
-                {/* Top performing posts */}
                 {topPosts.length > 0 && (
                   <div className="bg-card border border-border rounded-2xl p-5">
                     <h2 className="font-bold mb-4 flex items-center gap-2"><Star className="w-4 h-4 text-amber-500" />Top Posts by Engagement</h2>
                     <div className="space-y-2">
                       {topPosts.slice(0, 5).map((post, idx) => (
-                        <div key={post.id}
-                          className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted/30 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/post/${post.id}`)}
-                        >
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${
-                            idx === 0 ? 'bg-yellow-400/20 text-yellow-600' :
-                            idx === 1 ? 'bg-slate-300/20 text-slate-500' :
-                            idx === 2 ? 'bg-amber-600/20 text-amber-600' : 'bg-muted text-muted-foreground'
-                          }`}>
+                        <div key={post.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => navigate(`/post/${post.id}`)}>
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${idx === 0 ? 'bg-yellow-400/20 text-yellow-600' : idx === 1 ? 'bg-slate-300/20 text-slate-500' : idx === 2 ? 'bg-amber-600/20 text-amber-600' : 'bg-muted text-muted-foreground'}`}>
                             {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -936,7 +635,6 @@ export default function CreatorStudio() {
                             <div className="flex items-center gap-3 mt-0.5 text-[10px] text-muted-foreground">
                               <span className="flex items-center gap-0.5"><Eye className="w-2.5 h-2.5" />{formatNumber(post.views_count ?? 0)}</span>
                               <span className="flex items-center gap-0.5"><Heart className="w-2.5 h-2.5" />{formatNumber(post.likes_count ?? 0)}</span>
-                              <span className="flex items-center gap-0.5"><TrendingUp className="w-2.5 h-2.5" />{Math.round(post._score)}</span>
                               {post.is_video && <span className="text-red-500">Video</span>}
                             </div>
                           </div>
@@ -952,117 +650,69 @@ export default function CreatorStudio() {
           </div>
         )}
 
-        {/* ── ENHANCED VIDEO TAB ── */}
+        {/* ── VIDEO TAB ── */}
         {activeStudioTab === 'videos' && (
           <div className="space-y-4">
-            {/* Summary cards */}
             <div className="bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/20 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Play className="w-5 h-5 text-red-500" />
-                <h2 className="font-bold text-lg">Video Posts</h2>
-              </div>
+              <div className="flex items-center gap-2 mb-1"><Play className="w-5 h-5 text-red-500" /><h2 className="font-bold text-lg">Video Posts</h2></div>
               <p className="text-sm text-muted-foreground mb-3">Manage monetization and pricing for your video content</p>
               <div className="grid grid-cols-3 gap-3">
-                <div className="bg-background/60 rounded-lg p-3 text-center">
-                  <p className="text-xl font-bold text-red-500">{allVideoPosts.length}</p>
-                  <p className="text-xs text-muted-foreground">Total Videos</p>
-                </div>
-                <div className="bg-background/60 rounded-lg p-3 text-center">
-                  <p className="text-xl font-bold text-purple-500">{allVideoPosts.filter(v => v.is_monetized).length}</p>
-                  <p className="text-xs text-muted-foreground">Monetized</p>
-                </div>
-                <div className="bg-background/60 rounded-lg p-3 text-center">
-                  <p className="text-xl font-bold text-green-600">{formatNumber(stats.video_views)}</p>
-                  <p className="text-xs text-muted-foreground">Total Views</p>
-                </div>
+                <div className="bg-background/60 rounded-lg p-3 text-center"><p className="text-xl font-bold text-red-500">{allVideoPosts.length}</p><p className="text-xs text-muted-foreground">Total Videos</p></div>
+                <div className="bg-background/60 rounded-lg p-3 text-center"><p className="text-xl font-bold text-purple-500">{allVideoPosts.filter(v => v.is_monetized).length}</p><p className="text-xs text-muted-foreground">Monetized</p></div>
+                <div className="bg-background/60 rounded-lg p-3 text-center"><p className="text-xl font-bold text-green-600">{formatNumber(stats.video_views)}</p><p className="text-xs text-muted-foreground">Total Views</p></div>
               </div>
             </div>
 
-            {/* Video list */}
             {loadingAllVideos ? (
               <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
             ) : allVideoPosts.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground">
                 <Video className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p className="font-medium">No video posts yet</p>
-                <p className="text-sm mt-1">Upload videos to start earning from pre-roll ads</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {allVideoPosts.map((post) => {
-                  const analytics = Array.isArray(post.post_analytics) ? post.post_analytics[0] : post.post_analytics;
+                {allVideoPosts.map(post => {
+                  const pa = Array.isArray(post.post_analytics) ? post.post_analytics[0] : post.post_analytics;
                   return (
                     <div key={post.id} className="bg-card border border-border rounded-2xl overflow-hidden">
-                      {/* Video thumbnail row */}
                       <div className="flex gap-3 p-3">
-                        <div
-                          className="w-20 h-14 rounded-xl bg-black overflow-hidden shrink-0 cursor-pointer"
-                          onClick={() => navigate(`/post/${post.id}`)}
-                        >
+                        <div className="w-20 h-14 rounded-xl bg-black overflow-hidden shrink-0 cursor-pointer" onClick={() => navigate(`/post/${post.id}`)}>
                           <video src={post.video_url} className="w-full h-full object-cover" muted playsInline />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium line-clamp-2 leading-snug">{post.content || 'Video post'}</p>
-                          <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
-                            <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{formatNumber(analytics?.views ?? post.views_count ?? 0)}</span>
+                          <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{formatNumber(pa?.views ?? post.views_count ?? 0)}</span>
                             <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{formatNumber(post.likes_count ?? 0)}</span>
-                            <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3" />{Number(analytics?.engagement_rate ?? 0).toFixed(1)}%</span>
                           </div>
                         </div>
                       </div>
-
-                      {/* Monetize controls */}
                       <div className="border-t border-border px-3 py-2.5 bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
-                        {/* Toggle */}
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleToggleMonetize(post.id, !!post.is_monetized)}
-                            disabled={togglingMonetize === post.id}
-                            className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
-                              post.is_monetized ? 'bg-green-500' : 'bg-muted'
-                            }`}
-                          >
-                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                              post.is_monetized ? 'translate-x-5' : 'translate-x-0.5'
-                            }`} />
+                          <button onClick={() => handleToggleMonetize(post.id, !!post.is_monetized)} disabled={togglingMonetize === post.id}
+                            className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none disabled:opacity-50 ${post.is_monetized ? 'bg-green-500' : 'bg-muted'}`}>
+                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${post.is_monetized ? 'translate-x-5' : 'translate-x-0.5'}`} />
                             {togglingMonetize === post.id && <Loader2 className="absolute inset-0 m-auto w-3 h-3 animate-spin text-white" />}
                           </button>
-                          <span className={`text-xs font-semibold ${
-                            post.is_monetized ? 'text-green-600' : 'text-muted-foreground'
-                          }`}>{post.is_monetized ? 'Monetized' : 'Not monetized'}</span>
+                          <span className={`text-xs font-semibold ${post.is_monetized ? 'text-green-600' : 'text-muted-foreground'}`}>{post.is_monetized ? 'Monetized' : 'Not monetized'}</span>
                         </div>
-
-                        {/* Price (only when monetized) */}
-                        {post.is_monetized && (
-                          editingPrice === post.id ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs text-muted-foreground font-bold">$</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={priceInput}
-                                onChange={e => setPriceInput(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter') handleSavePrice(post.id); if (e.key === 'Escape') setEditingPrice(null); }}
-                                className="w-20 px-2 py-1 text-xs rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-                                autoFocus
-                                placeholder="0.00"
-                              />
-                              <button onClick={() => handleSavePrice(post.id)} className="px-2 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90">Save</button>
-                              <button onClick={() => setEditingPrice(null)} className="px-2 py-1 bg-muted rounded-lg text-xs">Cancel</button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => { setEditingPrice(post.id); setPriceInput(post.price ? String(post.price) : ''); }}
-                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
-                            >
-                              <DollarSign className="w-3 h-3 text-green-600" />
-                              {post.price > 0 ? `$${Number(post.price).toFixed(2)}` : 'Set price'}
-                            </button>
-                          )
-                        )}
-
-                        {/* Analytics link */}
+                        {post.is_monetized && (editingPrice === post.id ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-muted-foreground font-bold">$</span>
+                            <input type="number" min="0" step="0.01" value={priceInput} onChange={e => setPriceInput(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') handleSavePrice(post.id); if (e.key === 'Escape') setEditingPrice(null); }}
+                              className="w-20 px-2 py-1 text-xs rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary" autoFocus placeholder="0.00" />
+                            <button onClick={() => handleSavePrice(post.id)} className="px-2 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90">Save</button>
+                            <button onClick={() => setEditingPrice(null)} className="px-2 py-1 bg-muted rounded-lg text-xs">Cancel</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => { setEditingPrice(post.id); setPriceInput(post.price ? String(post.price) : ''); }}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors">
+                            <DollarSign className="w-3 h-3 text-green-600" />
+                            {post.price > 0 ? `$${Number(post.price).toFixed(2)}` : 'Set price'}
+                          </button>
+                        ))}
                         <button onClick={() => navigate(`/post-analytics/${post.id}`)} className="flex items-center gap-1 text-xs text-primary hover:underline font-medium">
                           <BarChart3 className="w-3 h-3" /> Analytics
                         </button>
@@ -1073,7 +723,6 @@ export default function CreatorStudio() {
               </div>
             )}
 
-            {/* Revenue summary (legacy chart) */}
             {videoEarnings.filter(v => v.earned > 0).length > 0 && (
               <div className="bg-card border border-border rounded-2xl p-4">
                 <h3 className="font-bold mb-3 flex items-center gap-2"><DollarSign className="w-4 h-4 text-green-500" />Video Ad Revenue</h3>
@@ -1094,225 +743,118 @@ export default function CreatorStudio() {
         {/* ── EARNINGS TAB ── */}
         {activeStudioTab === 'earnings' && (
           <div className="space-y-4">
-            {/* Monthly Earnings Goal Tracker */}
-            {(() => {
-              const currentMonth = stats.total_earnings;
-              const goal = monthlyGoal;
-              const pct = goal > 0 ? Math.min(100, (currentMonth / goal) * 100) : 0;
-              const radius = 44;
-              const circ = 2 * Math.PI * radius;
-              const dash = (pct / 100) * circ;
-              return (
-                <div className="bg-card border border-border rounded-2xl p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <Zap className="w-5 h-5 text-amber-500" />
-                      <h2 className="font-bold">Monthly Earnings Goal</h2>
-                    </div>
-                    <button
-                      onClick={() => { setEditingGoal(v => !v); setGoalInput(goal > 0 ? String(goal) : ''); }}
-                      className="text-xs text-primary font-semibold hover:underline"
-                    >
-                      {editingGoal ? 'Cancel' : goal > 0 ? 'Edit Goal' : 'Set Goal'}
-                    </button>
-                  </div>
-
-                  {editingGoal ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-muted-foreground">$</span>
-                      <input
-                        type="number" min="1" step="1"
-                        value={goalInput}
-                        onChange={e => setGoalInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') saveMonthlyGoal(); if (e.key === 'Escape') setEditingGoal(false); }}
-                        placeholder="e.g. 100"
-                        className="flex-1 px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        autoFocus
-                      />
-                      <button
-                        onClick={saveMonthlyGoal}
-                        className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90"
-                      >Save</button>
-                    </div>
-                  ) : goal === 0 ? (
-                    <div className="text-center py-6 text-muted-foreground">
-                      <p className="text-sm">Set a monthly earnings goal to track your progress.</p>
-                      <button onClick={() => { setEditingGoal(true); setGoalInput(''); }} className="mt-3 text-primary font-semibold text-sm hover:underline">+ Set Goal</button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-6">
-                      <div className="relative shrink-0">
-                        <svg width="112" height="112" className="-rotate-90">
-                          <circle cx="56" cy="56" r={radius} strokeWidth="10" className="stroke-muted fill-none" />
-                          <circle
-                            cx="56" cy="56" r={radius} strokeWidth="10" fill="none"
-                            stroke={pct >= 100 ? '#10b981' : '#f59e0b'}
-                            strokeLinecap="round"
-                            strokeDasharray={`${dash} ${circ}`}
-                            style={{ transition: 'stroke-dasharray 0.6s ease' }}
-                          />
-                        </svg>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className="text-xl font-black">{Math.round(pct)}%</span>
-                          <span className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide">of goal</span>
-                        </div>
-                      </div>
-                      <div className="flex-1 space-y-3">
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-0.5">Earned</p>
-                          <p className="text-2xl font-black text-green-600">${currentMonth.toFixed(2)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-0.5">Goal</p>
-                          <p className="text-lg font-bold">${goal.toFixed(2)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-0.5">Remaining</p>
-                          <p className={`text-sm font-bold ${pct >= 100 ? 'text-green-600' : 'text-foreground'}`}>
-                            {pct >= 100 ? '🎉 Goal reached!' : `$${Math.max(0, goal - currentMonth).toFixed(2)} to go`}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+            {/* Goal tracker */}
+            <div className="bg-card border border-border rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2"><Zap className="w-5 h-5 text-amber-500" /><h2 className="font-bold">Monthly Earnings Goal</h2></div>
+                <button onClick={() => { setEditingGoal(v => !v); setGoalInput(monthlyGoal > 0 ? String(monthlyGoal) : ''); }} className="text-xs text-primary font-semibold hover:underline">
+                  {editingGoal ? 'Cancel' : monthlyGoal > 0 ? 'Edit Goal' : 'Set Goal'}
+                </button>
+              </div>
+              {editingGoal ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-muted-foreground">$</span>
+                  <input type="number" min="1" step="1" value={goalInput} onChange={e => setGoalInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveMonthlyGoal(); if (e.key === 'Escape') setEditingGoal(false); }}
+                    placeholder="e.g. 100" autoFocus
+                    className="flex-1 px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  <button onClick={saveMonthlyGoal} className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90">Save</button>
                 </div>
-              );
-            })()}
+              ) : monthlyGoal === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <p className="text-sm">Set a monthly earnings goal to track your progress.</p>
+                  <button onClick={() => { setEditingGoal(true); setGoalInput(''); }} className="mt-3 text-primary font-semibold text-sm hover:underline">+ Set Goal</button>
+                </div>
+              ) : (() => {
+                const pct = Math.min(100, (stats.total_earnings / monthlyGoal) * 100);
+                const radius = 44;
+                const circ = 2 * Math.PI * radius;
+                const dash = (pct / 100) * circ;
+                return (
+                  <div className="flex items-center gap-6">
+                    <div className="relative shrink-0">
+                      <svg width="112" height="112" className="-rotate-90">
+                        <circle cx="56" cy="56" r={radius} strokeWidth="10" className="stroke-muted fill-none" />
+                        <circle cx="56" cy="56" r={radius} strokeWidth="10" fill="none" stroke={pct >= 100 ? '#10b981' : '#f59e0b'} strokeLinecap="round" strokeDasharray={`${dash} ${circ}`} style={{ transition: 'stroke-dasharray 0.6s ease' }} />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-xl font-black">{Math.round(pct)}%</span>
+                        <span className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide">of goal</span>
+                      </div>
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      <div><p className="text-xs text-muted-foreground mb-0.5">Earned</p><p className="text-2xl font-black text-green-600">${stats.total_earnings.toFixed(2)}</p></div>
+                      <div><p className="text-xs text-muted-foreground mb-0.5">Goal</p><p className="text-lg font-bold">${monthlyGoal.toFixed(2)}</p></div>
+                      <p className={`text-sm font-bold ${pct >= 100 ? 'text-green-600' : 'text-foreground'}`}>{pct >= 100 ? '🎉 Goal reached!' : `$${Math.max(0, monthlyGoal - stats.total_earnings).toFixed(2)} to go`}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
 
-            {/* 4-Week Revenue Breakdown Chart */}
+            {/* 4-Week chart */}
             {revenueBreakdown4W.some(d => d.tips + d.subscriptions + d.ads + d.other > 0) && (
               <div className="bg-card border border-border rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-1">
-                  <BarChart3 className="w-5 h-5 text-primary" />
-                  <h2 className="font-bold">4-Week Revenue Breakdown</h2>
-                </div>
-                <p className="text-xs text-muted-foreground mb-4">Revenue by source over the last 4 weeks</p>
-                {/* Source legend */}
-                <div className="flex flex-wrap gap-3 mb-3">
-                  {[{ key: 'tips', color: '#f59e0b', label: 'Tips' }, { key: 'subscriptions', color: '#8b5cf6', label: 'Subscriptions' }, { key: 'ads', color: '#10b981', label: 'Ads/Videos' }, { key: 'other', color: '#3b82f6', label: 'Other' }].map(s => (
-                    <div key={s.key} className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded-sm" style={{ background: s.color }} />
-                      <span className="text-xs text-muted-foreground font-medium">{s.label}</span>
-                    </div>
-                  ))}
-                </div>
+                <div className="flex items-center gap-2 mb-4"><BarChart3 className="w-5 h-5 text-primary" /><h2 className="font-bold">4-Week Revenue Breakdown</h2></div>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={revenueBreakdown4W} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="week" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={v => `$${Number(v).toFixed(2)}`} />
-                    <Tooltip
-                      contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
-                      formatter={(v: any, name: string) => [`$${Number(v).toFixed(4)}`, name]}
-                    />
+                    <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: any, name: string) => [`$${Number(v).toFixed(4)}`, name]} />
                     <Bar dataKey="tips" name="Tips" fill="#f59e0b" stackId="rev" />
                     <Bar dataKey="subscriptions" name="Subscriptions" fill="#8b5cf6" stackId="rev" />
                     <Bar dataKey="ads" name="Ads/Videos" fill="#10b981" stackId="rev" />
                     <Bar dataKey="other" name="Other" fill="#3b82f6" stackId="rev" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
-                {/* Totals summary strip */}
-                <div className="grid grid-cols-4 gap-2 mt-4">
-                  {[{ key: 'tips', color: '#f59e0b', label: 'Tips' }, { key: 'subscriptions', color: '#8b5cf6', label: 'Subs' }, { key: 'ads', color: '#10b981', label: 'Ads' }, { key: 'other', color: '#3b82f6', label: 'Other' }].map(s => {
-                    const total = revenueBreakdown4W.reduce((sum, w) => sum + (w[s.key] ?? 0), 0);
-                    return (
-                      <div key={s.key} className="bg-muted/30 rounded-xl p-2 text-center">
-                        <div className="w-3 h-3 rounded-sm mx-auto mb-1" style={{ background: s.color }} />
-                        <p className="text-xs font-bold">${total.toFixed(2)}</p>
-                        <p className="text-[10px] text-muted-foreground">{s.label}</p>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             )}
 
-            {/* Weekly Earnings Chart */}
+            {/* Weekly chart */}
             <div className="bg-card border border-border rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold flex items-center gap-2"><BarChart3 className="w-5 h-5 text-primary" />This Week's Earnings</h2>
-              </div>
+              <h2 className="font-bold flex items-center gap-2 mb-4"><BarChart3 className="w-5 h-5 text-primary" />This Week's Earnings</h2>
               {weeklyEarnings.some(d => d.tips + d.subscriptions + d.ads + d.other > 0) ? (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={weeklyEarnings} margin={{ top: 0, right: 0, left: -15, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={v => `$${v}`} />
-                    <Tooltip
-                      contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
-                      formatter={(v: any, name: string) => [`$${Number(v).toFixed(4)}`, name]}
-                    />
+                    <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }} formatter={(v: any, name: string) => [`$${Number(v).toFixed(4)}`, name]} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar dataKey="tips" name="Tips" fill="#f59e0b" stackId="a" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="tips" name="Tips" fill="#f59e0b" stackId="a" />
                     <Bar dataKey="subscriptions" name="Subscriptions" fill="#8b5cf6" stackId="a" />
                     <Bar dataKey="ads" name="Ads/Videos" fill="#10b981" stackId="a" />
                     <Bar dataKey="other" name="Other" fill="#3b82f6" stackId="a" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground">
-                  <DollarSign className="w-10 h-10 opacity-20 mb-2" />
-                  <p className="text-sm">No earnings this week yet</p>
-                </div>
+                <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground"><DollarSign className="w-10 h-10 opacity-20 mb-2" /><p className="text-sm">No earnings this week yet</p></div>
               )}
             </div>
 
-            {/* ── CSV Export ── */}
+            {/* CSV Export */}
             <div className="bg-card border border-border rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Download className="w-5 h-5 text-primary" />
-                <h2 className="font-bold">Export Revenue</h2>
-              </div>
-              <p className="text-sm text-muted-foreground mb-4">Download all earnings, tips, and ad revenue for a date range.</p>
+              <div className="flex items-center gap-2 mb-4"><Download className="w-5 h-5 text-primary" /><h2 className="font-bold">Export Revenue</h2></div>
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">From (month)</label>
-                  <input
-                    type="month"
-                    value={exportStartMonth}
-                    onChange={e => setExportStartMonth(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">To (month)</label>
-                  <input
-                    type="month"
-                    value={exportEndMonth}
-                    onChange={e => setExportEndMonth(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
+                <div><label className="text-xs font-semibold text-muted-foreground mb-1 block">From (month)</label><input type="month" value={exportStartMonth} onChange={e => setExportStartMonth(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" /></div>
+                <div><label className="text-xs font-semibold text-muted-foreground mb-1 block">To (month)</label><input type="month" value={exportEndMonth} onChange={e => setExportEndMonth(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={handleExportCsv}
-                  disabled={exportingCsv}
-                  className="py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {exportingCsv
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Exporting…</>
-                    : <><Download className="w-4 h-4" /> CSV</>}
+                <button onClick={handleExportCsv} disabled={exportingCsv} className="py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                  {exportingCsv ? <><Loader2 className="w-4 h-4 animate-spin" /> Exporting…</> : <><Download className="w-4 h-4" /> CSV</>}
                 </button>
-                <button
-                  onClick={handleExportPdf}
-                  disabled={exportingPdf}
-                  className="py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {exportingPdf
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Opening…</>
-                    : <><Printer className="w-4 h-4" /> PDF</>}
+                <button onClick={handleExportPdf} disabled={exportingPdf} className="py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                  {exportingPdf ? <><Loader2 className="w-4 h-4 animate-spin" /> Opening…</> : <><Printer className="w-4 h-4" /> PDF</>}
                 </button>
               </div>
             </div>
 
-            {earningsHistory.length > 0 ? (
+            {earningsHistory.length > 0 && (
               <div className="bg-card border border-border rounded-2xl p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="font-bold flex items-center gap-2"><DollarSign className="w-5 h-5 text-green-600" />Monthly Earnings</h2>
-                  <button onClick={() => navigate('/monetization')} className="text-sm text-primary font-semibold hover:underline flex items-center gap-1">
-                    Full Dashboard <ArrowUpRight className="w-3.5 h-3.5" />
-                  </button>
+                  <button onClick={() => navigate('/monetization')} className="text-sm text-primary font-semibold hover:underline flex items-center gap-1">Full Dashboard <ArrowUpRight className="w-3.5 h-3.5" /></button>
                 </div>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={earningsHistory} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -1326,36 +868,17 @@ export default function CreatorStudio() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <DollarSign className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                <p className="text-sm font-medium">No monthly history yet</p>
-              </div>
             )}
-            <button onClick={() => navigate('/payouts')} className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity">
-              Request Payout
-            </button>
+
+            <button onClick={() => navigate('/payouts')} className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity">Request Payout</button>
 
             {/* Revenue Split info card */}
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-primary" />
-                <h3 className="font-bold text-sm">Your Revenue Split</h3>
+                <BarChart3 className="w-4 h-4 text-primary" /><h3 className="font-bold text-sm">Your Revenue Split</h3>
               </div>
               <div className="divide-y divide-border">
-                {[{
-                  icon: '🎬', label: 'Video CPM', note: '$1.50–$3.50/1k views · tier-based',
-                  platPct: 60, creatPct: 40,
-                },{
-                  icon: '📢', label: 'Ad Revenue Share', note: 'From ad placements pool · monthly',
-                  platPct: 60, creatPct: 40,
-                },{
-                  icon: '💝', label: 'Fan Tips', note: 'Direct supporter tips',
-                  platPct: 15, creatPct: 85,
-                },{
-                  icon: '💸', label: 'P2P Transfers', note: 'Small 5% transaction fee',
-                  platPct: 5, creatPct: 95,
-                }].map(row => (
+                {revSplitRows.map(row => (
                   <div key={row.label} className="px-4 py-3">
                     <div className="flex items-center justify-between mb-1.5">
                       <div>
@@ -1375,59 +898,36 @@ export default function CreatorStudio() {
                 ))}
               </div>
             </div>
+
             <button onClick={() => navigate('/post-analytics')} className="w-full py-3 border border-border rounded-xl font-semibold hover:bg-muted/50 transition-colors flex items-center justify-center gap-2">
               <BarChart3 className="w-4 h-4" /> Post Analytics Dashboard
             </button>
           </div>
         )}
+
         {/* ── REVENUE ANALYTICS TAB ── */}
         {activeStudioTab === 'revenue' && (
           <div className="space-y-5">
-            {/* Header */}
             <div className="bg-gradient-to-br from-violet-500/10 via-primary/5 to-background border border-primary/20 rounded-2xl p-5">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-11 h-11 rounded-2xl bg-primary/15 flex items-center justify-center shrink-0">
-                  <DollarSign className="w-5 h-5 text-primary" />
-                </div>
+                <div className="w-11 h-11 rounded-2xl bg-primary/15 flex items-center justify-center shrink-0"><DollarSign className="w-5 h-5 text-primary" /></div>
                 <div>
                   <h2 className="font-black text-lg">Revenue Analytics</h2>
                   <p className="text-xs text-muted-foreground">Your earnings split across all monetization channels</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-background/60 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-black text-green-600">${stats.total_earnings.toFixed(2)}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Your total earned</p>
-                </div>
-                <div className="bg-background/60 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-black text-primary">{formatNumber(stats.video_views)}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Video views</p>
-                </div>
+                <div className="bg-background/60 rounded-xl p-3 text-center"><p className="text-2xl font-black text-green-600">${stats.total_earnings.toFixed(2)}</p><p className="text-[10px] text-muted-foreground mt-0.5">Your total earned</p></div>
+                <div className="bg-background/60 rounded-xl p-3 text-center"><p className="text-2xl font-black text-primary">{formatNumber(stats.video_views)}</p><p className="text-[10px] text-muted-foreground mt-0.5">Video views</p></div>
               </div>
             </div>
 
-            {/* Revenue Split Display */}
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-muted/20">
                 <h3 className="font-bold text-sm flex items-center gap-2"><BarChart3 className="w-4 h-4 text-primary" />Revenue Split by Channel</h3>
               </div>
               <div className="divide-y divide-border">
-                {[{
-                  icon: '🎬', label: 'Video CPM', note: '$1.50–$3.50/1k views · auto-tier upgrade',
-                  platPct: 60, creatPct: 40, creatDesc: '40% of CPM',
-                },{
-                  icon: '📢', label: 'Ad Revenue Share', note: 'Monthly pool proportional to your views',
-                  platPct: 60, creatPct: 40, creatDesc: '40% of ad pool',
-                },{
-                  icon: '💝', label: 'Fan Tips', note: 'Instant wallet credit on receive',
-                  platPct: 15, creatPct: 85, creatDesc: '85% goes to you',
-                },{
-                  icon: '💸', label: 'P2P Transfers', note: 'Small 5% fee keeps platform running',
-                  platPct: 5, creatPct: 95, creatDesc: '95% arrives to receiver',
-                },{
-                  icon: '👑', label: 'Subscriptions', note: 'Creator tier subscriptions',
-                  platPct: 15, creatPct: 85, creatDesc: '85% goes to you',
-                }].map((row, i) => (
+                {revSplitRowsFull.map((row, i) => (
                   <div key={i} className="px-4 py-3.5">
                     <div className="flex items-center justify-between mb-2">
                       <div>
@@ -1452,44 +952,128 @@ export default function CreatorStudio() {
               </div>
             </div>
 
-            {/* CPM Tier Info */}
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-muted/20">
                 <h3 className="font-bold text-sm flex items-center gap-2"><TrendingUp className="w-4 h-4 text-amber-500" />CPM Tier Rates</h3>
               </div>
               <div className="divide-y divide-border">
-                {[{
-                  tier: 'Standard', emoji: '🌱', cpm: '$1.50', req: 'New creators',
-                },{
-                  tier: 'Rising', emoji: '📈', cpm: '$2.00', req: '10K+ video views',
-                },{
-                  tier: 'Premium', emoji: '⭐', cpm: '$2.50', req: 'Verified creator',
-                },{
-                  tier: 'Top Creator', emoji: '👑', cpm: '$3.50', req: 'Verified + 100K+ views',
-                }].map(t => (
+                {cpmTierRows.map(t => (
                   <div key={t.tier} className="flex items-center gap-3 px-4 py-3">
                     <span className="text-xl shrink-0">{t.emoji}</span>
-                    <div className="flex-1">
-                      <p className="text-sm font-bold">{t.tier}</p>
-                      <p className="text-[10px] text-muted-foreground">{t.req}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-black text-green-600">{t.cpm}</p>
-                      <p className="text-[10px] text-muted-foreground">per 1k views</p>
-                    </div>
+                    <div className="flex-1"><p className="text-sm font-bold">{t.tier}</p><p className="text-[10px] text-muted-foreground">{t.req}</p></div>
+                    <div className="text-right"><p className="font-black text-green-600">{t.cpm}</p><p className="text-[10px] text-muted-foreground">per 1k views</p></div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Actions */}
+            {/* ── Daily Earnings Alert Card ── */}
+            <div className={`bg-card border rounded-2xl overflow-hidden ${
+              alertEnabled ? 'border-amber-500/30' : 'border-border'
+            }`}>
+              <div className="px-4 py-3 border-b border-border bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {alertEnabled
+                      ? <Bell className="w-4 h-4 text-amber-500" />
+                      : <BellOff className="w-4 h-4 text-muted-foreground" />}
+                    <h3 className="font-bold text-sm">Daily Earnings Alert</h3>
+                    {alertEnabled && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-bold border border-amber-500/20">On</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !alertEnabled;
+                      setAlertEnabled(next);
+                      saveAlertPrefs(next, alertThreshold);
+                    }}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${
+                      alertEnabled ? 'bg-amber-500' : 'bg-muted'
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                      alertEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`} />
+                  </button>
+                </div>
+              </div>
+              <div className="px-4 py-4 space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Get a Platform Inbox notification when you earn above your threshold in a single day.
+                </p>
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Alert threshold (USD / day)</label>
+                  <div className="flex gap-2 mb-2">
+                    {['1','5','10','25','50'].map(v => (
+                      <button
+                        key={v}
+                        onClick={() => { setAlertThreshold(v); saveAlertPrefs(alertEnabled, v); }}
+                        className={`flex-1 py-2 rounded-xl font-bold text-xs border-2 transition-all ${
+                          alertThreshold === v
+                            ? 'border-amber-500 bg-amber-500/10 text-amber-600'
+                            : 'border-border hover:border-amber-500/40'
+                        }`}
+                      >${v}</button>
+                    ))}
+                  </div>
+                  <input
+                    type="number" min="0.01" step="0.01"
+                    placeholder="Custom threshold (e.g. 2.50)…"
+                    value={!['1','5','10','25','50'].includes(alertThreshold) ? alertThreshold : ''}
+                    onChange={e => { setAlertThreshold(e.target.value); saveAlertPrefs(alertEnabled, e.target.value); }}
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                  />
+                </div>
+                {/* Today's earnings status */}
+                {alertTodayEarnings >= 0 && (
+                  <div className={`flex items-center gap-3 p-3 rounded-xl border ${
+                    alertTodayEarnings >= parseFloat(alertThreshold || '0')
+                      ? 'bg-green-500/5 border-green-500/20'
+                      : 'bg-muted/30 border-border'
+                  }`}>
+                    {alertTodayEarnings >= parseFloat(alertThreshold || '0')
+                      ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                      : <AlertTriangle className="w-4 h-4 text-muted-foreground shrink-0" />}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold">
+                        Today: <span className="text-green-600">${alertTodayEarnings.toFixed(4)}</span>
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {alertTodayEarnings >= parseFloat(alertThreshold || '0')
+                          ? alertLastSent === new Date().toISOString().split('T')[0]
+                            ? 'Alert already sent today ✓'
+                            : 'Threshold reached — alert will be sent'
+                          : `$${Math.max(0, parseFloat(alertThreshold || '0') - alertTodayEarnings).toFixed(2)} more to trigger`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={checkDailyEarningsAlert}
+                  disabled={alertChecking}
+                  className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+                >
+                  {alertChecking
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Checking…</>
+                    : <><Bell className="w-4 h-4" /> Check Today's Earnings</>}
+                </button>
+                {alertLastSent && (
+                  <p className="text-[10px] text-muted-foreground text-center">
+                    Last alert sent: {alertLastSent}
+                  </p>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => navigate('/monetization')} className="py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90">
-                Monetization Hub
-              </button>
-              <button onClick={() => navigate('/admin/platform-revenue')} className="py-3 border border-border rounded-xl font-bold text-sm hover:bg-muted transition-colors">
-                Platform Revenue
-              </button>
+              <button onClick={() => navigate('/monetization')} className="py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90">Monetization Hub</button>
+              <button onClick={() => navigate('/admin/platform-revenue')} className="py-3 border border-border rounded-xl font-bold text-sm hover:bg-muted transition-colors">Platform Revenue</button>
             </div>
           </div>
         )}
+
+      </div>
+    </div>
+  );
+}
