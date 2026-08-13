@@ -9,7 +9,7 @@ import { EditProfileDialog } from '@/components/features/EditProfileDialog';
 import { RevenueAnalyticsWidget } from '@/components/features/RevenueAnalyticsWidget';
 import { StoryHighlights } from '@/components/features/StoryHighlights';
 import CreatorMonetizationHub, { SubscriptionTiersDisplay, TipGoalWidget, SubscriberBadge } from '@/components/features/CreatorMonetizationHub';
-import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart, BookOpen, ChevronRight, Headphones, Clock, Users } from 'lucide-react';
+import { Calendar, MapPin, Link as LinkIcon, BadgeCheck, Loader2, Twitter, Instagram, Linkedin, MessageCircle, Globe, ShieldCheck, X, Trophy, Flame, DollarSign, Gift, Check, Share2, Copy, Plus, Star, Eye, Crown, Sparkles, MoreHorizontal, Ban, VolumeX, Volume2, Flag, Send, Rss, Play, Heart, BookOpen, ChevronRight, Headphones, Clock, Users, Pencil, ExternalLink } from 'lucide-react';
 import { sendActivityNotification } from '@/components/layout/AuthProvider';
 import { toast } from 'sonner';
 import { useSEO, buildProfileLD, buildOgImageUrl } from '@/hooks/useSEO';
@@ -126,6 +126,104 @@ function getCreatorTierLabel(tier: string): string {
   return '';
 }
 
+// ── Inline Social Links Editor ────────────────────────────────────────────────
+// esbuild guard: module-level component — no inline objects in render
+function SocialLinksEditor({
+  userId,
+  twitterHandle,
+  instagramHandle,
+  linkedinUrl,
+  onSaved,
+}: {
+  userId: string;
+  twitterHandle: string | null;
+  instagramHandle: string | null;
+  linkedinUrl: string | null;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [tw, setTw] = useState(twitterHandle ?? '');
+  const [ig, setIg] = useState(instagramHandle ?? '');
+  const [li, setLi] = useState(linkedinUrl ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const cleanTw = tw.trim().replace(/^@/, '') || null;
+    const cleanIg = ig.trim().replace(/^@/, '') || null;
+    const cleanLi = li.trim() || null;
+    const { error } = await supabase.from('user_profiles').update({
+      twitter_handle: cleanTw,
+      instagram_handle: cleanIg,
+      linkedin_url: cleanLi,
+    }).eq('id', userId);
+    setSaving(false);
+    if (error) { toast.error('Failed to save social links'); return; }
+    toast.success('Social links updated!');
+    setOpen(false);
+    onSaved();
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold transition-colors"
+      >
+        <Pencil className="w-3 h-3" /> Edit Social Links
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-bold">Social Links</p>
+        <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Twitter className="w-4 h-4 text-sky-500 shrink-0" />
+          <input
+            type="text"
+            value={tw}
+            onChange={e => setTw(e.target.value)}
+            placeholder="Twitter / X handle (without @)"
+            className="flex-1 h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Instagram className="w-4 h-4 text-pink-500 shrink-0" />
+          <input
+            type="text"
+            value={ig}
+            onChange={e => setIg(e.target.value)}
+            placeholder="Instagram handle (without @)"
+            className="flex-1 h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Linkedin className="w-4 h-4 text-blue-600 shrink-0" />
+          <input
+            type="url"
+            value={li}
+            onChange={e => setLi(e.target.value)}
+            placeholder="https://linkedin.com/in/yourname"
+            className="flex-1 h-9 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+      </div>
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="w-full py-2 bg-primary text-primary-foreground rounded-xl font-semibold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity"
+      >
+        {saving ? 'Saving…' : 'Save Social Links'}
+      </button>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const { username } = useParams();
   const { user: currentUser } = useAuth();
@@ -134,27 +232,27 @@ export default function ProfilePage() {
   const isRegulator = useIsRegulator();
   const { isActive: isPremiumUser } = usePremium();
 
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState(null as any);
 
   // ── CRITICAL: isOwnProfile must be at top level (before any useEffect/useCallback)
   // because it's referenced in dependency arrays. Using optional chaining since
   // profile is null initially — this avoids TDZ ReferenceError (blank screen).
   // DO NOT move this below any conditional return.
   const isOwnProfile = !!currentUser && !!profile && currentUser.id === profile.id;
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [threads, setThreads] = useState<any[]>([]);
-  const [replies, setReplies] = useState<any[]>([]);
-  const [media, setMedia] = useState<any[]>([]);
-  const [likedPosts, setLikedPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState([] as Post[]);
+  const [threads, setThreads] = useState([]);
+  const [replies, setReplies] = useState([]);
+  const [media, setMedia] = useState([]);
+  const [likedPosts, setLikedPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('Posts');
   const [isFollowing, setIsFollowing] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [verifyBannerDismissed, setVerifyBannerDismissed] = useState(false);
-  const [followers, setFollowers] = useState<any[]>([]);
-  const [following, setFollowing] = useState<any[]>([]);
+  const [followers, setFollowers] = useState([]);
+  const [following, setFollowing] = useState([]);
   const [streakDay, setStreakDay] = useState(0);
-  const [followerRank, setFollowerRank] = useState<number | null>(null);
+  const [followerRank, setFollowerRank] = useState(null as number | null);
   const [referralCopied, setReferralCopied] = useState(false);
   const [profileShared, setProfileShared] = useState(false);
   const [fedHandleCopied, setFedHandleCopied] = useState(false);
@@ -165,48 +263,48 @@ export default function ProfilePage() {
   const [showGiftPremiumDialog, setShowGiftPremiumDialog] = useState(false);
   const [giftingPremium, setGiftingPremium] = useState(false);
   const [showTipDialog, setShowTipDialog] = useState(false);
-  const [tipAmount, setTipAmount] = useState<number | null>(null);
+  const [tipAmount, setTipAmount] = useState(null as number | null);
   const [customTipAmount, setCustomTipAmount] = useState('');
   const [sendingTip, setSendingTip] = useState(false);
   const [tipSent, setTipSent] = useState(false);
-  const [highlights, setHighlights] = useState<any[]>([]);
+  const [highlights, setHighlights] = useState([]);
   // highlights view counts — plain number array to avoid index-sig type (esbuild guard)
-  const [highlightIds, setHighlightIds] = useState<string[]>([]);
-  const [highlightCounts, setHighlightCounts] = useState<number[]>([]);
+  const [highlightIds, setHighlightIds] = useState([] as string[]);
+  const [highlightCounts, setHighlightCounts] = useState([] as number[]);
   const [showCreateHighlight, setShowCreateHighlight] = useState(false);
   const [highlightTitle, setHighlightTitle] = useState('');
-  const [draggingHighlightIdx, setDraggingHighlightIdx] = useState<number | null>(null);
-  const [dragOverHighlightIdx, setDragOverHighlightIdx] = useState<number | null>(null);
-  const [highlightCoverUrl, setHighlightCoverUrl] = useState<string | null>(null);
-  const [availableStories, setAvailableStories] = useState<any[]>([]);
+  const [draggingHighlightIdx, setDraggingHighlightIdx] = useState(null as number | null);
+  const [dragOverHighlightIdx, setDragOverHighlightIdx] = useState(null as number | null);
+  const [highlightCoverUrl, setHighlightCoverUrl] = useState(null as string | null);
+  const [availableStories, setAvailableStories] = useState([]);
   const [creatingHighlight, setCreatingHighlight] = useState(false);
-  const [selectedStoryIds, setSelectedStoryIds] = useState<string[]>([]);
-  const [viewingHighlight, setViewingHighlight] = useState<any | null>(null);
-  const [highlightStories, setHighlightStories] = useState<any[]>([]);
+  const [selectedStoryIds, setSelectedStoryIds] = useState([] as string[]);
+  const [viewingHighlight, setViewingHighlight] = useState(null);
+  const [highlightStories, setHighlightStories] = useState([]);
   const [highlightStoryIdx, setHighlightStoryIdx] = useState(0);
   const [highlightProgress, setHighlightProgress] = useState(0);
   const [loadingHighlightStories, setLoadingHighlightStories] = useState(false);
-  const [tipHistory, setTipHistory] = useState<any[]>([]);
+  const [tipHistory, setTipHistory] = useState([]);
   const [loadingTips, setLoadingTips] = useState(false);
-  const [profileViews7d, setProfileViews7d] = useState<number>(0);
+  const [profileViews7d, setProfileViews7d] = useState(0);
   const [showSubscribeDialog, setShowSubscribeDialog] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
-  const [activeSubscription, setActiveSubscription] = useState<any | null>(null);
-  const [tipGoal, setTipGoal] = useState<number | null>(null);
+  const [activeSubscription, setActiveSubscription] = useState(null);
+  const [tipGoal, setTipGoal] = useState(null as number | null);
   const [currentMonthTips, setCurrentMonthTips] = useState(0);
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState('');
-  const [topTippers, setTopTippers] = useState<{ rank: number; amount: number }[]>([]);
-  const [giftHistory, setGiftHistory] = useState<any[]>([]);
+  const [topTippers, setTopTippers] = useState([] as { rank: number; amount: number }[]);
+  const [giftHistory, setGiftHistory] = useState([]);
   const [loadingGifts, setLoadingGifts] = useState(false);
-  const [profilePodcasts, setProfilePodcasts] = useState<any[]>([]);
+  const [profilePodcasts, setProfilePodcasts] = useState([]);
   const [loadingPodcasts, setLoadingPodcasts] = useState(false);
   const [podcastsFetched, setPodcastsFetched] = useState(false);
-  const [profileSeries, setProfileSeries] = useState<any[]>([]);
+  const [profileSeries, setProfileSeries] = useState([]);
   const [loadingProfileSeries, setLoadingProfileSeries] = useState(false);
   const [profileSeriesFetched, setProfileSeriesFetched] = useState(false);
-  const [postImpressionsChart, setPostImpressionsChart] = useState<{ date: string; views: number }[]>([]);
-  const [pinnedPostId, setPinnedPostId] = useState<string | null>(null);
+  const [postImpressionsChart, setPostImpressionsChart] = useState([] as { date: string; views: number }[]);
+  const [pinnedPostId, setPinnedPostId] = useState(null as string | null);
 
   // ── Pull-to-Refresh ──────────────────────────────────────────────────────
   const [pullDistance, setPullDistance] = useState(0);
@@ -249,7 +347,7 @@ export default function ProfilePage() {
 
   // ── Story Ring ─────────────────────────────────────────────────────────
   const [profileHasStories, setProfileHasStories] = useState(false);
-  const [profileStoryGroupIdx, setProfileStoryGroupIdx] = useState<number | null>(null);
+  const [profileStoryGroupIdx, setProfileStoryGroupIdx] = useState(null as number | null);
   const [showProfileStories, setShowProfileStories] = useState(false);
 
   useEffect(() => {
@@ -1139,11 +1237,59 @@ export default function ProfilePage() {
             <div className="flex items-center gap-1"><Calendar className="w-4 h-4" /><span>Joined {formatDistanceToNow(new Date(profile.created_at), { addSuffix: true })}</span></div>
           </div>
 
-          {(profile.twitter_handle || profile.instagram_handle || profile.linkedin_url) && (
-            <div className="flex gap-3 mb-3">
-              {profile.twitter_handle && <a href={`https://twitter.com/${profile.twitter_handle}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors"><Twitter className="w-5 h-5" /></a>}
-              {profile.instagram_handle && <a href={`https://instagram.com/${profile.instagram_handle}`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors"><Instagram className="w-5 h-5" /></a>}
-              {profile.linkedin_url && <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors"><Linkedin className="w-5 h-5" /></a>}
+          {/* ── Social Links Row ── */}
+          {(profile.twitter_handle || profile.instagram_handle || profile.linkedin_url || isOwnProfile) && (
+            <div className="mb-3 space-y-2">
+              {(profile.twitter_handle || profile.instagram_handle || profile.linkedin_url) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {profile.twitter_handle && (
+                    <a
+                      href={`https://twitter.com/${profile.twitter_handle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-sky-500/20 bg-sky-500/5 hover:bg-sky-500/15 text-sky-600 dark:text-sky-400 transition-colors"
+                    >
+                      <Twitter className="w-3.5 h-3.5" />
+                      <span className="text-xs font-semibold">@{profile.twitter_handle}</span>
+                      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                    </a>
+                  )}
+                  {profile.instagram_handle && (
+                    <a
+                      href={`https://instagram.com/${profile.instagram_handle}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-pink-500/20 bg-pink-500/5 hover:bg-pink-500/15 text-pink-600 dark:text-pink-400 transition-colors"
+                    >
+                      <Instagram className="w-3.5 h-3.5" />
+                      <span className="text-xs font-semibold">@{profile.instagram_handle}</span>
+                      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                    </a>
+                  )}
+                  {profile.linkedin_url && (
+                    <a
+                      href={profile.linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-blue-600/20 bg-blue-600/5 hover:bg-blue-600/15 text-blue-700 dark:text-blue-400 transition-colors"
+                    >
+                      <Linkedin className="w-3.5 h-3.5" />
+                      <span className="text-xs font-semibold">LinkedIn</span>
+                      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                    </a>
+                  )}
+                </div>
+              )}
+              {/* Own-profile inline editor */}
+              {isOwnProfile && (
+                <SocialLinksEditor
+                  userId={profile.id}
+                  twitterHandle={profile.twitter_handle ?? null}
+                  instagramHandle={profile.instagram_handle ?? null}
+                  linkedinUrl={profile.linkedin_url ?? null}
+                  onSaved={fetchProfile}
+                />
+              )}
             </div>
           )}
 
