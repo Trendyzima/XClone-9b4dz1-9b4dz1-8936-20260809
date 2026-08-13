@@ -285,6 +285,18 @@ export default function SettingsPage() {
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Privacy & Security</h2>
           <div className="space-y-1">
+            <button onClick={() => navigate('/policy')} className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center">
+                  <Shield className="w-4 h-4 text-blue-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Community Guidelines</p>
+                  <p className="text-xs text-muted-foreground">Our rules &amp; content policy</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
             <button onClick={() => navigate('/privacy')} className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-green-500/10 flex items-center justify-center">

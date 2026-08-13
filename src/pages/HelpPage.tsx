@@ -354,6 +354,35 @@ function formatTicketDate(d: string): string {
   }
 }
 
+// ── Article last-updated dates (module-level, esbuild guard: no Record<string,string> annotation) ──
+const ARTICLE_LAST_UPDATED = {
+  'how-to-change-username': 'Aug 2026',
+  'update-profile-information': 'Aug 2026',
+  'verify-your-account': 'Aug 2026',
+  'delete-your-account': 'Jul 2026',
+  'privacy-settings': 'Aug 2026',
+  'how-to-post-videos': 'Aug 2026',
+  'create-polls': 'Jul 2026',
+  'schedule-posts': 'Aug 2026',
+  'use-hashtags-effectively': 'Jul 2026',
+  'report-inappropriate-content': 'Jun 2026',
+  'boost-your-posts': 'Aug 2026',
+  'payment-methods-paypal-m-pesa': 'Aug 2026',
+  'creator-earnings': 'Aug 2026',
+  'premium-subscriptions': 'Jul 2026',
+  'refund-policy': 'Jun 2026',
+  'block-or-mute-users': 'Jul 2026',
+  'report-abuse': 'Aug 2026',
+  'two-factor-authentication': 'Jun 2026',
+  'suspicious-activity': 'Jul 2026',
+  'content-guidelines': 'Aug 2026',
+};
+
+// ── Article date lookup (esbuild guard: module-level — no inline lookup in JSX) ──
+function getArticleDate(slug: string): string {
+  return (ARTICLE_LAST_UPDATED as any)[slug] ?? '';
+}
+
 // ── URL slug generator (module-level) ────────────────────────────────────────
 function toSlug(q: string): string {
   return q.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -386,6 +415,7 @@ function HelpAccordionItem({
   onRate?: (slug: string, vote: string) => void;
   // esbuild guard: no complex function type annotation on optional prop — use any
   onShare?: any;
+  lastUpdated?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const ref = useRef<HTMLDivElement>(null);
@@ -413,7 +443,12 @@ function HelpAccordionItem({
         onClick={toggle}
         className="w-full px-4 py-4 text-left hover:bg-muted/40 transition-colors flex items-center justify-between gap-3 group"
       >
-        <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">{q}</span>
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">{q}</span>
+          {lastUpdated && (
+            <span className="text-[9px] text-muted-foreground/60 font-medium">Updated {lastUpdated}</span>
+          )}
+        </div>
         <div className="flex items-center gap-2 shrink-0">
           {totalVotes > 0 && (
             <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
@@ -1155,6 +1190,7 @@ export default function HelpPage() {
                       downCount={catDown}
                       onRate={handleRate}
                       onShare={handleArticleShare}
+                      lastUpdated={getArticleDate(slug)}
                       onOpen={(s) => {
                         if (window.history.replaceState) {
                           window.history.replaceState(null, '', `/help#${s}`);
@@ -1347,6 +1383,33 @@ export default function HelpPage() {
             <MessageCircle className="w-4 h-4" />
             Open Support Form
           </button>
+        </div>
+
+        {/* ── Footer Links ── */}
+        <div className="py-4 border-t border-border">
+          <div className="flex items-center justify-center flex-wrap gap-x-4 gap-y-2">
+            <button
+              onClick={() => navigate('/privacy')}
+              className="text-xs text-muted-foreground hover:text-primary transition-colors"
+            >
+              Privacy Policy
+            </button>
+            <span className="text-muted-foreground/40 text-xs">·</span>
+            <button
+              onClick={() => navigate('/terms')}
+              className="text-xs text-muted-foreground hover:text-primary transition-colors"
+            >
+              Terms of Service
+            </button>
+            <span className="text-muted-foreground/40 text-xs">·</span>
+            <button
+              onClick={() => navigate('/policy')}
+              className="text-xs text-muted-foreground hover:text-primary transition-colors"
+            >
+              Community Guidelines
+            </button>
+          </div>
+          <p className="text-center text-[10px] text-muted-foreground/50 mt-2">© 2026 Testagram · Help Center</p>
         </div>
 
         {/* Quick Links */}

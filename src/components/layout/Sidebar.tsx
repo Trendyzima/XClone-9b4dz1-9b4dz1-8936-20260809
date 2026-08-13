@@ -48,6 +48,7 @@ export function Sidebar() {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [pendingAdsBadge, setPendingAdsBadge] = useState(0);
   const [unreadHelpReplies, setUnreadHelpReplies] = useState(0);
+  const [unreadTeamChat, setUnreadTeamChat] = useState(0);
   const { unreadCount: unreadFed } = useFediversePolling(user?.id);
 
   // Check if user is admin + count pending ads
@@ -75,6 +76,24 @@ export function Sidebar() {
       .eq('read', false)
       .then(({ count }) => setUnreadHelpReplies(count ?? 0));
   }, [user?.id]);
+
+  // Poll Team Chat unread badge every 30s
+  useEffect(() => {
+    if (!user || !isEmployee) { setUnreadTeamChat(0); return; }
+    let mounted = true;
+    const fetchTeamUnread = async () => {
+      const lastSeen = localStorage.getItem('ts-teamchat-last-seen') ?? '1970-01-01T00:00:00.000Z';
+      const { count } = await supabase
+        .from('team_chat_messages')
+        .select('id', { count: 'exact', head: true })
+        .gt('created_at', lastSeen)
+        .neq('user_id', user.id);
+      if (mounted) setUnreadTeamChat(count ?? 0);
+    };
+    fetchTeamUnread();
+    const iv = setInterval(fetchTeamUnread, 30_000);
+    return () => { mounted = false; clearInterval(iv); };
+  }, [user?.id, isEmployee]);
 
   // Poll local notification unread count every 60s
   useEffect(() => {
@@ -134,6 +153,10 @@ export function Sidebar() {
   useEffect(() => {
     if (location.pathname === '/notifications') setUnreadNotifs(0);
     if (location.pathname === '/messages') setUnreadMessages(0);
+    if (location.pathname === '/team-chat') {
+      localStorage.setItem('ts-teamchat-last-seen', new Date().toISOString());
+      setUnreadTeamChat(0);
+    }
   }, [location.pathname]);
 
   useEffect(() => {
@@ -319,9 +342,20 @@ export function Sidebar() {
                     className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
                       isActive ? 'bg-violet-500/15 text-violet-600 font-medium' : 'hover:bg-muted text-foreground'
                     }`}>
-                    <Icon className="w-4 h-4 text-violet-500" />
+                    <div className="relative shrink-0">
+                      <Icon className="w-4 h-4 text-violet-500" />
+                      {unreadTeamChat > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                          {unreadTeamChat > 99 ? '99+' : unreadTeamChat}
+                        </span>
+                      )}
+                    </div>
                     <span>{item.label}</span>
-                    <span className="ml-auto text-[9px] bg-violet-500/10 text-violet-600 font-bold px-1.5 py-0.5 rounded-full">Staff</span>
+                    {unreadTeamChat > 0 ? (
+                      <span className="ml-auto text-[9px] font-bold text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded-full">{unreadTeamChat} new</span>
+                    ) : (
+                      <span className="ml-auto text-[9px] bg-violet-500/10 text-violet-600 font-bold px-1.5 py-0.5 rounded-full">Staff</span>
+                    )}
                   </button>
                 );
               })}
