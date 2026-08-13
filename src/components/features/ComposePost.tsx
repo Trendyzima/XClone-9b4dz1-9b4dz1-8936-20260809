@@ -60,7 +60,7 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const DRAFT_KEY = 'ts-compose-draft';
   const [hasDraft, setHasDraft] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState(null as string | null);
-  const draftAutoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const draftAutoSaveRef = useRef(null as ReturnType<typeof setInterval> | null);
   // Embed dialog
   const [showEmbedDialog, setShowEmbedDialog] = useState(false);
   const [embedUrl, setEmbedUrl] = useState('');
@@ -75,11 +75,11 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const { toast } = useToast();
 
   // ── @Mentions Autocomplete ─────────────────────────────────────────────────
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef(null as HTMLTextAreaElement | null);
   const [mentionQuery, setMentionQuery] = useState(null as string | null);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionIdx, setMentionIdx] = useState(0);
-  const mentionSearchRef = useRef<string | null>(null);
+  const mentionSearchRef = useRef(null as string | null);
 
   // Load draft on mount
   useEffect(() => {
