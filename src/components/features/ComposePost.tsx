@@ -15,7 +15,7 @@ import { ProductTagDialog } from './ProductTagDialog';
 import { GifPicker } from './GifPicker';
 import { toast as sonnerToast } from 'sonner';
 import * as federation from '@/api/federation';
-import { detectEmbed, ComposeEmbedPreview } from './EmbedRenderer';
+import { detectEmbed, ComposeEmbedPreview, OGLinkCard } from './EmbedRenderer';
 
 interface ComposePostProps {
   onSuccess?: () => void;
@@ -54,8 +54,13 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   // Thread composer (multi-tweet chain)
   const [showThreadMode, setShowThreadMode] = useState(false);
   const [threadParts, setThreadParts] = useState(['', '']);
-  // Link preview detection
-  const [linkPreview, setLinkPreview] = useState(null as { url: string } | null);
+  // Link preview detection — embed or OG card
+  const [linkPreview, setLinkPreview] = useState(null as { url: string; isEmbed: boolean } | null);
+  // Draft auto-save
+  const DRAFT_KEY = 'ts-compose-draft';
+  const [hasDraft, setHasDraft] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState(null as string | null);
+  const draftAutoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Embed dialog
   const [showEmbedDialog, setShowEmbedDialog] = useState(false);
   const [embedUrl, setEmbedUrl] = useState('');
@@ -76,11 +81,57 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
   const [mentionIdx, setMentionIdx] = useState(0);
   const mentionSearchRef = useRef<string | null>(null);
 
+  // Load draft on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const d = JSON.parse(saved);
+        if (d?.content?.trim()) setHasDraft(true);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Auto-save draft every 5s while typing
+  useEffect(() => {
+    if (!content.trim()) return;
+    if (draftAutoSaveRef.current) clearInterval(draftAutoSaveRef.current);
+    draftAutoSaveRef.current = setInterval(() => {
+      try {
+        const nowIso = new Date().toISOString();
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ content, savedAt: nowIso }));
+        setDraftSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      } catch { /* ignore */ }
+    }, 5000);
+    return () => { if (draftAutoSaveRef.current) clearInterval(draftAutoSaveRef.current); };
+  }, [content]);
+
+  const restoreDraft = () => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const d = JSON.parse(saved);
+        if (d?.content) setContent(d.content);
+      }
+    } catch { /* ignore */ }
+    setHasDraft(false);
+  };
+
+  const discardDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setHasDraft(false);
+  };
+
   const handleContentChange = useCallback(async (val: string) => {
     setContent(val);
-    // Link preview detection (first URL)
+    // Link preview detection (first URL) — detect embed type
     const urlMatch = val.match(/https?:\/\/[^\s]+/);
-    setLinkPreview(urlMatch ? { url: urlMatch[0] } : null);
+    if (urlMatch) {
+      const isEmbed = !!detectEmbed(urlMatch[0]);
+      setLinkPreview({ url: urlMatch[0], isEmbed });
+    } else {
+      setLinkPreview(null);
+    }
     const ta = textareaRef.current;
     const pos = ta?.selectionStart ?? val.length;
     const before = val.slice(0, pos);
@@ -353,6 +404,10 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
       }
 
       setContent(''); setImages([]); setVideo(null); setPollData(null); setGifUrl(null); setScheduledDate(null); setTaggedProducts([]); setPostToFediverse(false);
+      // Clear draft on successful post
+      localStorage.removeItem(DRAFT_KEY);
+      setHasDraft(false);
+      setDraftSavedAt(null);
       sonnerToast.success('Post created successfully!');
       toast({ title: 'Success', description: 'Post created successfully' });
       pingGoogleSitemap();
@@ -584,9 +639,28 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
             )}
           </div>
 
+          {/* Draft save indicator */}
+          {draftSavedAt && content.trim() && (
+            <p className="text-[10px] text-muted-foreground/70 mt-1 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+              Draft saved {draftSavedAt}
+            </p>
+          )}
+
+          {/* Draft restore banner */}
+          {hasDraft && !content.trim() && (
+            <div className="flex items-center gap-2 px-3 py-2 mb-1 rounded-xl border border-amber-500/30 bg-amber-500/8">
+              <span className="text-xs text-amber-700 dark:text-amber-400 font-semibold flex-1">📝 You have an unsaved draft</span>
+              <button onClick={restoreDraft} className="text-xs font-bold text-amber-600 hover:underline">Restore</button>
+              <button onClick={discardDraft} className="text-xs text-muted-foreground hover:text-foreground ml-1">Discard</button>
+            </div>
+          )}
+
           {/* Link / Embed preview — live visual card while composing */}
           {linkPreview && !images.length && !video && !gifUrl && (
-            <ComposeEmbedPreview url={linkPreview.url} onRemove={() => setLinkPreview(null)} />
+            linkPreview.isEmbed
+              ? <ComposeEmbedPreview url={linkPreview.url} onRemove={() => setLinkPreview(null)} />
+              : <OGLinkCard url={linkPreview.url} onRemove={() => setLinkPreview(null)} />
           )}
 
           {/* Image grid */}

@@ -23,7 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { VideoMonetizationAd } from './VideoMonetizationAd';
-import { EmbedRenderer } from './EmbedRenderer';
+import { EmbedRenderer, PostContentEmbeds } from './EmbedRenderer';
 import { updateInterestSignal } from '@/services/recommendations';
 
 // esbuild guard: no 'as const' on module-level objects/arrays used in .map() render
@@ -1103,6 +1103,8 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                       </span>
                     </div>
                     <p className="text-sm leading-relaxed mt-0.5 break-words">{reply.content}</p>
+                    <EmbedRenderer content={reply.content} />
+                    <PostContentEmbeds content={reply.content} />
                     {user && (
                       <button
                         onClick={() => setReplyingToId(replyingToId === reply.id ? null : reply.id)}

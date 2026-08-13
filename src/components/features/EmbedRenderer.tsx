@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
-import { Play, ExternalLink, X } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Play, ExternalLink, X, Globe, Loader2 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 // ── esbuild-safe module-level constants ──────────────────────────────────────
 const YT_PATTERN = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
@@ -197,6 +198,112 @@ export function LinkPreview({ url }: { url: string }) {
   );
 }
 
+// ── OG Link Card — fetches Open Graph metadata via edge function ──────────────
+interface OGData {
+  title: string;
+  description: string | null;
+  image: string | null;
+  domain: string;
+  siteName: string | null;
+}
+
+// esbuild guard: module-level cache — no closure-based Map in render
+const OG_CACHE: { [url: string]: OGData | 'loading' | 'failed' } = {};
+
+export function OGLinkCard({ url, onRemove }: { url: string; onRemove?: () => void }) {
+  const [og, setOg] = useState(null as OGData | null);
+  const [status, setStatus] = useState('loading' as 'loading' | 'done' | 'failed');
+
+  let domain = url;
+  try { domain = new URL(url).hostname.replace('www.', ''); } catch { /* keep raw */ }
+
+  useEffect(() => {
+    if (OG_CACHE[url] === 'loading') return;
+    if (OG_CACHE[url] && OG_CACHE[url] !== 'failed') {
+      setOg(OG_CACHE[url] as OGData);
+      setStatus('done');
+      return;
+    }
+    OG_CACHE[url] = 'loading';
+    supabase.functions.invoke('og-meta', { body: { url } })
+      .then(({ data, error }) => {
+        if (error || !data?.title) {
+          OG_CACHE[url] = 'failed';
+          setStatus('failed');
+          return;
+        }
+        OG_CACHE[url] = data as OGData;
+        setOg(data as OGData);
+        setStatus('done');
+      })
+      .catch(() => { OG_CACHE[url] = 'failed'; setStatus('failed'); });
+  }, [url]);
+
+  if (status === 'loading') {
+    return (
+      <div className="mt-2 flex items-center gap-2 px-3 py-2.5 rounded-2xl border border-border bg-muted/30 text-muted-foreground">
+        <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+        <span className="text-xs truncate">{domain}</span>
+        {onRemove && (
+          <button onClick={onRemove} className="ml-auto shrink-0 p-0.5 rounded-full hover:bg-muted">
+            <X className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (status === 'failed' || !og) {
+    return <LinkPreview url={url} />;
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="relative mt-2 flex flex-col rounded-2xl border border-border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow group"
+      onClick={e => e.stopPropagation()}
+    >
+      {og.image && (
+        <div className="relative w-full aspect-[2/1] bg-muted overflow-hidden">
+          <img
+            src={og.image}
+            alt={og.title}
+            className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+            onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = 'none'; }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
+        </div>
+      )}
+      <div className="px-3 py-2.5 flex items-start gap-2">
+        <div className="w-5 h-5 rounded bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+          <Globe className="w-3 h-3 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide truncate">
+            {og.siteName ?? og.domain}
+          </p>
+          <p className="text-sm font-bold text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+            {og.title}
+          </p>
+          {og.description && (
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">{og.description}</p>
+          )}
+        </div>
+        {onRemove && (
+          <button
+            onClick={e => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+            className="shrink-0 p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    </a>
+  );
+}
+
 // ── Platform label helpers — module-level, no closures (esbuild guard) ────────
 function getPlatformLabel(type: string): string {
   if (type === 'youtube')    return 'YouTube';
@@ -224,6 +331,7 @@ function getPlatformBadgeCls(type: string): string {
 
 // ── ComposeEmbedPreview — live embed card shown while composing ───────────────
 // esbuild guard: module-level component, no inline objects in render
+// Shows a known embed player OR an OG link card for generic URLs
 export function ComposeEmbedPreview({ url, onRemove }: { url: string; onRemove?: () => void }) {
   const info = detectEmbed(url);
   let domain = url;
@@ -231,6 +339,11 @@ export function ComposeEmbedPreview({ url, onRemove }: { url: string; onRemove?:
 
   const badgeCls   = info ? getPlatformBadgeCls(info.type) : 'bg-primary/10 text-primary border-primary/20';
   const badgeLabel = info ? getPlatformLabel(info.type) : domain;
+
+  // Unknown URL → show OG card directly (no wrapper needed)
+  if (!info || info.type === 'tiktok' || info.type === 'instagram') {
+    return <OGLinkCard url={url} onRemove={onRemove} />;
+  }
 
   return (
     <div className="relative mt-2 rounded-2xl overflow-hidden border border-border bg-card shadow-sm">
@@ -257,14 +370,30 @@ export function ComposeEmbedPreview({ url, onRemove }: { url: string; onRemove?:
 
       {/* Live embed */}
       <div className="p-2" onClick={e => e.stopPropagation()}>
-        {info?.type === 'youtube' && info.id && <YouTubeEmbed id={info.id} />}
-        {info?.type === 'spotify' && info.id && info.subtype && <SpotifyEmbed id={info.id} subtype={info.subtype} />}
-        {info?.type === 'soundcloud' && <SoundCloudEmbed url={url} />}
-        {info?.type === 'twitter' && info.id && <TwitterEmbed id={info.id} />}
-        {info?.type === 'giphy' && info.id && <GiphyEmbed id={info.id} />}
-        {info?.type === 'codepen' && info.id && <CodePenEmbed id={info.id} url={url} />}
-        {(!info || info.type === 'tiktok' || info.type === 'instagram') && <LinkPreview url={url} />}
+        {info.type === 'youtube' && info.id && <YouTubeEmbed id={info.id} />}
+        {info.type === 'spotify' && info.id && info.subtype && <SpotifyEmbed id={info.id} subtype={info.subtype} />}
+        {info.type === 'soundcloud' && <SoundCloudEmbed url={url} />}
+        {info.type === 'twitter' && info.id && <TwitterEmbed id={info.id} />}
+        {info.type === 'giphy' && info.id && <GiphyEmbed id={info.id} />}
+        {info.type === 'codepen' && info.id && <CodePenEmbed id={info.id} url={url} />}
       </div>
+    </div>
+  );
+}
+
+// ── PostContentEmbeds — renders OG cards for plain URLs in post content ────────
+// esbuild guard: module-level component
+export function PostContentEmbeds({ content }: { content: string }) {
+  // Find all https URLs that are NOT already known embeds
+  const rawUrls = content.match(URL_PATTERN) ?? [];
+  const ogUrls = rawUrls.filter(u => !detectEmbed(u));
+  // Deduplicate and limit to 1 OG card per post (most prominent link)
+  const seen: string[] = [];
+  const unique = ogUrls.filter(u => { if (seen.includes(u)) return false; seen.push(u); return true; }).slice(0, 1);
+  if (unique.length === 0) return null;
+  return (
+    <div className="mt-2 space-y-2" onClick={e => e.stopPropagation()}>
+      {unique.map((url, i) => <OGLinkCard key={i} url={url} />)}
     </div>
   );
 }
@@ -296,7 +425,7 @@ export function EmbedRenderer({ content }: EmbedRendererProps) {
         if (info.type === 'twitter' && info.id) return <TwitterEmbed key={i} id={info.id} />;
         if (info.type === 'giphy' && info.id) return <GiphyEmbed key={i} id={info.id} />;
         if (info.type === 'codepen' && info.id) return <CodePenEmbed key={i} id={info.id} url={url} />;
-        if (info.type === 'tiktok' || info.type === 'instagram') return <LinkPreview key={i} url={url} />;
+        if (info.type === 'tiktok' || info.type === 'instagram') return <OGLinkCard key={i} url={url} />;
         return null;
       })}
     </div>
