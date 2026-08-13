@@ -94,6 +94,7 @@ const PlatformRevenueDashboard = lazy(() => import('@/pages/PlatformRevenueDashb
 const ContentPolicyPage = lazy(() => import('@/pages/ContentPolicyPage'));
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'));
 const TermsOfServicePage = lazy(() => import('@/pages/TermsOfServicePage'));
+const ActiveSessionsPage = lazy(() => import('@/pages/ActiveSessionsPage'));
 
 function PageLoader() {
   return (
@@ -352,6 +353,7 @@ function AppInner() {
               <Route path="/policy" element={<ContentPolicyPage />} />
               <Route path="/privacy" element={<PrivacyPolicyPage />} />
               <Route path="/terms" element={<TermsOfServicePage />} />
+              <Route path="/sessions" element={<ActiveSessionsPage />} />
               <Route path="/story-analytics" element={<StoryAnalyticsDashboard />} />
               <Route path="/admin/platform-revenue" element={<PlatformRevenueDashboard />} />
               <Route path="*" element={<NotFoundPage />} />

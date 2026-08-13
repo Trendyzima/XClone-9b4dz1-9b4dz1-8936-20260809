@@ -23,7 +23,8 @@ const THEME_IDS: ThemeChoice[] = ['light', 'dark', 'system'];
 const THEME_LABELS = ['Light', 'Dark', 'System'];
 const THEME_CLS = ['text-yellow-500', 'text-slate-400', 'text-blue-400'];
 
-const SOUND_PREVIEW_ITEMS: { type: 'like'|'follow'|'tip'|'comment'|'repost'|'dm'|'group'; label: string; emoji: string; desc: string }[] = [
+// esbuild guard: no explicit complex union type annotation on module-level array
+const SOUND_PREVIEW_ITEMS = [
   { type: 'like',    label: 'Like',    emoji: '❤️', desc: 'Soft two-tone chime'       },
   { type: 'follow',  label: 'Follow',  emoji: '👤', desc: 'Rising three-note fanfare' },
   { type: 'tip',     label: 'Tip',     emoji: '💰', desc: 'Warm coin-drop jingle'     },
@@ -51,6 +52,13 @@ export default function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [deleting, setDeleting] = useState(false);
+  // Password change (esbuild guard: no explicit generics)
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordChanging, setPasswordChanging] = useState(false);
+  // Export data
+  const [exporting, setExporting] = useState(false);
   const { play: playSound, isEnabled: isSoundEnabled, setEnabled: setSoundEnabled } = useNotificationSound();
   const [soundsOn, setSoundsOn] = useState(isSoundEnabled());
 
@@ -78,6 +86,44 @@ export default function SettingsPage() {
     await authService.signOut();
     logout();
     navigate('/');
+  };
+
+  const handleChangePassword = async () => {
+    if (newPassword.length < 6) { toast.error('Password must be at least 6 characters'); return; }
+    if (newPassword !== confirmPassword) { toast.error('Passwords do not match'); return; }
+    setPasswordChanging(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setPasswordChanging(false);
+    if (error) { toast.error(error.message || 'Failed to update password'); return; }
+    toast.success('Password updated successfully');
+    setShowPasswordForm(false);
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const handleExportData = async () => {
+    if (!user) return;
+    setExporting(true);
+    const [profileRes, postsRes, txRes] = await Promise.all([
+      supabase.from('user_profiles').select('*').eq('id', user.id).single(),
+      supabase.from('posts').select('id, content, created_at, likes_count, views_count').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100),
+      supabase.from('wallet_transactions').select('type, amount, status, description, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(200),
+    ]);
+    const payload = {
+      exported_at: new Date().toISOString(),
+      profile: profileRes.data ?? {},
+      posts: postsRes.data ?? [],
+      wallet_transactions: txRes.data ?? [],
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `testagram-data-${user.username}-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExporting(false);
+    toast.success('Data exported successfully');
   };
 
   const handleDeleteAccount = async () => {
@@ -137,6 +183,84 @@ export default function SettingsPage() {
               <Switch checked={privateAccount} onCheckedChange={setPrivateAccount} />
             </div>
 
+            {/* ── Change Password ── */}
+            {!showPasswordForm ? (
+              <button
+                onClick={() => setShowPasswordForm(true)}
+                className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-sky-500/10 flex items-center justify-center">
+                    <Lock className="w-4 h-4 text-sky-500" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm">Change Password</p>
+                    <p className="text-xs text-muted-foreground">Update your account password</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </button>
+            ) : (
+              <div className="p-3 bg-muted/30 border border-border rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold">Change Password</p>
+                  <button onClick={() => { setShowPasswordForm(false); setNewPassword(''); setConfirmPassword(''); }} className="text-xs text-muted-foreground hover:text-foreground">
+                    Cancel
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">New Password</label>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      placeholder="At least 6 characters"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">Confirm Password</label>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      placeholder="Repeat new password"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+                </div>
+                {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+                  <p className="text-xs text-destructive font-semibold">Passwords do not match</p>
+                )}
+                <button
+                  onClick={handleChangePassword}
+                  disabled={passwordChanging || newPassword.length < 6 || newPassword !== confirmPassword}
+                  className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-opacity"
+                >
+                  {passwordChanging ? 'Updating…' : 'Update Password'}
+                </button>
+              </div>
+            )}
+
+            {/* ── Export My Data ── */}
+            <button
+              onClick={handleExportData}
+              disabled={exporting}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left disabled:opacity-60"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Export My Data</p>
+                  <p className="text-xs text-muted-foreground">{exporting ? 'Preparing download…' : 'Download profile, posts & transactions as JSON'}</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+
             {/* ── Delete Account ── */}
             {!showDeleteConfirm ? (
               <button
@@ -186,9 +310,8 @@ export default function SettingsPage() {
                     disabled={deleting || deleteInput !== user.username}
                     className="flex-1 py-2 bg-destructive text-destructive-foreground rounded-lg text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
                   >
-                    {deleting
-                      ? 'Deleting…'
-                      : <><Trash2 className="w-3.5 h-3.5" /> Delete</>}
+                    {/* esbuild guard: no inline JSX fragment in ternary — use string when deleting */}
+                    {deleting ? 'Deleting…' : 'Delete'}
                   </button>
                 </div>
               </div>
@@ -370,6 +493,19 @@ export default function SettingsPage() {
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Privacy & Security</h2>
           <div className="space-y-1">
+            {/* Active Sessions link */}
+            <button onClick={() => navigate('/sessions')} className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-violet-500/10 flex items-center justify-center">
+                  <Monitor className="w-4 h-4 text-violet-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Active Sessions</p>
+                  <p className="text-xs text-muted-foreground">View and sign out of other devices</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
             <button onClick={() => navigate('/policy')} className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center">
