@@ -165,8 +165,25 @@ export function Sidebar() {
     { icon: BarChart3, label: 'Analytics', path: '/analytics', requireAuth: true },
     { icon: DollarSign, label: 'Monetization', path: '/monetization', requireAuth: true },
     { icon: ShoppingBag, label: 'Products', path: '/products', requireAuth: true },
-    { icon: Calendar, label: 'Scheduled', path: '/scheduled', requireAuth: true },
+    { icon: Calendar, label: 'Scheduled', path: '/scheduled', requireAuth: true, badge: 0 },
   ];
+
+  // Scheduled posts badge count
+  const [scheduledBadge, setScheduledBadge] = useState(0);
+  useEffect(() => {
+    if (!user) { setScheduledBadge(0); return; }
+    const fetchScheduled = async () => {
+      const { count } = await supabase
+        .from('scheduled_posts')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'pending');
+      setScheduledBadge(count ?? 0);
+    };
+    fetchScheduled();
+    const iv = setInterval(fetchScheduled, 60_000);
+    return () => clearInterval(iv);
+  }, [user?.id]);
 
   const adminTools = [
     { icon: LineChart, label: 'Revenue Analytics', path: '/revenue-analytics', requireAuth: true, badge: 0 },
@@ -319,16 +336,27 @@ export function Sidebar() {
               {creatorTools.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
+                const badge = item.path === '/scheduled' ? scheduledBadge : 0;
                 return (
                   <button
                     key={item.path}
                     onClick={() => handleNavClick(item.path, item.requireAuth)}
-                    className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
+                    className={`relative flex items-center space-x-3 px-4 py-2 rounded-lg transition-colors w-full text-left text-sm ${
                       isActive ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted text-foreground'
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
+                    <div className="relative shrink-0">
+                      <Icon className="w-4 h-4" />
+                      {badge > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 bg-primary text-primary-foreground text-[8px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                          {badge > 99 ? '99+' : badge}
+                        </span>
+                      )}
+                    </div>
                     <span>{item.label}</span>
+                    {badge > 0 && (
+                      <span className="ml-auto text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">{badge} pending</span>
+                    )}
                   </button>
                 );
               })}

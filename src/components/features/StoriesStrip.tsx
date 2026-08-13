@@ -396,6 +396,40 @@ export function StoriesStrip() {
     });
   };
 
+  // ── Story View Analytics: per-story unique view counts ───────────────
+  // Parallel arrays (esbuild guard: no Record<string,number> state)
+  const [storyAnalyticsIds, setStoryAnalyticsIds] = useState<string[]>([]);
+  const [storyAnalyticsViews, setStoryAnalyticsViews] = useState<number[]>([]);
+  const [storyAnalyticsUnique, setStoryAnalyticsUnique] = useState<number[]>([]);
+  const getStoryAnalytics = (sid: string) => {
+    const i = storyAnalyticsIds.indexOf(sid);
+    if (i < 0) return null;
+    return { views: storyAnalyticsViews[i] ?? 0, unique: storyAnalyticsUnique[i] ?? 0 };
+  };
+  const setStoryAnalytics = (sid: string, views: number, unique: number) => {
+    setStoryAnalyticsIds(prev => {
+      const i = prev.indexOf(sid);
+      if (i >= 0) {
+        setStoryAnalyticsViews(v => { const n = [...v]; n[i] = views; return n; });
+        setStoryAnalyticsUnique(u => { const n = [...u]; n[i] = unique; return n; });
+        return prev;
+      }
+      setStoryAnalyticsViews(v => [...v, views]);
+      setStoryAnalyticsUnique(u => [...u, unique]);
+      return [...prev, sid];
+    });
+  };
+
+  const fetchStoryAnalytics = useCallback(async (storyId: string) => {
+    if (getStoryAnalytics(storyId) !== null) return; // cached
+    const [{ count: totalViews }, { data: uniqueData }] = await Promise.all([
+      supabase.from('story_views').select('*', { count: 'exact', head: true }).eq('story_id', storyId),
+      supabase.from('story_views').select('viewer_id').eq('story_id', storyId),
+    ]);
+    const uniqueViewers = new Set((uniqueData ?? []).map((v: any) => v.viewer_id)).size;
+    setStoryAnalytics(storyId, totalViews ?? 0, uniqueViewers);
+  }, [storyAnalyticsIds]);
+
   const REACTIONS = ['❤️', '😂', '😮', '🔥', '👏', '😍'];
 
   const fetchStories = useCallback(async () => {

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Megaphone, Image as ImageIcon, Loader2, CheckCircle2,
-  Eye, TrendingUp, Clock, X, Info, CalendarClock, Zap
+  Eye, TrendingUp, Clock, X, Info, CalendarClock, Zap, BookOpen, ToggleLeft, ToggleRight, Video as VideoIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -51,6 +51,8 @@ export default function CreateAdPage() {
   // Target audience interests
   const [targetInterests, setTargetInterests] = useState<string[]>([]);
   const INTEREST_OPTIONS = ['Tech', 'Fashion', 'Food', 'Travel', 'Sports', 'Music', 'Business', 'Art', 'Gaming', 'Health', 'Education', 'Finance'];
+  // Story format toggle — marks ad as full-screen 9:16 story ad
+  const [isStoryFormat, setIsStoryFormat] = useState(false);
 
   useEffect(() => {
     if (!user) navigate('/auth');
@@ -105,6 +107,7 @@ export default function CreateAdPage() {
           start_date: adStartDate,
           end_date: adEndDate,
           target_audience: targetInterests.length > 0 ? { interests: targetInterests } : {},
+          is_story_format: isStoryFormat,
         })
         .select()
         .single();
@@ -496,6 +499,37 @@ export default function CreateAdPage() {
             </div>
             {targetInterests.length > 0 && (
               <p className="text-xs text-primary mt-1.5 font-medium">{targetInterests.length} interest{targetInterests.length !== 1 ? 's' : ''} selected — your ad will be prioritized for matching users</p>
+            )}
+          </div>
+
+          {/* Story Format Toggle */}
+          <div className={`rounded-2xl border-2 p-4 transition-all ${isStoryFormat ? 'border-primary bg-primary/5' : 'border-border'}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isStoryFormat ? 'bg-primary/15' : 'bg-muted'}`}>
+                  <BookOpen className={`w-5 h-5 ${isStoryFormat ? 'text-primary' : 'text-muted-foreground'}`} />
+                </div>
+                <div>
+                  <p className="text-sm font-bold">Story Format Ad</p>
+                  <p className="text-xs text-muted-foreground">Full-screen 9:16 vertical ad in Stories feed</p>
+                </div>
+              </div>
+              <button onClick={() => setIsStoryFormat(v => !v)} className="shrink-0">
+                {isStoryFormat
+                  ? <ToggleRight className="w-9 h-9 text-primary" />
+                  : <ToggleLeft className="w-9 h-9 text-muted-foreground" />}
+              </button>
+            </div>
+            {isStoryFormat && (
+              <div className="mt-3 p-3 bg-primary/8 border border-primary/20 rounded-xl">
+                <p className="text-xs font-bold text-primary mb-1.5">📖 Story Format tips</p>
+                <ul className="text-xs text-muted-foreground space-y-0.5">
+                  <li>• Use vertical (9:16) portrait images for best display</li>
+                  <li>• Story ads get 3× higher engagement than feed ads</li>
+                  <li>• Users see your ad between stories — high attention</li>
+                  <li>• Frequency cap: 2 story ads per user per 24h</li>
+                </ul>
+              </div>
             )}
           </div>
 
