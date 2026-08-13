@@ -7,7 +7,7 @@ import { useIsRegulator } from '@/hooks/useFeatureUnlock';
 import {
   Send, Loader2, Lock, MessageSquare, Users,
   Crown, Briefcase, Hash, Reply, X, MoreVertical, Trash2,
-  Shield,
+  Shield, Pencil, Check,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -69,6 +69,9 @@ export default function TeamChatPage() {
   const [reactions, setReactions] = useState<{ [msgId: string]: { [emoji: string]: number } }>(() => ({}));
   const [showEmojiFor, setShowEmojiFor] = useState<string | null>(null);
   const [showMsgMenu, setShowMsgMenu] = useState<string | null>(null);
+  // Inline edit state (esbuild guard: plain useState('') — no explicit typed generics)
+  const [editingMsgId, setEditingMsgId] = useState('');
+  const [editingText, setEditingText] = useState('');
   // Support ticket reply state
   const [replyTicketMsgId, setReplyTicketMsgId] = useState('');
   const [replyTicketEmail, setReplyTicketEmail] = useState('');
@@ -284,6 +287,19 @@ export default function TeamChatPage() {
     await fetchAll();
   }, [user, replyTicketEmail, replyTicketReplyText, replyTicketSending, myJobInfo, isReg, fetchAll]);
 
+  const handleEditSave = useCallback(async (msgId: string) => {
+    const trimmed = editingText.trim();
+    if (!trimmed) return;
+    const { error } = await supabase
+      .from('team_chat_messages')
+      .update({ message: trimmed })
+      .eq('id', msgId);
+    if (error) { toast.error(error.message); return; }
+    setEditingMsgId('');
+    setEditingText('');
+    await fetchAll();
+  }, [editingText, fetchAll]);
+
   const handleDelete = useCallback(async (msgId: string) => {
     if (!isReg) return;
     await supabase.from('team_chat_messages').delete().eq('id', msgId);
@@ -434,18 +450,57 @@ export default function TeamChatPage() {
                       ? 'bg-primary text-primary-foreground rounded-br-sm'
                       : isTicketMessage(msg.message ?? '') ? 'bg-amber-500/10 border border-amber-500/25 text-foreground rounded-bl-sm' : 'bg-muted text-foreground rounded-bl-sm'
                   }`}>
-                    {isTicketMessage(msg.message ?? '') && (
-                      <span className="block text-[9px] font-black text-amber-600 mb-1 uppercase tracking-wide">📩 Support Ticket</span>
-                    )}
-                    {msg.message}
-                    {/* Reply to ticket button — staff only, visible on ticket messages */}
-                    {isTicketMessage(msg.message ?? '') && !isOwn && (
-                      <button
-                        onClick={() => openTicketReply(msg)}
-                        className="mt-2 flex items-center gap-1 text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-500/15 hover:bg-amber-500/25 px-2 py-1 rounded-full transition-colors"
-                      >
-                        <span>↩</span> Reply to user
-                      </button>
+                    {editingMsgId === msg.id ? (
+                      /* ── Inline edit mode ── */
+                      <div className="space-y-2 min-w-[200px]">
+                        <textarea
+                          value={editingText}
+                          onChange={e => setEditingText(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(msg.id); }
+                            if (e.key === 'Escape') { setEditingMsgId(''); setEditingText(''); }
+                          }}
+                          rows={3}
+                          maxLength={500}
+                          autoFocus
+                          className="w-full bg-white/10 border border-white/25 rounded-lg px-2 py-1.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-white/40 leading-relaxed placeholder:text-white/40"
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] opacity-50">{editingText.length}/500</span>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => { setEditingMsgId(''); setEditingText(''); }}
+                              className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 font-semibold transition-colors"
+                            >
+                              <X className="w-3 h-3" /> Cancel
+                            </button>
+                            <button
+                              onClick={() => handleEditSave(msg.id)}
+                              disabled={!editingText.trim()}
+                              className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-white/25 hover:bg-white/35 font-bold disabled:opacity-40 transition-colors"
+                            >
+                              <Check className="w-3 h-3" /> Save
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* ── Display mode ── */
+                      <>
+                        {isTicketMessage(msg.message ?? '') && (
+                          <span className="block text-[9px] font-black text-amber-600 mb-1 uppercase tracking-wide">📩 Support Ticket</span>
+                        )}
+                        {msg.message}
+                        {/* Reply to ticket button — staff only, visible on ticket messages */}
+                        {isTicketMessage(msg.message ?? '') && !isOwn && (
+                          <button
+                            onClick={() => openTicketReply(msg)}
+                            className="mt-2 flex items-center gap-1 text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-500/15 hover:bg-amber-500/25 px-2 py-1 rounded-full transition-colors"
+                          >
+                            <span>↩</span> Reply to user
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                   {/* Reactions */}
@@ -474,6 +529,18 @@ export default function TeamChatPage() {
                           <>
                             <div className="fixed inset-0 z-40" onClick={() => setShowMsgMenu(null)} />
                             <div className={`absolute ${isOwn ? 'right-0' : 'left-0'} bottom-full mb-1 w-36 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden`}>
+                              {isOwn && (
+                                <button
+                                  onClick={() => {
+                                    setEditingMsgId(msg.id);
+                                    setEditingText(msg.message ?? '');
+                                    setShowMsgMenu(null);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-muted"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />Edit
+                                </button>
+                              )}
                               <button onClick={() => handleDelete(msg.id)}
                                 className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-destructive/10 text-destructive">
                                 <Trash2 className="w-3.5 h-3.5" />Delete
