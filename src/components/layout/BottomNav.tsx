@@ -19,6 +19,7 @@ export function BottomNav() {
   const [streakDay, setStreakDay] = useState(0);
   const [hasNewSuggestions, setHasNewSuggestions] = useState(false);
   const [unreadInbox, setUnreadInbox] = useState(0);
+  const [scheduledBadge, setScheduledBadge] = useState(0);
   const prevNotifs = useRef(-1);
   const prevMessages = useRef(-1);
   const audioCtxRef = useRef<any>(null);
@@ -154,6 +155,13 @@ export function BottomNav() {
       .eq('user_id', user.id)
       .eq('read', false)
       .then(({ count }) => setUnreadInbox(count ?? 0));
+    // Scheduled posts pending count
+    supabase
+      .from('scheduled_posts')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('status', 'pending')
+      .then(({ count }) => setScheduledBadge(count ?? 0));
 
     // Real-time subscription for new inbox messages → instant badge + toast
     const inboxSub = supabase
