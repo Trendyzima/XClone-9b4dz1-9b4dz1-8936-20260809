@@ -17,6 +17,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { useSEO, buildOgImageUrl } from '@/hooks/useSEO';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
+import { EmbedRenderer, PostContentEmbeds } from '@/components/features/EmbedRenderer';
 
 function PostThreadAdBanner() { return <PageAdBanner />; }
 
@@ -513,6 +514,9 @@ export default function PostThreadPage() {
                         </span>
                       </div>
                       <p className="text-foreground mt-1 whitespace-pre-wrap break-words">{reply.content}</p>
+                      {/* Embeds in reply content */}
+                      <EmbedRenderer content={reply.content} />
+                      <PostContentEmbeds content={reply.content} />
                       {/* Inline Poll — if this reply has an attached poll */}
                       {replyPollPostIds[reply.id] && (
                         <div className="mt-2">
