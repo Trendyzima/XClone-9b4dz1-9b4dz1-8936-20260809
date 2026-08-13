@@ -23,7 +23,7 @@ const PAGE_SIZE = 20;
 // Inject a video ad every AD_INTERVAL videos
 const AD_INTERVAL = 5;
 
-type FeedTab = 'foryou' | 'following' | 'watchlater';
+type FeedTab = 'foryou' | 'following' | 'watchlater' | 'duets';
 
 // Comment drawer for video feed
 function VideoCommentDrawer({ post, onClose }: { post: Post; onClose: () => void }) {
@@ -181,6 +181,9 @@ export default function VideosPage() {
   // Speed overlay
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  // Duets feed — posts that contain 'Duet with @' in content
+  const [duetVideos, setDuetVideos] = useState<Post[]>([]);
+  const [duetsLoading, setDuetsLoading] = useState(false);
   // Video ads fetched once and injected every AD_INTERVAL slots
   const [videoAds, setVideoAds] = useState<any[]>([]);
 
@@ -297,9 +300,24 @@ export default function VideosPage() {
   // Watch Later tab: filter from loaded videos by id
   const watchLaterVideos = useMemo(() => videos.filter(v => watchLaterIds.includes(v.id)), [videos, watchLaterIds]);
 
-  // Re-fetch when tab changes (skip watch-later — uses local filter)
+  // Fetch duet videos when duets tab is first opened
   useEffect(() => {
-    if (activeTab === 'watchlater') return;
+    if (activeTab !== 'duets') return;
+    if (duetVideos.length > 0) return; // already fetched
+    setDuetsLoading(true);
+    supabase
+      .from('posts')
+      .select('*, user_profiles(*)')
+      .eq('is_video', true)
+      .ilike('content', '%Duet with @%')
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data }) => { setDuetVideos(data ?? []); setDuetsLoading(false); });
+  }, [activeTab]);
+
+  // Re-fetch when tab changes (skip watch-later + duets — they use separate data sources)
+  useEffect(() => {
+    if (activeTab === 'watchlater' || activeTab === 'duets') return;
     setVideos([]);
     setPage(0);
     setHasMore(true);
@@ -459,7 +477,7 @@ export default function VideosPage() {
   };
 
   // Pre-compute current video for speed menu + share/comment drawers (esbuild guard: no IIFE)
-  const currentFeedVideos = activeTab === 'watchlater' ? watchLaterVideos : videos;
+  const currentFeedVideos = activeTab === 'watchlater' ? watchLaterVideos : activeTab === 'duets' ? duetVideos : videos;
   const currentVideo = currentFeedVideos[activeIndex] ?? null;
   // Watch-later status is tracked in VideoPlayer via bookmark — currentIsWatchLater kept for potential future use
   // const currentIsWatchLater = currentVideo ? watchLaterIds.includes(currentVideo.id) : false;
@@ -477,15 +495,15 @@ export default function VideosPage() {
       <div className="h-screen flex flex-col items-center justify-center bg-black text-white gap-4">
         {/* Tab switcher even on empty state */}
         <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-1.5 py-1 border border-white/10">
-          {(['foryou', 'following'] as FeedTab[]).map(tab => (
+          {(['foryou', 'following', 'duets'] as FeedTab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-full text-sm font-bold transition-all ${
                 activeTab === tab ? 'bg-white text-black' : 'text-white/70 hover:text-white'
               }`}
             >
-              {tab === 'foryou' ? 'For You' : 'Following'}
+              {tab === 'foryou' ? 'For You' : tab === 'following' ? 'Following' : '🎭 Duets'}
             </button>
           ))}
         </div>
@@ -586,7 +604,7 @@ export default function VideosPage() {
           <Search className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-1.5 py-1 border border-white/10 pointer-events-auto">
-          {(['foryou', 'following', 'watchlater'] as FeedTab[]).map(tab => (
+          {(['foryou', 'following', 'duets', 'watchlater'] as FeedTab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -596,7 +614,7 @@ export default function VideosPage() {
                   : 'text-white/70 hover:text-white'
               }`}
             >
-              {tab === 'foryou' ? 'For You' : tab === 'following' ? 'Following' : '🔖'}
+              {tab === 'foryou' ? 'For You' : tab === 'following' ? 'Following' : tab === 'duets' ? '🎭 Duets' : '🔖'}
             </button>
           ))}
         </div>
@@ -604,6 +622,25 @@ export default function VideosPage() {
           <span className="text-[10px] font-black">{playbackSpeed}×</span>
         </button>
       </div>
+
+      {/* Duets tab — loading / empty states */}
+      {activeTab === 'duets' && duetsLoading && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-white/60" />
+          <p className="text-white/50 text-sm">Loading duets…</p>
+        </div>
+      )}
+      {activeTab === 'duets' && !duetsLoading && duetVideos.length === 0 && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black gap-4 px-8 text-center">
+          <span className="text-6xl">🎭</span>
+          <p className="text-white font-bold text-xl">No Duets Yet</p>
+          <p className="text-white/60 text-sm">Creators who record side-by-side duets will appear here</p>
+          <button onClick={() => setActiveTab('foryou')}
+            className="mt-2 px-5 py-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white text-sm font-semibold transition-colors">
+            Browse For You
+          </button>
+        </div>
+      )}
 
       {/* TikTok-style vertical scroll feed */}
       <div

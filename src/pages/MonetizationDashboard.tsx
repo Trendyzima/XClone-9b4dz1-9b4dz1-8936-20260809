@@ -802,7 +802,86 @@ ${tableHtml}
           </>
         )}
 
-        {/* Grow tips */}
+            {/* ── Revenue Split Display Card ── */}
+            <div className="bg-gradient-to-br from-slate-500/8 to-primary/5 border border-border rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-primary" />
+                <h3 className="font-bold text-sm">Your Revenue Split</h3>
+                <span className="ml-auto text-[10px] text-muted-foreground">Platform / Creator</span>
+              </div>
+              <div className="divide-y divide-border">
+                {/* Video CPM */}
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div>
+                      <p className="text-sm font-semibold">🎬 Video CPM</p>
+                      <p className="text-[10px] text-muted-foreground">$1.50–$3.50/1k views · tier-based</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold">
+                      <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full">60% platform</span>
+                      <span className="px-2 py-0.5 bg-green-500/10 text-green-600 rounded-full">40% you</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden bg-muted flex">
+                    <div className="h-full bg-muted-foreground/30" style={{ width: '60%' }} />
+                    <div className="h-full bg-green-500/70" style={{ width: '40%' }} />
+                  </div>
+                </div>
+                {/* Ad Revenue */}
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div>
+                      <p className="text-sm font-semibold">📢 Ad Revenue Share</p>
+                      <p className="text-[10px] text-muted-foreground">From ad placements pool · monthly</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold">
+                      <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full">60% platform</span>
+                      <span className="px-2 py-0.5 bg-green-500/10 text-green-600 rounded-full">40% you</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden bg-muted flex">
+                    <div className="h-full bg-muted-foreground/30" style={{ width: '60%' }} />
+                    <div className="h-full bg-green-500/70" style={{ width: '40%' }} />
+                  </div>
+                </div>
+                {/* Tips */}
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div>
+                      <p className="text-sm font-semibold">💝 Fan Tips</p>
+                      <p className="text-[10px] text-muted-foreground">Direct supporter tips to creator</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold">
+                      <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full">15% platform</span>
+                      <span className="px-2 py-0.5 bg-green-500/10 text-green-600 rounded-full">85% you</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden bg-muted flex">
+                    <div className="h-full bg-muted-foreground/30" style={{ width: '15%' }} />
+                    <div className="h-full bg-green-500/70" style={{ width: '85%' }} />
+                  </div>
+                </div>
+                {/* P2P Transfers */}
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div>
+                      <p className="text-sm font-semibold">💸 P2P Transfers</p>
+                      <p className="text-[10px] text-muted-foreground">Small 5% transaction fee (receiver gets 95%)</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold">
+                      <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full">5% fee</span>
+                      <span className="px-2 py-0.5 bg-green-500/10 text-green-600 rounded-full">95% arrives</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden bg-muted flex">
+                    <div className="h-full bg-muted-foreground/30" style={{ width: '5%' }} />
+                    <div className="h-full bg-green-500/70" style={{ width: '95%' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Grow tips */}
         <div className="bg-gradient-to-br from-primary/5 to-purple-500/5 border border-primary/20 rounded-2xl p-5">
           <h3 className="font-bold mb-3 flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-primary" />Grow Your Audience
