@@ -9,23 +9,24 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { PageAdBanner } from '@/components/features/AdSenseAd';
+import { PostContentEmbeds } from '@/components/features/EmbedRenderer';
 function BookmarksAdBanner() { return <PageAdBanner />; }
 
 export function BookmarksPage() {
   useSEO({ noindex: true, title: 'Bookmarks', url: '/bookmarks' });
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [posts, setPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'all' | 'videos' | 'collections'>('all');
-  const [videos, setVideos] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState('all' as 'all' | 'videos' | 'collections');
+  const [videos, setVideos] = useState([] as any[]);
   const [loadingVideos, setLoadingVideos] = useState(false);
 
   // Collections = user's lists
-  const [collections, setCollections] = useState<any[]>([]);
+  const [collections, setCollections] = useState([] as any[]);
   const [loadingCollections, setLoadingCollections] = useState(false);
-  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
-  const [collectionPosts, setCollectionPosts] = useState<any[]>([]);
+  const [activeCollectionId, setActiveCollectionId] = useState(null as string | null);
+  const [collectionPosts, setCollectionPosts] = useState([] as any[]);
   const [loadingCollectionPosts, setLoadingCollectionPosts] = useState(false);
 
   // Create collection dialog
@@ -34,8 +35,8 @@ export function BookmarksPage() {
   const [creating, setCreating] = useState(false);
 
   // Add-to-collection picker
-  const [showAddPicker, setShowAddPicker] = useState<string | null>(null); // post id
-  const [addingToCollection, setAddingToCollection] = useState<string | null>(null);
+  const [showAddPicker, setShowAddPicker] = useState(null as string | null); // post id
+  const [addingToCollection, setAddingToCollection] = useState(null as string | null);
 
   useEffect(() => {
     if (!user) { navigate('/auth'); return; }
@@ -203,6 +204,7 @@ export function BookmarksPage() {
             posts.map(post => (
               <div key={post.id} className="relative group">
                 <PostCard post={post} />
+                {post.content && <div className="px-4 pb-2"><PostContentEmbeds content={post.content} /></div>}
                 {/* Add to collection button */}
                 <button
                   onClick={() => setShowAddPicker(showAddPicker === post.id ? null : post.id)}
