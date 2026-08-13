@@ -152,9 +152,10 @@ function CategoryTabContent({
             .in('post_id', pids);
           if (!cancelled && rxData) {
             // Build count map using parallel arrays (esbuild guard: no Record)
-            const cPostIds: any[] = [];
-            const cEmojis: any[] = [];
-            const cCounts: any[] = [];
+            // esbuild guard: no typed array declarations in async closure — use plain untyped
+            const cPostIds = [];
+            const cEmojis = [];
+            const cCounts = [];
             for (const r of rxData) {
               // find existing entry
               let found = false;

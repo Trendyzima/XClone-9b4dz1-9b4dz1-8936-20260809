@@ -1,19 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSEO } from '@/hooks/useSEO';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Input } from '@/components/ui/input';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import {
   Search, HelpCircle, MessageCircle, Shield, CreditCard, User,
-  ChevronDown, ChevronUp, ExternalLink,
+  ChevronDown, ChevronUp, ExternalLink, Send, Loader2,
+  TrendingUp, CheckCircle2, Hash,
 } from 'lucide-react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
+import { toast } from 'sonner';
+
 function HelpAdBanner() { return <PageAdBanner />; }
 
 // ── Module-level help content (esbuild guard: no inline object arrays in render)
-// Each entry: { q: string; a: string | string[] }
-// string[] = bullet list; string = paragraph
-
 const ACCOUNT_TOPICS = [
   {
     q: 'How to change username',
@@ -22,7 +24,7 @@ const ACCOUNT_TOPICS = [
       'Tap the Edit Profile button (pencil icon) near your profile photo.',
       'Update the Username field with your desired new handle.',
       'Tap Save — your username is changed immediately across the platform.',
-      'Note: usernames must be unique. If the name is taken you\'ll see an error.',
+      "Note: usernames must be unique. If the name is taken you'll see an error.",
     ],
   },
   {
@@ -41,7 +43,7 @@ const ACCOUNT_TOPICS = [
       'Choose your verification tier: Basic, Creator, Business, or Celebrity.',
       'Pay the one-time verification fee via M-Pesa or wallet balance.',
       'Our admin team reviews your account within 24 hours.',
-      'Once approved you\'ll get a coloured verified badge ✓ on your profile and all posts.',
+      "Once approved you'll get a coloured verified badge ✓ on your profile and all posts.",
     ],
   },
   {
@@ -175,11 +177,11 @@ const SAFETY_TOPICS = [
   {
     q: 'Block or mute users',
     a: [
-      'To Block: visit the user\'s profile → tap ··· → Block. They can no longer see your content.',
-      'To Mute: visit their profile → tap ··· → Mute. Their posts won\'t appear in your feed but they can still follow you.',
+      "To Block: visit the user's profile → tap ··· → Block. They can no longer see your content.",
+      "To Mute: visit their profile → tap ··· → Mute. Their posts won't appear in your feed but they can still follow you.",
       'Manage your block/mute list in Settings → Privacy → Blocked & Muted.',
       'Blocked users cannot message you, follow you, or see your posts.',
-      'Muted users don\'t know they\'re muted — the action is silent.',
+      "Muted users don't know they're muted — the action is silent.",
     ],
   },
   {
@@ -205,7 +207,7 @@ const SAFETY_TOPICS = [
   {
     q: 'Suspicious activity',
     a: [
-      'If you notice logins you don\'t recognise, go to Settings → Security → Active Sessions and sign out all devices.',
+      "If you notice logins you don't recognise, go to Settings → Security → Active Sessions and sign out all devices.",
       'Change your password immediately and enable 2FA.',
       'Check your Wallet → History for any unauthorised transactions.',
       'Report compromised accounts to support@tsocial.com with "ACCOUNT COMPROMISED" in the subject.',
@@ -224,8 +226,7 @@ const SAFETY_TOPICS = [
   },
 ];
 
-// Flat list of all topics for search (esbuild guard: module-level, not inside component)
-// esbuild guard: no explicit generic type annotation on module-level array; no ternary in .map() callback
+// ── Flat list for search (esbuild guard: module-level, no typed annotation) ──
 const ALL_TOPICS = [
   ...ACCOUNT_TOPICS.map(t => ({ category: 'Account & Profile', q: t.q, a: t.a })),
   ...POSTS_TOPICS.map(t => ({ category: 'Posts & Engagement', q: t.q, a: t.a })),
@@ -234,19 +235,59 @@ const ALL_TOPICS = [
 ];
 
 const CATEGORIES = [
-  { icon: User,        title: 'Account & Profile',        topics: ACCOUNT_TOPICS,  color: 'text-blue-600',   bg: 'bg-blue-500/10'   },
-  { icon: MessageCircle, title: 'Posts & Engagement',     topics: POSTS_TOPICS,    color: 'text-green-600',  bg: 'bg-green-500/10'  },
-  { icon: CreditCard,  title: 'Payments & Monetization',  topics: PAYMENTS_TOPICS, color: 'text-purple-600', bg: 'bg-purple-500/10' },
-  { icon: Shield,      title: 'Safety & Security',        topics: SAFETY_TOPICS,   color: 'text-red-600',    bg: 'bg-red-500/10'    },
+  { icon: User,          title: 'Account & Profile',       topics: ACCOUNT_TOPICS,  color: 'text-blue-600',   bg: 'bg-blue-500/10'   },
+  { icon: MessageCircle, title: 'Posts & Engagement',      topics: POSTS_TOPICS,    color: 'text-green-600',  bg: 'bg-green-500/10'  },
+  { icon: CreditCard,    title: 'Payments & Monetization', topics: PAYMENTS_TOPICS, color: 'text-purple-600', bg: 'bg-purple-500/10' },
+  { icon: Shield,        title: 'Safety & Security',       topics: SAFETY_TOPICS,   color: 'text-red-600',    bg: 'bg-red-500/10'    },
 ];
 
-// ── Accordion item (module-level component — esbuild guard) ──────────────────
-function HelpAccordionItem({ q, a, defaultOpen }: { q: string; a: string[]; defaultOpen?: boolean }) {
+// ── Contact form subject options (esbuild guard: module-level) ───────────────
+const CONTACT_SUBJECTS = [
+  'Account Issues',
+  'Payment & Billing',
+  'Technical Problem',
+  'Content Moderation',
+  'Creator Earnings',
+  'Feature Request',
+  'Other',
+];
+
+// ── Analytics storage key (module-level) ─────────────────────────────────────
+const HELP_ANALYTICS_KEY = 'ts-help-search-analytics';
+
+// ── URL slug generator (module-level) ────────────────────────────────────────
+function toSlug(q: string): string {
+  return q.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+// ── Accordion item ────────────────────────────────────────────────────────────
+function HelpAccordionItem({
+  q, a, defaultOpen, itemId, onOpen,
+}: {
+  q: string;
+  a: string[];
+  defaultOpen?: boolean;
+  itemId?: string;
+  onOpen?: (slug: string) => void;
+}) {
   const [open, setOpen] = useState(defaultOpen ?? false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // When defaultOpen changes (e.g. deep link resolved), update open state
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && itemId && onOpen) onOpen(itemId);
+  };
+
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div id={itemId} ref={ref} className="border-b border-border last:border-b-0">
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={toggle}
         className="w-full px-4 py-4 text-left hover:bg-muted/40 transition-colors flex items-center justify-between gap-3 group"
       >
         <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">{q}</span>
@@ -264,6 +305,18 @@ function HelpAccordionItem({ q, a, defaultOpen }: { q: string; a: string[]; defa
               </li>
             ))}
           </ul>
+          {/* Deep-link share button */}
+          {itemId && (
+            <button
+              onClick={() => {
+                const url = `${window.location.origin}/help#${itemId}`;
+                navigator.clipboard.writeText(url).then(() => toast.success('Link copied!')).catch(() => {});
+              }}
+              className="mt-3 text-[10px] text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+            >
+              <Hash className="w-3 h-3" /> Copy link to this answer
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -272,36 +325,162 @@ function HelpAccordionItem({ q, a, defaultOpen }: { q: string; a: string[]; defa
 
 export default function HelpPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  // Deep-link state
+  const [deepLinkSlug, setDeepLinkSlug] = useState('');
+  // esbuild guard: plain parallel arrays — no Record<string,number>
+  const [analyticsQueries, setAnalyticsQueries] = useState([]);
+  const [analyticsCounts, setAnalyticsCounts] = useState([]);
+  // Contact form
+  const [contactSubject, setContactSubject] = useState('Account Issues');
+  const [contactMessage, setContactMessage] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactSending, setContactSending] = useState(false);
+  const [contactSent, setContactSent] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useSEO({
-    title: 'Help Center — Testagram Support',
-    description: 'Find answers to common questions about Testagram. Learn how to post, earn money, manage your account, report issues, and get the most out of your experience.',
-    url: '/help',
-    type: 'website',
-    keywords: 'help, support, faq, testagram help, how to, account, payments, creators',
-    structuredData: {
-      '@context': 'https://schema.org',
-      '@type': 'FAQPage',
-      mainEntity: ALL_TOPICS.slice(0, 5).map(t => ({
-        '@type': 'Question',
-        name: t.q,
-        acceptedAnswer: { '@type': 'Answer', text: t.a.join(' ') },
-      })),
-    },
-  });
+  // Pre-fill email from auth
+  useEffect(() => {
+    if (user?.email) setContactEmail(user.email);
+  }, [user?.email]);
 
-  // Search results — filter from all topics
+  // Load search analytics from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HELP_ANALYTICS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setAnalyticsQueries(parsed.queries ?? []);
+        setAnalyticsCounts(parsed.counts ?? []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Deep-link: parse hash on mount, open matching accordion
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', '').trim();
+    if (!hash) return;
+    setDeepLinkSlug(hash);
+    // Scroll after short delay to let render complete
+    setTimeout(() => {
+      const el = document.getElementById(hash);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 350);
+  }, []);
+
+  // Track a search query in localStorage analytics
+  const trackSearch = (q: string) => {
+    if (!q.trim() || q.trim().length < 2) return;
+    const clean = q.trim().toLowerCase();
+    try {
+      const raw = localStorage.getItem(HELP_ANALYTICS_KEY);
+      const data = raw ? JSON.parse(raw) : { queries: [], counts: [] };
+      const idx = (data.queries as string[]).indexOf(clean);
+      if (idx >= 0) data.counts[idx] += 1;
+      else { data.queries.push(clean); data.counts.push(1); }
+      localStorage.setItem(HELP_ANALYTICS_KEY, JSON.stringify(data));
+      setAnalyticsQueries(data.queries as any);
+      setAnalyticsCounts(data.counts as any);
+    } catch { /* ignore */ }
+  };
+
+  // Debounced search tracking
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      if (val.trim().length >= 2) trackSearch(val);
+    }, 1000);
+  };
+
+  const handleContactSubmit = async () => {
+    if (!contactMessage.trim()) { toast.error('Please write a message'); return; }
+    if (!contactEmail.trim()) { toast.error('Please provide your email'); return; }
+    setContactSending(true);
+    try {
+      const { error } = await supabase.from('platform_inbox').insert({
+        user_id: user?.id ?? null,
+        subject: `[Support] ${contactSubject}: from ${contactEmail}`,
+        body: `From: ${contactEmail}\nSubject: ${contactSubject}\n\n${contactMessage.trim()}`,
+        type: 'news',
+        icon_emoji: '📩',
+        cta_label: 'View in Dashboard',
+        cta_url: '/admin',
+      });
+      if (error) throw error;
+      setContactSent(true);
+      setContactMessage('');
+      toast.success("Support request sent! We'll get back to you soon.");
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to send. Please try again.');
+    } finally {
+      setContactSending(false);
+    }
+  };
+
+  // ── Pre-compute values before JSX (esbuild guard) ──────────────────────────
   const searchLow = searchQuery.toLowerCase().trim();
-  const searchResults = searchLow.length >= 2
+  const hasSearch = searchLow.length >= 2;
+  const searchResults = hasSearch
     ? ALL_TOPICS.filter(t => t.q.toLowerCase().includes(searchLow) || t.a.some(l => l.toLowerCase().includes(searchLow)))
     : [];
-  const hasSearch = searchLow.length >= 2;
-  // esbuild guard: pre-compute plural suffix before JSX — no inline ternary in template string
   const searchResultsSuffix = searchResults.length !== 1 ? 's' : '';
   const searchResultsLabel = searchResults.length > 0
     ? `${searchResults.length} result${searchResultsSuffix} for "${searchQuery}"`
     : `No results for "${searchQuery}"`;
+
+  // esbuild guard: pre-compute top searches — no inline object creation in sort
+  const analyticsQueriesArr = analyticsQueries as string[];
+  const analyticsCountsArr = analyticsCounts as number[];
+  let topSearches: string[] = [];
+  if (analyticsQueriesArr.length > 0) {
+    const idxArr = analyticsQueriesArr.map((_, i) => i);
+    idxArr.sort((a, b) => (analyticsCountsArr[b] ?? 0) - (analyticsCountsArr[a] ?? 0));
+    topSearches = idxArr.slice(0, 5).map(i => analyticsQueriesArr[i]);
+  }
+  const hasTopSearches = topSearches.length > 0 && !hasSearch;
+
+  // All 20 FAQs for structured data (esbuild guard: pre-computed, not inline)
+  const faqStructuredData = ALL_TOPICS.map(t => ({
+    '@type': 'Question',
+    name: t.q,
+    acceptedAnswer: { '@type': 'Answer', text: t.a.join(' ') },
+  }));
+
+  useSEO({
+    title: 'Help Center — Testagram Support & FAQ',
+    description: 'Find step-by-step answers to common questions about Testagram. Learn how to post videos, earn money, manage your account, use M-Pesa, report issues, and get the most from your creator experience.',
+    url: '/help',
+    type: 'website',
+    keywords: 'testagram help, support faq, how to post videos, creator earnings, mpesa payments, account settings, verify account, privacy settings, report abuse, schedule posts',
+    structuredData: [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: faqStructuredData,
+      },
+      {
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://testagram.site' },
+          { '@type': 'ListItem', position: 2, name: 'Help Center', item: 'https://testagram.site/help' },
+        ],
+      },
+      {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        name: 'Testagram Help Center',
+        description: 'Comprehensive help and support documentation for Testagram users and creators.',
+        url: 'https://testagram.site/help',
+        breadcrumb: { '@type': 'BreadcrumbList', itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://testagram.site' },
+          { '@type': 'ListItem', position: 2, name: 'Help Center', item: 'https://testagram.site/help' },
+        ]},
+      },
+    ],
+  });
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
@@ -326,10 +505,42 @@ export default function HelpPage() {
             type="text"
             placeholder="Search help articles…"
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => handleSearchChange(e.target.value)}
             className="pl-10 h-11 rounded-xl"
           />
         </div>
+
+        {/* ── Most Searched Chips ── (shown when not searching) */}
+        {hasTopSearches && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <TrendingUp className="w-3.5 h-3.5 text-primary" />
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Most Searched</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {topSearches.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => setSearchQuery(q)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/60 hover:bg-primary/10 border border-border hover:border-primary/30 rounded-full text-xs font-medium text-foreground transition-colors"
+                >
+                  <Search className="w-2.5 h-2.5 text-muted-foreground" />
+                  {q}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  try { localStorage.removeItem(HELP_ANALYTICS_KEY); } catch { /* ignore */ }
+                  setAnalyticsQueries([] as any);
+                  setAnalyticsCounts([] as any);
+                }}
+                className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors px-1"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Search Results */}
         {hasSearch && (
@@ -346,14 +557,23 @@ export default function HelpPage() {
               </div>
             ) : (
               <div>
-                {searchResults.map((item, i) => (
-                  <div key={i}>
-                    <div className="px-4 pt-2 pb-0">
-                      <span className="text-[10px] font-bold text-primary/70 uppercase tracking-wide">{item.category}</span>
+                {searchResults.map((item, i) => {
+                  const slug = toSlug(item.q);
+                  return (
+                    <div key={i}>
+                      <div className="px-4 pt-2 pb-0">
+                        <span className="text-[10px] font-bold text-primary/70 uppercase tracking-wide">{item.category}</span>
+                      </div>
+                      <HelpAccordionItem
+                        q={item.q}
+                        a={item.a}
+                        defaultOpen
+                        itemId={slug}
+                        onOpen={trackSearch}
+                      />
                     </div>
-                    <HelpAccordionItem q={item.q} a={item.a} defaultOpen />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -364,37 +584,135 @@ export default function HelpPage() {
           const Icon = cat.icon;
           return (
             <div key={cat.title} className="border border-border rounded-2xl overflow-hidden">
-              {/* Category header */}
               <div className="flex items-center gap-3 px-4 py-3.5 bg-muted/20 border-b border-border">
                 <div className={`w-9 h-9 rounded-xl ${cat.bg} flex items-center justify-center shrink-0`}>
                   <Icon className={`w-4.5 h-4.5 ${cat.color}`} size={18} />
                 </div>
                 <h2 className="font-black text-base">{cat.title}</h2>
               </div>
-              {/* Accordion items */}
               <div>
-                {cat.topics.map((topic, ti) => (
-                  <HelpAccordionItem key={ti} q={topic.q} a={Array.isArray(topic.a) ? topic.a : [topic.a]} />
-                ))}
+                {cat.topics.map((topic, ti) => {
+                  const slug = toSlug(topic.q);
+                  const isDeepLinked = deepLinkSlug === slug;
+                  return (
+                    <HelpAccordionItem
+                      key={ti}
+                      q={topic.q}
+                      a={Array.isArray(topic.a) ? topic.a : [topic.a]}
+                      defaultOpen={isDeepLinked}
+                      itemId={slug}
+                      onOpen={(s) => {
+                        // Update URL hash without page reload
+                        if (window.history.replaceState) {
+                          window.history.replaceState(null, '', `/help#${s}`);
+                        }
+                      }}
+                    />
+                  );
+                })}
               </div>
             </div>
           );
         })}
 
-        {/* Contact Support CTA */}
+        {/* ── Contact Support Form ── */}
+        <div className="border border-border rounded-2xl overflow-hidden" id="contact-support">
+          <div className="px-4 py-3.5 border-b border-border bg-muted/20 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <MessageCircle className="w-4.5 h-4.5 text-primary" size={18} />
+            </div>
+            <div>
+              <h2 className="font-black text-base">Contact Support</h2>
+              <p className="text-xs text-muted-foreground">Send a request to our team</p>
+            </div>
+          </div>
+
+          {contactSent ? (
+            <div className="px-4 py-10 text-center space-y-3">
+              <div className="w-14 h-14 rounded-full bg-green-500/10 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-7 h-7 text-green-500" />
+              </div>
+              <p className="font-black text-lg">Request sent!</p>
+              <p className="text-sm text-muted-foreground">We'll get back to you at <span className="font-semibold text-foreground">{contactEmail}</span> within 24 hours.</p>
+              <button
+                onClick={() => setContactSent(false)}
+                className="text-xs text-primary font-semibold hover:underline"
+              >
+                Send another request
+              </button>
+            </div>
+          ) : (
+            <div className="px-4 py-4 space-y-4">
+              {/* Subject */}
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1.5 block uppercase tracking-wide">Subject</label>
+                <select
+                  value={contactSubject}
+                  onChange={e => setContactSubject(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 appearance-none cursor-pointer"
+                >
+                  {CONTACT_SUBJECTS.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Email */}
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1.5 block uppercase tracking-wide">Your Email</label>
+                <Input
+                  type="email"
+                  value={contactEmail}
+                  onChange={e => setContactEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  className="h-10 rounded-xl"
+                />
+              </div>
+              {/* Message */}
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1.5 block uppercase tracking-wide">Message</label>
+                <textarea
+                  value={contactMessage}
+                  onChange={e => setContactMessage(e.target.value)}
+                  placeholder="Describe your issue in detail. Include any relevant post IDs, transaction references, or error messages…"
+                  rows={4}
+                  className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 leading-relaxed"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1 text-right">{contactMessage.length}/1000</p>
+              </div>
+              <button
+                onClick={handleContactSubmit}
+                disabled={contactSending || !contactMessage.trim() || !contactEmail.trim()}
+                className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 transition-opacity"
+              >
+                {contactSending
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                  : <><Send className="w-4 h-4" /> Send Support Request</>}
+              </button>
+              <p className="text-[10px] text-muted-foreground text-center">
+                Or email us directly at{' '}
+                <a href="mailto:support@tsocial.com" className="text-primary hover:underline">support@tsocial.com</a>
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* ── Still need help CTA ── */}
         <div className="bg-gradient-to-br from-primary/8 via-purple-500/5 to-background border border-primary/15 rounded-2xl p-7 text-center">
           <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
             <MessageCircle className="w-6 h-6 text-primary" />
           </div>
           <h3 className="text-xl font-black mb-1">Still need help?</h3>
           <p className="text-sm text-muted-foreground mb-5">Our support team is here to help you</p>
-          <a
-            href="mailto:support@tsocial.com"
+          <button
+            onClick={() => {
+              const el = document.getElementById('contact-support');
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
             className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full font-bold text-sm hover:opacity-90 transition-opacity"
           >
             <MessageCircle className="w-4 h-4" />
-            Contact Support
-          </a>
+            Open Support Form
+          </button>
         </div>
 
         {/* Quick Links */}
@@ -410,7 +728,7 @@ export default function HelpPage() {
             <ExternalLink className="w-4 h-4 text-muted-foreground shrink-0" />
           </button>
           <button
-            onClick={() => navigate('/help#privacy')}
+            onClick={() => navigate('/help#privacy-settings')}
             className="w-full flex items-center justify-between p-4 border border-border rounded-xl hover:bg-muted/40 transition-colors text-left"
           >
             <div>
@@ -420,7 +738,7 @@ export default function HelpPage() {
             <ExternalLink className="w-4 h-4 text-muted-foreground shrink-0" />
           </button>
           <button
-            onClick={() => navigate('/help#tos')}
+            onClick={() => navigate('/help#content-guidelines')}
             className="w-full flex items-center justify-between p-4 border border-border rounded-xl hover:bg-muted/40 transition-colors text-left"
           >
             <div>
