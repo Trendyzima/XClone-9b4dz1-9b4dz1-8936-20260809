@@ -24,7 +24,7 @@ function getCpmTier(verified: boolean, totalViews: number): Tier {
   return 'standard';
 }
 
-const AD_REVENUE_SHARE = 0.30; // Creator gets 30% of platform ad revenue attribution
+const AD_REVENUE_SHARE = 0.40; // Creator gets 40% of platform ad revenue attribution (platform keeps 60%)
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -150,9 +150,9 @@ serve(async (req) => {
         });
         if (walletErr) { results.errors.push(`wallet ${video.id}: ${walletErr.message}`); continue; }
 
-        // Track platform vs creator split in revenue_shares (70% platform for video fund)
-        const platformCut = parseFloat((earned * 0.70).toFixed(6));
-        const creatorCut  = parseFloat((earned * 0.30).toFixed(6));
+        // Track platform vs creator split in revenue_shares (60% platform / 40% creator for video fund)
+        const platformCut = parseFloat((earned * 0.60).toFixed(6));
+        const creatorCut  = parseFloat((earned * 0.40).toFixed(6));
         await supabase.from('revenue_shares').upsert({
           user_id:         video.user_id,
           total_revenue:   earned,

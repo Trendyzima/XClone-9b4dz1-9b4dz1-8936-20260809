@@ -1584,6 +1584,11 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
     executeSend();
   };
 
+  // esbuild guard: fee values pre-computed before JSX return (no IIFE in render)
+  const sendFeeRaw = parseFloat(amount || '0');
+  const sendFeeAmt = sendFeeRaw >= 0.10 ? parseFloat((sendFeeRaw * 0.05).toFixed(4)) : 0;
+  const sendFeeNet = parseFloat((sendFeeRaw - sendFeeAmt).toFixed(4));
+
   if (receipt) {
     const isFav = favorites.some(f => f.id === receipt.recipient.id);
     return (
@@ -1725,8 +1730,32 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
               {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : (pinHash || biometricCredentialId ? <Lock className="w-5 h-5" /> : <Send className="w-5 h-5" />)}
               {sending ? 'Sending…' : `Send ${fmtAmt(parseFloat(amount || '0'), currency)} to @${selectedUser.username}`}
             </button>
-            {amount && parseFloat(amount) > walletBalance && (
-              <p className="text-xs text-red-500 text-center">Exceeds your balance of {fmtAmt(walletBalance, currency)}</p>
+            {/* esbuild guard: fee values pre-computed before JSX return, no IIFE */}
+            {sendFeeRaw > 0 && selectedUser && (
+              <div className={`rounded-2xl border overflow-hidden ${sendFeeRaw > walletBalance ? 'border-red-500/30 bg-red-500/5' : 'border-primary/20 bg-primary/5'}`}>
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/50 bg-muted/20">
+                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Transfer Breakdown</span>
+                </div>
+                <div className="divide-y divide-border/40">
+                  <div className="flex justify-between items-center px-4 py-2.5">
+                    <span className="text-sm text-muted-foreground">You send</span>
+                    <span className="font-bold text-foreground">{fmtAmt(sendFeeRaw, currency)}</span>
+                  </div>
+                  {sendFeeAmt > 0 && (
+                    <div className="flex justify-between items-center px-4 py-2.5">
+                      <span className="text-sm text-muted-foreground">Platform fee (5%)</span>
+                      <span className="font-semibold text-red-500">-{fmtAmt(sendFeeAmt, currency)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center px-4 py-2.5 bg-green-500/5">
+                    <span className="text-sm font-bold text-green-700 dark:text-green-400">@{selectedUser.username} receives</span>
+                    <span className="font-black text-green-600">{fmtAmt(sendFeeNet, currency)}</span>
+                  </div>
+                </div>
+                {sendFeeRaw > walletBalance && (
+                  <p className="text-xs text-red-500 px-4 pb-2.5 font-semibold">Exceeds your balance of {fmtAmt(walletBalance, currency)}</p>
+                )}
+              </div>
             )}
           </div>
         )}

@@ -42,7 +42,7 @@ export default function CreatorStudio() {
   const [streakDay, setStreakDay] = useState(0);
   const [videoPostsCount, setVideoPostsCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'videos' | 'earnings' | 'analytics'>('overview');
+  const [activeStudioTab, setActiveStudioTab] = useState<'overview' | 'videos' | 'earnings' | 'analytics' | 'revenue'>('overview');
   // CSV Export state
   const [exportStartMonth, setExportStartMonth] = useState('');
   const [exportEndMonth, setExportEndMonth] = useState('');
@@ -571,7 +571,7 @@ export default function CreatorStudio() {
       <div className="p-4 space-y-6">
         {/* Studio tabs */}
         <div className="flex bg-muted/30 rounded-xl p-1 gap-1">
-          {(['overview', 'analytics', 'videos', 'earnings'] as const).map(tab => (
+          {(['overview', 'analytics', 'videos', 'earnings', 'revenue'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveStudioTab(tab)}
@@ -579,7 +579,7 @@ export default function CreatorStudio() {
                 activeStudioTab === tab ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {tab === 'videos' ? '📹 Videos' : tab === 'earnings' ? '💰 Earnings' : tab === 'analytics' ? '📈 Analytics' : '📊 Overview'}
+              {tab === 'videos' ? '📹 Videos' : tab === 'earnings' ? '💰 Earnings' : tab === 'analytics' ? '📈 Analytics' : tab === 'revenue' ? '💹 Revenue' : '📊 Overview'}
             </button>
           ))}
         </div>
@@ -1335,12 +1335,161 @@ export default function CreatorStudio() {
             <button onClick={() => navigate('/payouts')} className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity">
               Request Payout
             </button>
+
+            {/* Revenue Split info card */}
+            <div className="bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-primary" />
+                <h3 className="font-bold text-sm">Your Revenue Split</h3>
+              </div>
+              <div className="divide-y divide-border">
+                {[{
+                  icon: '🎬', label: 'Video CPM', note: '$1.50–$3.50/1k views · tier-based',
+                  platPct: 60, creatPct: 40,
+                },{
+                  icon: '📢', label: 'Ad Revenue Share', note: 'From ad placements pool · monthly',
+                  platPct: 60, creatPct: 40,
+                },{
+                  icon: '💝', label: 'Fan Tips', note: 'Direct supporter tips',
+                  platPct: 15, creatPct: 85,
+                },{
+                  icon: '💸', label: 'P2P Transfers', note: 'Small 5% transaction fee',
+                  platPct: 5, creatPct: 95,
+                }].map(row => (
+                  <div key={row.label} className="px-4 py-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div>
+                        <p className="text-sm font-semibold">{row.icon} {row.label}</p>
+                        <p className="text-[10px] text-muted-foreground">{row.note}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold shrink-0">
+                        <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full">{row.platPct}% platform</span>
+                        <span className="px-2 py-0.5 bg-green-500/10 text-green-600 rounded-full">{row.creatPct}% you</span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden bg-muted flex">
+                      <div className="h-full bg-muted-foreground/30" style={{ width: `${row.platPct}%` }} />
+                      <div className="h-full bg-green-500/70" style={{ width: `${row.creatPct}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             <button onClick={() => navigate('/post-analytics')} className="w-full py-3 border border-border rounded-xl font-semibold hover:bg-muted/50 transition-colors flex items-center justify-center gap-2">
               <BarChart3 className="w-4 h-4" /> Post Analytics Dashboard
             </button>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
+        {/* ── REVENUE ANALYTICS TAB ── */}
+        {activeStudioTab === 'revenue' && (
+          <div className="space-y-5">
+            {/* Header */}
+            <div className="bg-gradient-to-br from-violet-500/10 via-primary/5 to-background border border-primary/20 rounded-2xl p-5">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-11 h-11 rounded-2xl bg-primary/15 flex items-center justify-center shrink-0">
+                  <DollarSign className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h2 className="font-black text-lg">Revenue Analytics</h2>
+                  <p className="text-xs text-muted-foreground">Your earnings split across all monetization channels</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-background/60 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-black text-green-600">${stats.total_earnings.toFixed(2)}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Your total earned</p>
+                </div>
+                <div className="bg-background/60 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-black text-primary">{formatNumber(stats.video_views)}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Video views</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Revenue Split Display */}
+            <div className="bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-muted/20">
+                <h3 className="font-bold text-sm flex items-center gap-2"><BarChart3 className="w-4 h-4 text-primary" />Revenue Split by Channel</h3>
+              </div>
+              <div className="divide-y divide-border">
+                {[{
+                  icon: '🎬', label: 'Video CPM', note: '$1.50–$3.50/1k views · auto-tier upgrade',
+                  platPct: 60, creatPct: 40, creatDesc: '40% of CPM',
+                },{
+                  icon: '📢', label: 'Ad Revenue Share', note: 'Monthly pool proportional to your views',
+                  platPct: 60, creatPct: 40, creatDesc: '40% of ad pool',
+                },{
+                  icon: '💝', label: 'Fan Tips', note: 'Instant wallet credit on receive',
+                  platPct: 15, creatPct: 85, creatDesc: '85% goes to you',
+                },{
+                  icon: '💸', label: 'P2P Transfers', note: 'Small 5% fee keeps platform running',
+                  platPct: 5, creatPct: 95, creatDesc: '95% arrives to receiver',
+                },{
+                  icon: '👑', label: 'Subscriptions', note: 'Creator tier subscriptions',
+                  platPct: 15, creatPct: 85, creatDesc: '85% goes to you',
+                }].map((row, i) => (
+                  <div key={i} className="px-4 py-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <p className="text-sm font-bold">{row.icon} {row.label}</p>
+                        <p className="text-[10px] text-muted-foreground">{row.note}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-black text-green-600">{row.creatPct}%</p>
+                        <p className="text-[9px] text-muted-foreground">{row.creatDesc}</p>
+                      </div>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden bg-muted flex">
+                      <div className="h-full bg-muted-foreground/20" style={{ width: `${row.platPct}%` }} />
+                      <div className="h-full bg-green-500/60" style={{ width: `${row.creatPct}%` }} />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                      <span>{row.platPct}% platform</span>
+                      <span className="text-green-600 font-semibold">{row.creatPct}% you</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* CPM Tier Info */}
+            <div className="bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-muted/20">
+                <h3 className="font-bold text-sm flex items-center gap-2"><TrendingUp className="w-4 h-4 text-amber-500" />CPM Tier Rates</h3>
+              </div>
+              <div className="divide-y divide-border">
+                {[{
+                  tier: 'Standard', emoji: '🌱', cpm: '$1.50', req: 'New creators',
+                },{
+                  tier: 'Rising', emoji: '📈', cpm: '$2.00', req: '10K+ video views',
+                },{
+                  tier: 'Premium', emoji: '⭐', cpm: '$2.50', req: 'Verified creator',
+                },{
+                  tier: 'Top Creator', emoji: '👑', cpm: '$3.50', req: 'Verified + 100K+ views',
+                }].map(t => (
+                  <div key={t.tier} className="flex items-center gap-3 px-4 py-3">
+                    <span className="text-xl shrink-0">{t.emoji}</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold">{t.tier}</p>
+                      <p className="text-[10px] text-muted-foreground">{t.req}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-green-600">{t.cpm}</p>
+                      <p className="text-[10px] text-muted-foreground">per 1k views</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => navigate('/monetization')} className="py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90">
+                Monetization Hub
+              </button>
+              <button onClick={() => navigate('/admin/platform-revenue')} className="py-3 border border-border rounded-xl font-bold text-sm hover:bg-muted transition-colors">
+                Platform Revenue
+              </button>
+            </div>
+          </div>
+        )}
