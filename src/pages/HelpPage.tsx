@@ -225,11 +225,12 @@ const SAFETY_TOPICS = [
 ];
 
 // Flat list of all topics for search (esbuild guard: module-level, not inside component)
-const ALL_TOPICS: { category: string; q: string; a: string[] }[] = [
-  ...ACCOUNT_TOPICS.map(t => ({ category: 'Account & Profile', q: t.q, a: Array.isArray(t.a) ? t.a : [t.a] })),
-  ...POSTS_TOPICS.map(t => ({ category: 'Posts & Engagement', q: t.q, a: Array.isArray(t.a) ? t.a : [t.a] })),
-  ...PAYMENTS_TOPICS.map(t => ({ category: 'Payments & Monetization', q: t.q, a: Array.isArray(t.a) ? t.a : [t.a] })),
-  ...SAFETY_TOPICS.map(t => ({ category: 'Safety & Security', q: t.q, a: Array.isArray(t.a) ? t.a : [t.a] })),
+// esbuild guard: no explicit generic type annotation on module-level array; no ternary in .map() callback
+const ALL_TOPICS = [
+  ...ACCOUNT_TOPICS.map(t => ({ category: 'Account & Profile', q: t.q, a: t.a })),
+  ...POSTS_TOPICS.map(t => ({ category: 'Posts & Engagement', q: t.q, a: t.a })),
+  ...PAYMENTS_TOPICS.map(t => ({ category: 'Payments & Monetization', q: t.q, a: t.a })),
+  ...SAFETY_TOPICS.map(t => ({ category: 'Safety & Security', q: t.q, a: t.a })),
 ];
 
 const CATEGORIES = [
@@ -296,6 +297,11 @@ export default function HelpPage() {
     ? ALL_TOPICS.filter(t => t.q.toLowerCase().includes(searchLow) || t.a.some(l => l.toLowerCase().includes(searchLow)))
     : [];
   const hasSearch = searchLow.length >= 2;
+  // esbuild guard: pre-compute plural suffix before JSX — no inline ternary in template string
+  const searchResultsSuffix = searchResults.length !== 1 ? 's' : '';
+  const searchResultsLabel = searchResults.length > 0
+    ? `${searchResults.length} result${searchResultsSuffix} for "${searchQuery}"`
+    : `No results for "${searchQuery}"`;
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
@@ -330,7 +336,7 @@ export default function HelpPage() {
           <div className="border border-border rounded-2xl overflow-hidden">
             <div className="px-4 py-3 bg-muted/30 border-b border-border">
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
-                {searchResults.length > 0 ? `${searchResults.length} result${searchResults.length !== 1 ? 's' : ''} for "${searchQuery}"` : `No results for "${searchQuery}"`}
+                {searchResultsLabel}
               </p>
             </div>
             {searchResults.length === 0 ? (
