@@ -39,7 +39,8 @@ export default function AuthPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const referrerIdRef = useRef<string | null>(searchParams.get('ref'));
+  // esbuild guard: store initial ref param at module boundary, no useRef generic needed
+  const referrerIdRef = useRef(searchParams.get('ref'));
   const { login } = useAuthStore();
 
   // esbuild guard: ref param is stored in localStorage on mount so it survives OTP redirect
