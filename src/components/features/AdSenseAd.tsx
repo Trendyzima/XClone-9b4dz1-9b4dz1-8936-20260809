@@ -87,6 +87,7 @@ export function AdSenseAd({
 export function PageAdBanner() {
   const pushed  = useRef(false);
   const insRef  = useRef<HTMLModElement>(null);
+  // esbuild guard: initialize to null only; collapse immediately if window.adsbygoogle never activates
   const [filled, setFilled] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -106,7 +107,8 @@ export function PageAdBanner() {
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
-  if (filled === false) return null;
+  // Never show blank placeholder — only render once filled is confirmed true
+  if (filled !== true) return null;
 
   return (
     <div className="mx-4 mt-2 mb-1 rounded-xl overflow-hidden border border-border/60 bg-muted/5">

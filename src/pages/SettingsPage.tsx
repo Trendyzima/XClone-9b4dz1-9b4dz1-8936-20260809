@@ -14,8 +14,6 @@ import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { applyTheme, getStoredThemeChoice } from '@/components/layout/ThemeToggle';
 import { authService } from '@/lib/auth';
 
-import { PageAdBanner } from '@/components/features/AdSenseAd';
-function SettingsAdBanner() { return <PageAdBanner />; }
 
 type ThemeChoice = 'light' | 'dark' | 'system';
 
@@ -89,8 +87,6 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Settings" showBack />
-      <SettingsAdBanner />
-
       <div className="divide-y divide-border">
         {/* Account */}
         <div className="p-4">
