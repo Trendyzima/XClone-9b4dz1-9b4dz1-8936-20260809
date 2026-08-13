@@ -8,7 +8,7 @@ import {
   ShoppingBag, Calendar, Crown, Briefcase, Settings, HelpCircle,
   History, ChevronDown, ChevronUp, FileText, Wallet, Megaphone,
   Shield, LineChart, Globe, Flame, Trophy, UserSearch, Gift, BookOpen, Inbox,
-  MessageSquare, ShieldCheck,
+  MessageSquare, ShieldCheck, ShoppingCart,
 } from 'lucide-react';
 import { authService } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -240,6 +240,7 @@ export function Sidebar() {
     { icon: Megaphone, label: 'My Ads', path: '/my-ads', requireAuth: true },
     { icon: LineChart, label: 'Ad Analytics', path: '/ad-analytics', requireAuth: true },
     { icon: BookOpen, label: 'Series', path: '/series', requireAuth: false },
+    { icon: ShoppingCart, label: 'Orders', path: '/orders', requireAuth: true },
     { icon: Inbox, label: 'Wise Brain', path: '/platform-inbox', requireAuth: true },
     { icon: BarChart3, label: 'Story Analytics', path: '/story-analytics', requireAuth: true },
     { icon: DollarSign, label: 'Platform Revenue', path: '/admin/platform-revenue', requireAuth: true },
