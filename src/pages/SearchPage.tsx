@@ -60,6 +60,41 @@ export default function SearchPage() {
   const [hashtags, setHashtags] = useState<any[]>([]);
   const [communities, setCommunities] = useState<any[]>([]);
   const [fediverseResults, setFediverseResults] = useState<any[]>([]);
+  // ── Content-type filter chips ──────────────────────────────────────────────
+  // esbuild guard: plain string[] constant at module level (no 'as const')
+  const CONTENT_TYPE_FILTERS: string[] = ['All', 'Posts', 'Videos', 'Users', 'Hashtags', 'Threads'];
+  const [contentTypeFilter, setContentTypeFilter] = useState('All');
+  // Sort options
+  const SORT_OPTIONS: string[] = ['Newest', 'Most Liked', 'Most Viewed'];
+  const [sortOption, setSortOption] = useState('Most Viewed');
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+
+  const [threads, setThreads] = useState<any[]>([]);
+
+  // Apply content-type filter to re-route the active tab
+  useEffect(() => {
+    if (contentTypeFilter === 'All') return;
+    const typeTabMap: Record<string, string> = {
+      Posts: 'Posts', Videos: 'Posts', Users: 'Users',
+      Hashtags: 'Hashtags', Threads: 'For You',
+    };
+    // Switch tab automatically when type chip changes
+    setActiveTab(typeTabMap[contentTypeFilter] ?? activeTab);
+  }, [contentTypeFilter]);
+
+  const sortPosts = (rawPosts: any[]) => {
+    if (sortOption === 'Newest') return [...rawPosts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    if (sortOption === 'Most Liked') return [...rawPosts].sort((a, b) => (b.likes_count ?? 0) - (a.likes_count ?? 0));
+    return [...rawPosts].sort((a, b) => (b.views_count ?? 0) - (a.views_count ?? 0));
+  };
+
+  const getFilteredPosts = () => {
+    let result = applyFilters(posts);
+    if (contentTypeFilter === 'Videos') result = result.filter(p => p.is_video || p.video_url);
+    else if (contentTypeFilter === 'Posts') result = result.filter(p => !p.is_video && !p.video_url);
+    return sortPosts(result);
+  };
+
   const [loading, setLoading] = useState(false);
   const [fediverseLoading, setFediverseLoading] = useState(false);
 
@@ -310,7 +345,8 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
 
     try {
       const clean = searchQuery.replace(/^#/, '');
-      const [postsRes, usersRes, hashtagsRes, communitiesRes] = await Promise.all([
+      // Also fetch threads if content type filter includes threads
+      const [postsRes, usersRes, hashtagsRes, communitiesRes, threadsRes] = await Promise.all([
         supabase
           .from('posts')
           .select('*, user_profiles (*)')
@@ -334,7 +370,16 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
           .or(`name.ilike.%${clean}%,display_name.ilike.%${clean}%,description.ilike.%${clean}%`)
           .order('member_count', { ascending: false })
           .limit(20),
+        supabase
+          .from('threads')
+          .select('*, user_profiles(*)')
+          .or(`title.ilike.%${clean}%,content.ilike.%${clean}%`)
+          .eq('is_published', true)
+          .order('views_count', { ascending: false })
+          .limit(20),
       ]);
+
+      setThreads(threadsRes.data ?? []);
 
       // Apply smart scoring
       const scoredPosts = (postsRes.data || [])
@@ -589,6 +634,49 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
           </div>
         )}
 
+        {/* ── Content-Type Filter Chips + Sort ───────────────────────────────────── */}
+        {hasQuery && (
+          <div className="px-3 py-2 border-t border-border/50 bg-background flex items-center gap-2 overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-1.5 flex-1 overflow-x-auto scrollbar-hide">
+              {CONTENT_TYPE_FILTERS.map(ct => (
+                <button
+                  key={ct}
+                  onClick={() => setContentTypeFilter(ct)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border-2 transition-all ${
+                    contentTypeFilter === ct
+                      ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                      : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                  }`}
+                >
+                  {ct === 'Videos' ? '🎥 ' : ct === 'Posts' ? '📝 ' : ct === 'Users' ? '👤 ' : ct === 'Hashtags' ? '# ' : ct === 'Threads' ? '🧵 ' : ''}{ct}
+                </button>
+              ))}
+            </div>
+            {/* Sort dropdown */}
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setShowSortDropdown(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border-2 border-border text-xs font-bold text-muted-foreground hover:border-primary/40 transition-all whitespace-nowrap"
+              >
+                <TrendingUp className="w-3 h-3" />{sortOption}
+              </button>
+              {showSortDropdown && (
+                <div className="absolute right-0 top-full mt-1 bg-background border border-border rounded-2xl shadow-xl z-50 overflow-hidden min-w-[140px]">
+                  {SORT_OPTIONS.map(opt => (
+                    <button
+                      key={opt}
+                      onClick={() => { setSortOption(opt); setShowSortDropdown(false); }}
+                      className={`w-full text-left px-4 py-2.5 text-xs font-semibold transition-colors hover:bg-muted ${
+                        sortOption === opt ? 'text-primary' : 'text-foreground'
+                      }`}
+                    >{opt}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex overflow-x-auto scrollbar-hide border-t border-border/50">
           {/* Moved the Filter button outside the tabs.map as it's not a tab itself but a toggle for filters */}
           <button onClick={() => setShowFilters(p => !p)}
@@ -796,9 +884,37 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
               )
             ) : (
               /* Search results for For You tab = best-scored posts */
-              applyFilters(posts).length > 0 ? (
+              getFilteredPosts().length > 0 ? (
                 <div>
-                  {applyFilters(posts).slice(0, 5).map((post: any, i: number) => (
+                  {/* Threads section — shown when contentTypeFilter === 'Threads' or 'All' */}
+                  {(contentTypeFilter === 'Threads' || contentTypeFilter === 'All') && threads.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/20">
+                        <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Threads</span>
+                        <span className="text-xs text-muted-foreground">({threads.length})</span>
+                      </div>
+                      {threads.slice(0, 3).map((t: any) => (
+                        <button key={t.id} onClick={() => navigate(`/thread/${t.id}`)}
+                          className="w-full flex items-start gap-3 px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors text-left">
+                          {t.cover_image && (
+                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-muted shrink-0">
+                              <img src={t.cover_image} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm line-clamp-1">{t.title}</p>
+                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{t.content?.slice(0, 100)}</p>
+                            <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                              <span>@{t.user_profiles?.username}</span>
+                              <span>{formatNumber(t.views_count ?? 0)} views</span>
+                              <span>{formatNumber(t.likes_count ?? 0)} likes</span>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {contentTypeFilter !== 'Threads' && getFilteredPosts().slice(0, 5).map((post: any, i: number) => (
                     <div key={post.id}>
                       <PostCard post={post} onUpdate={() => performSearch(query)} />
                       {i === 2 && (
@@ -808,7 +924,7 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
                       )}
                     </div>
                   ))}
-                  {applyFilters(posts).length > 5 && applyFilters(posts).slice(5).map((post: any) => (
+                  {contentTypeFilter !== 'Threads' && getFilteredPosts().length > 5 && getFilteredPosts().slice(5).map((post: any) => (
                     <PostCard key={post.id} post={post} onUpdate={() => performSearch(query)} />
                   ))}
                 </div>
@@ -822,13 +938,13 @@ Also suggest 3 related search terms as hashtags (e.g., #tech #startup). Keep it 
           )}
 
           {activeTab === 'Posts' && (
-            applyFilters(posts).length > 0 ? (
-              applyFilters(posts).map((post) => (
+            getFilteredPosts().length > 0 ? (
+              getFilteredPosts().map((post) => (
                 <PostCard key={post.id} post={post} onUpdate={() => performSearch(query)} />
               ))
             ) : (
               <div className="text-center py-12 text-muted-foreground">
-                <p>No posts found{query ? ` for "${query}"` : ''}</p>
+                <p>No {contentTypeFilter !== 'All' ? contentTypeFilter.toLowerCase() : 'posts'} found{query ? ` for "${query}"` : ''}</p>
               </div>
             )
           )}

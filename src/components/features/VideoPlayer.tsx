@@ -482,6 +482,36 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
     );
   };
 
+  /* ── Long-press 2× speed gesture ──────────────────────────────────────── */
+  // esbuild guard: plain ref + state (no Record/Set)
+  const [longPressSpeed, setLongPressSpeed] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressActiveRef = useRef(false);
+
+  const handleLongPressStart = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      const video = videoRef.current;
+      if (!video) return;
+      longPressActiveRef.current = true;
+      setLongPressSpeed(true);
+      video.playbackRate = 2;
+    }, 500);
+  };
+
+  const handleLongPressEnd = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    if (!longPressActiveRef.current) return;
+    longPressActiveRef.current = false;
+    setLongPressSpeed(false);
+    const video = videoRef.current;
+    if (video) video.playbackRate = 1;
+  };
+
+  useEffect(() => {
+    return () => { if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current); };
+  }, []);
+
   /* ── Video download ──────────────────────────────────────────────────── */
   const [downloading, setDownloading] = useState(false);
 
@@ -542,8 +572,11 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
   return (
     <div
       className="relative h-screen w-full max-w-full bg-black snap-start snap-always overflow-hidden"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEndSwipe}
+      onTouchStart={e => { handleTouchStart(e); handleLongPressStart(); }}
+      onTouchEnd={e => { handleTouchEndSwipe(e); handleLongPressEnd(); }}
+      onMouseDown={handleLongPressStart}
+      onMouseUp={handleLongPressEnd}
+      onMouseLeave={handleLongPressEnd}
     >
       {/* Pre-roll ad */}
       {showPrerollAd && (
@@ -584,6 +617,16 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
         onClick={handleVideoTap}
         onTouchEnd={handleVideoTap}
       />
+
+      {/* ── Long-press 2× speed overlay ────────────────────────────────── */}
+      {longPressSpeed && (
+        <div className="absolute inset-0 z-40 pointer-events-none flex items-center justify-center">
+          <div className="bg-black/60 backdrop-blur-sm border border-white/20 rounded-2xl px-6 py-3 flex items-center gap-2 shadow-xl">
+            <span className="text-white text-2xl font-black">2×</span>
+            <span className="text-white/80 text-sm font-semibold">Speed</span>
+          </div>
+        </div>
+      )}
 
       {/* ── Double-tap heart burst ────────────────────────────────────────── */}
       {heartPos && (
