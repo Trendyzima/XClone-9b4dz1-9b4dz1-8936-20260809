@@ -10,6 +10,7 @@ import {
   Bell, Lock, Shield, HelpCircle, FileText, LogOut,
   Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check,
   Sparkles, Heart, Volume2, VolumeX, Play, Trash2, AlertTriangle,
+  Copy, AtSign, Globe, UserX,
 } from 'lucide-react';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { applyTheme, getStoredThemeChoice } from '@/components/layout/ThemeToggle';
@@ -59,6 +60,14 @@ export default function SettingsPage() {
   const [passwordChanging, setPasswordChanging] = useState(false);
   // Export data
   const [exporting, setExporting] = useState(false);
+  // Referral
+  const [referralCount, setReferralCount] = useState(0);
+  // Connected accounts
+  const [twitterHandle, setTwitterHandle] = useState('');
+  const [instagramHandle, setInstagramHandle] = useState('');
+  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [savingConnected, setSavingConnected] = useState(false);
+  const [showConnectedForm, setShowConnectedForm] = useState(false);
   const { play: playSound, isEnabled: isSoundEnabled, setEnabled: setSoundEnabled } = useNotificationSound();
   const [soundsOn, setSoundsOn] = useState(isSoundEnabled());
 
@@ -67,6 +76,25 @@ export default function SettingsPage() {
     setSoundsOn(v);
     if (v) playSound('dm');
   };
+
+  // Referral count
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('referrals').select('id', { count: 'exact', head: true }).eq('invited_by', user.id)
+      .then(({ count }) => setReferralCount(count ?? 0));
+  }, [user?.id]);
+
+  // Load connected accounts
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('user_profiles').select('twitter_handle, instagram_handle, linkedin_url').eq('id', user.id).single()
+      .then(({ data }) => {
+        if (!data) return;
+        setTwitterHandle((data as any).twitter_handle ?? '');
+        setInstagramHandle((data as any).instagram_handle ?? '');
+        setLinkedinUrl((data as any).linkedin_url ?? '');
+      });
+  }, [user?.id]);
 
   // Listen for OS preference changes when in System mode
   useEffect(() => {
@@ -135,12 +163,32 @@ export default function SettingsPage() {
     navigate('/');
   };
 
+  const handleSaveConnectedAccounts = async () => {
+    if (!user) return;
+    setSavingConnected(true);
+    const cleanTwitter = twitterHandle.trim().replace(/^@/, '') || null;
+    const cleanInsta = instagramHandle.trim().replace(/^@/, '') || null;
+    const cleanLinkedin = linkedinUrl.trim() || null;
+    const { error } = await supabase.from('user_profiles').update({
+      twitter_handle: cleanTwitter,
+      instagram_handle: cleanInsta,
+      linkedin_url: cleanLinkedin,
+    }).eq('id', user.id);
+    setSavingConnected(false);
+    if (error) { toast.error(error.message || 'Failed to save'); return; }
+    toast.success('Connected accounts saved');
+    setShowConnectedForm(false);
+  };
+
   const selectTheme = (choice: ThemeChoice) => {
     setThemeChoice(choice);
     applyTheme(choice);
   };
 
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  // esbuild guard: pre-compute referral link before JSX
+  const referralLink = `${window.location.origin}/?ref=${user.username}`;
+  const referralCountLabel = referralCount > 0 ? `${referralCount} referral${referralCount !== 1 ? 's' : ''}` : '';
   const effectiveTheme = themeChoice === 'system' ? (systemDark ? 'dark' : 'light') : themeChoice;
 
   return (
@@ -266,6 +314,29 @@ export default function SettingsPage() {
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </button>
+
+            {/* ── Referral Code Widget ── */}
+            <div className="p-3 bg-primary/5 border border-primary/15 rounded-xl space-y-2">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                <p className="text-sm font-bold flex-1">Refer & Earn</p>
+                {referralCountLabel ? (
+                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">{referralCountLabel}</span>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground">Share your link — earn rewards when friends join</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-[11px] font-mono text-muted-foreground truncate">
+                  {referralLink}
+                </div>
+                <button
+                  onClick={() => navigator.clipboard.writeText(referralLink).then(() => toast.success('Referral link copied!')).catch(() => {})}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-opacity flex items-center gap-1.5 shrink-0"
+                >
+                  <Copy className="w-3 h-3" /> Copy
+                </button>
+              </div>
+            </div>
 
             {/* Delete Account */}
             {!showDeleteConfirm ? (
@@ -412,6 +483,76 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* ── Connected Accounts ── */}
+        <div className="p-4">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Connected Accounts</h2>
+          {!showConnectedForm ? (
+            <button
+              onClick={() => setShowConnectedForm(true)}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-sky-500/10 flex items-center justify-center">
+                  <AtSign className="w-4 h-4 text-sky-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Social Profiles</p>
+                  <p className="text-xs text-muted-foreground">
+                    {(twitterHandle || instagramHandle || linkedinUrl) ? 'Tap to edit linked accounts' : 'Link Twitter, Instagram & LinkedIn'}
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+          ) : (
+            <div className="p-3 bg-muted/30 border border-border rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold">Connected Accounts</p>
+                <button onClick={() => setShowConnectedForm(false)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+              </div>
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1">Twitter / X handle</label>
+                  <input
+                    type="text"
+                    value={twitterHandle}
+                    onChange={e => setTwitterHandle(e.target.value)}
+                    placeholder="username (without @)"
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1">Instagram handle</label>
+                  <input
+                    type="text"
+                    value={instagramHandle}
+                    onChange={e => setInstagramHandle(e.target.value)}
+                    placeholder="username (without @)"
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground block mb-1">LinkedIn URL</label>
+                  <input
+                    type="url"
+                    value={linkedinUrl}
+                    onChange={e => setLinkedinUrl(e.target.value)}
+                    placeholder="https://linkedin.com/in/yourname"
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleSaveConnectedAccounts}
+                disabled={savingConnected}
+                className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-opacity"
+              >
+                {savingConnected ? 'Saving…' : 'Save Connected Accounts'}
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* ── Notifications ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Notifications</h2>
@@ -490,6 +631,21 @@ export default function SettingsPage() {
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Privacy & Security</h2>
           <div className="space-y-1">
+            <button
+              onClick={() => navigate('/blocked')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-rose-500/10 flex items-center justify-center">
+                  <UserX className="w-4 h-4 text-rose-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Blocked & Muted Users</p>
+                  <p className="text-xs text-muted-foreground">Manage who you've blocked</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
             <button
               onClick={() => navigate('/sessions')}
               className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
