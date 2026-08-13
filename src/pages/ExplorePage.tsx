@@ -13,6 +13,164 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { useSEO } from '@/hooks/useSEO';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { ShoppingBag, Star as StarIcon, Heart as HeartIcon, MapPin as MapPinIcon, BadgeCheck as BadgeCheckIcon, ExternalLink as ExtLinkIcon } from 'lucide-react';
+
+// ── Explore Marketplace Tab ──────────────────────────────────────────────────
+const EXP_MKT_CATS = [
+  { id: 'all', emoji: '🛍️', label: 'All' },
+  { id: 'digital', emoji: '💻', label: 'Digital' },
+  { id: 'handmade', emoji: '🧵', label: 'Handmade' },
+  { id: 'fashion', emoji: '👗', label: 'Fashion' },
+  { id: 'art', emoji: '🎨', label: 'Art' },
+  { id: 'food', emoji: '🍜', label: 'Food' },
+  { id: 'electronics', emoji: '📱', label: 'Electronics' },
+  { id: 'other', emoji: '📦', label: 'Other' },
+];
+
+function ExploreMarketplace({ searchQuery, navigate }: { searchQuery: string; navigate: (p: string) => void }) {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [catFilter, setCatFilter] = useState('all');
+  const [wishlistIds, setWishlistIds] = useState([] as string[]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('mkt_wishlist_v2');
+      if (raw) setWishlistIds(JSON.parse(raw) as string[]);
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggleWishlist = (id: string) => {
+    setWishlistIds(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      try { localStorage.setItem('mkt_wishlist_v2', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      let query = supabase
+        .from('products')
+        .select('*, user_profiles(id, username, avatar_url, verified)')
+        .eq('is_active', true)
+        .order('views_count', { ascending: false })
+        .limit(60);
+      if (catFilter !== 'all') query = query.eq('category', catFilter);
+      const { data } = await query;
+      if (!cancelled) { setProducts(data ?? []); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [catFilter]);
+
+  const filtered = (products as any[]).filter(p => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (p.name ?? '').toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q);
+  });
+
+  return (
+    <div className="pb-4">
+      {/* Header */}
+      <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-border bg-gradient-to-r from-primary/5 to-background">
+        <span className="text-3xl">🛍️</span>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-black text-xl">Marketplace</h2>
+          <p className="text-xs text-muted-foreground">{filtered.length} products • tap to explore</p>
+        </div>
+        <button onClick={() => navigate('/marketplace')}
+          className="flex items-center gap-1 text-xs text-primary font-bold hover:underline">
+          See all <ExtLinkIcon className="w-3 h-3" />
+        </button>
+      </div>
+
+      {/* Category pills */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide px-4 py-3 border-b border-border">
+        {EXP_MKT_CATS.map(cat => (
+          <button key={cat.id} onClick={() => setCatFilter(cat.id)}
+            className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
+              catFilter === cat.id
+                ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                : 'border-border bg-muted/30 text-muted-foreground hover:border-primary/40'
+            }`}>
+            <span>{cat.emoji}</span>{cat.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Products grid */}
+      {loading ? (
+        <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16">
+          <ShoppingBag className="w-14 h-14 text-muted-foreground/20 mx-auto mb-3" />
+          <p className="font-bold text-sm">No products found</p>
+          <button onClick={() => { setCatFilter('all'); }} className="mt-2 text-xs text-primary hover:underline">Clear filters</button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4">
+          {filtered.map((p: any) => (
+            <div key={p.id}
+              className="rounded-2xl overflow-hidden border border-border bg-card hover:shadow-lg hover:-translate-y-0.5 transition-all group cursor-pointer"
+              onClick={() => navigate('/marketplace')}>
+              <div className="relative w-full aspect-square bg-muted overflow-hidden">
+                {p.image_url
+                  ? <img src={p.image_url} alt={p.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  : <div className="w-full h-full flex items-center justify-center"><ShoppingBag className="w-8 h-8 text-muted-foreground/30" /></div>}
+                <button onClick={e => { e.stopPropagation(); toggleWishlist(p.id); }}
+                  className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                    wishlistIds.includes(p.id) ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-red-500'
+                  }`}>
+                  <HeartIcon className={`w-3.5 h-3.5 ${wishlistIds.includes(p.id) ? 'fill-white' : ''}`} />
+                </button>
+                {p.is_featured && (
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-yellow-400/90 text-yellow-900 rounded-full text-[9px] font-bold flex items-center gap-0.5">
+                    <StarIcon className="w-2 h-2 fill-current" /> Featured
+                  </div>
+                )}
+              </div>
+              <div className="p-2.5">
+                <p className="font-semibold text-xs line-clamp-2 leading-tight mb-1">{p.name}</p>
+                <p className="text-sm font-black text-primary">${Number(p.price).toFixed(2)}</p>
+                <div className="flex items-center gap-1 mt-1.5">
+                  <div className="w-4 h-4 rounded-full bg-muted overflow-hidden shrink-0">
+                    {p.user_profiles?.avatar_url
+                      ? <img src={p.user_profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center text-[7px] font-bold">{p.user_profiles?.username?.[0]?.toUpperCase()}</div>}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground truncate">@{p.user_profiles?.username}</span>
+                  {p.user_profiles?.verified && <BadgeCheckIcon className="w-2.5 h-2.5 text-primary shrink-0" />}
+                </div>
+                {p.external_link ? (
+                  <a href={p.external_link} target="_blank" rel="noopener noreferrer"
+                    onClick={e => e.stopPropagation()}
+                    className="mt-2 flex items-center justify-center gap-1 py-1 bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-bold rounded-lg transition-colors">
+                    Buy <ExtLinkIcon className="w-2.5 h-2.5" />
+                  </a>
+                ) : (
+                  <button onClick={e => { e.stopPropagation(); navigate('/marketplace'); }}
+                    className="mt-2 w-full py-1 bg-muted/60 hover:bg-muted text-muted-foreground text-[10px] font-bold rounded-lg transition-colors">
+                    View
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* CTA */}
+      <div className="px-4 pb-2">
+        <button onClick={() => navigate('/marketplace')}
+          className="w-full py-3 border border-primary/30 rounded-2xl text-sm font-bold text-primary hover:bg-primary/5 transition-colors flex items-center justify-center gap-2">
+          <ShoppingBag className="w-4 h-4" /> Browse Full Marketplace
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ── Module-level trending filter categories (esbuild guard: no as-const in render)
 // esbuild guard: no 'as const' on module-level arrays used in .map() render
@@ -26,7 +184,7 @@ const TRENDING_FILTER_KEYWORDS = {
   Politics:      ['politic', 'election', 'vote', 'govern', 'president', 'parliament', 'policy', 'law', 'kenya', 'nairobi'],
 };
 
-type ExploreTab = 'Explore' | 'Trending' | 'News' | 'Sports' | 'Entertainment';
+type ExploreTab = 'Explore' | 'Trending' | 'News' | 'Sports' | 'Entertainment' | 'Marketplace';
 // ── Search history storage key (module-level — esbuild guard) ─────────────
 const SEARCH_HISTORY_KEY = 'ts-explore-search-history';
 
@@ -91,7 +249,7 @@ function CategoryTabContent({
   navigate: (path: string) => void;
 }) {
   const { user } = useAuth();
-  const [posts, setPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
   // Reactions: parallel arrays — postId → emoji (user's own reaction)
   // esbuild guard: plain useState([]) — no typed generics
@@ -393,28 +551,30 @@ export default function ExplorePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<ExploreTab>('Explore');
+  const [activeTab, setActiveTab] = useState('Explore' as ExploreTab);
   // ── In-page Search Results (mixed: users + posts + hashtags) ────────────
-  const [inlineSearchResults, setInlineSearchResults] = useState<{
+  const [inlineSearchResults, setInlineSearchResults] = useState(null as {
     users: any[]; hashtags: any[]; posts: any[];
-  } | null>(null);
+  } | null);
   const [inlineSearchLoading, setInlineSearchLoading] = useState(false);
   const inlineSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [trending, setTrending] = useState<any[]>([]);
-  const [trendingHashtags, setTrendingHashtags] = useState<any[]>([]);
-  const [whoToFollow, setWhoToFollow] = useState<any[]>([]);
+  const [trending, setTrending] = useState([] as any[]);
+  const [trendingHashtags, setTrendingHashtags] = useState([] as any[]);
+  const [whoToFollow, setWhoToFollow] = useState([] as any[]);
   // followingIds — parallel arrays (esbuild guard: no Set<string> in state)
-  const [followingIdArr, setFollowingIdArr] = useState<string[]>([]);
+  const [followingIdArr, setFollowingIdArr] = useState([] as string[]);
   const isFollowingId = (id: string) => followingIdArr.indexOf(id) >= 0;
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [prefCategories, setPrefCategories] = useState<string[]>(['News', 'Sports', 'Entertainment', 'Politics', 'Technology']);
+  const [prefCategories, setPrefCategories] = useState([] as string[]);
+  // init
+  const [_prefCatsInit] = useState(() => { setPrefCategories(['News', 'Sports', 'Entertainment', 'Politics', 'Technology']); return null; });
   const [prefCountry, setPrefCountry] = useState('Kenya');
   const [showWhoToFollow, setShowWhoToFollow] = useState(true);
-  const [activeChallenges, setActiveChallenges] = useState<any[]>([]);
-  const [exploreStories, setExploreStories] = useState<any[]>([]);
+  const [activeChallenges, setActiveChallenges] = useState([] as any[]);
+  const [exploreStories, setExploreStories] = useState([] as any[]);
   const [storiesLoading, setStoriesLoading] = useState(false);
-  const [activeStoryIdx, setActiveStoryIdx] = useState<number | null>(null);
+  const [activeStoryIdx, setActiveStoryIdx] = useState(null as number | null);
   const [storyProgress, setStoryProgress] = useState(0);
   const storyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showCreateChallenge, setShowCreateChallenge] = useState(false);
@@ -423,16 +583,16 @@ export default function ExplorePage() {
   // Trending tab — category filter
   const [trendingTagFilter, setTrendingTagFilter] = useState('All');
   // ── Trending Posts Feed (top views in last 48h) ──
-  const [trendingPosts, setTrendingPosts] = useState<any[]>([]);
+  const [trendingPosts, setTrendingPosts] = useState([] as any[]);
   const [trendingPostsLoading, setTrendingPostsLoading] = useState(false);
   // ── Category post counts for tab badges ──
   // esbuild guard: plain number array, not Record<string,number>
   const [catPostCounts, setCatPostCounts] = useState([0, 0, 0]);
   // ── Search History (localStorage, max 8) ─────────────────────────────────
-  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [searchHistory, setSearchHistory] = useState([] as string[]);
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   // ── Live user autocomplete (debounced 250ms) — esbuild guard: plain arrays ──
-  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [searchSuggestions, setSearchSuggestions] = useState([] as any[]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -518,7 +678,7 @@ export default function ExplorePage() {
 
   const ALL_CATEGORIES = ['News', 'Sports', 'Entertainment', 'Politics', 'Technology', 'Music', 'Science', 'Business'];
   const COUNTRIES = ['Kenya', 'Nigeria', 'USA', 'UK', 'India', 'South Africa', 'Tanzania', 'Uganda'];
-  const tabs: ExploreTab[] = ['Explore', 'Trending', 'News', 'Sports', 'Entertainment'];
+  const tabs: ExploreTab[] = ['Explore', 'Trending', 'News', 'Sports', 'Entertainment', 'Marketplace'];
 
   useEffect(() => {
     fetchData();
@@ -1435,6 +1595,10 @@ export default function ExplorePage() {
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === 'Marketplace' && !inlineSearchResults && (
+        <ExploreMarketplace searchQuery={searchQuery} navigate={navigate} />
       )}
 
       {(['News', 'Sports', 'Entertainment'] as ExploreTab[]).includes(activeTab) && !inlineSearchResults && (

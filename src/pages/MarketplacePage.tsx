@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
@@ -9,11 +10,137 @@ import {
   Search, MapPin, Tag, Star, Heart, ExternalLink, Loader2,
   ShoppingBag, Filter, X, ChevronRight, BadgeCheck, SlidersHorizontal,
   Package, TrendingUp, Sparkles, Grid3x3, LayoutList, MessageSquare,
-  HelpCircle, DollarSign, ArrowUpDown
+  HelpCircle, DollarSign, ArrowUpDown, ShoppingCart, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 function MktAdBanner() { return <PageAdBanner />; }
+
+// ── Purchase Dialog ─────────────────────────────────────────────────────────────────
+function PurchaseDialog({ product, onClose }: { product: any; onClose: () => void }) {
+  const { user } = useAuth();
+  const [qty, setQty] = useState(1);
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const total = Number(product.price) * qty;
+
+  const handlePurchase = async () => {
+    if (!user) { toast.error('Sign in to purchase'); return; }
+    if (user.id === product.user_id) { toast.error("You can't buy your own product"); return; }
+    setSubmitting(true);
+    const { error } = await supabase.from('orders').insert({
+      buyer_id: user.id,
+      seller_id: product.user_id,
+      product_id: product.id,
+      quantity: qty,
+      unit_price: Number(product.price),
+      total_amount: total,
+      status: 'confirmed',
+      note: note.trim() || null,
+    });
+    if (error) { toast.error(error.message); setSubmitting(false); return; }
+    // Update sales_count
+    await supabase.from('products').update({ sales_count: (product.sales_count ?? 0) + qty }).eq('id', product.id);
+    // Notify seller
+    await supabase.from('notifications').insert({
+      user_id: product.user_id,
+      type: 'payment_sent',
+      from_user_id: user.id,
+    }).catch(() => {});
+    // Record creator earning
+    await supabase.from('creator_earnings').insert({
+      user_id: product.user_id,
+      source: 'marketplace',
+      amount: total,
+      status: 'pending',
+    }).catch(() => {});
+    setDone(true);
+    setSubmitting(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[400] bg-black/60 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background w-full max-w-sm rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        {done ? (
+          <div className="text-center py-10 px-6 space-y-3">
+            <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto">
+              <Check className="w-8 h-8 text-green-500" />
+            </div>
+            <h3 className="font-black text-xl">Order Placed!</h3>
+            <p className="text-sm text-muted-foreground">
+              Your order for <strong>{product.name}</strong> has been recorded. The seller will be notified to fulfil your order.
+            </p>
+            <p className="text-xs text-muted-foreground">Check your profile for order history.</p>
+            <button onClick={onClose} className="mt-2 w-full py-3 bg-primary text-primary-foreground rounded-2xl font-bold">Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div>
+                <h3 className="font-bold text-base">Place Order</h3>
+                <p className="text-xs text-muted-foreground line-clamp-1">{product.name}</p>
+              </div>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-muted flex items-center justify-center"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Product preview */}
+              <div className="flex items-center gap-3 p-3 rounded-2xl bg-muted/40 border border-border">
+                {product.image_url ? (
+                  <img src={product.image_url} alt={product.name} className="w-14 h-14 rounded-xl object-cover shrink-0" />
+                ) : (
+                  <div className="w-14 h-14 rounded-xl bg-muted flex items-center justify-center shrink-0"><ShoppingBag className="w-6 h-6 text-muted-foreground" /></div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm truncate">{product.name}</p>
+                  <p className="text-lg font-black text-primary">${Number(product.price).toFixed(2)} each</p>
+                  {product.stock > 0 && <p className="text-[10px] text-muted-foreground">{product.stock} in stock</p>}
+                </div>
+              </div>
+
+              {/* Quantity */}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Quantity</p>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setQty(q => Math.max(1, q - 1))}
+                    className="w-10 h-10 rounded-full border border-border flex items-center justify-center text-lg font-bold hover:bg-muted transition-colors">−</button>
+                  <span className="text-xl font-black w-8 text-center">{qty}</span>
+                  <button onClick={() => setQty(q => q + 1)}
+                    className="w-10 h-10 rounded-full border border-border flex items-center justify-center text-lg font-bold hover:bg-muted transition-colors">+</button>
+                </div>
+              </div>
+
+              {/* Note */}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Note to Seller (optional)</p>
+                <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} maxLength={200}
+                  placeholder="Any special requests, size, colour…"
+                  className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              </div>
+
+              {/* Total */}
+              <div className="flex items-center justify-between px-3 py-2.5 bg-primary/5 border border-primary/20 rounded-xl">
+                <span className="text-sm font-semibold">Total</span>
+                <span className="text-xl font-black text-primary">${total.toFixed(2)}</span>
+              </div>
+
+              <p className="text-[10px] text-muted-foreground text-center">
+                The seller will contact you to arrange payment and delivery. No charge is made now.
+              </p>
+
+              <button onClick={handlePurchase} disabled={submitting}
+                className="w-full py-3.5 bg-primary text-primary-foreground rounded-2xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShoppingCart className="w-5 h-5" />}
+                {submitting ? 'Placing Order…' : `Order · $${total.toFixed(2)}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ── Module-level category config (esbuild-safe: no inline objects in render) ──
 const CATEGORIES = [
@@ -27,7 +154,7 @@ const CATEGORIES = [
   { id: 'books',       label: 'Books',        emoji: '📚' },
   { id: 'beauty',      label: 'Beauty',       emoji: '💄' },
   { id: 'home',        label: 'Home',         emoji: '🏠' },
-  { id: 'sports',      label: 'Sports',       emoji: '⚽' },
+  { id: 'sports',       label: 'Sports',       emoji: '⚽' },
   { id: 'music',       label: 'Music',        emoji: '🎵' },
   { id: 'toys',        label: 'Toys',         emoji: '🧸' },
   { id: 'other',       label: 'Other',        emoji: '📦' },
@@ -97,8 +224,8 @@ function ProductDetailSheet({ product, onClose, onWishlist, wishlisted }: {
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-
-  return (
+  const [showPurchaseDialog, setShowPurchaseDialog] = useState(false);
+  return ( // Added return statement here
     <div
       className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center"
       onClick={onClose}
@@ -157,7 +284,7 @@ function ProductDetailSheet({ product, onClose, onWishlist, wishlisted }: {
 
           {/* Seller */}
           <button
-            onClick={() => { onClose(); navigate(`/profile/${product.user_profiles?.username}`); }}
+            onClick={() => { onClose(); navigate(`/seller/${product.user_profiles?.username}`); }}
             className="flex items-center gap-3 p-3 rounded-2xl bg-muted/40 hover:bg-muted/70 transition-colors w-full text-left"
           >
             <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
@@ -237,14 +364,17 @@ function ProductDetailSheet({ product, onClose, onWishlist, wishlisted }: {
             </a>
           ) : (
             <button
-              onClick={() => { onClose(); navigate('/products'); }}
+              onClick={() => setShowPurchaseDialog(true)}
               className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-primary text-primary-foreground rounded-2xl font-bold text-base hover:opacity-90 transition-opacity"
             >
-              <ShoppingBag className="w-5 h-5" /> View on Marketplace
+              <ShoppingCart className="w-5 h-5" /> Place Order
             </button>
           )}
         </div>
       </div>
+      {showPurchaseDialog && (
+        <PurchaseDialog product={product} onClose={() => setShowPurchaseDialog(false)} />
+      )}
     </div>
   );
 }
