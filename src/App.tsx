@@ -123,7 +123,7 @@ function InterestOnboardingSheet() {
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
   // selected — plain array (esbuild guard: no Set<string> state)
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedTags, setSelectedTags] = useState([] as string[]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
