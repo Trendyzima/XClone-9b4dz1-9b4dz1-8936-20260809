@@ -300,6 +300,23 @@ export default function TeamChatPage() {
     await fetchAll();
   }, [editingText, fetchAll]);
 
+  // esbuild guard: named handlers avoid multi-statement inline closures inside .map()
+  const cancelEdit = useCallback(() => {
+    setEditingMsgId('');
+    setEditingText('');
+  }, []);
+
+  const openEditMode = useCallback((msgId: string, text: string) => {
+    setEditingMsgId(msgId);
+    setEditingText(text);
+    setShowMsgMenu(null);
+  }, []);
+
+  const handleEditKeyDown = useCallback((e: React.KeyboardEvent, msgId: string) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(msgId); }
+    if (e.key === 'Escape') { cancelEdit(); }
+  }, [handleEditSave, cancelEdit]);
+
   const handleDelete = useCallback(async (msgId: string) => {
     if (!isReg) return;
     await supabase.from('team_chat_messages').delete().eq('id', msgId);
@@ -456,10 +473,7 @@ export default function TeamChatPage() {
                         <textarea
                           value={editingText}
                           onChange={e => setEditingText(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(msg.id); }
-                            if (e.key === 'Escape') { setEditingMsgId(''); setEditingText(''); }
-                          }}
+                          onKeyDown={e => handleEditKeyDown(e, msg.id)}
                           rows={3}
                           maxLength={500}
                           autoFocus
@@ -469,7 +483,7 @@ export default function TeamChatPage() {
                           <span className="text-[10px] opacity-50">{editingText.length}/500</span>
                           <div className="flex gap-1.5">
                             <button
-                              onClick={() => { setEditingMsgId(''); setEditingText(''); }}
+                              onClick={cancelEdit}
                               className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 font-semibold transition-colors"
                             >
                               <X className="w-3 h-3" /> Cancel
@@ -531,11 +545,7 @@ export default function TeamChatPage() {
                             <div className={`absolute ${isOwn ? 'right-0' : 'left-0'} bottom-full mb-1 w-36 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden`}>
                               {isOwn && (
                                 <button
-                                  onClick={() => {
-                                    setEditingMsgId(msg.id);
-                                    setEditingText(msg.message ?? '');
-                                    setShowMsgMenu(null);
-                                  }}
+                                  onClick={() => openEditMode(msg.id, msg.message ?? '')}
                                   className="w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-muted"
                                 >
                                   <Pencil className="w-3.5 h-3.5" />Edit
