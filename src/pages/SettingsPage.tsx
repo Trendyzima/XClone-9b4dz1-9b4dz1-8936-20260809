@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/hooks/useAuth';
@@ -8,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import {
   Bell, Lock, Shield, HelpCircle, FileText, LogOut,
   Moon, Sun, Palette, User, ChevronRight, Smartphone, Monitor, Check,
-  Sparkles, Heart, Volume2, VolumeX, Play
+  Sparkles, Heart, Volume2, VolumeX, Play, Trash2, AlertTriangle
 } from 'lucide-react';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { applyTheme, getStoredThemeChoice } from '@/components/layout/ThemeToggle';
@@ -45,7 +46,11 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState(true);
   const [privateAccount, setPrivateAccount] = useState(false);
-  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(getStoredThemeChoice);
+  const [themeChoice, setThemeChoice] = useState(getStoredThemeChoice);
+  // Account deletion (esbuild guard: no explicit generics)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteInput, setDeleteInput] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const { play: playSound, isEnabled: isSoundEnabled, setEnabled: setSoundEnabled } = useNotificationSound();
   const [soundsOn, setSoundsOn] = useState(isSoundEnabled());
 
@@ -75,6 +80,16 @@ export default function SettingsPage() {
     navigate('/');
   };
 
+  const handleDeleteAccount = async () => {
+    if (!user || deleteInput !== user.username) return;
+    setDeleting(true);
+    // Delete user_profiles row — RLS allows own deletion; cascades all child tables
+    await supabase.from('user_profiles').delete().eq('id', user.id);
+    await authService.signOut();
+    logout();
+    navigate('/');
+  };
+
   const selectTheme = (choice: ThemeChoice) => {
     setThemeChoice(choice);
     applyTheme(choice);
@@ -88,6 +103,7 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Settings" showBack />
       <div className="divide-y divide-border">
+
         {/* Account */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Account</h2>
@@ -120,6 +136,63 @@ export default function SettingsPage() {
               </div>
               <Switch checked={privateAccount} onCheckedChange={setPrivateAccount} />
             </div>
+
+            {/* ── Delete Account ── */}
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex items-center gap-3 w-full p-3 hover:bg-destructive/5 rounded-xl transition-colors text-left"
+              >
+                <div className="w-9 h-9 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-4 h-4 text-destructive" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm text-destructive">Delete Account</p>
+                  <p className="text-xs text-muted-foreground">Permanently remove all your data</p>
+                </div>
+              </button>
+            ) : (
+              <div className="p-3 bg-destructive/5 border border-destructive/20 rounded-xl space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-bold text-destructive">Delete your account?</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      This cannot be undone. All posts, followers, earnings, and data will be permanently removed. Withdraw your wallet balance first.
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground mb-1.5">
+                    Type your username to confirm: <span className="text-foreground font-bold">@{user.username}</span>
+                  </p>
+                  <input
+                    type="text"
+                    value={deleteInput}
+                    onChange={e => setDeleteInput(e.target.value)}
+                    placeholder={user.username}
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-destructive/30"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setShowDeleteConfirm(false); setDeleteInput(''); }}
+                    className="flex-1 py-2 border border-border rounded-lg text-sm font-semibold hover:bg-muted transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={deleting || deleteInput !== user.username}
+                    className="flex-1 py-2 bg-destructive text-destructive-foreground rounded-lg text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5"
+                  >
+                    {deleting
+                      ? 'Deleting…'
+                      : <><Trash2 className="w-3.5 h-3.5" /> Delete</>}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -226,11 +299,27 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <p className="font-semibold text-sm">Push Notifications</p>
-                  <p className="text-xs text-muted-foreground">Likes, replies, follows & more</p>
+                  <p className="text-xs text-muted-foreground">Likes, replies, follows &amp; more</p>
                 </div>
               </div>
               <Switch checked={notifications} onCheckedChange={setNotifications} />
             </div>
+            {/* Notification Preferences link */}
+            <button
+              onClick={() => navigate('/notification-preferences')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-indigo-500/10 flex items-center justify-center">
+                  <Bell className="w-4 h-4 text-indigo-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Notification Preferences</p>
+                  <p className="text-xs text-muted-foreground">Per-type controls: likes, tips, follows…</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
           </div>
         </div>
 

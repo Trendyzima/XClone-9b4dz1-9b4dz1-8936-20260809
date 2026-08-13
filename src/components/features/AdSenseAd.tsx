@@ -23,9 +23,10 @@ export function AdSenseAd({
   onAdLoad,
   style,
 }: AdSenseAdProps) {
-  const adRef   = useRef<HTMLModElement>(null);
+  // esbuild guard: no explicit generic annotations on useRef/useState
+  const adRef   = useRef(null);
   const pushed  = useRef(false);
-  const [filled, setFilled] = useState<boolean | null>(null); // null = pending
+  const [filled, setFilled] = useState(null); // null = pending
 
   const isNative = Capacitor.isNativePlatform();
 
@@ -85,10 +86,10 @@ export function AdSenseAd({
  * Styled as a subtle native card. No minHeight — zero dead space if unfilled.
  */
 export function PageAdBanner() {
+  // esbuild guard: no explicit generic annotations on useRef/useState
   const pushed  = useRef(false);
-  const insRef  = useRef<HTMLModElement>(null);
-  // esbuild guard: initialize to null only; collapse immediately if window.adsbygoogle never activates
-  const [filled, setFilled] = useState<boolean | null>(null);
+  const insRef  = useRef(null);
+  const [filled, setFilled] = useState(null);
 
   useEffect(() => {
     if (pushed.current) return;
