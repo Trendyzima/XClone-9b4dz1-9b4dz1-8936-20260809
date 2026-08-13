@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
@@ -18,6 +19,14 @@ import { authService } from '@/lib/auth';
 import { toast } from 'sonner';
 
 type ThemeChoice = 'light' | 'dark' | 'system';
+
+// esbuild guard: module-level locale constants
+const LOCALE_KEY = 'ts-locale';
+const LOCALES = [
+  { code: 'en', label: 'English',  native: 'English'    },
+  { code: 'sw', label: 'Swahili',  native: 'Kiswahili'  },
+  { code: 'fr', label: 'French',   native: 'Fran\u00e7ais' },
+];
 
 // esbuild guard: module-level dark-schedule constants — no inline computation in render
 const DARK_SCHEDULE_KEY = 'ts-dark-schedule-enabled';
@@ -80,6 +89,9 @@ export default function SettingsPage() {
   // Verification status
   const [verifiedStatus, setVerifiedStatus] = useState(false);
   const [creatorTier, setCreatorTier] = useState('');
+  // Language & Region
+  const [locale, setLocale] = useState(() => localStorage.getItem(LOCALE_KEY) ?? 'en');
+  const [timezone] = useState(() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'UTC'; } });
   // Referral
   const [referralCount, setReferralCount] = useState(0);
   // Connected accounts
@@ -90,6 +102,12 @@ export default function SettingsPage() {
   const [showConnectedForm, setShowConnectedForm] = useState(false);
   const { play: playSound, isEnabled: isSoundEnabled, setEnabled: setSoundEnabled } = useNotificationSound();
   const [soundsOn, setSoundsOn] = useState(isSoundEnabled());
+
+  const handleLocaleChange = (code: string) => {
+    setLocale(code);
+    localStorage.setItem(LOCALE_KEY, code);
+    toast.success('Language updated — restart the app to apply fully');
+  };
 
   const toggleDarkSchedule = (v: boolean) => {
     setDarkScheduleEnabled(v);
@@ -608,6 +626,42 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* ── Language & Region ── */}
+        <div className="p-4">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Language &amp; Region</h2>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-2">App Language</p>
+              <div className="grid grid-cols-3 gap-2">
+                {LOCALES.map(l => (
+                  <button
+                    key={l.code}
+                    onClick={() => handleLocaleChange(l.code)}
+                    className={`py-2.5 rounded-xl border-2 text-xs font-bold transition-all ${
+                      locale === l.code
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border hover:border-primary/30 text-foreground'
+                    }`}
+                  >
+                    <span className="block">{l.native}</span>
+                    <span className="block text-[10px] font-normal text-muted-foreground mt-0.5">{l.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-muted/30 border border-border rounded-xl">
+              <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+                <Globe className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">Timezone</p>
+                <p className="text-xs text-muted-foreground truncate">{timezone}</p>
+              </div>
+              <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Auto</span>
+            </div>
+          </div>
+        </div>
+
         {/* ── Connected Accounts ── */}
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Connected Accounts</h2>
@@ -795,6 +849,21 @@ export default function SettingsPage() {
                 <div>
                   <p className="font-semibold text-sm">Blocked & Muted Users</p>
                   <p className="text-xs text-muted-foreground">Manage who you've blocked</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+            <button
+              onClick={() => navigate('/wallet?tab=security')}
+              className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Lock className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Wallet PIN &amp; Security</p>
+                  <p className="text-xs text-muted-foreground">Set PIN, biometric and session lock</p>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />

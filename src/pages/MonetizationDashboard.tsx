@@ -37,6 +37,27 @@ const CREDIT_COSTS = {
   'Profile Boost': 10, 'Post Promotion': 50, 'Verification': 50,
 } as const;
 
+import { Crown, Loader2 as _L } from 'lucide-react';
+
+// esbuild guard: module-level creator tier config — no inline objects in render
+const CREATOR_TIERS = [
+  { key: 'free',    label: 'Free',    emoji: '\uD83C\uDF31', cpm: 0,    followerThreshold: 0,    videoThreshold: 0,   color: 'text-muted-foreground',   bg: 'bg-muted/30 border-border'  },
+  { key: 'bronze',  label: 'Bronze',  emoji: '\uD83E\uDD49', cpm: 1.50, followerThreshold: 500,  videoThreshold: 10,  color: 'text-amber-700',          bg: 'bg-amber-700/10 border-amber-700/30'  },
+  { key: 'silver',  label: 'Silver',  emoji: '\uD83E\uDD48', cpm: 2.50, followerThreshold: 5000, videoThreshold: 50,  color: 'text-slate-500',          bg: 'bg-slate-400/10 border-slate-400/30'  },
+  { key: 'gold',    label: 'Gold',    emoji: '\uD83E\uDD47', cpm: 3.50, followerThreshold: 50000,videoThreshold: 200, color: 'text-amber-500',          bg: 'bg-amber-500/10 border-amber-500/30'  },
+];
+
+// esbuild guard: module-level helper — get tier index from tier key string
+function getTierIdx(key: string): number {
+  const idx = CREATOR_TIERS.findIndex(t => t.key === key);
+  return idx >= 0 ? idx : 0;
+}
+
+// esbuild guard: module-level helper — format CPM string
+function fmtCpm(cpm: number): string {
+  return cpm > 0 ? `$${cpm.toFixed(2)}/1K views` : 'Not eligible';
+}
+
 export function MonetizationDashboard() {
   const { user } = useAuth();
   useSEO({ noindex: true, title: 'Monetization', url: '/monetization' });
@@ -475,6 +496,70 @@ ${tableHtml}
 
             {monetizationStatus?.is_monetized && (
               <>
+                {/* ── Creator Tier Progress Bar ── */}
+                {(() => {
+                  const tierKey = userProfile?.creator_tier ?? 'free';
+                  const curIdx  = getTierIdx(tierKey);
+                  const cur     = CREATOR_TIERS[curIdx];
+                  const next    = CREATOR_TIERS[curIdx + 1] ?? null;
+                  const followers = subscriberCount;
+                  const videos    = videoCount;
+                  // Progress toward next tier (use followers as primary metric)
+                  const followerPct = next ? Math.min(Math.round((followers / next.followerThreshold) * 100), 100) : 100;
+                  const videoPct    = next ? Math.min(Math.round((videos / next.videoThreshold) * 100), 100) : 100;
+                  const overallPct  = next ? Math.round((followerPct + videoPct) / 2) : 100;
+                  return (
+                    <div className={`border rounded-2xl overflow-hidden ${cur.bg}`}>
+                      <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+                        <span className="text-lg">{cur.emoji}</span>
+                        <div className="flex-1">
+                          <p className="font-bold text-sm">{cur.label} Creator</p>
+                          <p className="text-[11px] text-muted-foreground">{fmtCpm(cur.cpm)}</p>
+                        </div>
+                        {next && (
+                          <div className="text-right">
+                            <p className="text-[10px] text-muted-foreground">Next: {next.emoji} {next.label}</p>
+                            <p className={`text-[10px] font-black ${next.color}`}>{fmtCpm(next.cpm)}</p>
+                          </div>
+                        )}
+                        {!next && (
+                          <span className="text-[10px] font-black text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">Max Tier</span>
+                        )}
+                      </div>
+                      <div className="px-4 py-3 space-y-3">
+                        {next ? (
+                          <>
+                            <div>
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="text-muted-foreground">Followers</span>
+                                <span className="font-semibold">{formatNumber(followers)} / {formatNumber(next.followerThreshold)}</span>
+                              </div>
+                              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all duration-500 ${cur.color.replace('text-', 'bg-') || 'bg-primary'}`} style={{ width: `${followerPct}%` }} />
+                              </div>
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="text-muted-foreground">Videos</span>
+                                <span className="font-semibold">{videoCount} / {next.videoThreshold}</span>
+                              </div>
+                              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all duration-500 ${cur.color.replace('text-', 'bg-') || 'bg-primary'}`} style={{ width: `${videoPct}%` }} />
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-muted-foreground">Overall progress to {next.label}</p>
+                              <span className={`text-xs font-black ${cur.color}`}>{overallPct}%</span>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">You've reached the highest creator tier. Earn up to {fmtCpm(cur.cpm)} on every 1,000 video views.</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 bg-gradient-to-br from-primary/10 to-purple-500/10 border border-primary/20 rounded-2xl p-5">
                     <div className="flex items-center gap-2 mb-1">
