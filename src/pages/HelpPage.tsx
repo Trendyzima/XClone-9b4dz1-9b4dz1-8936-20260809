@@ -9,6 +9,7 @@ import {
   Search, HelpCircle, MessageCircle, Shield, CreditCard, User,
   ChevronDown, ChevronUp, ExternalLink, Send, Loader2,
   TrendingUp, CheckCircle2, Hash, ThumbsUp, ThumbsDown, Star,
+  Play, X, Clock, FileText, Ticket,
 } from 'lucide-react';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { toast } from 'sonner';
@@ -235,10 +236,10 @@ const ALL_TOPICS = [
 ];
 
 const CATEGORIES = [
-  { icon: User,          title: 'Account & Profile',       topics: ACCOUNT_TOPICS,  color: 'text-blue-600',   bg: 'bg-blue-500/10'   },
-  { icon: MessageCircle, title: 'Posts & Engagement',      topics: POSTS_TOPICS,    color: 'text-green-600',  bg: 'bg-green-500/10'  },
-  { icon: CreditCard,    title: 'Payments & Monetization', topics: PAYMENTS_TOPICS, color: 'text-purple-600', bg: 'bg-purple-500/10' },
-  { icon: Shield,        title: 'Safety & Security',       topics: SAFETY_TOPICS,   color: 'text-red-600',    bg: 'bg-red-500/10'    },
+  { icon: User,          title: 'Account & Profile',       topics: ACCOUNT_TOPICS,  color: 'text-blue-600',   bg: 'bg-blue-500/10',   catId: 'help-cat-account'   },
+  { icon: MessageCircle, title: 'Posts & Engagement',      topics: POSTS_TOPICS,    color: 'text-green-600',  bg: 'bg-green-500/10',  catId: 'help-cat-posts'     },
+  { icon: CreditCard,    title: 'Payments & Monetization', topics: PAYMENTS_TOPICS, color: 'text-purple-600', bg: 'bg-purple-500/10', catId: 'help-cat-payments'  },
+  { icon: Shield,        title: 'Safety & Security',       topics: SAFETY_TOPICS,   color: 'text-red-600',    bg: 'bg-red-500/10',    catId: 'help-cat-safety'    },
 ];
 
 // ── Contact form subject options (esbuild guard: module-level) ───────────────
@@ -250,6 +251,38 @@ const CONTACT_SUBJECTS = [
   'Creator Earnings',
   'Feature Request',
   'Other',
+];
+
+// ── Video Guides (module-level, esbuild guard: no inline objects in render) ───
+const VIDEO_GUIDES = [
+  {
+    title: 'Create a Post',
+    duration: '1:24',
+    desc: 'Compose text, photos, videos and polls — plus how to add hashtags for reach.',
+    thumb: 'https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=480&q=80',
+    articleSlug: 'how-to-post-videos',
+  },
+  {
+    title: 'Set Up Monetization',
+    duration: '2:10',
+    desc: 'Enable CPM earnings, connect your PayPal, and configure your payout schedule.',
+    thumb: 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=480&q=80',
+    articleSlug: 'creator-earnings',
+  },
+  {
+    title: 'Send Money & M-Pesa',
+    duration: '0:58',
+    desc: 'Top up your wallet via M-Pesa STK push and transfer funds to other users.',
+    thumb: 'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=480&q=80',
+    articleSlug: 'payment-methods-paypal-m-pesa',
+  },
+  {
+    title: 'Get Verified',
+    duration: '1:33',
+    desc: 'Apply for your verified badge and unlock higher-tier creator features.',
+    thumb: 'https://images.unsplash.com/photo-1614680376573-df3480f0c6ff?w=480&q=80',
+    articleSlug: 'verify-your-account',
+  },
 ];
 
 // ── Analytics storage key (module-level) ─────────────────────────────────────
@@ -288,6 +321,16 @@ const HELP_STRUCTURED_DATA = [
     url: 'https://testagram.site/help',
   },
 ];
+
+// ── Date formatter (module-level — esbuild guard: no try/catch inside .map() callbacks) ──
+function formatTicketDate(d: string): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '';
+  }
+}
 
 // ── URL slug generator (module-level) ────────────────────────────────────────
 function toSlug(q: string): string {
@@ -444,12 +487,47 @@ export default function HelpPage() {
   const [contactEmail, setContactEmail] = useState('');
   const [contactSending, setContactSending] = useState(false);
   const [contactSent, setContactSent] = useState(false);
+  // Video guide modal
+  const [videoModalIdx, setVideoModalIdx] = useState(-1);
+  // Ticket history — parallel arrays (esbuild guard: plain useState([]))
+  const [ticketSubjects, setTicketSubjects] = useState([]);
+  const [ticketDates, setTicketDates] = useState([]);
+  const [ticketRead, setTicketRead] = useState([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Pre-fill email from auth
   useEffect(() => {
     if (user?.email) setContactEmail(user.email);
   }, [user?.email]);
+
+  // Load support ticket history from platform_inbox
+  useEffect(() => {
+    if (!user?.id) return;
+    setTicketsLoading(true);
+    supabase
+      .from('platform_inbox')
+      .select('subject, sent_at, read')
+      .eq('user_id', user.id)
+      .like('subject', '[Support]%')
+      .order('sent_at', { ascending: false })
+      .limit(5)
+      .then(({ data }) => {
+        if (!data) { setTicketsLoading(false); return; }
+        const subs: string[] = [];
+        const dates: string[] = [];
+        const reads: boolean[] = [];
+        for (let i = 0; i < data.length; i++) {
+          subs.push(data[i].subject ?? '');
+          dates.push(data[i].sent_at ?? '');
+          reads.push(!!data[i].read);
+        }
+        setTicketSubjects(subs as any);
+        setTicketDates(dates as any);
+        setTicketRead(reads as any);
+        setTicketsLoading(false);
+      });
+  }, [user?.id]);
 
   // Load search analytics from localStorage
   useEffect(() => {
@@ -646,6 +724,24 @@ export default function HelpPage() {
   }
   const hasTopSearches = topSearches.length > 0 && !hasSearch;
 
+  // esbuild guard: pre-compute video modal data before JSX (no inline ternaries in render)
+  const videoModalActive = videoModalIdx >= 0 && videoModalIdx < VIDEO_GUIDES.length;
+  const activeGuideTitle = videoModalActive ? VIDEO_GUIDES[videoModalIdx].title : '';
+  const activeGuideDesc = videoModalActive ? VIDEO_GUIDES[videoModalIdx].desc : '';
+  const activeGuideThumb = videoModalActive ? VIDEO_GUIDES[videoModalIdx].thumb : '';
+  const activeGuideSlug = videoModalActive ? VIDEO_GUIDES[videoModalIdx].articleSlug : '';
+  const activeGuideDuration = videoModalActive ? VIDEO_GUIDES[videoModalIdx].duration : '';
+
+  // esbuild guard: pre-compute ticket display data as flat arrays (no inline object creation in JSX)
+  const tSubArr = ticketSubjects as string[];
+  const tDateArr = ticketDates as string[];
+  const tReadArr = ticketRead as boolean[];
+  const hasTickets = tSubArr.length > 0;
+  // Strip '[Support] ' prefix from subjects for display
+  const tDisplaySubs = tSubArr.map(s => s.replace(/^\[Support\]\s*/, ''));
+  // esbuild guard: use module-level formatTicketDate — no try/catch inside inline .map() callback
+  const tDisplayDates = tDateArr.map(formatTicketDate);
+
   // esbuild guard: use module-level HELP_STRUCTURED_DATA — no inline object construction inside component
   useSEO({
     title: 'Help Center — Testagram Support & FAQ',
@@ -670,6 +766,48 @@ export default function HelpPage() {
           </div>
           <h1 className="text-2xl font-black mb-1">How can we help you?</h1>
           <p className="text-sm text-muted-foreground">Search for answers or browse categories below</p>
+        </div>
+
+        {/* ── Video Guides ── */}
+        <div className="border border-border rounded-2xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 bg-muted/20 border-b border-border">
+            <Play className="w-4 h-4 text-primary" />
+            <h2 className="font-black text-sm">Video Guides</h2>
+            <span className="text-[10px] text-muted-foreground ml-auto">Quick visual tutorials</span>
+          </div>
+          <div className="grid grid-cols-2 gap-0 divide-x divide-y divide-border">
+            {VIDEO_GUIDES.map((guide, gi) => (
+              <button
+                key={gi}
+                onClick={() => setVideoModalIdx(gi)}
+                className="relative group text-left overflow-hidden hover:bg-muted/20 transition-colors"
+              >
+                {/* Thumbnail */}
+                <div className="relative w-full aspect-video overflow-hidden bg-muted">
+                  <img
+                    src={guide.thumb}
+                    alt={guide.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    loading="lazy"
+                  />
+                  {/* Play overlay */}
+                  <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center">
+                      <Play className="w-4 h-4 text-primary fill-primary" />
+                    </div>
+                  </div>
+                  {/* Duration badge */}
+                  <div className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                    <Clock className="w-2.5 h-2.5" />{guide.duration}
+                  </div>
+                </div>
+                {/* Title */}
+                <div className="px-3 py-2">
+                  <p className="text-xs font-bold text-foreground leading-snug">{guide.title}</p>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── Most Helpful Articles ── (shown when users have rated articles) */}
@@ -709,6 +847,41 @@ export default function HelpPage() {
             className="pl-10 h-11 rounded-xl"
           />
         </div>
+
+        {/* ── Category Quick Jump ── */}
+        {/* esbuild guard: explicit buttons, no dynamic component variable (const X = cat.icon) inside map */}
+        {!hasSearch && (
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            <button
+              onClick={() => { const el = document.getElementById('help-cat-account'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border bg-blue-500/10 shrink-0 text-xs font-bold transition-all hover:scale-105 active:scale-95"
+            >
+              <User className="w-3.5 h-3.5 text-blue-600" />
+              <span className="whitespace-nowrap">Account & Profile</span>
+            </button>
+            <button
+              onClick={() => { const el = document.getElementById('help-cat-posts'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border bg-green-500/10 shrink-0 text-xs font-bold transition-all hover:scale-105 active:scale-95"
+            >
+              <MessageCircle className="w-3.5 h-3.5 text-green-600" />
+              <span className="whitespace-nowrap">Posts & Engagement</span>
+            </button>
+            <button
+              onClick={() => { const el = document.getElementById('help-cat-payments'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border bg-purple-500/10 shrink-0 text-xs font-bold transition-all hover:scale-105 active:scale-95"
+            >
+              <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+              <span className="whitespace-nowrap">Payments & Monetization</span>
+            </button>
+            <button
+              onClick={() => { const el = document.getElementById('help-cat-safety'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-border bg-red-500/10 shrink-0 text-xs font-bold transition-all hover:scale-105 active:scale-95"
+            >
+              <Shield className="w-3.5 h-3.5 text-red-600" />
+              <span className="whitespace-nowrap">Safety & Security</span>
+            </button>
+          </div>
+        )}
 
         {/* ── Most Searched Chips ── (shown when not searching) */}
         {hasTopSearches && (
@@ -792,7 +965,7 @@ export default function HelpPage() {
         {!hasSearch && CATEGORIES.map(cat => {
           const Icon = cat.icon;
           return (
-            <div key={cat.title} className="border border-border rounded-2xl overflow-hidden">
+            <div key={cat.title} id={cat.catId} className="border border-border rounded-2xl overflow-hidden">
               <div className="flex items-center gap-3 px-4 py-3.5 bg-muted/20 border-b border-border">
                 <div className={`w-9 h-9 rounded-xl ${cat.bg} flex items-center justify-center shrink-0`}>
                   <Icon className={`w-4.5 h-4.5 ${cat.color}`} size={18} />
@@ -928,6 +1101,72 @@ export default function HelpPage() {
           )}
         </div>
 
+        {/* ── Ticket History Tracker ── */}
+        {user?.id && (
+          <div className="border border-border rounded-2xl overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border bg-muted/20">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <Ticket className="w-4.5 h-4.5 text-primary" size={18} />
+              </div>
+              <div>
+                <h2 className="font-black text-base">My Support Tickets</h2>
+                <p className="text-xs text-muted-foreground">Your recent support requests</p>
+              </div>
+              <button
+                onClick={() => {
+                  const el = document.getElementById('contact-support');
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                className="ml-auto text-xs text-primary font-semibold hover:underline flex items-center gap-1"
+              >
+                <FileText className="w-3 h-3" /> New ticket
+              </button>
+            </div>
+            {ticketsLoading ? (
+              <div className="px-4 py-6 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                Loading tickets…
+              </div>
+            ) : hasTickets ? (
+              <div>
+                {tDisplaySubs.map((sub, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-b-0 hover:bg-muted/30 transition-colors">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${tReadArr[i] ? 'bg-muted-foreground/30' : 'bg-primary'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate text-foreground">{sub}</p>
+                      <p className="text-[10px] text-muted-foreground">{tDisplayDates[i]}</p>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                      tReadArr[i]
+                        ? 'bg-muted text-muted-foreground'
+                        : 'bg-primary/10 text-primary'
+                    }`}>
+                      {tReadArr[i] ? 'Viewed' : 'Sent'}
+                    </span>
+                  </div>
+                ))}
+                <div className="px-4 py-3 border-t border-border">
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById('contact-support');
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    className="text-xs text-primary font-semibold hover:underline"
+                  >
+                    + Submit another request
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="px-4 py-8 text-center">
+                <Ticket className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground font-medium">No support tickets yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Submit a request using the Contact Support form above.</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Still need help CTA ── */}
         <div className="bg-gradient-to-br from-primary/8 via-purple-500/5 to-background border border-primary/15 rounded-2xl p-7 text-center">
           <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
@@ -982,6 +1221,63 @@ export default function HelpPage() {
         </div>
 
       </div>
+
+      {/* ── Video Guide Modal ── */}
+      {videoModalActive && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setVideoModalIdx(-1)}
+        >
+          <div
+            className="w-full max-w-sm bg-background rounded-2xl overflow-hidden shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Thumbnail header */}
+            <div className="relative w-full aspect-video bg-muted">
+              <img src={activeGuideThumb} alt={activeGuideTitle} className="w-full h-full object-cover" />
+              {/* Simulated play indicator */}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                <div className="w-16 h-16 rounded-full bg-white/95 flex items-center justify-center shadow-lg">
+                  <Play className="w-7 h-7 text-primary fill-primary ml-0.5" />
+                </div>
+              </div>
+              {/* Duration */}
+              <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                <Clock className="w-3 h-3" />{activeGuideDuration}
+              </div>
+              {/* Close */}
+              <button
+                onClick={() => setVideoModalIdx(-1)}
+                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Info */}
+            <div className="p-5">
+              <h3 className="font-black text-lg mb-1">{activeGuideTitle}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed mb-4">{activeGuideDesc}</p>
+              <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl px-4 py-3 mb-4">
+                <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-0.5">Video coming soon</p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400/80">Full video tutorials are being recorded. Read the step-by-step guide in the meantime.</p>
+              </div>
+              <button
+                onClick={() => {
+                  setVideoModalIdx(-1);
+                  const el = document.getElementById(activeGuideSlug);
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    if (window.history.replaceState) window.history.replaceState(null, '', `/help#${activeGuideSlug}`);
+                  }
+                }}
+                className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90 flex items-center justify-center gap-2 transition-opacity"
+              >
+                <FileText className="w-4 h-4" /> Read Step-by-Step Guide
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
