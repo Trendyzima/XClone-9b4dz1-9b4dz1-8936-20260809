@@ -292,7 +292,7 @@ export default function TeamChatPage() {
     if (!trimmed) return;
     const { error } = await supabase
       .from('team_chat_messages')
-      .update({ message: trimmed })
+      .update({ message: trimmed, edited_at: new Date().toISOString() })
       .eq('id', msgId);
     if (error) { toast.error(error.message); return; }
     setEditingMsgId('');
@@ -569,7 +569,10 @@ export default function TeamChatPage() {
                       ))}
                     </div>
                   )}
-                  {showHeader && <span className="text-[9px] text-muted-foreground px-1">{formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}</span>}
+                  <div className="flex items-center gap-1 px-1">
+                    {showHeader && <span className="text-[9px] text-muted-foreground">{formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}</span>}
+                    {msg.edited_at && <span className="text-[9px] text-muted-foreground/50 italic">· edited</span>}
+                  </div>
                 </div>
               </div>
             );
