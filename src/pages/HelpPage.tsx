@@ -596,28 +596,35 @@ export default function HelpPage() {
   // esbuild guard: pre-compute live support status before JSX
   const supportStatus = getSupportStatus();
 
-  // esbuild guard: pre-compute rating helpers — no typed casts in JSX
+  // esbuild guard: cast arrays ONCE, never cast in JSX
   const rSlugArr = ratingSlugs as string[];
   const rVoteArr = ratingMyVotes as string[];
   const rUpArr = ratingUpCounts as number[];
   const rDownArr = ratingDownCounts as number[];
-  const getRatingProps = (slug: string) => {
-    const i = rSlugArr.indexOf(slug);
-    return {
-      myVote: i >= 0 ? rVoteArr[i] : null,
-      upCount: i >= 0 ? rUpArr[i] : 0,
-      downCount: i >= 0 ? rDownArr[i] : 0,
-    };
-  };
 
-  // esbuild guard: pre-compute top 3 most-helpful articles (no inline sort in JSX)
-  const mostHelpfulTopics = ALL_TOPICS.map(t => {
-    const slug = toSlug(t.q);
-    const i = rSlugArr.indexOf(slug);
-    const up = i >= 0 ? rUpArr[i] : 0;
-    const down = i >= 0 ? rDownArr[i] : 0;
-    return { q: t.q, a: t.a, category: t.category, slug, up, down, net: up - down };
-  }).filter(t => t.up > 0).sort((a, b) => b.net - a.net).slice(0, 3);
+  // esbuild guard: pre-compute per-topic rating data as flat parallel arrays (no getRatingProps function returning inline object)
+  // One entry per ALL_TOPICS index — same order, so JSX uses index lookups not function calls
+  const topicSlugs: string[] = ALL_TOPICS.map(t => toSlug(t.q));
+  const topicMyVotes: (string | null)[] = topicSlugs.map(slug => {
+    const i = rSlugArr.indexOf(slug); return i >= 0 ? rVoteArr[i] : null;
+  });
+  const topicUpCounts: number[] = topicSlugs.map(slug => {
+    const i = rSlugArr.indexOf(slug); return i >= 0 ? rUpArr[i] : 0;
+  });
+  const topicDownCounts: number[] = topicSlugs.map(slug => {
+    const i = rSlugArr.indexOf(slug); return i >= 0 ? rDownArr[i] : 0;
+  });
+
+  // esbuild guard: pre-compute most-helpful list with ALL rating fields merged (no inline calcs in JSX .map())
+  // Filter+sort+slice before JSX; enrich with upCount/downCount/myVote/helpfulPct so JSX is pure display
+  const mhRaw = ALL_TOPICS.map((t, ti) => {
+    const up = topicUpCounts[ti];
+    const down = topicDownCounts[ti];
+    const total = up + down;
+    const pct = total > 0 ? Math.round((up / total) * 100) : 0;
+    return { q: t.q, a: t.a, slug: topicSlugs[ti], up, down, total, pct, myVote: topicMyVotes[ti], net: up - down };
+  });
+  const mostHelpfulTopics = mhRaw.filter(t => t.up > 0).sort((a, b) => b.net - a.net).slice(0, 3);
   const hasMostHelpful = mostHelpfulTopics.length > 0;
   const searchResults = hasSearch
     ? ALL_TOPICS.filter(t => t.q.toLowerCase().includes(searchLow) || t.a.some(l => l.toLowerCase().includes(searchLow)))
@@ -673,26 +680,21 @@ export default function HelpPage() {
               <h2 className="font-black text-sm">Most Helpful Articles</h2>
               <span className="text-[10px] text-muted-foreground ml-auto">Based on reader ratings</span>
             </div>
-            {mostHelpfulTopics.map((t, i) => {
-              const rProps = getRatingProps(t.slug);
-              const tTotal = rProps.upCount + rProps.downCount;
-              const tPct = tTotal > 0 ? Math.round((rProps.upCount / tTotal) * 100) : 0;
-              return (
-                <HelpAccordionItem
-                  key={i}
-                  q={t.q}
-                  a={t.a}
-                  itemId={t.slug}
-                  myVote={rProps.myVote}
-                  upCount={rProps.upCount}
-                  downCount={rProps.downCount}
-                  onRate={handleRate}
-                  onOpen={(s) => {
-                    if (window.history.replaceState) window.history.replaceState(null, '', `/help#${s}`);
-                  }}
-                />
-              );
-            })}
+            {mostHelpfulTopics.map((t, i) => (
+              <HelpAccordionItem
+                key={i}
+                q={t.q}
+                a={t.a}
+                itemId={t.slug}
+                myVote={t.myVote}
+                upCount={t.up}
+                downCount={t.down}
+                onRate={handleRate}
+                onOpen={(s) => {
+                  if (window.history.replaceState) window.history.replaceState(null, '', `/help#${s}`);
+                }}
+              />
+            ))}
           </div>
         )}
 
@@ -756,8 +758,12 @@ export default function HelpPage() {
             ) : (
               <div>
                 {searchResults.map((item, i) => {
+                  // esbuild guard: look up pre-computed per-topic arrays by slug index (no getRatingProps)
                   const slug = toSlug(item.q);
-                  const rProps = getRatingProps(slug);
+                  const ti = topicSlugs.indexOf(slug);
+                  const srMyVote = ti >= 0 ? topicMyVotes[ti] : null;
+                  const srUp = ti >= 0 ? topicUpCounts[ti] : 0;
+                  const srDown = ti >= 0 ? topicDownCounts[ti] : 0;
                   return (
                     <div key={i}>
                       <div className="px-4 pt-2 pb-0">
@@ -768,9 +774,9 @@ export default function HelpPage() {
                         a={item.a}
                         defaultOpen
                         itemId={slug}
-                        myVote={rProps.myVote}
-                        upCount={rProps.upCount}
-                        downCount={rProps.downCount}
+                        myVote={srMyVote}
+                        upCount={srUp}
+                        downCount={srDown}
                         onRate={handleRate}
                         onOpen={trackSearch}
                       />
@@ -795,9 +801,13 @@ export default function HelpPage() {
               </div>
               <div>
                 {cat.topics.map((topic, ti) => {
+                  // esbuild guard: index into pre-computed arrays (no getRatingProps)
                   const slug = toSlug(topic.q);
+                  const tIdx = topicSlugs.indexOf(slug);
+                  const catMyVote = tIdx >= 0 ? topicMyVotes[tIdx] : null;
+                  const catUp = tIdx >= 0 ? topicUpCounts[tIdx] : 0;
+                  const catDown = tIdx >= 0 ? topicDownCounts[tIdx] : 0;
                   const isDeepLinked = deepLinkSlug === slug;
-                  const rProps = getRatingProps(slug);
                   return (
                     <HelpAccordionItem
                       key={ti}
@@ -805,9 +815,9 @@ export default function HelpPage() {
                       a={Array.isArray(topic.a) ? topic.a : [topic.a]}
                       defaultOpen={isDeepLinked}
                       itemId={slug}
-                      myVote={rProps.myVote}
-                      upCount={rProps.upCount}
-                      downCount={rProps.downCount}
+                      myVote={catMyVote}
+                      upCount={catUp}
+                      downCount={catDown}
                       onRate={handleRate}
                       onOpen={(s) => {
                         if (window.history.replaceState) {
