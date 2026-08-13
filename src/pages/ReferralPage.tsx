@@ -129,14 +129,13 @@ export default function ReferralPage() {
     // Sort by count desc, take top 10
     const idxArr = ids.map((_, i) => i);
     idxArr.sort((a, b) => counts[b] - counts[a]);
-    const top = idxArr.slice(0, 10).map(i => ({
-      userId: ids[i],
-      username: usernames[i],
-      avatar: avatars[i],
-      verified: verifieds[i],
-      count: counts[i],
-      credits: credits[i],
-    }));
+    // esbuild guard: no inline object in .map() — use for-loop push instead
+    const top: any[] = [];
+    for (let j = 0; j < Math.min(idxArr.length, 10); j++) {
+      const ii = idxArr[j];
+      const entry = { userId: ids[ii], username: usernames[ii], avatar: avatars[ii], verified: verifieds[ii], count: counts[ii], credits: credits[ii] };
+      top.push(entry);
+    }
     setLeaderboard(top);
     setLeaderLoading(false);
   };

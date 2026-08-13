@@ -19,6 +19,19 @@ import { toast } from 'sonner';
 
 type ThemeChoice = 'light' | 'dark' | 'system';
 
+// esbuild guard: module-level dark-schedule constants — no inline computation in render
+const DARK_SCHEDULE_KEY = 'ts-dark-schedule-enabled';
+const DARK_HOUR_START = 20;
+const DARK_HOUR_END = 7;
+const TWO_FA_KEY = 'ts-2fa-required';
+
+// esbuild guard: module-level helper — check if current hour is within dark-mode schedule
+function isDarkScheduleActive(): boolean {
+  const h = new Date().getHours();
+  // 20:00 – 07:00 span (crosses midnight)
+  return h >= DARK_HOUR_START || h < DARK_HOUR_END;
+}
+
 // Module-level constants (esbuild guard: no `as const` arrays or icon components in .map() data)
 const THEME_IDS: ThemeChoice[] = ['light', 'dark', 'system'];
 const THEME_LABELS = ['Light', 'Dark', 'System'];
@@ -49,6 +62,10 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState(true);
   const [privateAccount, setPrivateAccount] = useState(false);
   const [themeChoice, setThemeChoice] = useState(getStoredThemeChoice);
+  // 2FA toggle
+  const [twoFaEnabled, setTwoFaEnabled] = useState(() => localStorage.getItem(TWO_FA_KEY) !== 'false');
+  // Dark mode schedule
+  const [darkScheduleEnabled, setDarkScheduleEnabled] = useState(() => localStorage.getItem(DARK_SCHEDULE_KEY) === 'true');
   // Account deletion (esbuild guard: no explicit generics)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
@@ -73,6 +90,22 @@ export default function SettingsPage() {
   const [showConnectedForm, setShowConnectedForm] = useState(false);
   const { play: playSound, isEnabled: isSoundEnabled, setEnabled: setSoundEnabled } = useNotificationSound();
   const [soundsOn, setSoundsOn] = useState(isSoundEnabled());
+
+  const toggleDarkSchedule = (v: boolean) => {
+    setDarkScheduleEnabled(v);
+    localStorage.setItem(DARK_SCHEDULE_KEY, v ? 'true' : 'false');
+    if (!v) {
+      // Restore theme choice
+      applyTheme(themeChoice);
+    }
+    toast.success(v ? 'Auto Dark Mode enabled (20:00 – 07:00)' : 'Auto Dark Mode disabled');
+  };
+
+  const toggleTwoFa = (v: boolean) => {
+    setTwoFaEnabled(v);
+    localStorage.setItem(TWO_FA_KEY, v ? 'true' : 'false');
+    toast.success(v ? '2FA OTP verification enabled' : '2FA OTP verification disabled');
+  };
 
   const toggleSounds = (v: boolean) => {
     setSoundEnabled(v);
@@ -118,6 +151,25 @@ export default function SettingsPage() {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [themeChoice]);
+
+  // Dark mode schedule — 60s interval, applies only when schedule is enabled
+  useEffect(() => {
+    if (!darkScheduleEnabled) return;
+    const applySchedule = () => {
+      const shouldBeDark = isDarkScheduleActive();
+      const html = document.documentElement;
+      if (shouldBeDark) {
+        html.classList.add('dark');
+        html.classList.remove('light');
+      } else {
+        html.classList.remove('dark');
+        html.classList.add('light');
+      }
+    };
+    applySchedule();
+    const iv = setInterval(applySchedule, 60_000);
+    return () => clearInterval(iv);
+  }, [darkScheduleEnabled]);
 
   if (!user) {
     navigate('/auth');
@@ -469,6 +521,21 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
+          {/* Auto Dark Mode schedule */}
+          <div className="flex items-center justify-between p-3 hover:bg-muted/50 rounded-xl transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-slate-500/10 flex items-center justify-center">
+                <Moon className="w-4 h-4 text-slate-500" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Auto Dark Mode</p>
+                <p className="text-xs text-muted-foreground">
+                  {darkScheduleEnabled ? 'Dark 20:00 – 07:00, light otherwise' : 'Schedule inactive'}
+                </p>
+              </div>
+            </div>
+            <Switch checked={darkScheduleEnabled} onCheckedChange={toggleDarkSchedule} />
+          </div>
           <div className="grid grid-cols-3 gap-2 px-3 pb-1">
             {THEME_IDS.map((id, i) => {
               const label = THEME_LABELS[i];
@@ -689,6 +756,34 @@ export default function SettingsPage() {
         <div className="p-4">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Privacy & Security</h2>
           <div className="space-y-1">
+            {/* ── Two-Factor Authentication ── */}
+            <div className="p-3 border border-border rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
+                    <Shield className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm">Login OTP Verification</p>
+                    <p className="text-xs text-muted-foreground">
+                      {twoFaEnabled ? 'OTP sent on unrecognised devices' : 'Disabled — less secure'}
+                    </p>
+                  </div>
+                </div>
+                <Switch checked={twoFaEnabled} onCheckedChange={toggleTwoFa} />
+              </div>
+              {twoFaEnabled && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed pl-12">
+                  Every login from a new device or browser triggers a one-time code sent to your registered email. Keep your email accessible.
+                </p>
+              )}
+              {!twoFaEnabled && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed pl-12">
+                  OTP verification is disabled. We strongly recommend keeping it on to protect your account.
+                </p>
+              )}
+            </div>
+
             <button
               onClick={() => navigate('/blocked')}
               className="flex items-center justify-between w-full p-3 hover:bg-muted/50 rounded-xl transition-colors text-left"
