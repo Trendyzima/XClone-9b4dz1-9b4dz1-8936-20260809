@@ -8,7 +8,8 @@ import {
   ShoppingBag, Plus, Edit, Trash2, ExternalLink, Search,
   Star, TrendingUp, Eye, Package, Tag, Heart, Sparkles, BadgeCheck,
   ChevronRight, ArrowLeft, X, Check, Loader2, Grid3x3, LayoutList,
-  MessageSquare, Send, HelpCircle, DollarSign, ChevronDown, ChevronUp
+  MessageSquare, Send, HelpCircle, DollarSign, ChevronDown, ChevronUp,
+  Megaphone, MapPin, Store
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { TopBar } from '@/components/layout/TopBar';
@@ -107,13 +108,13 @@ function TipProductModal({ seller, onClose }: { seller: any; onClose: () => void
 // ── Product Q&A Modal ─────────────────────────────────────────────────────────
 function ProductQAModal({ product, onClose }: { product: any; onClose: () => void }) {
   const { user } = useAuth();
-  const [questions, setQuestions] = useState<any[]>([]);
+  const [questions, setQuestions] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
   const [newQ, setNewQ] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [answerDraft, setAnswerDraft] = useState<Record<string, string>>({});
-  const [answeringId, setAnsweringId] = useState<string | null>(null);
+  const [expandedIdsArr, setExpandedIdsArr] = useState([] as string[]);
+  const [answerDraft, setAnswerDraft] = useState({} as { [key: string]: string });
+  const [answeringId, setAnsweringId] = useState(null as string | null);
   const isSeller = user?.id === product.user_id;
 
   useEffect(() => { fetchQA(); }, [product.id]);
@@ -194,10 +195,10 @@ function ProductQAModal({ product, onClose }: { product: any; onClose: () => voi
           ) : (
             <div className="divide-y divide-border">
               {questions.map((q: any) => {
-                const expanded = expandedIds.has(q.id);
+                const expanded = expandedIdsArr.includes(q.id);
                 return (
                   <div key={q.id} className="px-4 py-3">
-                    <button className="w-full text-left" onClick={() => setExpandedIds(prev => { const s = new Set(prev); s.has(q.id) ? s.delete(q.id) : s.add(q.id); return s; })}>
+                    <button className="w-full text-left" onClick={() => setExpandedIdsArr(prev => prev.includes(q.id) ? prev.filter(x => x !== q.id) : [...prev, q.id])}>
                       <div className="flex items-start gap-2">
                         <div className="w-7 h-7 rounded-full bg-muted overflow-hidden shrink-0 mt-0.5">
                           {q.asker?.avatar_url ? <img src={q.asker.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-xs font-bold">{q.asker?.username?.[0]?.toUpperCase()}</div>}
@@ -258,12 +259,12 @@ function ProductQAModal({ product, onClose }: { product: any; onClose: () => voi
 // ── Product Reviews Modal ────────────────────────────────────────────────────
 function ProductReviewsModal({ product, onClose }: { product: any; onClose: () => void }) {
   const { user } = useAuth();
-  const [reviews, setReviews] = useState<any[]>([]);
+  const [reviews, setReviews] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
   const [myRating, setMyRating] = useState(0);
   const [myComment, setMyComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [myReview, setMyReview] = useState<any>(null);
+  const [myReview, setMyReview] = useState(null as any);
 
   useEffect(() => { fetchReviews(); }, [product.id]);
 
@@ -379,6 +380,148 @@ function ProductReviewsModal({ product, onClose }: { product: any; onClose: () =
   );
 }
 
+// ── Module-level category/region config (esbuild-safe) ─────────────────────
+const PROD_CATEGORIES = [
+  { id: 'other',       emoji: '📦', label: 'Other'       },
+  { id: 'digital',     emoji: '💻', label: 'Digital'     },
+  { id: 'handmade',    emoji: '🧵', label: 'Handmade'    },
+  { id: 'fashion',     emoji: '👗', label: 'Fashion'     },
+  { id: 'art',         emoji: '🎨', label: 'Art'         },
+  { id: 'food',        emoji: '🍜', label: 'Food'        },
+  { id: 'electronics', emoji: '📱', label: 'Electronics' },
+  { id: 'books',       emoji: '📚', label: 'Books'       },
+  { id: 'beauty',      emoji: '💄', label: 'Beauty'      },
+  { id: 'home',        emoji: '🏠', label: 'Home'        },
+  { id: 'sports',      emoji: '⚽', label: 'Sports'      },
+  { id: 'music',       emoji: '🎵', label: 'Music'       },
+  { id: 'toys',        emoji: '🧸', label: 'Toys'        },
+];
+
+const PROD_REGIONS = [
+  { id: 'all',          flag: '🌍', label: 'Worldwide'     },
+  { id: 'kenya',        flag: '🇰🇪', label: 'Kenya'         },
+  { id: 'nigeria',      flag: '🇳🇬', label: 'Nigeria'       },
+  { id: 'ghana',        flag: '🇬🇭', label: 'Ghana'         },
+  { id: 'south_africa', flag: '🇿🇦', label: 'South Africa'  },
+  { id: 'us',           flag: '🇺🇸', label: 'United States' },
+  { id: 'uk',           flag: '🇬🇧', label: 'United Kingdom'},
+  { id: 'europe',       flag: '🇪🇺', label: 'Europe'        },
+  { id: 'asia',         flag: '🌏', label: 'Asia'          },
+];
+
+// ── Product Boost to Feed Dialog ─────────────────────────────────────────────
+function ProductBoostDialog({ product, onClose }: { product: any; onClose: () => void }) {
+  const { user } = useAuth();
+  const [budget, setBudget] = useState('');
+  const [days, setDays] = useState('7');
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const BOOST_BUDGETS = ['5', '10', '25', '50'];
+  const BOOST_DAYS    = ['3', '7', '14', '30'];
+
+  const handleBoost = async () => {
+    if (!user) return;
+    const budgetNum = Number(budget);
+    if (!budgetNum || budgetNum < 1) { toast.error('Enter a valid budget'); return; }
+    setSubmitting(true);
+    const startDate = new Date();
+    const endDate = new Date(startDate.getTime() + Number(days) * 86400000);
+    const { error } = await supabase.from('user_ads').insert({
+      user_id: user.id,
+      title: product.name,
+      description: product.description || `Shop ${product.name} — Available on Testagram Marketplace`,
+      image_url: product.image_url ?? null,
+      target_url: product.external_link || `${window.location.origin}/marketplace`,
+      budget: budgetNum,
+      status: 'pending',
+      payment_status: 'pending',
+      start_date: startDate.toISOString(),
+      end_date: endDate.toISOString(),
+      target_audience: { source: 'product_boost', product_id: product.id, category: product.category ?? 'other' },
+    });
+    if (error) { toast.error(error.message); setSubmitting(false); return; }
+    setDone(true);
+    setSubmitting(false);
+    setTimeout(onClose, 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[400] bg-black/60 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background w-full max-w-sm rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        {done ? (
+          <div className="text-center py-10 px-6 space-y-3">
+            <div className="w-14 h-14 rounded-full bg-green-500/10 flex items-center justify-center mx-auto">
+              <Check className="w-7 h-7 text-green-500" />
+            </div>
+            <h3 className="font-black text-lg">Ad Submitted!</h3>
+            <p className="text-sm text-muted-foreground">Your product will be reviewed and organically distributed across feeds soon.</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div>
+                <h3 className="font-bold text-base flex items-center gap-2"><Megaphone className="w-4 h-4 text-amber-500" /> Promote to Feed</h3>
+                <p className="text-xs text-muted-foreground line-clamp-1">{product.name}</p>
+              </div>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-muted flex items-center justify-center"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-3 p-3 rounded-2xl bg-muted/40 border border-border">
+                {product.image_url ? (
+                  <img src={product.image_url} alt={product.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0"><ShoppingBag className="w-5 h-5 text-muted-foreground" /></div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm truncate">{product.name}</p>
+                  <p className="text-base font-black text-primary">${Number(product.price).toFixed(2)}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Budget</p>
+                <div className="flex gap-2 mb-2 flex-wrap">
+                  {BOOST_BUDGETS.map(b => (
+                    <button key={b} onClick={() => setBudget(b)}
+                      className={`px-3 py-1.5 rounded-xl border text-sm font-bold transition-all ${
+                        budget === b ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40'
+                      }`}>${b}</button>
+                  ))}
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">$</span>
+                  <input type="number" min="1" value={budget} onChange={e => setBudget(e.target.value)} placeholder="Custom"
+                    className="w-full pl-8 pr-4 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Duration</p>
+                <div className="flex gap-2">
+                  {BOOST_DAYS.map(d => (
+                    <button key={d} onClick={() => setDays(d)}
+                      className={`flex-1 py-2 rounded-xl border text-sm font-bold transition-all ${
+                        days === d ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40'
+                      }`}>{d}d</button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-500/8 border border-amber-500/20 rounded-xl">
+                <Megaphone className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 dark:text-amber-400">Your product ad is organically distributed via our ad algorithm across feeds, stories, and relevant placements after review.</p>
+              </div>
+              <button onClick={handleBoost} disabled={submitting || !budget}
+                className="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">
+                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Megaphone className="w-5 h-5" />}
+                {submitting ? 'Submitting…' : `Boost · $${budget || '—'} · ${days} days`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type ViewMode = 'marketplace' | 'my-products' | 'add-product' | 'edit-product';
 type GridMode = 'grid' | 'list';
 
@@ -386,17 +529,17 @@ export function ProductsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [viewMode, setViewMode] = useState<ViewMode>('marketplace');
-  const [gridMode, setGridMode] = useState<GridMode>('grid');
-  const [allProducts, setAllProducts] = useState<any[]>([]);
-  const [myProducts, setMyProducts] = useState<any[]>([]);
-  const [featuredProducts, setFeaturedProducts] = useState<any[]>([]);
+  const [viewMode, setViewMode] = useState('marketplace' as ViewMode);
+  const [gridMode, setGridMode] = useState('grid' as GridMode);
+  const [allProducts, setAllProducts] = useState([] as any[]);
+  const [myProducts, setMyProducts] = useState([] as any[]);
+  const [featuredProducts, setFeaturedProducts] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [editingProduct, setEditingProduct] = useState<any | null>(null);
-  const [reviewProduct, setReviewProduct] = useState<any | null>(null);
-  const [qaProduct, setQaProduct] = useState<any | null>(null);
-  const [tipSeller, setTipSeller] = useState<any | null>(null);
+  const [editingProduct, setEditingProduct] = useState(null as any);
+  const [reviewProduct, setReviewProduct] = useState(null as any);
+  const [qaProduct, setQaProduct] = useState(null as any);
+  const [tipSeller, setTipSeller] = useState(null as any);
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -405,27 +548,26 @@ export function ProductsPage() {
   const [formLink, setFormLink] = useState('');
   const [formImage, setFormImage] = useState('');
   const [formStock, setFormStock] = useState('');
+  const [formCategory, setFormCategory] = useState('other');
+  const [formRegion, setFormRegion] = useState('all');
   const [saving, setSaving] = useState(false);
+  const [boostingProduct, setBoostingProduct] = useState(null as any);
 
-  // Wishlist (localStorage) — lazy initializer removed to avoid esbuild non-determinism
-  const [wishlist, setWishlist] = useState<Set<string>>(() => {
+  // Wishlist — stored as string array (esbuild guard: no Set<string> in state)
+  const [wishlistArr, setWishlistArr] = useState([] as string[]);
+  useEffect(() => {
     try {
-      const raw = localStorage.getItem('product_wishlist');
-      if (raw) return new Set(JSON.parse(raw) as string[]);
+      const raw = localStorage.getItem('product_wishlist_v2');
+      if (raw) setWishlistArr(JSON.parse(raw) as string[]);
     } catch { }
-    return new Set<string>();
-  });
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('product_wishlist', JSON.stringify([...wishlist]));
-  }, [wishlist]);
+    try { localStorage.setItem('product_wishlist_v2', JSON.stringify(wishlistArr)); } catch { }
+  }, [wishlistArr]);
 
   const toggleWishlist = (id: string) => {
-    setWishlist(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    setWishlistArr(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
   useEffect(() => {
@@ -466,6 +608,8 @@ export function ProductsPage() {
       image_url: formImage.trim() || null,
       stock: formStock ? Number(formStock) : 0,
       is_active: true,
+      category: formCategory,
+      region: formRegion,
     };
     if (editingProduct) {
       const { error } = await supabase.from('products').update(payload).eq('id', editingProduct.id);
@@ -498,7 +642,8 @@ export function ProductsPage() {
   const resetForm = () => {
     setFormName(''); setFormDesc(''); setFormPrice('');
     setFormLink(''); setFormImage('');
-    setFormStock(''); setEditingProduct(null);
+    setFormStock(''); setFormCategory('other'); setFormRegion('all');
+    setEditingProduct(null);
   };
 
   const openEdit = (p: any) => {
@@ -509,6 +654,8 @@ export function ProductsPage() {
     setFormLink(p.external_link ?? '');
     setFormImage(p.image_url ?? '');
     setFormStock(String(p.stock ?? ''));
+    setFormCategory(p.category ?? 'other');
+    setFormRegion(p.region ?? 'all');
     setViewMode('edit-product');
   };
 
@@ -602,6 +749,38 @@ export function ProductsPage() {
               <input value={formLink} onChange={e => setFormLink(e.target.value)} placeholder="https://your-store.com/product"
                 className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
             </div>
+
+            {/* Category */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Category</label>
+              <div className="flex flex-wrap gap-2">
+                {PROD_CATEGORIES.map(c => (
+                  <button key={c.id} type="button" onClick={() => setFormCategory(c.id)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-xs font-semibold transition-all ${
+                      formCategory === c.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:border-primary/40'
+                    }`}>
+                    <span>{c.emoji}</span>{c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Region */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block flex items-center gap-1">
+                <MapPin className="w-3 h-3" /> Region of Sale
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {PROD_REGIONS.map(r => (
+                  <button key={r.id} type="button" onClick={() => setFormRegion(r.id)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-xs font-semibold transition-all ${
+                      formRegion === r.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:border-primary/40'
+                    }`}>
+                    <span>{r.flag}</span>{r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <button onClick={handleSaveProduct} disabled={saving || !formName.trim() || !formPrice}
             className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-bold text-base disabled:opacity-50 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
@@ -677,6 +856,9 @@ export function ProductsPage() {
                     <button onClick={() => setQaProduct(product)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium hover:bg-blue-500/10 text-blue-500 transition-colors">
                       <HelpCircle className="w-3.5 h-3.5" /> Q&A
                     </button>
+                    <button onClick={() => setBoostingProduct(product)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium hover:bg-amber-500/10 text-amber-600 transition-colors">
+                      <Megaphone className="w-3.5 h-3.5" /> Boost
+                    </button>
                     <button onClick={() => handleDelete(product.id)} className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/10 text-red-500 transition-colors">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -687,6 +869,7 @@ export function ProductsPage() {
           )}
         </div>
         {qaProduct && <ProductQAModal product={qaProduct} onClose={() => setQaProduct(null)} />}
+        {boostingProduct && <ProductBoostDialog product={boostingProduct} onClose={() => setBoostingProduct(null)} />}
       </div>
     );
   }
@@ -757,10 +940,16 @@ export function ProductsPage() {
                 <p className="font-bold text-sm">Sell your products</p>
                 <p className="text-xs text-muted-foreground">List items and tag them in posts</p>
               </div>
-              <button onClick={() => { resetForm(); setViewMode('add-product'); }}
-                className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90 transition-opacity">
-                <Plus className="w-3.5 h-3.5" /> Sell
-              </button>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={() => navigate(`/seller/${user.username}`)}
+                  className="flex items-center gap-1 px-3 py-2 border border-border text-primary rounded-full text-xs font-bold hover:bg-muted transition-colors">
+                  <Store className="w-3.5 h-3.5" /> Store
+                </button>
+                <button onClick={() => { resetForm(); setViewMode('add-product'); }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-bold hover:opacity-90 transition-opacity">
+                  <Plus className="w-3.5 h-3.5" /> Sell
+                </button>
+              </div>
             </div>
           )}
 
@@ -777,7 +966,7 @@ export function ProductsPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {filteredProducts.map(product => (
                   <ProductCard key={product.id} product={product}
-                    wishlisted={wishlist.has(product.id)}
+                    wishlisted={wishlistArr.includes(product.id)}
                     onWishlist={() => toggleWishlist(product.id)}
                     onView={() => trackView(product.id)}
                     onProfile={() => navigate(`/profile/${product.user_profiles?.username}`)}
@@ -791,7 +980,7 @@ export function ProductsPage() {
               <div className="space-y-3">
                 {filteredProducts.map(product => (
                   <ProductListItem key={product.id} product={product}
-                    wishlisted={wishlist.has(product.id)}
+                    wishlisted={wishlistArr.includes(product.id)}
                     onWishlist={() => toggleWishlist(product.id)}
                     onView={() => trackView(product.id)}
                     onProfile={() => navigate(`/profile/${product.user_profiles?.username}`)}
@@ -809,6 +998,7 @@ export function ProductsPage() {
       {reviewProduct && <ProductReviewsModal product={reviewProduct} onClose={() => setReviewProduct(null)} />}
       {qaProduct && <ProductQAModal product={qaProduct} onClose={() => setQaProduct(null)} />}
       {tipSeller && <TipProductModal seller={tipSeller} onClose={() => setTipSeller(null)} />}
+      {boostingProduct && <ProductBoostDialog product={boostingProduct} onClose={() => setBoostingProduct(null)} />}
     </div>
   );
 }
