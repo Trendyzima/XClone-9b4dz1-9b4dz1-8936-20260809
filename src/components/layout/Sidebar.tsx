@@ -47,6 +47,7 @@ export function Sidebar() {
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [pendingAdsBadge, setPendingAdsBadge] = useState(0);
+  const [unreadHelpReplies, setUnreadHelpReplies] = useState(0);
   const { unreadCount: unreadFed } = useFediversePolling(user?.id);
 
   // Check if user is admin + count pending ads
@@ -61,6 +62,18 @@ export function Sidebar() {
     checkAdminAds();
     const iv = setInterval(checkAdminAds, 30_000);
     return () => clearInterval(iv);
+  }, [user?.id]);
+
+  // Poll help ticket reply badge
+  useEffect(() => {
+    if (!user) { setUnreadHelpReplies(0); return; }
+    supabase
+      .from('platform_inbox')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .like('subject', '[Support]%')
+      .eq('read', false)
+      .then(({ count }) => setUnreadHelpReplies(count ?? 0));
   }, [user?.id]);
 
   // Poll local notification unread count every 60s
@@ -565,6 +578,11 @@ export function Sidebar() {
                 >
                   <HelpCircle className="w-5 h-5" />
                   <span>Help</span>
+                  {unreadHelpReplies > 0 && (
+                    <span className="ml-auto min-w-[16px] h-4 bg-green-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                      {unreadHelpReplies > 9 ? '9+' : unreadHelpReplies}
+                    </span>
+                  )}
                 </button>
                 <div className="border-t border-border" />
                 <button

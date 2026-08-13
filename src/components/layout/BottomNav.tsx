@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Bell, User, Flame, UserSearch, Inbox, ShieldCheck, MessageSquare } from 'lucide-react';
+import { Home, Bell, User, Flame, UserSearch, Inbox, ShieldCheck, MessageSquare, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useIsRegulator } from '@/hooks/useFeatureUnlock';
@@ -20,6 +20,7 @@ export function BottomNav() {
   const [hasNewSuggestions, setHasNewSuggestions] = useState(false);
   const [unreadInbox, setUnreadInbox] = useState(0);
   const [scheduledBadge, setScheduledBadge] = useState(0);
+  const [unreadHelpReplies, setUnreadHelpReplies] = useState(0);
   const prevNotifs = useRef(-1);
   const prevMessages = useRef(-1);
   const audioCtxRef = useRef<any>(null);
@@ -163,6 +164,16 @@ export function BottomNav() {
       .eq('status', 'pending')
       .then(({ count }) => setScheduledBadge(count ?? 0));
 
+    // Help support ticket reply badge — unread inbox items with [Support] subject that are read=true (team viewed them)
+    // We show a green dot on Help nav when the user has pending (unread by user) support reply messages
+    supabase
+      .from('platform_inbox')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .like('subject', '[Support]%')
+      .eq('read', false)
+      .then(({ count }) => setUnreadHelpReplies(count ?? 0));
+
     // Real-time subscription for new inbox messages → instant badge + toast
     const inboxSub = supabase
       .channel(`inbox-realtime-${user.id}`)
@@ -221,12 +232,13 @@ export function BottomNav() {
   }, [location.pathname]);
 
   const navItems = [
-    { icon: Home,          label: 'Home',      path: '/',         badge: 0 },
-    { icon: MessageSquare, label: 'Messages',  path: '/messages', badge: unreadMessages, requireAuth: true },
-    { icon: Flame,         label: 'Streak',    path: '/daily-rewards',                                badge: streakDay, badgeStyle: 'bg-orange-500', requireAuth: true },
-    { icon: Inbox,         label: 'Inbox',     path: '/platform-inbox', requireAuth: true,            badge: unreadInbox + (isReg ? pendingAppeals : 0) },
-    { icon: Bell,          label: 'Alerts',    path: '/notifications',  requireAuth: true,              badge: unreadNotifs },
-    { icon: User,          label: 'Profile',   path: user ? `/profile/${user.username}` : '/auth',     badge: 0, requireAuth: true },
+    { icon: Home,         label: 'Home',     path: '/',          badge: 0 },
+    { icon: MessageSquare,label: 'Messages', path: '/messages',  badge: unreadMessages,  requireAuth: true },
+    { icon: Flame,        label: 'Streak',   path: '/daily-rewards', badge: streakDay, badgeStyle: 'bg-orange-500', requireAuth: true },
+    { icon: Inbox,        label: 'Inbox',    path: '/platform-inbox', requireAuth: true, badge: unreadInbox + (isReg ? pendingAppeals : 0) },
+    { icon: Bell,         label: 'Alerts',   path: '/notifications', requireAuth: true,  badge: unreadNotifs },
+    { icon: HelpCircle,   label: 'Help',     path: '/help',      badge: unreadHelpReplies, badgeStyle: 'bg-green-500', requireAuth: false },
+    { icon: User,         label: 'Profile',  path: user ? `/profile/${user.username}` : '/auth', badge: 0, requireAuth: true },
   ];
 
   const handleNavClick = (path: string, requireAuth?: boolean) => {
