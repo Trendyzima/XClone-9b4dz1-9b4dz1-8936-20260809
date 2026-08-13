@@ -70,6 +70,12 @@ export default function CreatorStudio() {
   const [alertChecking, setAlertChecking] = useState(false);
   const [alertTodayEarnings, setAlertTodayEarnings] = useState(-1); // -1 = not checked yet
   const [alertLastSent, setAlertLastSent] = useState('');
+  // esbuild guard: plain useState([]) — no typed generic
+  const [alertHistory, setAlertHistory] = useState([]);
+  const [showAlertHistory, setShowAlertHistory] = useState(false);
+  const [weeklyDigestEnabled, setWeeklyDigestEnabled] = useState(false);
+  const [weeklyDigestSending, setWeeklyDigestSending] = useState(false);
+  const [earningsStreak, setEarningsStreak] = useState(0);
 
   // Load alert prefs from localStorage on mount
   useEffect(() => {
@@ -82,6 +88,10 @@ export default function CreatorStudio() {
         setAlertThreshold(String(prefs.threshold ?? '5'));
         setAlertLastSent(prefs.lastSent ?? '');
       }
+      const histRaw = localStorage.getItem(`ts-earnings-alert-history-${user.id}`);
+      if (histRaw) { try { setAlertHistory(JSON.parse(histRaw)); } catch { /* ignore */ } }
+      const digestRaw = localStorage.getItem(`ts-weekly-digest-pref-${user.id}`);
+      if (digestRaw) { try { setWeeklyDigestEnabled(JSON.parse(digestRaw).enabled ?? false); } catch { /* ignore */ } }
     } catch { /* ignore */ }
   }, [user?.id]);
 
@@ -91,6 +101,19 @@ export default function CreatorStudio() {
       const prefs = { enabled, threshold, lastSent: alertLastSent };
       localStorage.setItem(`ts-earnings-alert-${user.id}`, JSON.stringify(prefs));
     } catch { /* ignore */ }
+  };
+
+  const saveWeeklyDigestPref = (enabled: boolean) => {
+    if (!user) return;
+    try { localStorage.setItem(`ts-weekly-digest-pref-${user.id}`, JSON.stringify({ enabled })); } catch { /* ignore */ }
+  };
+
+  const saveAlertHistoryEntry = (amount: number) => {
+    if (!user) return;
+    const entry = { date: new Date().toISOString().split('T')[0], amount };
+    const next = [entry, ...(alertHistory as any[])].slice(0, 10);
+    setAlertHistory(next as any);
+    try { localStorage.setItem(`ts-earnings-alert-history-${user.id}`, JSON.stringify(next)); } catch { /* ignore */ }
   };
 
   const checkDailyEarningsAlert = async () => {
@@ -129,6 +152,7 @@ export default function CreatorStudio() {
             localStorage.setItem(`ts-earnings-alert-${user.id}`, JSON.stringify(prefs));
           } catch { /* ignore */ }
           toast.success(`Alert sent! You earned $${todayTotal.toFixed(2)} today 🎉`);
+          saveAlertHistoryEntry(todayTotal);
         } else {
           toast.error('Failed to send alert notification');
         }
@@ -155,6 +179,7 @@ export default function CreatorStudio() {
     fetchVideoEarnings();
     fetchWeeklyEarnings();
     fetchMilestoneData();
+    fetchEarningsStreak();
     fetchRevenueBreakdown4W();
     fetchMonthlyGoal();
   }, [user]);
@@ -163,6 +188,11 @@ export default function CreatorStudio() {
     if (activeStudioTab === 'videos' && allVideoPosts.length === 0) fetchAllVideoPosts();
     if (activeStudioTab === 'analytics' && topPosts.length === 0) fetchAnalyticsData();
   }, [activeStudioTab]);
+
+  // Auto-send weekly digest on Mondays when enabled
+  useEffect(() => {
+    if (user && weeklyDigestEnabled) checkWeeklyDigest();
+  }, [weeklyDigestEnabled, user?.id]);
 
   const fetchMonthlyGoal = async () => {
     if (!user) return;
@@ -244,6 +274,108 @@ export default function CreatorStudio() {
     const { error } = await supabase.from('posts').update({ price }).eq('id', postId).eq('user_id', user!.id);
     if (error) { toast.error(error.message); }
     else { setAllVideoPosts(prev => prev.map(p => p.id === postId ? { ...p, price } : p)); setEditingPrice(null); toast.success('Price updated'); }
+  };
+
+  const fetchEarningsStreak = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('creator_earnings')
+      .select('created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(90);
+    if (!data || data.length === 0) { setEarningsStreak(0); return; }
+    // Unique days with earnings — plain loop (esbuild guard: no Set)
+    const uniqueDays: string[] = [];
+    for (const e of data) {
+      const d = (e.created_at as string).split('T')[0];
+      if (!uniqueDays.includes(d)) uniqueDays.push(d);
+    }
+    uniqueDays.sort((a, b) => b.localeCompare(a)); // most recent first
+    let streak = 0;
+    // Try today-anchored streak first
+    for (let i = 0; i < uniqueDays.length; i++) {
+      const ref = new Date(Date.now() - i * 86400000).toISOString().split('T')[0];
+      if (uniqueDays[i] === ref) streak++;
+      else break;
+    }
+    // If today has no earnings yet, try yesterday-anchored streak
+    if (streak === 0 && uniqueDays.length > 0) {
+      for (let i = 0; i < uniqueDays.length; i++) {
+        const ref = new Date(Date.now() - (i + 1) * 86400000).toISOString().split('T')[0];
+        if (uniqueDays[i] === ref) streak++;
+        else break;
+      }
+    }
+    setEarningsStreak(streak);
+  };
+
+  const sendWeeklyDigest = async () => {
+    if (!user) return;
+    setWeeklyDigestSending(true);
+    try {
+      const lastWeekStart = new Date();
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+      lastWeekStart.setHours(0, 0, 0, 0);
+      const lastWeekEnd = new Date();
+      lastWeekEnd.setHours(0, 0, 0, 0);
+      const { data } = await supabase
+        .from('creator_earnings')
+        .select('amount, source')
+        .eq('user_id', user.id)
+        .gte('created_at', lastWeekStart.toISOString())
+        .lt('created_at', lastWeekEnd.toISOString());
+      const rows = data ?? [];
+      const total = rows.reduce((s: number, e: any) => s + Number(e.amount), 0);
+      // Group by source using parallel arrays (esbuild guard: no Record<string,T>)
+      const srcKeys: string[] = [];
+      const srcAmts: number[] = [];
+      for (const e of rows) {
+        const src = (e as any).source ?? 'other';
+        const idx = srcKeys.indexOf(src);
+        if (idx >= 0) srcAmts[idx] += Number((e as any).amount);
+        else { srcKeys.push(src); srcAmts.push(Number((e as any).amount)); }
+      }
+      const breakdown = srcKeys.length > 0
+        ? srcKeys.map((k, i) => `• ${k.replace(/_/g, ' ')}: $${srcAmts[i].toFixed(4)}`).join('\n')
+        : 'No earnings this week yet — keep creating!';
+      const weekLabel = `${lastWeekStart.toLocaleDateString('en', { month: 'short', day: 'numeric' })} – ${new Date(lastWeekEnd.getTime() - 1).toLocaleDateString('en', { month: 'short', day: 'numeric' })}`;
+      await supabase.from('platform_inbox').insert({
+        user_id: user.id,
+        subject: `📊 Weekly Earnings Summary: $${total.toFixed(2)}`,
+        body: `Your earnings for ${weekLabel}:\n\nTotal: $${total.toFixed(2)}\n\nBreakdown:\n${breakdown}\n\nStay consistent — your best week could be next week! 🚀`,
+        type: 'update',
+        icon_emoji: '📊',
+        cta_label: 'View Creator Studio',
+        cta_url: '/creator-studio',
+      });
+      const weekKey = lastWeekStart.toISOString().split('T')[0];
+      try { localStorage.setItem(`ts-weekly-digest-${user.id}`, JSON.stringify({ lastSent: weekKey })); } catch { /* ignore */ }
+      toast.success(`Weekly summary sent to your inbox! 💰 $${total.toFixed(2)} earned last week`);
+    } catch (e) {
+      console.error('sendWeeklyDigest error:', e);
+      toast.error('Failed to send weekly digest');
+    } finally {
+      setWeeklyDigestSending(false);
+    }
+  };
+
+  const checkWeeklyDigest = async () => {
+    if (!weeklyDigestEnabled || !user) return;
+    // Only auto-send on Mondays (day === 1)
+    if (new Date().getDay() !== 1) return;
+    const lastWeekStart = new Date();
+    lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+    lastWeekStart.setHours(0, 0, 0, 0);
+    const weekKey = lastWeekStart.toISOString().split('T')[0];
+    try {
+      const raw = localStorage.getItem(`ts-weekly-digest-${user.id}`);
+      if (raw) {
+        const meta = JSON.parse(raw);
+        if (meta.lastSent === weekKey) return; // already sent this week
+      }
+    } catch { /* ignore */ }
+    await sendWeeklyDigest();
   };
 
   const fetchMilestoneData = async () => {
@@ -442,6 +574,12 @@ export default function CreatorStudio() {
     { tier: 'Top Creator', emoji: '👑', cpm: '$3.50', req: 'Verified + 100K+ views' },
   ];
 
+  // esbuild guard: pre-compute alert values before JSX — no inline parseFloat() or new Date() in render
+  const alertThresholdNum = parseFloat(alertThreshold || '0');
+  const alertTodayKey = new Date().toISOString().split('T')[0];
+  const alertTodayMet = alertTodayEarnings >= 0 && alertTodayEarnings >= alertThresholdNum;
+  const alertTodayGap = alertTodayEarnings >= 0 ? Math.max(0, alertThresholdNum - alertTodayEarnings).toFixed(2) : '0.00';
+
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
       <TopBar title="Creator Studio" showBack />
@@ -484,6 +622,7 @@ export default function CreatorStudio() {
                 { icon: <Heart className="w-4 h-4" />,    label: 'Total Likes',  value: formatNumber(stats.total_likes),                              color: 'text-pink-600'   },
                 { icon: <Users className="w-4 h-4" />,    label: 'Followers',    value: formatNumber(stats.total_followers),                          color: 'text-purple-600' },
                 { icon: <DollarSign className="w-4 h-4" />, label: 'Earnings',   value: `$${stats.total_earnings.toFixed(2)}`,                        color: 'text-green-600'  },
+        { icon: <TrendingUp className="w-4 h-4" />, label: 'Earn Streak', value: earningsStreak > 0 ? `${earningsStreak}d 🔥` : '—',              color: 'text-orange-500' },
                 { icon: <FileText className="w-4 h-4" />, label: 'Total Posts',  value: formatNumber(stats.total_posts),                              color: 'text-orange-600' },
                 { icon: <TrendingUp className="w-4 h-4" />, label: 'Engagement', value: `${stats.engagement_rate.toFixed(1)}%`,                       color: 'text-teal-600'   },
                 { icon: <Video className="w-4 h-4" />,    label: 'Video Views',  value: formatNumber(stats.video_views),                              color: 'text-red-600'    },
@@ -1025,14 +1164,12 @@ export default function CreatorStudio() {
                     className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                   />
                 </div>
-                {/* Today's earnings status */}
+                {/* Today's earnings status — esbuild guard: uses pre-computed alertThresholdNum / alertTodayKey */}
                 {alertTodayEarnings >= 0 && (
                   <div className={`flex items-center gap-3 p-3 rounded-xl border ${
-                    alertTodayEarnings >= parseFloat(alertThreshold || '0')
-                      ? 'bg-green-500/5 border-green-500/20'
-                      : 'bg-muted/30 border-border'
+                    alertTodayMet ? 'bg-green-500/5 border-green-500/20' : 'bg-muted/30 border-border'
                   }`}>
-                    {alertTodayEarnings >= parseFloat(alertThreshold || '0')
+                    {alertTodayMet
                       ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
                       : <AlertTriangle className="w-4 h-4 text-muted-foreground shrink-0" />}
                     <div className="flex-1 min-w-0">
@@ -1040,11 +1177,11 @@ export default function CreatorStudio() {
                         Today: <span className="text-green-600">${alertTodayEarnings.toFixed(4)}</span>
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        {alertTodayEarnings >= parseFloat(alertThreshold || '0')
-                          ? alertLastSent === new Date().toISOString().split('T')[0]
+                        {alertTodayMet
+                          ? alertLastSent === alertTodayKey
                             ? 'Alert already sent today ✓'
                             : 'Threshold reached — alert will be sent'
-                          : `$${Math.max(0, parseFloat(alertThreshold || '0') - alertTodayEarnings).toFixed(2)} more to trigger`}
+                          : `$${alertTodayGap} more to trigger`}
                       </p>
                     </div>
                   </div>
@@ -1063,6 +1200,84 @@ export default function CreatorStudio() {
                     Last alert sent: {alertLastSent}
                   </p>
                 )}
+
+                {/* ── Alert History Log ── */}
+                {(alertHistory as any[]).length > 0 && (
+                  <div>
+                    <button
+                      onClick={() => setShowAlertHistory(v => !v)}
+                      className="w-full flex items-center justify-between py-2 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <span>📋 Alert History ({(alertHistory as any[]).length})</span>
+                      <span>{showAlertHistory ? '▲' : '▼'}</span>
+                    </button>
+                    {showAlertHistory && (
+                      <div className="space-y-1.5 mt-1">
+                        {(alertHistory as any[]).map((entry: any, i: number) => (
+                          <div key={i} className="flex items-center justify-between px-3 py-2 bg-muted/30 rounded-xl">
+                            <div className="flex items-center gap-2">
+                              <span className="text-amber-500 text-sm">💰</span>
+                              <div>
+                                <p className="text-xs font-semibold">${entry.amount.toFixed(4)}</p>
+                                <p className="text-[10px] text-muted-foreground">{entry.date}</p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] px-2 py-0.5 bg-green-500/10 text-green-600 rounded-full font-bold">Sent ✓</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Weekly Earnings Summary Card ── */}
+            <div className="bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-blue-500" />
+                    <h3 className="font-bold text-sm">Weekly Earnings Summary</h3>
+                    {weeklyDigestEnabled && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-bold border border-blue-500/20">On</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !weeklyDigestEnabled;
+                      setWeeklyDigestEnabled(next);
+                      saveWeeklyDigestPref(next);
+                    }}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${weeklyDigestEnabled ? 'bg-blue-500' : 'bg-muted'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${weeklyDigestEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+              </div>
+              <div className="px-4 py-4 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Auto-sends a Platform Inbox digest every Monday summarising last week's earnings by source (tips, ads, video CPM).
+                </p>
+                {earningsStreak > 0 && (
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-orange-500/5 border border-orange-500/20">
+                    <span className="text-2xl">🔥</span>
+                    <div>
+                      <p className="text-sm font-bold text-orange-600">{earningsStreak}-Day Earning Streak!</p>
+                      <p className="text-[10px] text-muted-foreground">You've earned money {earningsStreak} consecutive day{earningsStreak !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={sendWeeklyDigest}
+                  disabled={weeklyDigestSending}
+                  className="w-full py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+                >
+                  {weeklyDigestSending
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                    : <><TrendingUp className="w-4 h-4" /> Send This Week's Summary Now</>}
+                </button>
+                <p className="text-[10px] text-muted-foreground text-center">Auto-send activates on the next Monday when toggled on.</p>
               </div>
             </div>
 
