@@ -81,16 +81,17 @@ export default function StoryAnalyticsDashboard() {
           days.push(format(subDays(new Date(), i), 'MMM d'));
           viewCounts.push(0);
         }
-        const viewerSet = new Set<string>();
+        // esbuild guard: plain string[] for unique viewer dedup (no new Set<string>)
+        const uniqueViewerIds: string[] = [];
         for (const view of viewsData ?? []) {
           const day = format(new Date(view.viewed_at), 'MMM d');
           const idx = days.indexOf(day);
           if (idx >= 0) viewCounts[idx]++;
-          viewerSet.add(view.viewer_id);
+          if (!uniqueViewerIds.includes(view.viewer_id)) uniqueViewerIds.push(view.viewer_id);
         }
         setChartDays(days);
         setChartViews(viewCounts);
-        setUniqueViewers(viewerSet.size);
+        setUniqueViewers(uniqueViewerIds.length);
 
         // Auto-select top story for timeline
         if (sorted.length > 0) loadViewerTimeline(sorted[0].id);

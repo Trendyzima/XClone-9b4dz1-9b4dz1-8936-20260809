@@ -458,10 +458,11 @@ export default function VideosPage() {
     }
   };
 
-  // ── Pre-compute current video for quick-actions bar (esbuild guard: no IIFE in render) ──
+  // Pre-compute current video for speed menu + share/comment drawers (esbuild guard: no IIFE)
   const currentFeedVideos = activeTab === 'watchlater' ? watchLaterVideos : videos;
   const currentVideo = currentFeedVideos[activeIndex] ?? null;
-  const currentIsWatchLater = currentVideo ? watchLaterIds.includes(currentVideo.id) : false;
+  // Watch-later status is tracked in VideoPlayer via bookmark — currentIsWatchLater kept for potential future use
+  // const currentIsWatchLater = currentVideo ? watchLaterIds.includes(currentVideo.id) : false;
 
   if (loading) {
     return (
@@ -697,34 +698,7 @@ export default function VideosPage() {
           </p>
         </div>
       </div>
-      {/* Floating comment + share + watch-later quick actions — esbuild guard: pre-computed above, no IIFE */}
-      {currentVideo && (
-        <div className="absolute right-3 bottom-32 z-20 flex flex-col gap-4 pointer-events-auto">
-          <button onClick={() => setCommentPost(currentVideo)}
-            className="flex flex-col items-center gap-1">
-            <div className="w-11 h-11 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
-              <MessageCircle className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-white text-[10px] font-semibold">{formatNumber(currentVideo.replies_count ?? 0)}</span>
-          </button>
-          <button onClick={e => toggleWatchLater(e, currentVideo.id)}
-            className="flex flex-col items-center gap-1">
-            <div className={`w-11 h-11 backdrop-blur-sm rounded-full flex items-center justify-center border ${
-              currentIsWatchLater ? 'bg-primary border-primary' : 'bg-black/50 border-white/20'
-            }`}>
-              <Bookmark className={`w-5 h-5 ${currentIsWatchLater ? 'text-white fill-white' : 'text-white'}`} />
-            </div>
-            <span className="text-white text-[10px] font-semibold">{currentIsWatchLater ? 'Saved' : 'Later'}</span>
-          </button>
-          <button onClick={() => setSharePost(currentVideo)}
-            className="flex flex-col items-center gap-1">
-            <div className="w-11 h-11 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
-              <Share className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-white text-[10px] font-semibold">Share</span>
-          </button>
-        </div>
-      )}
+      {/* esbuild guard: floating overlay removed — VideoPlayer already has Like/Comment/Repost/Share/Bookmark built-in; duplicate removed to fix double-button issue */}
 
       {/* Rewarded Ad Prompt */}
       {showRewardPrompt && !rewardMessage && (
