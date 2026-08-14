@@ -3,6 +3,7 @@ import SavingsGoalsTab from '@/components/features/SavingsGoalsTab';
 import TransactionRemindersTab from '@/components/features/TransactionRemindersTab';
 import FriendActivityFeed from '@/components/features/FriendActivityFeed';
 import { TwoFAModal, TwoFASetupCard, MpesaPaymentHistory, WalletBudgetPlanner, FriendBalanceComparison, DirectMpesaSendPanel, WALLET_EXTRAS_OTP_EXPIRY_MS } from '@/components/features/WalletExtras';
+import { MpesaFullTab } from '@/components/features/MpesaTab';
 import { PageAdBanner } from '@/components/features/AdSenseAd';
 import { useSEO } from '@/hooks/useSEO';
 import { useSearchParams } from 'react-router-dom';
@@ -4035,7 +4036,7 @@ export default function WalletPage() {
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-5">
-        {activeTab === 'mpesa'     && user && <MpesaPaymentHistory userId={user.id} currency={currency} />}
+        {activeTab === 'mpesa'     && user && <MpesaFullTab userId={user.id} currency={currency} wallet={wallet} onSaved={fetchWallet} />}
         {activeTab === 'history'   && user && <TransactionHistoryTab userId={user.id} currency={currency} />}
         {activeTab === 'pocket' && user && (
           <SavingsPocketTab userId={user.id} mainBalance={walletBalance} savingsBalance={savingsBalance}
