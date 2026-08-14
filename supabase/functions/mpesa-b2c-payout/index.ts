@@ -3,7 +3,7 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const MPESA_BASE = 'https://sandbox.safaricom.co.ke'; // Switch to https://api.safaricom.co.ke for production
+const MPESA_BASE = 'https://api.safaricom.co.ke'; // Production M-Pesa API
 
 async function getMpesaToken(consumerKey: string, consumerSecret: string): Promise<string> {
   const credentials = btoa(`${consumerKey}:${consumerSecret}`);
