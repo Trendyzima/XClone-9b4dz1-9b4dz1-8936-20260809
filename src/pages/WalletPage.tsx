@@ -139,10 +139,10 @@ function PinEntryModal({ title, onConfirm, onCancel, userId }: {
   title: string; onConfirm: (pin: string) => void; onCancel: () => void; userId?: string;
 }) {
   const [pin,          setPin]      = useState('');
-  const [lockedUntil,  setLockedUntil] = useState<number | null>(null);
+  const [lockedUntil,  setLockedUntil] = useState(null as number | null);
   const [failCount,    setFailCount]   = useState(0);
   const [countdown,    setCountdown]   = useState(0);
-  const cdRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cdRef = useRef(null as ReturnType<typeof setInterval> | null);
 
   useEffect(() => {
     if (!userId) return;
@@ -265,7 +265,7 @@ function PinEntryModal({ title, onConfirm, onCancel, userId }: {
 // ── PIN Setup Card ────────────────────────────────────────────────────────
 function PinSetupCard({ userId, pinHash, onSaved }: { userId: string; pinHash: string | null; onSaved: () => void }) {
   const hasPin = useMemo(() => !!pinHash, [pinHash]);
-  const [mode,       setMode]    = useState<'idle' | 'setup' | 'change' | 'remove'>('idle');
+  const [mode,       setMode]    = useState('idle' as 'idle' | 'setup' | 'change' | 'remove');
   const [oldPin,     setOldPin]  = useState('');
   const [newPin,     setNewPin]  = useState('');
   const [confirmPin, setConfirm] = useState('');
@@ -460,7 +460,7 @@ function PinSecurityDashboard({ userId, pinHash, credentialId, onRefresh }: {
 }) {
   const [locked,      setLocked]      = useState(false);
   const [failCount,   setFailCount]   = useState(0);
-  const [lastChanged, setLastChanged] = useState<string | null>(null);
+  const [lastChanged, setLastChanged] = useState(null as string | null);
   const [supported,   setSupported]   = useState(false);
 
   useEffect(() => {
@@ -599,12 +599,12 @@ function InstallmentPanel({ userId, walletBalance, pinHash, currency, onClose }:
   userId: string; walletBalance: number; pinHash: string | null; currency: CurrencyCode; onClose: () => void;
 }) {
   const [query,       setQuery]     = useState('');
-  const [results,     setResults]   = useState<any[]>([]);
+  const [results,     setResults]   = useState([] as any[]);
   const [searching,   setSearching] = useState(false);
-  const [recipient,   setRecipient] = useState<any | null>(null);
+  const [recipient,   setRecipient] = useState(null as any);
   const [totalAmt,    setTotalAmt]  = useState('');
   const [installments,setInstall]   = useState(3);
-  const [freq,        setFreq]      = useState<'weekly' | 'monthly'>('monthly');
+  const [freq,        setFreq]      = useState('monthly' as 'weekly' | 'monthly');
   const [note,        setNote]      = useState('');
   const [saving,      setSaving]    = useState(false);
   const [done,        setDone]      = useState(false);
@@ -780,12 +780,12 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
 }) {
   const [query,      setQuery]      = useState('');
   const [searching,  setSearching]  = useState(false);
-  const [results,    setResults]    = useState<any[]>([]);
-  const [recipients, setRecipients] = useState<any[]>([]);
+  const [results,    setResults]    = useState([] as any[]);
+  const [recipients, setRecipients] = useState([] as any[]);
   const [total,      setTotal]      = useState('');
   const [note,       setNote]       = useState('');
   const [showPin,    setShowPin]    = useState(false);
-  const [step,       setStep]       = useState<'form' | 'sending' | 'done'>('form');
+  const [step,       setStep]       = useState('form' as 'form' | 'sending' | 'done');
   const [sent,       setSent]       = useState(0);
 
   const perPerson = useMemo(() => {
@@ -952,8 +952,8 @@ function SplitPaymentPanel({ userId, senderUsername, walletBalance, pinHash, cur
 
 // ── Referral Earnings Tab ─────────────────────────────────────────────────
 function ReferralEarningsTab({ userId }: { userId: string }) {
-  const [referrals, setReferrals] = useState<any[]>([]);
-  const [credits,   setCredits]   = useState<any[]>([]);
+  const [referrals, setReferrals] = useState([] as any[]);
+  const [credits,   setCredits]   = useState([] as any[]);
   const [loading,   setLoading]   = useState(true);
   const [copied,    setCopied]    = useState(false);
   const [refLink,   setRefLink]   = useState('');
@@ -1171,11 +1171,11 @@ function ReceiveMoneyTab({ username, walletBalance, currency }: { username: stri
 
 // ── Payout Schedule Card ──────────────────────────────────────────────────
 function PayoutScheduleCard({ userId, defaultPhone }: { userId: string; defaultPhone: string | null }) {
-  const [schedule,  setSchedule]  = useState<any | null>(null);
+  const [schedule,  setSchedule]  = useState(null as any);
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
   const [enabled,   setEnabled]   = useState(false);
-  const [frequency, setFrequency] = useState<'weekly' | 'monthly'>('monthly');
+  const [frequency, setFrequency] = useState('monthly' as 'weekly' | 'monthly');
   const [minAmount, setMinAmount] = useState('5');
   const [phone,     setPhone]     = useState(defaultPhone ?? '');
 
@@ -1359,9 +1359,9 @@ td{padding:7px 10px;border-bottom:1px solid #eee;font-size:11px}
 
 // ── Spending Analytics Tab ────────────────────────────────────────────────
 function SpendingAnalyticsTab({ userId, currency }: { userId: string; currency: CurrencyCode }) {
-  const [txns,    setTxns]    = useState<any[]>([]);
+  const [txns,    setTxns]    = useState([] as any[]);
   const [loading, setLoading] = useState(true);
-  const [period,  setPeriod]  = useState<'week' | 'month' | 'all'>('month');
+  const [period,  setPeriod]  = useState('month' as 'week' | 'month' | 'all');
 
   useEffect(() => { fetchTxns(); }, [userId, period]);
 
@@ -1495,15 +1495,15 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
   onComplete: () => void; prefillUsername?: string; currency: CurrencyCode;
 }) {
   const [query,        setQuery]        = useState(prefillUsername ?? '');
-  const [users,        setUsers]        = useState<any[]>([]);
+  const [users,        setUsers]        = useState([] as any[]);
   const [searching,    setSearching]    = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [selectedUser, setSelectedUser] = useState(null as any);
   const [amount,       setAmount]       = useState('');
   const [note,         setNote]         = useState('');
   const [sending,      setSending]      = useState(false);
   const [showPin,      setShowPin]      = useState(false);
-  const [receipt, setReceipt] = useState<{ recipient: any; amount: number; note: string; ref: string; timestamp: string } | null>(null);
-  const [favorites,    setFavorites]    = useState<any[]>([]);
+  const [receipt, setReceipt] = useState(null as { recipient: any; amount: number; note: string; ref: string; timestamp: string } | null);
+  const [favorites,    setFavorites]    = useState([] as any[]);
   const favKey = useMemo(() => `ts-send-fav-${userId}`, [userId]);
 
   useEffect(() => {
@@ -1770,19 +1770,19 @@ function SendMoneyTab({ userId, senderUsername, walletBalance, pinHash, biometri
 
 // ── Scheduled Transfers Tab ───────────────────────────────────────────────
 function ScheduledTransfersTab({ userId, currency, pinHash }: { userId: string; currency: CurrencyCode; pinHash?: string | null }) {
-  const [transfers,    setTransfers]    = useState<any[]>([]);
+  const [transfers,    setTransfers]    = useState([] as any[]);
   const [loading,      setLoading]      = useState(true);
   const [showForm,     setShowForm]     = useState(false);
   const [query,        setQuery]        = useState('');
-  const [results,      setResults]      = useState<any[]>([]);
+  const [results,      setResults]      = useState([] as any[]);
   const [searching,    setSearching]    = useState(false);
-  const [recipient,    setRecipient]    = useState<any | null>(null);
+  const [recipient,    setRecipient]    = useState(null as any);
   const [amount,       setAmount]       = useState('');
   const [note,         setNote]         = useState('');
   const [scheduleAt,   setScheduleAt]   = useState('');
   const [saving,       setSaving]       = useState(false);
-  const [cancelling,   setCancelling]   = useState<string | null>(null);
-  const [selected,     setSelected]     = useState<Set<string>>(new Set());
+  const [cancelling,   setCancelling]   = useState(null as string | null);
+  const [selected,     setSelected]     = useState([] as string[]);
   const [batching,     setBatching]     = useState(false);
   const [batchDone,    setBatchDone]    = useState(0);
   const [showBatchPin, setShowBatchPin] = useState(false);
@@ -1837,9 +1837,9 @@ function ScheduledTransfersTab({ userId, currency, pinHash }: { userId: string; 
   };
 
   const executeBatch = async () => {
-    if (selected.size === 0) return;
+    if (selected.length === 0) return;
     setBatching(true); setBatchDone(0);
-    const toProcess = transfers.filter(t => selected.has(t.id));
+    const toProcess = transfers.filter(t => selected.includes(t.id));
     let done = 0;
     for (const t of toProcess) {
       const { error } = await supabase.rpc('p2p_wallet_transfer', {
@@ -1850,7 +1850,7 @@ function ScheduledTransfersTab({ userId, currency, pinHash }: { userId: string; 
         done++; setBatchDone(done);
       }
     }
-    setBatching(false); setSelected(new Set());
+    setBatching(false); setSelected([]);
     toast.success(`${done}/${toProcess.length} transfers executed!`);
     loadTransfers();
   };
@@ -1958,16 +1958,16 @@ function ScheduledTransfersTab({ userId, currency, pinHash }: { userId: string; 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{transfers.length} pending</p>
-            <button onClick={() => setSelected(prev => prev.size === transfers.length ? new Set() : new Set(transfers.map(t => t.id)))}
+            <button onClick={() => setSelected(prev => prev.length === transfers.length ? [] : transfers.map(t => t.id))}
               className="text-xs text-primary font-semibold hover:underline">
-              {selected.size === transfers.length ? 'Deselect All' : 'Select All'}
+              {selected.length === transfers.length ? 'Deselect All' : 'Select All'}
             </button>
           </div>
           {showBatchPin && <PinEntryModal title="Execute Batch" onConfirm={handleBatchPinConfirm} onCancel={() => setShowBatchPin(false)} />}
-          {selected.size > 0 && !batching && (
+          {selected.length > 0 && !batching && (
             <div className="flex items-center gap-3 p-3 bg-primary/10 border border-primary/20 rounded-2xl">
-              <p className="text-sm font-semibold flex-1">{selected.size} selected</p>
-              <button onClick={() => setSelected(new Set())} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
+              <p className="text-sm font-semibold flex-1">{selected.length} selected</p>
+              <button onClick={() => setSelected([])} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
               <button onClick={handleBatch}
                 className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90 transition-opacity">
                 <Zap className="w-3.5 h-3.5" /> Execute Now
@@ -1977,18 +1977,18 @@ function ScheduledTransfersTab({ userId, currency, pinHash }: { userId: string; 
           {batching && (
             <div className="flex flex-col items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-2xl">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <p className="text-sm font-semibold">Processing {batchDone}/{selected.size}…</p>
+              <p className="text-sm font-semibold">Processing {batchDone}/{selected.length}…</p>
             </div>
           )}
           {transfers.map(t => {
             const sd = new Date(t.scheduled_for);
-            const isSelected = selected.has(t.id);
+            const isSelected = selected.includes(t.id);
             return (
               <div key={t.id} className={`p-4 border rounded-2xl bg-card transition-colors ${isSelected ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
                 <div className="flex items-center justify-between mb-2.5">
                   <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">Pending Transfer</span>
                   <button
-                    onClick={() => setSelected(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; })}
+                    onClick={() => setSelected(prev => prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id])}
                     className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40 hover:border-primary/60'}`}>
                     {isSelected && <span className="text-[9px] text-primary-foreground font-black">✓</span>}
                   </button>
@@ -2026,15 +2026,15 @@ function ScheduledTransfersTab({ userId, currency, pinHash }: { userId: string; 
 
 // ── Transaction History Tab ───────────────────────────────────────────────
 function TransactionHistoryTab({ userId, currency }: { userId: string; currency: CurrencyCode }) {
-  const [txns,           setTxns]          = useState<any[]>([]);
+  const [txns,           setTxns]          = useState([] as any[]);
   const [loading,        setLoading]       = useState(true);
-  const [filter,         setFilter]        = useState<'all' | 'deposit' | 'withdrawal' | 'earnings'>('all');
+  const [filter,         setFilter]        = useState('all' as 'all' | 'deposit' | 'withdrawal' | 'earnings');
   const [search,         setSearch]        = useState('');
-  const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState(null as any);
   // tags — parallel arrays (esbuild guard: no index-sig type in state)
-  const [tagIds,   setTagIds]   = useState<string[]>([]);
-  const [tagTexts, setTagTexts] = useState<string[]>([]);
-  const [tagColors, setTagColors2] = useState<string[]>([]);
+  const [tagIds,   setTagIds]   = useState([] as string[]);
+  const [tagTexts, setTagTexts] = useState([] as string[]);
+  const [tagColors, setTagColors2] = useState([] as string[]);
   const getTag = (id: string) => { const i = tagIds.indexOf(id); return i >= 0 ? { text: tagTexts[i], color: tagColors[i] ?? 'blue' } : undefined; };
   const setTag = (id: string, data: { text: string; color: string }) => {
     setTagIds(prev => {
@@ -2058,7 +2058,7 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
       return prev.filter((_, j) => j !== i);
     });
   };
-  const [editingTag, setEditingTag] = useState<string | null>(null);
+  const [editingTag, setEditingTag] = useState(null as string | null);
   const [tagInput,   setTagInput]   = useState('');
   const [tagColor,   setTagColor]   = useState('blue');
   const tagsKey = useMemo(() => `ts-txn-notes-${userId}`, [userId]);
@@ -2253,10 +2253,10 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
 
 // ── Spend Limit Card ──────────────────────────────────────────────────────
 function SpendLimitCard({ userId, wallet, onSaved }: { userId: string; wallet: any; onSaved: () => void }) {
-  const [enabled,    setEnabled]    = useState<boolean>(wallet?.spend_limit_enabled ?? false);
-  const [limitUsd,   setLimitUsd]   = useState<string>(wallet?.daily_spend_limit ? String(wallet.daily_spend_limit) : '');
+  const [enabled,    setEnabled]    = useState(wallet?.spend_limit_enabled ?? false);
+  const [limitUsd,   setLimitUsd]   = useState(wallet?.daily_spend_limit ? String(wallet.daily_spend_limit) : '');
   const [saving,     setSaving]     = useState(false);
-  const [todaySpent, setTodaySpent] = useState<number>(0);
+  const [todaySpent, setTodaySpent] = useState(0);
 
   useEffect(() => { fetchTodaySpend(); }, [userId]);
 
@@ -2475,7 +2475,7 @@ function heatmapCellBg(amount: number, hasIn: boolean, maxAmount: number): strin
 
 // ── Crypto Price Widget ───────────────────────────────────────────────────
 function CryptoWidget() {
-  const [prices, setPrices] = useState<{ btc: number; eth: number; btcChange: number; ethChange: number } | null>(null);
+  const [prices, setPrices] = useState(null as { btc: number; eth: number; btcChange: number; ethChange: number } | null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -2526,7 +2526,7 @@ function CryptoWidget() {
 
 // ── Activity Heatmap ──────────────────────────────────────────────────────
 function ActivityHeatmap({ userId }: { userId: string }) {
-  const [txns,    setTxns]    = useState<any[]>([]);
+  const [txns,    setTxns]    = useState([] as any[]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -2596,9 +2596,7 @@ function ActivityHeatmap({ userId }: { userId: string }) {
 
 // ── Spending Alerts Card ──────────────────────────────────────────────────
 function SpendingAlertsCard({ userId }: { userId: string }) {
-  const [prefs, setPrefs] = useState<{ enabled: boolean; threshold: string; budget: string }>(
-    { enabled: false, threshold: '10', budget: '50' }
-  );
+  const [prefs, setPrefs] = useState({ enabled: false, threshold: '10', budget: '50' } as { enabled: boolean; threshold: string; budget: string });
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
@@ -2713,7 +2711,7 @@ function SpendingAlertsCard({ userId }: { userId: string }) {
 
 // ── Wallet Notifications Hub ─────────────────────────────────────────────
 function WalletNotificationsHub({ userId }: { userId: string }) {
-  const [msgs,    setMsgs]    = useState<any[]>([]);
+  const [msgs,    setMsgs]    = useState([] as any[]);
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState(false);
   const [open,    setOpen]    = useState(false);
@@ -2875,7 +2873,7 @@ function CurrencyConverterWidget() {
 const LINE_CHART_STROKE = '#7c3aed';
 
 function P2PBalanceChart({ userId, currency }: { userId: string; currency: CurrencyCode }) {
-  const [txns,    setTxns]    = useState<any[]>([]);
+  const [txns,    setTxns]    = useState([] as any[]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -3059,7 +3057,7 @@ function WalletOnboardingTour({ userId, onNavigate, onDismiss }: {
 
 // ── Monthly Heatmap Calendar ──────────────────────────────────────────────
 function MonthlyHeatmapCalendar({ userId, currency }: { userId: string; currency: CurrencyCode }) {
-  const [txns,    setTxns]    = useState<any[]>([]);
+  const [txns,    setTxns]    = useState([] as any[]);
   const [loading, setLoading] = useState(true);
   const [offset,  setOffset]  = useState(0);
 
@@ -3169,9 +3167,9 @@ function RequestMoneyPanel({ userId, senderUsername, currency }: {
   userId: string; senderUsername: string; currency: CurrencyCode;
 }) {
   const [query,     setQuery]     = useState('');
-  const [results,   setResults]   = useState<any[]>([]);
+  const [results,   setResults]   = useState([] as any[]);
   const [searching, setSearching] = useState(false);
-  const [target,    setTarget]    = useState<any | null>(null);
+  const [target,    setTarget]    = useState(null as any);
   const [amount,    setAmount]    = useState('');
   const [note,      setNote]      = useState('');
   const [sent,      setSent]      = useState(false);
@@ -3298,16 +3296,16 @@ function SavingsPocketTab({ userId, mainBalance, savingsBalance, pinHash, curren
   userId: string; mainBalance: number; savingsBalance: number;
   pinHash: string | null; currency: CurrencyCode; onRefresh: () => void;
 }) {
-  const [mode,      setMode]      = useState<'idle' | 'deposit' | 'withdraw'>('idle');
+  const [mode,      setMode]      = useState('idle' as 'idle' | 'deposit' | 'withdraw');
   const [amount,    setAmount]    = useState('');
   const [saving,    setSaving]    = useState(false);
   const [showPin,   setShowPin]   = useState(false);
-  const [pendingOp, setPendingOp] = useState<'in' | 'out' | null>(null);
-  const [history,   setHistory]   = useState<{ type: 'in' | 'out'; amount: number; date: string }[]>([]);
+  const [pendingOp, setPendingOp] = useState(null as 'in' | 'out' | null);
+  const [history,   setHistory]   = useState([] as { type: 'in' | 'out'; amount: number; date: string }[]);
   const historyKey  = useMemo(() => `ts-pocket-hist-${userId}`, [userId]);
   const goalLinkKey  = useMemo(() => `ts-pocket-goal-${userId}`, [userId]);
-  const [goals,        setGoals]        = useState<any[]>([]);
-  const [linkedGoalId, setLinkedGoalId] = useState<string | null>(null);
+  const [goals,        setGoals]        = useState([] as any[]);
+  const [linkedGoalId, setLinkedGoalId] = useState(null as string | null);
 
   useEffect(() => {
     try {
@@ -3530,7 +3528,7 @@ function SavingsPocketTab({ userId, mainBalance, savingsBalance, pinHash, curren
 function WalletSearchShortcut({ onNavigate }: { onNavigate: (tab: ActiveTab) => void }) {
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef(null as HTMLInputElement | null);
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 60);
@@ -3604,7 +3602,7 @@ function WalletSearchShortcut({ onNavigate }: { onNavigate: (tab: ActiveTab) => 
 
 // ── Referral Leaderboard ─────────────────────────────────────────────────
 function ReferralLeaderboard({ userId }: { userId: string }) {
-  const [leaders, setLeaders] = useState<{ uid: string; username: string; avatarUrl: string | null; count: number }[]>([]);
+  const [leaders, setLeaders] = useState([] as { uid: string; username: string; avatarUrl: string | null; count: number }[]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -3708,7 +3706,7 @@ export default function WalletPage() {
 
   const [searchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+  const [activeTab, setActiveTab] = useState(() => {
     const t = searchParams.get('tab');
     if (t === 'send')      return 'send';
     if (t === 'history')   return 'history';
@@ -3722,12 +3720,12 @@ export default function WalletPage() {
     if (t === 'converter') return 'converter';
     if (t === 'pocket')    return 'pocket';
     if (t === 'mpesa')     return 'mpesa';
-    return 'wallet';
+    return 'wallet' as ActiveTab;
   });
   const prefillTo = searchParams.get('to') ?? '';
 
   // ── Inactivity auto-lock ────────────────────────────────────────────
-  const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inactivityRef = useRef(null as ReturnType<typeof setTimeout> | null);
   useEffect(() => {
     if (!user) return;
     const lockMins = parseInt(localStorage.getItem(`ts-inactivity-mins-${user.id}`) ?? '0', 10);
@@ -3755,8 +3753,8 @@ export default function WalletPage() {
     };
   }, [user]);
 
-  const twoFaActionRef = useRef<(() => void) | null>(null);
-  const [twoFaModal, setTwoFaModal] = useState<{ code: string; expiry: number } | null>(null);
+  const twoFaActionRef = useRef(null as (() => void) | null);
+  const [twoFaModal, setTwoFaModal] = useState(null as { code: string; expiry: number } | null);
 
   const checkAndExecuteWithdraw = async () => {
     if (!user) return;
@@ -3786,7 +3784,7 @@ export default function WalletPage() {
   const [showSplit,       setShowSplit]       = useState(false);
   const [showInstallment, setShowInstallment] = useState(false);
   const [showDepositPin,  setShowDepositPin]  = useState(false);
-  const [currency,  setCurrency]  = useState<CurrencyCode>('USD');
+  const [currency,  setCurrency]  = useState('USD' as CurrencyCode);
 
   useEffect(() => {
     const pref = (wallet as any)?.preferred_currency;
@@ -3804,22 +3802,22 @@ export default function WalletPage() {
 
   const [phone,    setPhone]    = useState('');
   const [amount,   setAmount]   = useState('');
-  const [step,     setStep]     = useState<TopUpStep>('idle');
+  const [step,     setStep]     = useState('idle' as TopUpStep);
   const [pollSecs, setPollSecs] = useState(0);
   const [pollMsg,  setPollMsg]  = useState('');
   const [showTopUp, setShowTopUp] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef(null as ReturnType<typeof setInterval> | null);
 
   const [wPhone,    setWPhone]    = useState('');
   const [wKes,      setWKes]      = useState('');
-  const [wStep,     setWStep]     = useState<WithdrawStep>('idle');
+  const [wStep,     setWStep]     = useState('idle' as WithdrawStep);
   const [wPollSecs, setWPollSecs] = useState(0);
   const [wPollMsg,  setWPollMsg]  = useState('');
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const wPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wPollRef = useRef(null as ReturnType<typeof setInterval> | null);
 
-  const [lastTopUpAmount, setLastTopUpAmount] = useState<number | null>(null);
-  const balancePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [lastTopUpAmount, setLastTopUpAmount] = useState(null as number | null);
+  const balancePollRef = useRef(null as ReturnType<typeof setInterval> | null);
 
   useEffect(() => {
     if (wallet?.mpesa_phone) {
@@ -3983,7 +3981,7 @@ export default function WalletPage() {
     checkAndExecuteWithdraw();
   };
 
-  const [sendMode, setSendMode] = useState<SendMode>('send');
+  const [sendMode, setSendMode] = useState('send' as SendMode);
 
   const { walletBalance, username, totalDeposited, savingsBalance } = useMemo(() => ({
     walletBalance:  Number(wallet?.balance ?? 0),
