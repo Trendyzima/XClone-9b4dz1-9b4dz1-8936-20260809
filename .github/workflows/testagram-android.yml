@@ -14,9 +14,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
+      - name: Remove environment-specific npm preload hook
+        run: sed -i '/^node-options=/d' .npmrc
       - name: Install web dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps --no-audit --no-fund
       - name: Build canonical web application
         run: npm run build
 
@@ -32,15 +33,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Remove environment-specific npm preload hook
+        run: sed -i '/^node-options=/d' .npmrc
+      - name: Install web and Capacitor Android dependencies
+        run: >-
+          npm install --legacy-peer-deps --no-audit --no-fund --no-save
+          @capacitor/core@7.4.4
+          @capacitor/android@7.4.4
+          @capacitor/app@7
+          @capacitor/device@7
+          @capacitor/filesystem@7
+          @capacitor/network@7
+          @capacitor/push-notifications@7
+          @capacitor/share@7
+          @capacitor/status-bar@7
+          @capacitor-community/admob@7
+          @capacitor-community/firebase-analytics@7.0.1
+          @capacitor-community/media@8
+          @capgo/capacitor-updater@lts-v7
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
           cache: gradle
-      - run: chmod +x android/gradlew
       - name: Assemble debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: testagram-debug-apk
