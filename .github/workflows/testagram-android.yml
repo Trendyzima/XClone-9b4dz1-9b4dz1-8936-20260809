@@ -7,7 +7,28 @@ on:
     branches: [main]
 
 jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install web dependencies
+        run: npm ci
+      - name: Build canonical web application
+        run: npm run build
+
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify canonical Testagram surface and repository parity
+        run: python3 tools/verify_testagram.py
+
   android:
+    needs: [web, parity]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,10 +45,3 @@ jobs:
         with:
           name: testagram-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
-
-  live-site-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify canonical Testagram surface
-        run: python3 tools/verify_testagram.py
