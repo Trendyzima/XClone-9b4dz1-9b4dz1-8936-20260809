@@ -11,7 +11,6 @@ permissions:
 
 env:
   NODE_VERSION: '20'
-  CAPACITOR_VERSION: '7.4.4'
 
 jobs:
   web:
@@ -21,8 +20,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Remove environment-specific npm preload hook
-        run: sed -i '/^node-options=/d' .npmrc
       - name: Install web dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
       - name: Build canonical web application
@@ -40,44 +37,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - name: Remove environment-specific npm preload hook
-        run: sed -i '/^node-options=/d' .npmrc
-      - name: Install web and Capacitor Android dependencies
-        run: >-
-          npm install --legacy-peer-deps --no-audit --no-fund --no-save
-          @capacitor/core@${{ env.CAPACITOR_VERSION }}
-          @capacitor/android@${{ env.CAPACITOR_VERSION }}
-          @capacitor/app@7
-          @capacitor/device@7
-          @capacitor/filesystem@7
-          @capacitor/network@7
-          @capacitor/push-notifications@7
-          @capacitor/share@7
-          @capacitor/status-bar@7
-          @capacitor-community/admob@7
-          @capacitor-community/firebase-analytics@7.0.1
-          @capacitor-community/media@8
-          @capgo/capacitor-updater@lts-v7
-      - name: Build and synchronize Capacitor Android project
-        run: |
-          npm run build
-          npx cap sync android
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
           cache: gradle
       - name: Restore Gradle wrapper executable permission
         run: chmod +x android/gradlew
-      - name: Verify generated Capacitor Gradle files
-        run: test -f android/capacitor-cordova-android-plugins/cordova.variables.gradle
-      - name: Assemble debug APK
+      - name: Verify native Android project has no Capacitor wiring
+        run: |
+          ! grep -RniE 'capacitor|BridgeActivity|cordova' android/app android/settings.gradle android/build.gradle
+      - name: Assemble native debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        run: ./gradlew clean assembleDebug --stacktrace --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: testagram-debug-apk
+          name: testagram-native-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
