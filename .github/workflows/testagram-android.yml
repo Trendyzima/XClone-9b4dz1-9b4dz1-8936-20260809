@@ -9,14 +9,18 @@ on:
 permissions:
   contents: read
 
+env:
+  NODE_VERSION: '20'
+  CAPACITOR_VERSION: '7.4.4'
+
 jobs:
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
       - name: Remove environment-specific npm preload hook
         run: sed -i '/^node-options=/d' .npmrc
       - name: Install web dependencies
@@ -27,7 +31,7 @@ jobs:
   parity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Verify canonical Testagram surface and repository parity
         run: python3 tools/verify_testagram.py
 
@@ -35,17 +39,17 @@ jobs:
     needs: [web, parity]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
       - name: Remove environment-specific npm preload hook
         run: sed -i '/^node-options=/d' .npmrc
       - name: Install web and Capacitor Android dependencies
         run: >-
           npm install --legacy-peer-deps --no-audit --no-fund --no-save
-          @capacitor/core@7.4.4
-          @capacitor/android@7.4.4
+          @capacitor/core@${{ env.CAPACITOR_VERSION }}
+          @capacitor/android@${{ env.CAPACITOR_VERSION }}
           @capacitor/app@7
           @capacitor/device@7
           @capacitor/filesystem@7
@@ -57,6 +61,10 @@ jobs:
           @capacitor-community/firebase-analytics@7.0.1
           @capacitor-community/media@8
           @capgo/capacitor-updater@lts-v7
+      - name: Build and synchronize Capacitor Android project
+        run: |
+          npm run build
+          npx cap sync android
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -64,6 +72,8 @@ jobs:
           cache: gradle
       - name: Restore Gradle wrapper executable permission
         run: chmod +x android/gradlew
+      - name: Verify generated Capacitor Gradle files
+        run: test -f android/capacitor-cordova-android-plugins/cordova.variables.gradle
       - name: Assemble debug APK
         working-directory: android
         run: ./gradlew assembleDebug --stacktrace --no-daemon
