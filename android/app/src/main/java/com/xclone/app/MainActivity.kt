@@ -9,14 +9,22 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.webkit.WebViewAssetLoader
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.MobileAds
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
+    private lateinit var adView: AdView
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        adView = findViewById(R.id.adView)
+        MobileAds.initialize(this)
+        adView.loadAd(AdRequest.Builder().build())
 
         webView = findViewById(R.id.webView)
         val assetLoader = WebViewAssetLoader.Builder()
@@ -56,6 +64,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        adView.destroy()
         webView.apply {
             stopLoading()
             webChromeClient = null
