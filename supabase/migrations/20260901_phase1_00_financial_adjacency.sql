@@ -94,15 +94,8 @@ create table if not exists public.payment_reconciliation_events (
   unique(provider,provider_transaction_id,event_type,payload_hash)
 );
 
-create or replace function public.issue_wallet_refund(
-  p_original_transaction_id uuid,
-  p_user_id uuid,
-  p_amount numeric,
-  p_reason text,
-  p_idempotency_key text,
-  p_currency text default 'USD'
-) returns uuid
-language plpgsql security definer set search_path=public
+create or replace function public.issue_wallet_refund(p_original_transaction_id uuid,p_user_id uuid,p_amount numeric,p_reason text,p_idempotency_key text,p_currency text default 'USD')
+returns uuid language plpgsql security definer set search_path=public
 as $$
 declare v_existing uuid; v_wallet public.user_wallets; v_tx public.wallet_transactions;
 begin
@@ -131,5 +124,7 @@ alter table public.ad_revenue_distributions enable row level security;
 alter table public.refund_transactions enable row level security;
 alter table public.payment_reconciliation_events enable row level security;
 
-create policy if not exists withdrawal_own_read on public.withdrawal_requests for select to authenticated using (user_id=auth.uid());
-create policy if not exists ad_distribution_own_read on public.ad_revenue_distributions for select to authenticated using (user_id=auth.uid());
+drop policy if exists withdrawal_own_read on public.withdrawal_requests;
+create policy withdrawal_own_read on public.withdrawal_requests for select to authenticated using (user_id=auth.uid());
+drop policy if exists ad_distribution_own_read on public.ad_revenue_distributions;
+create policy ad_distribution_own_read on public.ad_revenue_distributions for select to authenticated using (user_id=auth.uid());
