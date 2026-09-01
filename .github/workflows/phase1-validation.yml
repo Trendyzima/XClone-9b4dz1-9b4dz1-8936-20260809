@@ -11,10 +11,11 @@ permissions:
   contents: read
 
 env:
-  # The build environment may inject a NODE_OPTIONS preload path that does
-  # not exist on GitHub runners. That breaks native npm postinstall scripts
-  # such as @swc/core before lint/build can start.
   NODE_OPTIONS: ''
+  # The repository .npmrc contains an OnSpace-specific absolute preload path.
+  # GitHub runners do not have that /tmp path. Override npm's config value for
+  # CI so lifecycle scripts such as @swc/core do not inherit the stale preload.
+  NPM_CONFIG_NODE_OPTIONS: ''
 
 concurrency:
   group: phase1-${{ github.workflow }}-${{ github.ref }}
@@ -35,7 +36,10 @@ jobs:
           node --version
           npm --version
           test -z "${NODE_OPTIONS:-}"
-      - run: npm install --no-audit --no-fund
+          test -z "${NPM_CONFIG_NODE_OPTIONS:-}"
+          test "$(npm config get node-options)" = ""
+      - name: Install dependencies without host preload
+        run: npm install --no-audit --no-fund --legacy-peer-deps
       - run: npm run lint
       - run: npm run build
 
