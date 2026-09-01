@@ -10,14 +10,12 @@ revoke all on function public.reserve_wallet_funds(uuid,numeric,text) from publi
 revoke all on function public.release_wallet_reservation(uuid,text) from public,anon,authenticated;
 revoke all on function public.finalize_wallet_withdrawal(uuid) from public,anon,authenticated;
 revoke all on function public.credit_wallet_deposit(uuid,numeric,text,numeric,numeric,text,text,text,text,text,jsonb) from public,anon,authenticated;
-revoke all on function public.consume_rate_limit(text,integer,integer) from public,anon,authenticated;
 
 grant execute on function public.add_to_wallet(uuid,numeric) to service_role;
 grant execute on function public.reserve_wallet_funds(uuid,numeric,text) to service_role;
 grant execute on function public.release_wallet_reservation(uuid,text) to service_role;
 grant execute on function public.finalize_wallet_withdrawal(uuid) to service_role;
 grant execute on function public.credit_wallet_deposit(uuid,numeric,text,numeric,numeric,text,text,text,text,text,jsonb) to service_role;
-grant execute on function public.consume_rate_limit(text,integer,integer) to service_role;
 
 alter table public.audit_logs enable row level security;
 drop policy if exists audit_admin_read on public.audit_logs;
