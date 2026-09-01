@@ -24,8 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
 
@@ -43,11 +42,10 @@ jobs:
       - uses: android-actions/setup-android@v3
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-      - name: Run unit tests when present
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Run unit tests
         working-directory: android
         run: ./gradlew test --no-daemon --stacktrace
-        continue-on-error: false
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
