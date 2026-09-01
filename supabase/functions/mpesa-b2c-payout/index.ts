@@ -46,8 +46,8 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   );
-
   let reservedTransactionId: string | null = null;
+  let mpesaAccepted = false;
 
   try {
     const consumerKey = Deno.env.get('MPESA_CONSUMER_KEY');
@@ -80,7 +80,6 @@ Deno.serve(async (req: Request) => {
     const usdAmount = intAmount / fxRate;
     const idempotencyKey = String(idempotency_key ?? req.headers.get('Idempotency-Key') ?? crypto.randomUUID());
 
-    // Idempotent retry: return the existing transaction instead of sending money twice.
     const { data: existing } = await supabaseAdmin
       .from('wallet_transactions')
       .select('id, status, provider_transaction_id, reference')
@@ -97,8 +96,6 @@ Deno.serve(async (req: Request) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Reserve funds atomically. The balance is not actually debited until the
-    // asynchronous M-Pesa callback confirms success.
     const { data: reservedId, error: reserveErr } = await supabaseAdmin.rpc('reserve_wallet_funds', {
       p_user_id: user.id,
       p_amount: usdAmount,
@@ -133,8 +130,9 @@ Deno.serve(async (req: Request) => {
       const errMsg = b2cData.errorMessage ?? b2cData.ResponseDescription ?? `B2C failed (${b2cRes.status})`;
       throw new Error(`M-Pesa B2C: ${errMsg}`);
     }
+    mpesaAccepted = true;
 
-    await supabaseAdmin.from('wallet_transactions').update({
+    const { error: txUpdateErr } = await supabaseAdmin.from('wallet_transactions').update({
       provider: 'mpesa',
       provider_transaction_id: b2cData.ConversationID,
       reference: b2cData.OriginatorConversationID,
@@ -145,8 +143,9 @@ Deno.serve(async (req: Request) => {
       metadata: { phone: normalisedPhone, purpose: purpose ?? 'creator_payout' },
       updated_at: new Date().toISOString(),
     }).eq('id', reservedTransactionId);
+    if (txUpdateErr) throw new Error(`Payout accepted but local transaction update failed: ${txUpdateErr.message}`);
 
-    await supabaseAdmin.from('mpesa_transactions').insert({
+    const { error: mpesaInsertErr } = await supabaseAdmin.from('mpesa_transactions').insert({
       user_id: user.id,
       checkout_request_id: b2cData.ConversationID,
       merchant_request_id: b2cData.OriginatorConversationID,
@@ -160,9 +159,9 @@ Deno.serve(async (req: Request) => {
       wallet_transaction_id: reservedTransactionId,
       metadata: { fx_rate: fxRate },
     });
+    if (mpesaInsertErr) throw new Error(`Payout accepted but provider ledger update failed: ${mpesaInsertErr.message}`);
 
     await supabaseAdmin.from('user_wallets').update({ mpesa_phone: normalisedPhone }).eq('user_id', user.id);
-
     await supabaseAdmin.from('platform_inbox').insert({
       user_id: user.id,
       subject: 'Withdrawal Initiated 💸',
@@ -170,14 +169,13 @@ Deno.serve(async (req: Request) => {
       type: 'system',
       icon_emoji: '💸',
     });
-
     await supabaseAdmin.from('audit_logs').insert({
       actor_user_id: user.id,
       action: 'mpesa_b2c_initiated',
       resource_type: 'wallet_transaction',
       resource_id: reservedTransactionId,
       status: 'success',
-      metadata: { amount_kes: intAmount, amount_usd: usdAmount, fx_rate: fxRate, phone: normalisedPhone },
+      metadata: { amount_kes: intAmount, amount_usd: usdAmount, fx_rate: fxRate },
     });
 
     return new Response(JSON.stringify({
@@ -190,7 +188,9 @@ Deno.serve(async (req: Request) => {
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal error';
-    if (reservedTransactionId) {
+    // Never release a reservation after Safaricom has accepted the payout. The
+    // callback owns the final state transition in that case.
+    if (reservedTransactionId && !mpesaAccepted) {
       await supabaseAdmin.rpc('release_wallet_reservation', {
         p_transaction_id: reservedTransactionId,
         p_reason: `M-Pesa request failed: ${message}`,
@@ -198,7 +198,7 @@ Deno.serve(async (req: Request) => {
     }
     console.error('[mpesa-b2c] Error:', message);
     return new Response(JSON.stringify({ success: false, error: message }), {
-      status: 400,
+      status: mpesaAccepted ? 502 : 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
