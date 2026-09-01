@@ -12,9 +12,6 @@ permissions:
 
 env:
   NODE_OPTIONS: ''
-  # The repository .npmrc contains an OnSpace-specific absolute preload path.
-  # GitHub runners do not have that /tmp path. Override npm's config value for
-  # CI so lifecycle scripts such as @swc/core do not inherit the stale preload.
   NPM_CONFIG_NODE_OPTIONS: ''
 
 concurrency:
@@ -37,9 +34,22 @@ jobs:
           npm --version
           test -z "${NODE_OPTIONS:-}"
           test -z "${NPM_CONFIG_NODE_OPTIONS:-}"
+      - name: Disable host-specific npm preload for CI install
+        run: |
+          if grep -q '^node-options=' .npmrc; then
+            cp .npmrc .npmrc.ci-backup
+            sed -i '/^node-options=/d' .npmrc
+          fi
           test "$(npm config get node-options)" = ""
-      - name: Install dependencies without host preload
+          ! grep -q '^node-options=' .npmrc
+      - name: Install dependencies
         run: npm install --no-audit --no-fund --legacy-peer-deps
+      - name: Restore project npm configuration
+        if: always()
+        run: |
+          if [ -f .npmrc.ci-backup ]; then
+            mv .npmrc.ci-backup .npmrc
+          fi
       - run: npm run lint
       - run: npm run build
 
