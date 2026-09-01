@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # The build environment may inject a NODE_OPTIONS preload path that does
+  # not exist on GitHub runners. That breaks native npm postinstall scripts
+  # such as @swc/core before lint/build can start.
+  NODE_OPTIONS: ''
+
 concurrency:
   group: phase1-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -24,6 +30,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Verify Node environment
+        run: |
+          node --version
+          npm --version
+          test -z "${NODE_OPTIONS:-}"
       - run: npm install --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
