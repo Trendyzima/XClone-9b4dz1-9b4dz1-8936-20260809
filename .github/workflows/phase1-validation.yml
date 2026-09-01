@@ -1,0 +1,57 @@
+name: Phase 1 Validation
+
+on:
+  push:
+    branches: [main, phase1-production-hardening]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase1-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web lint + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  android:
+    name: Android debug regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Run unit tests when present
+        working-directory: android
+        run: ./gradlew test --no-daemon --stacktrace
+        continue-on-error: false
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: xclone-debug-apk-${{ github.sha }}
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
