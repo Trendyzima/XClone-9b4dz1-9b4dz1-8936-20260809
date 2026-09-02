@@ -87,3 +87,5 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+# Deliberately no npm cache: the repository is not yet lockfile-reproducible.
