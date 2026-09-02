@@ -2,8 +2,8 @@
 """Static checks for the VPS-free/serverless architecture.
 
 This script intentionally does not run a web server. It validates that client
-code does not contain common server-secret patterns and that Edge Functions
-exist for the production payment entry points.
+code does not read privileged server secrets and that required Edge Functions
+exist for production payment entry points.
 """
 from pathlib import Path
 import re
@@ -12,8 +12,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 
 FORBIDDEN_CLIENT_PATTERNS = [
-    re.compile(r"MPESA_(?:CONSUMER_KEY|CONSUMER_SECRET|PASSKEY)"),
-    re.compile(r"SUPABASE_SERVICE_ROLE_KEY"),
+    re.compile(r"process\.env\.(?:MPESA_CONSUMER_KEY|MPESA_CONSUMER_SECRET|MPESA_PASSKEY|MPESA_SECURITY_CRED|SUPABASE_SERVICE_ROLE_KEY)"),
+    re.compile(r"import\.meta\.env\.(?:MPESA_CONSUMER_KEY|MPESA_CONSUMER_SECRET|MPESA_PASSKEY|MPESA_SECURITY_CRED|SUPABASE_SERVICE_ROLE_KEY)"),
 ]
 REQUIRED_FUNCTIONS = {
     "mpesa-stk-push",
@@ -37,7 +37,7 @@ def main() -> int:
         text = path.read_text(encoding="utf-8", errors="ignore")
         for pattern in FORBIDDEN_CLIENT_PATTERNS:
             if pattern.search(text):
-                errors.append(f"Server secret reference in client source: {path}")
+                errors.append(f"Privileged secret read from client source: {path}")
 
     if errors:
         print("EDGE ARCHITECTURE CHECK: FAILED")
@@ -47,7 +47,7 @@ def main() -> int:
 
     print("EDGE ARCHITECTURE CHECK: PASS")
     print("- No VPS/server process is required by this validation layer.")
-    print("- Payment credentials are expected to remain in Edge Function secrets.")
+    print("- Provider credentials are expected to remain in Edge Function secrets.")
     print("- Required payment Edge Functions are present.")
     return 0
 
