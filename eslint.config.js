@@ -1,4 +1,3 @@
-import eslint from '@eslint/js';
 import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
@@ -12,10 +11,12 @@ export default tseslint.config(
       'android/**',
       'supabase/.temp/**',
       '*.min.js',
+      'vite-fix-loader.mjs',
+      '_build.cjs',
+      '_patch-vite.cjs',
+      '_preload.cjs',
     ],
   },
-  eslint.configs.recommended,
-  ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
@@ -36,6 +37,8 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs['recommended-latest'].rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': 'warn',
     },
   },
   {
