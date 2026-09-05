@@ -1,4 +1,4 @@
-name: XClone web build
+name: XClone web quality gate
 
 on:
   push:
@@ -15,5 +15,9 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
-      - run: npm run build
+      - name: Install dependencies
+        run: npm install
+      - name: TypeScript check
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
