@@ -184,8 +184,7 @@ async function uploadMedia(request: Request, env: Env): Promise<Response> {
 
     if (!dbResponse.ok) {
       await env.MEDIA.delete(key);
-      const detail = await dbResponse.text();
-      return response(request, env, { error: 'Media metadata write failed', detail }, 502);
+      return response(request, env, { error: 'Media metadata write failed' }, 502);
     }
 
     return response(request, env, {
@@ -210,6 +209,29 @@ function mediaIdFromPath(pathname: string): string | null {
   return match?.[1] || null;
 }
 
+async function canReadPublishedMedia(request: Request, env: Env, id: string): Promise<boolean> {
+  const mediaUrl = `/api/media/${id}`;
+  const mediaTarget = new URL(`${env.SUPABASE_URL}/rest/v1/post_media`);
+  mediaTarget.searchParams.set('select', 'post_id');
+  mediaTarget.searchParams.set('media_url', `eq.${mediaUrl}`);
+  mediaTarget.searchParams.set('limit', '50');
+  const mediaResponse = await fetch(mediaTarget, { headers: supabaseHeaders(request, env) });
+  if (!mediaResponse.ok) return false;
+  const links = await mediaResponse.json() as Array<{ post_id: string }>;
+  if (!links.length) return false;
+
+  const postIds = [...new Set(links.map((row) => row.post_id).filter(Boolean))].slice(0, 50);
+  const postsTarget = new URL(`${env.SUPABASE_URL}/rest/v1/posts`);
+  postsTarget.searchParams.set('select', 'id');
+  postsTarget.searchParams.set('id', `in.(${postIds.join(',')})`);
+  postsTarget.searchParams.set('deleted_at', 'is.null');
+  postsTarget.searchParams.set('limit', '1');
+  const postsResponse = await fetch(postsTarget, { headers: supabaseHeaders(request, env) });
+  if (!postsResponse.ok) return false;
+  const visiblePosts = await postsResponse.json() as Array<{ id: string }>;
+  return visiblePosts.length > 0;
+}
+
 async function getMedia(request: Request, env: Env, id: string): Promise<Response> {
   const authError = requireAuth(request, env);
   if (authError) return authError;
@@ -223,11 +245,18 @@ async function getMedia(request: Request, env: Env, id: string): Promise<Respons
   const rows = await metadataResponse.json() as Array<{ storage_key: string; mime_type?: string; owner_id: string; byte_size: number }>;
   if (!rows.length) return response(request, env, { error: 'Media not found' }, 404);
 
+  const userId = await currentUserId(request, env);
+  if (!userId) return response(request, env, { error: 'Invalid or expired session' }, 401);
+  const isOwner = rows[0].owner_id === userId;
+  if (!isOwner && !(await canReadPublishedMedia(request, env, id))) {
+    return response(request, env, { error: 'Media access denied' }, 403);
+  }
+
   const object = await env.MEDIA.get(rows[0].storage_key);
   if (!object) return response(request, env, { error: 'Media object not found' }, 404);
 
   const headers = new Headers(cors(request, env));
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  headers.set('Cache-Control', 'private, max-age=300');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Content-Type', rows[0].mime_type || object.httpMetadata?.contentType || 'application/octet-stream');
   headers.set('Content-Length', String(rows[0].byte_size));
