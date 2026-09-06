@@ -71,7 +71,18 @@ jobs:
       - name: Assemble native debug APK
         working-directory: android
         run: ./gradlew clean assembleDebug --stacktrace --no-daemon
+      - name: Generate CI signing certificate fingerprint
+        working-directory: android
+        run: |
+          ./gradlew signingReport --no-daemon | tee ../android-signing-report.txt
+          echo "\nSHA-256 fingerprints found:" >> ../android-signing-report.txt
+          grep -E 'SHA-256:' ../android-signing-report.txt || true
       - uses: actions/upload-artifact@v4
         with:
           name: testagram-native-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: testagram-android-signing-report
+          path: android-signing-report.txt
+          if-no-files-found: error
