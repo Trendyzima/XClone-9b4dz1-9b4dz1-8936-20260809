@@ -672,7 +672,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
                 style={{ left: `${videoProgress}%`, opacity: isDragging ? 1 : 0.85 }} />
               {post.is_monetized && !isPremium && !midrollDone && (
                 <div className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-amber-400 border border-black/40"
-                  style={{ left: '50%', marginLeft: '-4px' }} />
+                  style={{ left: '50%', marginLeft: '-4px' }} title="Ad at 50%" />
               )}
             </div>
           </div>
@@ -706,7 +706,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
                   <BadgeCheck className="w-3.5 h-3.5 text-primary" fill="currentColor" />
                 )}
                 {isAuthorPremium && (
-                  <Crown className="w-3.5 h-3.5 text-amber-400" fill="currentColor" />
+                  <Crown className="w-3.5 h-3.5 text-amber-400" fill="currentColor" title="Premium" />
                 )}
               </div>
               {post.is_monetized && (
