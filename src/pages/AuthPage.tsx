@@ -39,6 +39,14 @@ function GoogleMark() {
   );
 }
 
+function GitHubMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5 fill-current">
+      <path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.11.79-.25.79-.56v-2.17c-3.23.7-3.91-1.56-3.91-1.56-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.04 1.78 2.72 1.27 3.38.97.11-.75.41-1.27.74-1.56-2.58-.29-5.29-1.29-5.29-5.74 0-1.27.45-2.31 1.19-3.12-.12-.29-.52-1.48.11-3.08 0 0 .97-.31 3.16 1.19a10.9 10.9 0 0 1 5.76 0c2.19-1.5 3.16-1.19 3.16-1.19.63 1.6.23 2.79.11 3.08.74.81 1.19 1.85 1.19 3.12 0 4.46-2.72 5.44-5.31 5.73.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z" />
+    </svg>
+  );
+}
+
 export default function AuthPage() {
   useSEO({ noindex: true, title: 'Sign In', url: '/auth' });
   const [mode, setMode] = useState('signin');
@@ -66,6 +74,16 @@ export default function AuthPage() {
       await authService.signInWithGoogle();
     } catch (error: any) {
       toast({ title: 'Google sign-in unavailable', description: error.message, variant: 'destructive' });
+      setLoading(false);
+    }
+  };
+
+  const handleGitHubSignIn = async () => {
+    setLoading(true);
+    try {
+      await authService.signInWithGitHub();
+    } catch (error: any) {
+      toast({ title: 'GitHub sign-in unavailable', description: error.message, variant: 'destructive' });
       setLoading(false);
     }
   };
@@ -167,15 +185,19 @@ export default function AuthPage() {
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <GoogleMark />}
               Continue with Google
             </Button>
+            <Button type="button" variant="outline" className="w-full h-12 rounded-full gap-3" onClick={handleGitHubSignIn} disabled={loading}>
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <GitHubMark />}
+              Continue with GitHub
+            </Button>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
-              <span>OR</span>
+              <span>OR CONTINUE WITH EMAIL</span>
               <div className="h-px flex-1 bg-border" />
             </div>
             <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-14" />
             <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required className="h-14" />
             <Button type="submit" className="w-full h-12 rounded-full" disabled={loading}>
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign in'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign in with email'}
             </Button>
             <div className="text-center">
               <button type="button" onClick={() => setMode('signup')} className="text-primary hover:underline">
@@ -191,14 +213,18 @@ export default function AuthPage() {
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <GoogleMark />}
               Continue with Google
             </Button>
+            <Button type="button" variant="outline" className="w-full h-12 rounded-full gap-3" onClick={handleGitHubSignIn} disabled={loading}>
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <GitHubMark />}
+              Continue with GitHub
+            </Button>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
-              <span>OR</span>
+              <span>OR SIGN UP WITH EMAIL</span>
               <div className="h-px flex-1 bg-border" />
             </div>
             <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-14" />
             <Button type="submit" className="w-full h-12 rounded-full" disabled={loading}>
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Continue'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Continue with email'}
             </Button>
             <div className="text-center">
               <button type="button" onClick={() => setMode('signin')} className="text-primary hover:underline">
