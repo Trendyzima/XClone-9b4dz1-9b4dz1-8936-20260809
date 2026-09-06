@@ -1,13 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Testagram backend is not configured: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required.');
+if (!supabaseUrl || !supabasePublishableKey) {
+  throw new Error('Testagram backend is not configured: VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY are required.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -16,9 +16,45 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 export const cloudflareApiUrl = (import.meta.env.VITE_CLOUDFLARE_API_URL || '/api').replace(/\/$/, '');
+export const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 
 export async function cloudflareHealth() {
   const response = await fetch(`${cloudflareApiUrl}/health`, { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`Cloudflare backend health check failed (${response.status})`);
   return response.json();
+}
+
+export async function uploadMedia(file: File, mediaType: 'image' | 'video' | 'audio' | 'document') {
+  if (file.size <= 0) throw new Error('The selected media file is empty.');
+  if (file.size > MAX_MEDIA_BYTES) {
+    throw new Error('Media exceeds the 20 MiB limit.');
+  }
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('You must be signed in to upload media.');
+
+  const response = await fetch(`${cloudflareApiUrl}/media`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': file.type || 'application/octet-stream',
+      'X-Media-Type': mediaType,
+      'X-File-Name': file.name,
+    },
+    body: file,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `Media upload failed (${response.status})`);
+  }
+  return payload as {
+    id: string;
+    storage: 'cloudflare-r2';
+    storageKey: string;
+    url: string;
+    byteSize: number;
+    mediaType: string;
+    mimeType: string;
+  };
 }
