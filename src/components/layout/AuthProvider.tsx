@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { authService, mapSupabaseUser } from '@/lib/auth';
 import { useAuthStore } from '@/stores/authStore';
@@ -79,7 +80,7 @@ async function registerPushNotifications(userId: string) {
   }
 }
 
-async function hydrateAuthenticatedUser(user: NonNullable<Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user']>) {
+async function hydrateAuthenticatedUser(user: User) {
   const profile = await authService.ensureProfile(user);
   const mapped = mapSupabaseUser(user);
   if (profile?.username) mapped.username = profile.username;
@@ -93,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const hydrate = async (user: NonNullable<Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user']>) => {
+    const hydrate = async (user: User) => {
       try {
         const mappedUser = await hydrateAuthenticatedUser(user);
         if (!mounted) return;
@@ -117,15 +118,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      if (event === 'SIGNED_IN' && session?.user) {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && session?.user) {
         void hydrate(session.user);
       } else if (event === 'SIGNED_OUT') {
         logout();
         setLoading(false);
-      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        void hydrate(session.user);
-      } else if (event === 'USER_UPDATED' && session?.user) {
-        void hydrate(session.user);
       }
     });
 
