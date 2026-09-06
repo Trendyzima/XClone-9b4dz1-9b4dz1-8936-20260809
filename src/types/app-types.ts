@@ -3,6 +3,7 @@ export interface AuthUser {
   email: string;
   username: string;
   avatar?: string;
+  creator_tier?: string;
 }
 
 export interface UserProfile {
@@ -38,9 +39,8 @@ export interface Post {
   edited_at?: string;
   edit_history?: any[];
   user_profiles: UserProfile;
-  // boost metadata (joined from boosted_posts)
   is_boosted?: boolean;
-  boost_type?: string; // 'rewarded_ad' | 'paid'
+  boost_type?: string;
 }
 
 export interface TrendingTopic {
