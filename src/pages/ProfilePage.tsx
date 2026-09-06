@@ -1045,7 +1045,7 @@ export default function ProfilePage() {
                   👑 Regulator
                 </button>
               )}
-              {(isOwnProfile ? isPremiumUser : false) && <Crown className="w-4 h-4 text-amber-500" fill="currentColor" title="Premium Member" />}
+              {(isOwnProfile ? isPremiumUser : false) && <Crown className="w-4 h-4 text-amber-500" fill="currentColor" />}
               {getCreatorTierLabel(profile.creator_tier) && (
                 <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r ${getCreatorTierBg(profile.creator_tier)} border ${getCreatorTierBorder(profile.creator_tier)} text-xs font-bold ${getCreatorTierText(profile.creator_tier)}`}>
                   <span>{getCreatorTierIcon(profile.creator_tier)}</span>{getCreatorTierLabel(profile.creator_tier)} Creator

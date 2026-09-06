@@ -298,7 +298,6 @@ export function UserAdCard({ ad }: UserAdCardProps) {
           <button
             onClick={() => setDismissed(true)}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground transition-colors"
-            title="Hide ad"
           >
             <X className="w-4 h-4" />
           </button>

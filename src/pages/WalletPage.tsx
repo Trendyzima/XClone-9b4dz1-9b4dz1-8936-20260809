@@ -2157,8 +2157,8 @@ function TransactionHistoryTab({ userId, currency }: { userId: string; currency:
               className={`flex-shrink-0 flex-1 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${filter === f ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>{f}</button>
           ))}
         </div>
-        <button onClick={printPDF} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0" title="Print PDF"><Printer className="w-4 h-4" /></button>
-        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0" title="Download CSV"><Download className="w-4 h-4" /></button>
+        <button onClick={printPDF} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0"><Printer className="w-4 h-4" /></button>
+        <button onClick={downloadCSV} className="p-2 border border-border rounded-xl hover:bg-muted transition-colors text-muted-foreground shrink-0"><Download className="w-4 h-4" /></button>
       </div>
       {search && <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Filter className="w-3 h-3" />{filtered.length} result{filtered.length !== 1 ? 's' : ''} for "{search}"</p>}
       {loading ? (

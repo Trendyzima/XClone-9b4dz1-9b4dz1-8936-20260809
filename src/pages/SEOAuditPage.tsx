@@ -434,7 +434,6 @@ export default function SEOAuditPage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                                title="Open page"
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
                               </a>

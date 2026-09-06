@@ -522,7 +522,6 @@ export default function SpaceRecordingViewerPage() {
           <button
             onClick={() => { if (audioRef.current) audioRef.current.currentTime = Math.max(0, currentTime - 15); }}
             className="flex flex-col items-center gap-0.5 p-2 rounded-xl hover:bg-muted transition-colors"
-            title="Rewind 15s"
           >
             <span className="text-lg">⏮</span>
             <span className="text-[9px] text-muted-foreground">15s</span>
@@ -543,7 +542,6 @@ export default function SpaceRecordingViewerPage() {
           <button
             onClick={() => { if (audioRef.current) audioRef.current.currentTime = Math.min(duration, currentTime + 30); }}
             className="flex flex-col items-center gap-0.5 p-2 rounded-xl hover:bg-muted transition-colors"
-            title="Forward 30s"
           >
             <span className="text-lg">⏭</span>
             <span className="text-[9px] text-muted-foreground">30s</span>
@@ -614,7 +612,6 @@ export default function SpaceRecordingViewerPage() {
                   ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-600'
                   : 'border-yellow-500/30 hover:bg-yellow-500/10 hover:border-yellow-500/50 text-muted-foreground hover:text-yellow-600'
               }`}
-              title="Tip the host"
             >
               {tipHostSent ? <Check className="w-3.5 h-3.5 text-yellow-500" /> : <DollarSign className="w-3.5 h-3.5" />}
               {tipHostSent ? 'Tipped!' : 'Tip Host'}

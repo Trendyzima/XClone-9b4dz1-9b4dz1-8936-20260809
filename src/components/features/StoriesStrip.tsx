@@ -1469,13 +1469,12 @@ export function StoriesStrip() {
               {/* Text reply row */}
               <div className="flex items-center gap-2">
                 <button onClick={() => { const su = encodeURIComponent(viewerStory.media_url); navigate(`/messages?to=${viewerG.username}&storyUrl=${su}`); }}
-                  className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center border border-white/20 shrink-0 hover:bg-white/25 transition-colors" title="Reply via DM">
+                  className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center border border-white/20 shrink-0 hover:bg-white/25 transition-colors">
                   <MessageCircle className="w-4 h-4 text-white" />
                 </button>
                 <button
                   onClick={() => setShowQuickReactionBar(v => !v)}
                   className={`w-10 h-10 rounded-full flex items-center justify-center border text-lg shrink-0 transition-all ${showQuickReactionBar ? 'bg-white/30 border-white/40 scale-105' : 'bg-white/15 border-white/20 hover:bg-white/25'}`}
-                  title="React with emoji"
                 >
                   😊
                 </button>

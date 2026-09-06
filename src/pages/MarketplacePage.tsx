@@ -760,7 +760,7 @@ export default function MarketplacePage() {
 
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
-      <TopBar title="Marketplace" />
+      <TopBar />
       <MktAdBanner />
 
       {/* ── Sticky Search + Filter bar ── */}

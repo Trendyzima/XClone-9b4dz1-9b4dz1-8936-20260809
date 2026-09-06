@@ -377,7 +377,7 @@ export default function SpacesPage() {
 
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
-      <TopBar title="Spaces" />
+      <TopBar />
 
       {/* Floating live reactions */}
       <div className="pointer-events-none fixed inset-0 z-[100] overflow-hidden">
@@ -675,7 +675,7 @@ export default function SpacesPage() {
                           <Play className="w-4 h-4 text-primary ml-0.5" fill="currentColor" />
                         </button>
                         <button onClick={e => openClipModal(rec.id, rec.spaces?.title ?? rec.title, e)}
-                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all" title="Create a clip">
+                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all">
                           <Scissors className="w-4 h-4" />
                         </button>
                         <button onClick={e => toggleSaveRecording(rec.id, e)}
@@ -683,13 +683,12 @@ export default function SpacesPage() {
                           <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
                         </button>
                         <button onClick={e => { e.stopPropagation(); setPlaylistForRec(rec.id); setShowPlaylistModal(true); }}
-                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all" title="Add to playlist">
+                          className="w-10 h-10 rounded-full border border-border text-muted-foreground hover:border-primary/30 hover:text-primary flex items-center justify-center transition-all">
                           <ListMusic className="w-4 h-4" />
                         </button>
                         {user && hostId && user.id !== hostId && (
                           <button onClick={e => openEpTip(rec.id, hostId, hostUsername, e)}
-                            className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${isTipped ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-600' : 'border-border text-muted-foreground hover:border-yellow-500/30 hover:text-yellow-600'}`}
-                            title="Tip host">
+                            className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${isTipped ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-600' : 'border-border text-muted-foreground hover:border-yellow-500/30 hover:text-yellow-600'}`}>
                             <DollarSign className="w-4 h-4" />
                           </button>
                         )}
@@ -849,7 +848,7 @@ export default function SpacesPage() {
                         </div>
                         <div className="flex items-center gap-1">
                           <button onClick={() => sharePlaylist(pl)}
-                            className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-primary transition-colors" title="Share playlist">
+                            className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-primary transition-colors">
                             <Share2 className="w-3.5 h-3.5" />
                           </button>
                           <button onClick={() => deletePlaylist(pl.id)} className="p-2 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">

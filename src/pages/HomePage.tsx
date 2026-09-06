@@ -959,7 +959,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background pb-16 lg:pb-0">
-      <TopBar title="Home" />
+      <TopBar />
 
       {/* Bluesky-style Tabs */}
       <div className="sticky top-14 z-30 bg-background/95 backdrop-blur-sm border-b border-border">
@@ -996,7 +996,6 @@ export default function HomePage() {
                   ? 'bg-primary/10 border-primary/30 text-primary'
                   : 'border-border text-muted-foreground hover:text-primary hover:border-primary/30'
               }`}
-              title="Tune your feed"
             >
               <SlidersHorizontal className={`w-3.5 h-3.5 ${sliderRefreshing ? 'animate-spin' : ''}`} />
               {sliderRefreshing ? <span className="hidden sm:inline">Applying…</span> : <span className="hidden sm:inline">Tune</span>}

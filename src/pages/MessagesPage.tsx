@@ -415,7 +415,7 @@ export default function MessagesPage() {
   return (
     <div className="flex flex-col bg-background" style={{ height: '100dvh' }}>
       {showGifPicker && <GifPicker onSelect={handleGifSelect} onClose={() => setShowGifPicker(false)} />}
-      {!hasActiveChat && <TopBar title="Messages" />}
+      {!hasActiveChat && <TopBar />}
       {!hasActiveChat && <MessagesAdBanner />}
 
       {/* Create Group Dialog */}
@@ -662,7 +662,7 @@ export default function MessagesPage() {
                     value={messageText} onChange={e => setMessageText(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                     className="flex-1 bg-transparent outline-none text-sm py-2 min-w-0" />
-                  <button onClick={() => setShowGifPicker(true)} className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/70" title="Send GIF"><ImageIcon className="w-4 h-4" /></button>
+                  <button onClick={() => setShowGifPicker(true)} className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/70"><ImageIcon className="w-4 h-4" /></button>
                   <button onClick={isRecording ? stopVoiceRecording : startVoiceRecording} disabled={uploadingVoice}
                     className={`shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-colors ${isRecording ? 'bg-red-500 text-white animate-pulse' : uploadingVoice ? 'bg-muted opacity-50' : 'bg-muted text-muted-foreground hover:bg-muted/70'}`}>
                     {uploadingVoice ? <Loader2 className="w-4 h-4 animate-spin" /> : isRecording ? <Square className="w-4 h-4 fill-current" /> : <Mic className="w-4 h-4" />}

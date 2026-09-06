@@ -333,7 +333,7 @@ export default function CommunitiesPage() {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      <TopBar title="Communities" />
+      <TopBar />
 
       {/* Hero */}
       <div className="bg-gradient-to-br from-primary/12 via-background to-purple-500/8 p-5 border-b border-border">

@@ -440,7 +440,6 @@ export default function PostThreadPage() {
                     className={`ml-2 p-2 rounded-full transition-colors disabled:opacity-40 ${
                       replyPollData ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-muted-foreground hover:text-primary'
                     }`}
-                    title="Attach poll to reply"
                   >
                     <BarChart3 className="w-4 h-4" />
                   </button>

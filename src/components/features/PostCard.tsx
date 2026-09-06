@@ -676,7 +676,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 <button
                   className="text-muted-foreground hover:text-primary p-2 -mr-2"
                   onClick={(e) => { e.stopPropagation(); setShowDeleteMenu(!showDeleteMenu); }}
-                  title="Options"
                 >
                   <MoreHorizontal className="w-5 h-5" />
                 </button>
@@ -750,7 +749,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                   <button
                     onClick={e => { e.stopPropagation(); setShowLangPicker(p => !p); }}
                     className="text-xs text-muted-foreground hover:text-primary flex items-center gap-0.5 transition-colors"
-                    title="Pick language"
                   >
                     <span>{LANGUAGES.find(l => l.code === targetLang)?.flag ?? '🌐'}</span>
                     <span className="text-[10px]">{LANGUAGES.find(l => l.code === targetLang)?.label ?? 'EN'}</span>
@@ -1001,7 +999,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               <button
                 className="flex items-center space-x-2 text-muted-foreground hover:text-amber-500 transition-colors group"
                 onClick={(e) => { e.stopPropagation(); setShowTipDialog(true); }}
-                title="Send a tip"
               >
                 <div className="p-2 rounded-full group-hover:bg-amber-500/10 transition-colors">
                   <DollarSign className="w-5 h-5" />
@@ -1012,7 +1009,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
               <button
                 className="flex items-center space-x-2 text-muted-foreground hover:text-red-500 transition-colors group"
                 onClick={(e) => { e.stopPropagation(); setShowReportDialog(true); }}
-                title="Report post"
               >
                 <div className="p-2 rounded-full group-hover:bg-red-500/10 transition-colors">
                   <Flag className="w-4 h-4" />
@@ -1025,7 +1021,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 <button
                   className="flex items-center space-x-2 text-muted-foreground hover:text-primary transition-colors group"
                   onClick={(e) => { e.stopPropagation(); setShowOneClickBoost(true); }}
-                  title="Boost Post"
                 >
                   <div className="p-2 rounded-full group-hover:bg-primary/10 transition-colors">
                     <TrendingUp className="w-5 h-5" />
@@ -1034,7 +1029,6 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 <button
                   className="flex items-center space-x-2 text-muted-foreground hover:text-amber-500 transition-colors group"
                   onClick={(e) => { e.stopPropagation(); setShowRewardedBoost(true); }}
-                  title="Free Boost (Watch Ad)"
                 >
                   <div className="p-2 rounded-full group-hover:bg-amber-500/10 transition-colors">
                     <Zap className="w-5 h-5" />

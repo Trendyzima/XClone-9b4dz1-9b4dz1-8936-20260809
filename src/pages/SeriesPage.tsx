@@ -599,8 +599,7 @@ export default function SeriesPage() {
                           </button>
                           <button
                             onClick={e => clearSeriesProgress(s.id, e)}
-                            className="p-1.5 rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
-                            title="Reset progress">
+                            className="p-1.5 rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors">
                             <RotateCcw className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -694,8 +693,7 @@ export default function SeriesPage() {
                       </button>
                       <button
                         onClick={e => clearSeriesProgress(s.id, e)}
-                        className="p-2 rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
-                        title="Reset progress">
+                        className="p-2 rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors">
                         <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                     </div>
