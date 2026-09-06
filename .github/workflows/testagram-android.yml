@@ -62,7 +62,18 @@ jobs:
         run: chmod +x android/gradlew
       - name: Verify native Android project has no Capacitor wiring
         run: |
-          ! grep -RniE 'capacitor|BridgeActivity|cordova' android/app android/settings.gradle android/build.gradle
+          set -e
+          if grep -RniE 'capacitor|BridgeActivity|cordova' \
+            android/app/src/main/java \
+            android/app/src/main/kotlin \
+            android/app/src/main/AndroidManifest.xml \
+            android/app/build.gradle.kts \
+            android/settings.gradle \
+            android/build.gradle \
+            2>/dev/null; then
+            echo 'Legacy Capacitor/Cordova wiring detected in native Android source/configuration.'
+            exit 1
+          fi
       - name: Assemble native debug APK
         working-directory: android
         run: ./gradlew clean assembleDebug --stacktrace --no-daemon
