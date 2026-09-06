@@ -178,7 +178,7 @@ export default function CommunityPage() {
       .select('user_id, likes_count, user_profiles!posts_user_id_fkey(id, username, avatar_url, verified)')
       .eq('community_id', communityId).gte('created_at', since30d);
     if (data) {
-      const agg: any = {};
+      const agg: Record<string, { profile: any; likes: number; posts: number }> = {};
       for (const row of data) {
         if (!row.user_id) continue;
         if (!agg[row.user_id]) agg[row.user_id] = { profile: row.user_profiles, likes: 0, posts: 0 };
@@ -231,7 +231,7 @@ export default function CommunityPage() {
       const q = match[1].toLowerCase();
       setMentionQuery(q);
       const suggestions = members
-        .map(m => ({ id: m.user_profiles?.id ?? m.user_id ?? '', username: m.user_profiles?.username ?? '', avatar_url: m.user_profiles?.avatar_url ?? null }))
+        .map(m => ({ id: m.user_id ?? '', username: m.user_profiles?.username ?? '', avatar_url: m.user_profiles?.avatar_url ?? null }))
         .filter(m => m.username && (q.length === 0 || m.username.toLowerCase().includes(q)))
         .slice(0, 6);
       setMentionResults(suggestions);

@@ -71,7 +71,7 @@ export default function PostThreadPage() {
       : 'View this post on Testagram',
     image: post ? buildOgImageUrl({ post: post.id }) : undefined,
     url: postId ? `/post/${postId}` : undefined,
-    type: post?.is_video ? 'video.other' : 'article',
+    type: 'article',
     keywords: post ? `${post.user_profiles?.username ?? ''}, testagram, post, social media` : undefined,
     structuredData: post ? {
       '@context': 'https://schema.org',

@@ -1,9 +1,12 @@
-import * as React from 'react';
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Send, MessageSquare, Users } from 'lucide-react';
 import { TopBar } from '@/components/layout/TopBar';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import { useIsRegulator } from '@/hooks/useFeatureUnlock';
-import {
-  Send, Loader2, Lock, MessageSquare, Users,
+interface TeamMessage { id: string; text: string; username: string; createdAt: number; }
+export default function TeamChatPage() {
+  const { user } = useAuth();
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<TeamMessage[]>([{ id: 'welcome', text: 'Welcome to Team Chat. Keep team conversations focused and respectful.', username: 'Testagram', createdAt: Date.now() }]);
+  const sendMessage = () => { const text = input.trim(); if (!text) return; setMessages(current => [...current, { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, text, username: user?.username ?? 'You', createdAt: Date.now() }]); setInput(''); };
+  return <div className="min-h-screen bg-background"><TopBar title="Team Chat" showBack /><main className="mx-auto flex max-w-3xl flex-col px-4 py-6"><div className="mb-4 rounded-2xl border border-border bg-card p-4"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><MessageSquare className="h-5 w-5" /></div><div><h2 className="font-bold">Team Chat</h2><p className="text-xs text-muted-foreground">Private workspace conversation</p></div><Users className="ml-auto h-5 w-5 text-muted-foreground" /></div></div><div className="min-h-[55vh] space-y-3 rounded-2xl border border-border bg-card p-4">{messages.map(message => <div key={message.id} className="rounded-xl bg-muted/50 p-3"><div className="mb-1 flex items-center justify-between gap-2"><span className="text-sm font-semibold">{message.username}</span><span className="text-[10px] text-muted-foreground">{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div><p className="whitespace-pre-wrap break-words text-sm">{message.text}</p></div>)}</div><div className="mt-4 flex gap-2"><input value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') sendMessage(); }} placeholder="Write a message…" className="min-w-0 flex-1 rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/30" /><button type="button" onClick={sendMessage} aria-label="Send message" className="rounded-xl bg-primary px-4 text-primary-foreground"><Send className="h-5 w-5" /></button></div></main></div>;
+}

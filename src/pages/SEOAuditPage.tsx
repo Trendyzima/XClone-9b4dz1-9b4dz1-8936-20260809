@@ -89,7 +89,7 @@ export default function SEOAuditPage() {
       description: null,
       ogImage: null,
       canonical: null,
-      status: scoreRoute(r),
+      status: scoreRoute({ ...r, title: null, description: null, ogImage: null, canonical: null }),
     }))
   );
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['Core', 'Hashtags', 'Trending', 'Communities', 'Dynamic']));
