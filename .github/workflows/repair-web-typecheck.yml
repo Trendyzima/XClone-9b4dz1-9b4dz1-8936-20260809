@@ -1,73 +1,24 @@
 name: Repair Web Typecheck Compatibility
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - '.github/workflows/repair-web-typecheck.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  repair:
-    if: github.actor != 'github-actions[bot]'
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Recover source files from pre-repair baseline
-        run: |
-          git restore --source=8c077922f5d4f41bdb42e892b00b18db76df72b3 -- \
-            src/pages/TeamChatPage.tsx \
-            src/pages/VideosPage.tsx \
-            src/components/features/UserSuggestionsWidget.tsx \
-            src/types/app-types.ts \
-            src/components/features/VideoPlayer.tsx
-      - name: Repair legacy web typing
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          root = Path('src')
-          for path in root.rglob('*.tsx'):
-              text = path.read_text()
-              text = text.replace('.catch(() => {})', '.then(() => {}, () => {})')
-              text = re.sub(r'\s+title="[^"]*"(?=\s*(?:/?>))', '', text)
-              path.write_text(text)
-          p = root / 'components/features/SavingsGoalsTab.tsx'
-          if p.exists():
-              text = p.read_text().replace('SAVINGS_GOAL_BAR[c]', 'getGoalBar(c)')
-              p.write_text(text)
-          p = root / 'components/features/ComposePost.tsx'
-          if p.exists():
-              p.write_text(p.read_text().replace("user?.creator_tier", "(user as any)?.creator_tier"))
-          p = root / 'components/features/TrendingVideosSection.tsx'
-          if p.exists():
-              text = p.read_text()
-              normalizer = "const normalizeVideoPosts = (rows: any[]): VideoPost[] => rows.map((row) => ({ ...row, user_profiles: Array.isArray(row.user_profiles) ? (row.user_profiles[0] ?? null) : row.user_profiles }));"
-              if 'normalizeVideoPosts' not in text:
-                  text = text.replace('interface Props {', normalizer + '\n\ninterface Props {')
-              text = text.replace('setVideos(recent as VideoPost[])', 'setVideos(normalizeVideoPosts(recent))')
-              text = text.replace('setVideos((allTime || []) as VideoPost[])', 'setVideos(normalizeVideoPosts(allTime || []))')
-              p.write_text(text)
-          for name in ('TeamChatPage.tsx', 'VideosPage.tsx'):
-              p = root / 'pages' / name
-              if p.exists():
-                  p.write_text(p.read_text().replace("import React from 'react';", "import * as React from 'react';"))
-          p = root / 'types/app-types.ts'
-          text = p.read_text()
-          if 'is_creator?: boolean;' not in text:
-              text = text.replace('  creator_tier?: string;\n', '  creator_tier?: string;\n  is_creator?: boolean;\n  verified?: boolean;\n', 1)
-          p.write_text(text)
-          PY
-      - name: Commit repairs
-        run: |
-          if git diff --quiet; then exit 0; fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src
-          git commit -m 'fix(web): recover and repair source contracts'
-          git push
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
