@@ -1,112 +1,44 @@
 name: One-shot Source Recovery
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   recover:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Restore canonical source baselines and apply deterministic repairs
+      - name: Restore canonical source baselines
         shell: bash
         run: |
           set -euo pipefail
-          # These refs are the verified complete source contracts used by the web quality gate.
           git restore --source=7967f685152b4b6d15bc81b781329e151f1c1d59 -- src/pages/TeamChatPage.tsx
           git restore --source=09da75ba9316847378c64009a9e841768e62a82d -- src/pages/VideosPage.tsx src/types/app-types.ts
           git restore --source=8c077922f5d4f41bdb42e892b00b18db76df72b3 -- src/components/features/VideoPlayer.tsx
           git restore --source=9f80dbf3dbf897faa1661d272d2f24f65c30d3bd -- src/components/features/UserSuggestionsWidget.tsx
-
           python3 - <<'PY'
           from pathlib import Path
           import re
-
-          def edit(path, fn):
-              p = Path(path)
-              text = p.read_text()
-              new = fn(text)
-              if new != text:
-                  p.write_text(new)
-                  print('updated', path)
-
-          # Normalize React imports in the recovered pages for the current tsconfig.
           for name in ('TeamChatPage.tsx', 'VideosPage.tsx'):
               p = Path('src/pages') / name
               text = p.read_text()
               text = re.sub(r"import React, \{([^}]*)\} from 'react';", lambda m: "import * as React from 'react';\nimport {" + m.group(1) + "} from 'react';", text, count=1)
               text = text.replace("import React from 'react';", "import * as React from 'react';")
               p.write_text(text)
-
-          # Preserve the fields consumed by creator/explore surfaces.
           p = Path('src/types/app-types.ts')
           text = p.read_text()
           if 'is_creator?: boolean;' not in text:
               text = text.replace('  creator_tier?: string;\n', '  creator_tier?: string;\n  is_creator?: boolean;\n  verified?: boolean;\n', 1)
           p.write_text(text)
-
-          # TopBar is used by compact routes without a title.
-          edit('src/components/layout/TopBar.tsx', lambda s: s
-              .replace('interface TopBarProps { title: string;', 'interface TopBarProps { title?: string;')
-              .replace('<h1 className="text-xl font-bold">{title}</h1>', '<h1 className="text-xl font-bold">{title ?? ""}</h1>'))
-
-          edit('src/pages/CommunityPage.tsx', lambda s: s
-              .replace('const agg: any = {};', 'const agg: Record<string, { profile: any; likes: number; posts: number }> = {};')
-              .replace("m.user_profiles?.id ?? m.user_id ?? ''", "m.user_id ?? ''"))
-
-          edit('src/pages/PostThreadPage.tsx', lambda s: s.replace("type: post?.is_video ? 'video.other' : 'article',", "type: 'article',"))
-
-          def repair_poll(s):
-              s = s.replace('  poll: Poll;\n', '  poll?: Poll;\n')
-              s = s.replace('  const [pollData, setPollData] = useState(poll);', "  const activePoll: Poll = poll ?? { id: postId, question: '', expires_at: new Date(0).toISOString(), total_votes: 0, options: [] };\n  const [pollData, setPollData] = useState(activePoll);")
-              s = s.replace('useEffect(() => { if (user) checkIfVoted(); }, [poll.id, user?.id]);', 'useEffect(() => { if (user && poll) checkIfVoted(); }, [poll?.id, user?.id]);')
-              s = s.replace('    if (!user) return;\n    const { data }', '    if (!user || !poll) return;\n    const { data }', 1)
-              s = s.replace(".eq('poll_id', poll.id)", ".eq('poll_id', activePoll.id)")
-              s = s.replace("if (!user) { navigate('/auth'); return; }", "if (!user || !poll) { navigate('/auth'); return; }")
-              s = s.replace('new Date(poll.expires_at)', 'new Date(activePoll.expires_at)')
-              s = s.replace('poll.id', 'activePoll.id')
-              s = s.replace('poll.expires_at', 'activePoll.expires_at')
-              s = re.sub(r'\n\s*if \(!poll\) return null;\n', '\n', s)
-              marker = '\n  return (\n'
-              if marker in s and 'if (!poll) return null;' not in s:
-                  s = s.replace(marker, '\n  if (!poll) return null;\n\n  return (\n', 1)
-              return s
-          edit('src/components/features/PollCard.tsx', repair_poll)
-
-          edit('src/pages/SEOAuditPage.tsx', lambda s: s.replace(
-              '      status: scoreRoute(r),',
-              '      status: scoreRoute({ ...r, title: null, description: null, ogImage: null, canonical: null }),'))
-
-          edit('src/pages/SettingsPage.tsx', lambda s: s
-              .replace("import { useNotificationSound } from '@/hooks/useNotificationSound';", "import { useNotificationSound, type SoundType } from '@/hooks/useNotificationSound';")
-              .replace('onClick={() => playSound(type)}', 'onClick={() => playSound(type as SoundType)}'))
-
-          def repair_wallet(s):
-              s = s.replace("Object.entries(dailyMap).map(([date, v]) => ({ date, In: parseFloat(v.in.toFixed(2)), Out: parseFloat(v.out.toFixed(2)) }))", "(Object.entries(dailyMap) as [string, { in: number; out: number }][]).map(([date, v]) => ({ date, In: parseFloat(v.in.toFixed(2)), Out: parseFloat(v.out.toFixed(2)) }))")
-              s = s.replace("const arr = Object.entries(map).map(([date, v]) => ({ date, ...v }));", "const arr = (Object.entries(map) as [string, { count: number; amount: number; hasIn: boolean }][]).map(([date, v]) => ({ date, ...v }));")
-              s = s.replace("const chartData = Object.entries(dayMap).map(([date, bal]) => {", "const chartData = (Object.entries(dayMap) as [string, number][]).map(([date, bal]) => {")
-              s = s.replace("Math.max(...Object.values(dayMap).map(v => v.inAmt + v.outAmt), 1)", "Math.max(...(Object.values(dayMap) as { inAmt: number; outAmt: number }[]).map(v => v.inAmt + v.outAmt), 1)")
-              s = s.replace("const top10 = Object.entries(counts).sort((a: any, b: any) => b[1] - a[1]).slice(0, 10);", "const top10 = (Object.entries(counts) as [string, number][]).sort((a, b) => b[1] - a[1]).slice(0, 10);")
-              return s
-          edit('src/pages/WalletPage.tsx', repair_wallet)
           PY
-
-      - name: Commit repaired source
+      - name: Verify recovered source
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src
-          if git diff --cached --quiet; then
-            echo 'No repair changes to commit.'
-            exit 0
-          fi
-          git commit -m 'fix(web): restore canonical source contracts [web-quality-repair]'
-          git push
+          test "$(wc -l < src/pages/TeamChatPage.tsx)" -ge 100
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm run typecheck
+          npm run build
