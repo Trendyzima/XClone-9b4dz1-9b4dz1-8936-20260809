@@ -2,6 +2,8 @@ import { supabase } from './supabase';
 import { User } from '@supabase/supabase-js';
 import { AuthUser } from '@/types/app-types';
 
+const PRODUCTION_AUTH_REDIRECT = 'https://testagram.site/auth';
+
 export function mapSupabaseUser(user: User): AuthUser {
   return {
     id: user.id,
@@ -15,7 +17,12 @@ export class AuthService {
   async sendOtp(email: string) {
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { shouldCreateUser: true },
+      options: {
+        shouldCreateUser: true,
+        // Always use the production domain for Auth redirects. This prevents
+        // Supabase from falling back to a localhost Site URL in confirmation links.
+        emailRedirectTo: PRODUCTION_AUTH_REDIRECT,
+      },
     });
     if (error) throw error;
   }
