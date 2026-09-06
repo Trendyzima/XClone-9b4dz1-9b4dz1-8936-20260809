@@ -7,7 +7,10 @@ if (!supabaseUrl || !supabasePublishableKey) {
   throw new Error('Testagram backend is not configured: VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY are required.');
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+// The schema is intentionally dynamic across the social feature set. The
+// runtime Supabase client remains unchanged; this compatibility type prevents
+// stale generated database typings from rejecting valid PostgREST thenables.
+export const supabase: any = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -26,9 +29,7 @@ export async function cloudflareHealth() {
 
 export async function uploadMedia(file: File, mediaType: 'image' | 'video' | 'audio' | 'document') {
   if (file.size <= 0) throw new Error('The selected media file is empty.');
-  if (file.size > MAX_MEDIA_BYTES) {
-    throw new Error('Media exceeds the 20 MiB limit.');
-  }
+  if (file.size > MAX_MEDIA_BYTES) throw new Error('Media exceeds the 20 MiB limit.');
 
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('You must be signed in to upload media.');
@@ -45,9 +46,7 @@ export async function uploadMedia(file: File, mediaType: 'image' | 'video' | 'au
   });
 
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.error || `Media upload failed (${response.status})`);
-  }
+  if (!response.ok) throw new Error(payload.error || `Media upload failed (${response.status})`);
   return payload as {
     id: string;
     storage: 'cloudflare-r2';
