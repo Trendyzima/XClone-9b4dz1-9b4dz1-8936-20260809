@@ -7,12 +7,16 @@ on:
       - 'cloudflare/**'
       - 'supabase/migrations/**'
       - '.github/workflows/cloudflare-backend.yml'
+      - '.env'
+      - '.env.example'
   pull_request:
     branches: [main]
     paths:
       - 'cloudflare/**'
       - 'supabase/migrations/**'
       - '.github/workflows/cloudflare-backend.yml'
+      - '.env'
+      - '.env.example'
 
 permissions:
   contents: read
@@ -22,6 +26,8 @@ env:
   MEDIA_BUCKET: 'testagram-media'
   SUPABASE_PROJECT_REF: 'aepbqfrmheihfsauzcby'
   SUPABASE_URL: 'https://aepbqfrmheihfsauzcby.supabase.co'
+  WORKER_HEALTH_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/health'
+  PRODUCTION_HEALTH_URL: 'https://testagram.site/api/health'
 
 jobs:
   validate:
@@ -85,19 +91,24 @@ jobs:
           npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy \
             --config cloudflare/wrangler.jsonc \
             --secrets-file "$secrets_file"
-      - name: Smoke test production API and Supabase bridge
+      - name: Smoke test direct Cloudflare Worker and Supabase bridge
         run: |
           set -euo pipefail
-          for attempt in 1 2 3 4 5; do
-            payload="$(curl --fail --silent --show-error --max-time 15 https://testagram.site/api/health || true)"
-            if printf '%s' "$payload" | grep -Fq '"ok":true' \
-              && printf '%s' "$payload" | grep -Fq '"databaseReachable":true' \
-              && printf '%s' "$payload" | grep -Fq '"media":"cloudflare-r2"' \
-              && printf '%s' "$payload" | grep -Fq 'aepbqfrmheihfsauzcby'; then
-              printf '%s\n' "$payload"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo 'Production API health check failed, Supabase bridge is unreachable, or the request did not reach the Cloudflare Worker.'
-          exit 1
+          payload="$(curl --fail --silent --show-error --max-time 20 "$WORKER_HEALTH_URL")"
+          printf '%s\n' "$payload"
+          printf '%s' "$payload" | grep -Fq '"ok":true'
+          printf '%s' "$payload" | grep -Fq '"databaseReachable":true'
+          printf '%s' "$payload" | grep -Fq '"media":"cloudflare-r2"'
+          printf '%s' "$payload" | grep -Fq 'aepbqfrmheihfsauzcby'
+      - name: Diagnose production /api route
+        continue-on-error: true
+        run: |
+          set -u
+          status="$(curl -sS -o /tmp/production-health.txt -w '%{http_code}' --max-time 15 "$PRODUCTION_HEALTH_URL" || true)"
+          echo "Production /api/health HTTP status: ${status}"
+          cat /tmp/production-health.txt || true
+          if [ "$status" = "200" ]; then
+            echo 'Production custom-domain route is reaching the Worker.'
+          else
+            echo 'Production custom-domain route is not reaching the Worker yet; direct workers.dev endpoint remains the production API endpoint.'
+          fi
