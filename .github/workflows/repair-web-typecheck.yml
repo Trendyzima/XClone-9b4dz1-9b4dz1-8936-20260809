@@ -18,13 +18,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Recover source files from known-good commit
+      - name: Recover source files from pre-repair baseline
         run: |
-          git restore --source=3079d8054a832bf46fa95c01c22b60f558de9c1e -- \
+          git restore --source=8c077922f5d4f41bdb42e892b00b18db76df72b3 -- \
             src/pages/TeamChatPage.tsx \
             src/pages/VideosPage.tsx \
             src/components/features/UserSuggestionsWidget.tsx \
-            src/types/app-types.ts
+            src/types/app-types.ts \
+            src/components/features/VideoPlayer.tsx
       - name: Repair legacy web typing
         run: |
           python3 - <<'PY'
@@ -52,12 +53,10 @@ jobs:
               text = text.replace('setVideos(recent as VideoPost[])', 'setVideos(normalizeVideoPosts(recent))')
               text = text.replace('setVideos((allTime || []) as VideoPost[])', 'setVideos(normalizeVideoPosts(allTime || []))')
               p.write_text(text)
-          # Keep React namespace imports compatible with current tsconfig.
           for name in ('TeamChatPage.tsx', 'VideosPage.tsx'):
               p = root / 'pages' / name
               if p.exists():
                   p.write_text(p.read_text().replace("import React from 'react';", "import * as React from 'react';"))
-          # Complete AuthUser capability fields without changing the rest of the contract.
           p = root / 'types/app-types.ts'
           text = p.read_text()
           if 'is_creator?: boolean;' not in text:
