@@ -159,7 +159,7 @@ function InterestOnboardingSheet() {
         await supabase.from('user_interests').upsert(
           { user_id: user.id, hashtag_id: hashtagId, interest_score: 1.0 },
           { onConflict: 'user_id,hashtag_id' }
-        ).catch(() => {});
+        ).then(() => {}, () => {});
       }
     }
     localStorage.setItem(`ts-interest-onboarded-${user.id}`, '1');

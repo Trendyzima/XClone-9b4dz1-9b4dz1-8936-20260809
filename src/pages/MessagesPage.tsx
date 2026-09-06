@@ -144,7 +144,7 @@ export default function MessagesPage() {
         setMessages(newMsgs);
         // Mark as read
         await supabase.from('direct_messages').update({ read: true })
-          .eq('conversation_id', selectedConversation.id).eq('read', false).neq('sender_id', user!.id).catch(() => {});
+          .eq('conversation_id', selectedConversation.id).eq('read', false).neq('sender_id', user!.id).then(() => {}, () => {});
         // Update unread badge in conversation list
         setConversations(prev => prev.map(c =>
           c.id === selectedConversation.id ? { ...c, unreadCount: 0 } : c

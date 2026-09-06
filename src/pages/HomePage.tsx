@@ -330,7 +330,7 @@ export default function HomePage() {
     if (!user) return;
     try {
       // 1️⃣ Trigger server-side recommendation generation (Twitter-style interest graph)
-      supabase.rpc('generate_content_recommendations', { p_user_id: user.id }).catch(() => {});
+      supabase.rpc('generate_content_recommendations', { p_user_id: user.id }).then(() => {}, () => {});
 
       // 2️⃣ Read freshly-generated recommendations
       const { data: recs } = await supabase
@@ -357,7 +357,7 @@ export default function HomePage() {
             })
             .filter((p: any) => p?.id);
           setRecommendedPosts(enriched);
-          supabase.from('content_recommendations').update({ shown: true }).in('recommended_post_id', postIds).eq('user_id', user.id).catch(() => {});
+          supabase.from('content_recommendations').update({ shown: true }).in('recommended_post_id', postIds).eq('user_id', user.id).then(() => {}, () => {});
           return;
         }
       }
@@ -538,7 +538,7 @@ export default function HomePage() {
         created_at: p.created_at ?? p.published ?? new Date().toISOString(),
         actor: p.actor ?? p.account ?? {},
       }));
-      cacheFederatedPosts(normalized).catch(() => {});
+      cacheFederatedPosts(normalized).then(() => {}, () => {});
       return normalized;
     } catch (err) {
       console.warn('[feed] Gateway unreachable, using remote_posts cache:', err);

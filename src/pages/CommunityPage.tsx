@@ -163,9 +163,9 @@ export default function CommunityPage() {
     setSendingSupport(true);
     const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: user.id, p_amount: supportAmount });
     if (deductErr) { sonnerToast.error('Insufficient wallet balance'); setSendingSupport(false); return; }
-    await supabase.rpc('add_to_wallet', { p_user_id: community.created_by, p_amount: supportAmount }).catch(() => {});
-    await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: community.created_by, amount: supportAmount, message: `Support for c/${community.name}` }).catch(() => {});
-    await supabase.from('platform_inbox').insert({ user_id: community.created_by, subject: `💰 Your community received a $${supportAmount} support tip!`, body: `@${user.username ?? 'A member'} sent $${supportAmount} to support c/${community.name}.`, type: 'update', icon_emoji: '💰' }).catch(() => {});
+    await supabase.rpc('add_to_wallet', { p_user_id: community.created_by, p_amount: supportAmount }).then(() => {}, () => {});
+    await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: community.created_by, amount: supportAmount, message: `Support for c/${community.name}` }).then(() => {}, () => {});
+    await supabase.from('platform_inbox').insert({ user_id: community.created_by, subject: `💰 Your community received a $${supportAmount} support tip!`, body: `@${user.username ?? 'A member'} sent $${supportAmount} to support c/${community.name}.`, type: 'update', icon_emoji: '💰' }).then(() => {}, () => {});
     sonnerToast.success(`$${supportAmount} support sent!`);
     setSupportSent(true); setShowSupportDialog(false); setSupportAmount(null); setSendingSupport(false);
     setTimeout(() => setSupportSent(false), 4000);
@@ -548,7 +548,7 @@ export default function CommunityPage() {
             icon_emoji: '📅',
             cta_label: `View c/${r.communityName}`,
             cta_url: `/c/${r.communityName}`,
-          }).catch(() => {});
+          }).then(() => {}, () => {});
           sent.push(r.eventId);
           sonnerToast(`⏰ "${r.title}" starts in 1 hour!`, { duration: 6000 });
         }

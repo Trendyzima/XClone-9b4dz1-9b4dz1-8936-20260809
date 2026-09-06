@@ -182,7 +182,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         const newCount = likesCount + 1;
         setIsLiked(true);
         setLikesCount(newCount);
-        await supabase.from('likes').insert({ user_id: user.id, post_id: post.id }).catch(() => {});
+        await supabase.from('likes').insert({ user_id: user.id, post_id: post.id }).then(() => {}, () => {});
         await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
         if (post.user_id !== user.id) {
           await supabase.from('notifications').insert({ user_id: post.user_id, type: 'like', from_user_id: user.id, post_id: post.id });
@@ -258,7 +258,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         await supabase.from('post_translations').upsert(
           { post_id: post.id, language_code: selectedLang, translated_content: translated.trim() },
           { onConflict: 'post_id,language_code' }
-        ).catch(() => {});
+        ).then(() => {}, () => {});
       }
     } catch (err) {
       console.warn('[translate]', err);
@@ -372,7 +372,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         await supabase.from('user_wallets').update({ balance: Number(wallet.balance) - tipAmount }).eq('user_id', user.id);
         await supabase.from('tips').insert({ from_user_id: user.id, to_user_id: post.user_id, amount: tipAmount, message: tipMessage.trim() || null, post_id: post.id });
         await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
-        await supabase.from('creator_earnings').insert({ user_id: post.user_id, source: 'tips', amount: tipAmount, post_id: post.id, status: 'paid' }).catch(() => {});
+        await supabase.from('creator_earnings').insert({ user_id: post.user_id, source: 'tips', amount: tipAmount, post_id: post.id, status: 'paid' }).then(() => {}, () => {});
       } else {
         await supabase.from('notifications').insert({ user_id: post.user_id, type: 'payment_sent', from_user_id: user.id, post_id: post.id });
       }
@@ -456,7 +456,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     await supabase.from('post_reports').upsert(
       { post_id: post.id, reporter_id: user.id, category: reportCategory },
       { onConflict: 'post_id,reporter_id' }
-    ).catch(() => {});
+    ).then(() => {}, () => {});
     toast({ title: 'Report submitted', description: 'Thanks for helping keep the community safe.' });
     setShowReportDialog(false);
     setReportCategory('');
@@ -478,7 +478,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
 
   const handleAdComplete = () => {
     setShowVideoAd(false);
-    videoRef2.current?.play().catch(() => {});
+    videoRef2.current?.play().then(() => {}, () => {});
   };
 
   const mediaUrls = post.media_urls && post.media_urls.length > 0
@@ -536,7 +536,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
           sendActivityNotification({ recipientUserId: post.user_id, title: 'New Like', body: `${user.username} liked your post`, data: { route: `/post/${post.id}`, type: 'like' } });
         }
         // Update interest signal — fire-and-forget (esbuild guard: called outside render)
-        updateInterestSignal(user.id, post.id, 'like').catch(() => {});
+        updateInterestSignal(user.id, post.id, 'like').then(() => {}, () => {});
       } else {
         await supabase.from('likes').delete().eq('user_id', user.id).eq('post_id', post.id);
         await supabase.from('posts').update({ likes_count: newCount }).eq('id', post.id);
@@ -567,7 +567,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
         }
         toast({ title: 'Reposted successfully' });
         // Update interest signal — fire-and-forget
-        updateInterestSignal(user.id, post.id, 'repost').catch(() => {});
+        updateInterestSignal(user.id, post.id, 'repost').then(() => {}, () => {});
       } else {
         await supabase.from('reposts').delete().eq('user_id', user.id).eq('post_id', post.id);
         await supabase.from('posts').update({ reposts_count: newCount }).eq('id', post.id);
@@ -589,8 +589,8 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
     const trackShare = () => {
       setShareCount(c => c + 1);
       supabase.from('post_analytics').select('id, shares').eq('post_id', post.id).maybeSingle().then(({ data }) => {
-        if (data?.id) supabase.from('post_analytics').update({ shares: (data.shares || 0) + 1 }).eq('id', data.id).catch(() => {});
-        else supabase.from('post_analytics').insert({ post_id: post.id, shares: 1 }).catch(() => {});
+        if (data?.id) supabase.from('post_analytics').update({ shares: (data.shares || 0) + 1 }).eq('id', data.id).then(() => {}, () => {});
+        else supabase.from('post_analytics').insert({ post_id: post.id, shares: 1 }).then(() => {}, () => {});
       });
     };
     if (navigator.share) {
@@ -663,7 +663,7 @@ export function PostCard({ post, onUpdate }: PostCardProps) {
                 <BadgeCheck className="w-4 h-4 text-primary flex-shrink-0" fill="currentColor" />
               )}
               {isAuthorPremium && (
-                <Crown className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="currentColor" title="Premium Member" />
+                <Crown className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="currentColor" aria-label="icon" />
               )}
               <span className="text-muted-foreground text-sm truncate">@{post.user_profiles?.username}</span>
               <span className="text-muted-foreground text-sm flex-shrink-0">·</span>

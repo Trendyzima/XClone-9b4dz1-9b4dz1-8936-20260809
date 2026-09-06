@@ -101,8 +101,8 @@ export default function AuthPage() {
       .single();
     if (error) return;
     // Award 100 credits to both referrer and new user
-    await supabase.rpc('add_to_wallet', { p_user_id: referrerId, p_amount: 100 }).catch(() => {});
-    await supabase.rpc('add_to_wallet', { p_user_id: newUserId, p_amount: 100 }).catch(() => {});
+    await supabase.rpc('add_to_wallet', { p_user_id: referrerId, p_amount: 100 }).then(() => {}, () => {});
+    await supabase.rpc('add_to_wallet', { p_user_id: newUserId, p_amount: 100 }).then(() => {}, () => {});
   };
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
@@ -110,7 +110,7 @@ export default function AuthPage() {
     setLoading(true);
     try {
       const user = await authService.verifyOtpAndSetPassword(email, otp, password);
-      recordReferral(user.id).catch(() => {});
+      recordReferral(user.id).then(() => {}, () => {});
       login(authService.mapUser(user));
       navigate('/');
     } catch (error: any) {

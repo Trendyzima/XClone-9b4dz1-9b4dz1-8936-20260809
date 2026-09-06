@@ -146,7 +146,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
         setShowPrerollAd(true);
         setAdDoneForThisPost(true);
       } else {
-        video.play().then(() => setIsPlaying(true)).catch(() => {});
+        video.play().then(() => setIsPlaying(true)).then(() => {}, () => {});
       }
     } else {
       // Mute and pause when scrolling away
@@ -165,7 +165,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
     setShowPrerollAd(false);
     setShowMidrollAd(false);
     const video = videoRef.current;
-    if (video) video.play().then(() => setIsPlaying(true)).catch(() => {});
+    if (video) video.play().then(() => setIsPlaying(true)).then(() => {}, () => {});
   };
 
   /* ── Time update → progress + mid-roll trigger ───────────────────────── */
@@ -198,7 +198,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
           .eq('post_id', post.id)
           .gte('created_at', since24h);
         if ((count ?? 0) > 0) return; // already viewed today — do not increment
-        await supabase.from('browsing_history').insert({ user_id: user.id, post_id: post.id, view_type: 'post' }).catch(() => {});
+        await supabase.from('browsing_history').insert({ user_id: user.id, post_id: post.id, view_type: 'post' }).then(() => {}, () => {});
       }
       // Increment the view counter in posts table (always, anonymous users included)
       await supabase.rpc('increment_post_view', { post_id_param: post.id });
@@ -559,7 +559,7 @@ export function VideoPlayer({ post, isActive, onUpdate, shouldPreload, cancelPre
   const handleNativeShare = () => {
     const postUrl = getPostUrl();
     if (navigator.share) {
-      navigator.share({ url: postUrl, title: post.content?.slice(0, 80) ?? 'Video' }).catch(() => {});
+      navigator.share({ url: postUrl, title: post.content?.slice(0, 80) ?? 'Video' }).then(() => {}, () => {});
     } else {
       handleCopyLink();
     }

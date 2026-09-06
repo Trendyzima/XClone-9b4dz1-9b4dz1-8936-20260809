@@ -165,7 +165,7 @@ export default function CommunitiesPage() {
 
   const fetchSuggestions = async () => {
     if (!user) return;
-    await supabase.rpc('generate_community_suggestions', { p_user_id: user.id }).catch(() => {});
+    await supabase.rpc('generate_community_suggestions', { p_user_id: user.id }).then(() => {}, () => {});
     const { data } = await supabase
       .from('community_suggestions')
       .select('community_id, reason, communities(*)')

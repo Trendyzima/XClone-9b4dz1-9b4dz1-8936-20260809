@@ -421,8 +421,8 @@ export default function ProfilePage() {
         user_id: profile.id, subject: '🎁 Someone gifted you Premium!',
         body: `@${currentUser.username} gifted you 1 month of Premium! Enjoy an ad-free experience until ${expiresAt.toLocaleDateString()}.`,
         type: 'update', icon_emoji: '👑', cta_label: 'View Premium Benefits', cta_url: '/premium',
-      }).catch(() => {});
-      await supabase.from('notifications').insert({ user_id: profile.id, type: 'tip', from_user_id: currentUser.id }).catch(() => {});
+      }).then(() => {}, () => {});
+      await supabase.from('notifications').insert({ user_id: profile.id, type: 'tip', from_user_id: currentUser.id }).then(() => {}, () => {});
       toast.success(`🎁 Premium gifted to @${profile.username} for 1 month!`);
       setShowGiftPremiumDialog(false);
     } catch (err: any) {
@@ -444,8 +444,8 @@ export default function ProfilePage() {
       expires_at: expiresAt.toISOString(),
     }, { onConflict: 'creator_id,subscriber_id' });
     if (error) { toast.error('Subscription failed'); setSubscribing(false); return; }
-    await supabase.from('creator_earnings').insert({ user_id: profile.id, source: 'subscription', amount: price, status: 'paid' }).catch(() => {});
-    await supabase.from('notifications').insert({ user_id: profile.id, type: 'follow', from_user_id: currentUser.id }).catch(() => {});
+    await supabase.from('creator_earnings').insert({ user_id: profile.id, source: 'subscription', amount: price, status: 'paid' }).then(() => {}, () => {});
+    await supabase.from('notifications').insert({ user_id: profile.id, type: 'follow', from_user_id: currentUser.id }).then(() => {}, () => {});
     toast.success(`Subscribed to @${profile.username} on ${tier} tier!`);
     setActiveSubscription({ tier, price, status: 'active' });
     setShowSubscribeDialog(false);
@@ -479,7 +479,7 @@ export default function ProfilePage() {
 
   const trackProfileView = async (viewedUserId: string) => {
     if (!currentUser || currentUser.id === viewedUserId) return;
-    await supabase.from('browsing_history').insert({ user_id: currentUser.id, profile_id: viewedUserId, view_type: 'profile' }).catch(() => {});
+    await supabase.from('browsing_history').insert({ user_id: currentUser.id, profile_id: viewedUserId, view_type: 'profile' }).then(() => {}, () => {});
     // ── Profile View Notification: notify owner once per viewer per 24h (localStorage dedup) ──
     const notifKey = `ts-pv-notif-${viewedUserId}-${currentUser.id}`;
     try {
@@ -495,7 +495,7 @@ export default function ProfilePage() {
       icon_emoji: '👀',
       cta_label: 'View their profile',
       cta_url: `/profile/${currentUser.username}`,
-    }).catch(() => {});
+    }).then(() => {}, () => {});
   };
 
   const fetchProfileViews7d = async (userId: string) => {
@@ -560,8 +560,8 @@ export default function ProfilePage() {
   const handleShareProfile = async () => {
     const url = `${window.location.origin}/profile/${profile.username}`;
     const shareText = `Check out @${profile.username} on Tsocial${profile.bio ? ': ' + profile.bio.slice(0, 80) : ''}!`;
-    if (navigator.share) await navigator.share({ title: `@${profile.username} on Tsocial`, text: shareText, url }).catch(() => {});
-    else await navigator.clipboard.writeText(url).catch(() => {});
+    if (navigator.share) await navigator.share({ title: `@${profile.username} on Tsocial`, text: shareText, url }).then(() => {}, () => {});
+    else await navigator.clipboard.writeText(url).then(() => {}, () => {});
     setProfileShared(true);
     setTimeout(() => setProfileShared(false), 2000);
   };
@@ -700,10 +700,10 @@ export default function ProfilePage() {
     if (!wallet || Number(wallet.balance) < amount) { toast.error('Insufficient wallet balance'); setSendingTip(false); return; }
     const { error: deductErr } = await supabase.rpc('deduct_from_wallet', { p_user_id: currentUser.id, p_amount: amount });
     if (deductErr) { toast.error('Could not deduct from wallet'); setSendingTip(false); return; }
-    await supabase.rpc('add_to_wallet', { p_user_id: profile.id, p_amount: amount }).catch(() => {});
-    await supabase.from('tips').insert({ from_user_id: currentUser.id, to_user_id: profile.id, amount, message: `Tip from @${currentUser.username}` }).catch(() => {});
-    await supabase.from('creator_earnings').insert({ user_id: profile.id, source: 'tips', amount, status: 'paid' }).catch(() => {});
-    await supabase.from('notifications').insert({ user_id: profile.id, type: 'tip', from_user_id: currentUser.id }).catch(() => {});
+    await supabase.rpc('add_to_wallet', { p_user_id: profile.id, p_amount: amount }).then(() => {}, () => {});
+    await supabase.from('tips').insert({ from_user_id: currentUser.id, to_user_id: profile.id, amount, message: `Tip from @${currentUser.username}` }).then(() => {}, () => {});
+    await supabase.from('creator_earnings').insert({ user_id: profile.id, source: 'tips', amount, status: 'paid' }).then(() => {}, () => {});
+    await supabase.from('notifications').insert({ user_id: profile.id, type: 'tip', from_user_id: currentUser.id }).then(() => {}, () => {});
     toast.success(`$${amount.toFixed(2)} tip sent to @${profile.username}!`);
     setTipSent(true); setShowTipDialog(false); setTipAmount(null); setCustomTipAmount(''); setSendingTip(false);
     setTimeout(() => setTipSent(false), 3000);
@@ -773,7 +773,7 @@ export default function ProfilePage() {
         trackProfileView(profileData.id),
         fetchGiftHistory(profileData.id),
         fetchPostImpressions(profileData.id),
-      ]).catch(() => {});
+      ]).then(() => {}, () => {});
       if (currentUser && currentUser.id !== profileData.id) checkBlockMuteStatus(profileData.id);
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -817,7 +817,7 @@ export default function ProfilePage() {
     const postList = data || [];
     setPosts(postList);
     // Fire milestone alerts asynchronously — won't block UI
-    checkImpressionMilestones(userId, postList).catch(() => {});
+    checkImpressionMilestones(userId, postList).then(() => {}, () => {});
   };
   const fetchThreads = async (userId: string) => {
     const { data } = await supabase.from('threads').select('*').eq('user_id', userId).eq('is_published', true).order('created_at', { ascending: false });

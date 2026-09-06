@@ -89,7 +89,7 @@ export async function sendActivityNotification({
             body,
             data,
           }),
-        }).catch(() => {}); // fire-and-forget, non-fatal
+        }).then(() => {}, () => {}); // fire-and-forget, non-fatal
       }
     }
   } catch (error) {

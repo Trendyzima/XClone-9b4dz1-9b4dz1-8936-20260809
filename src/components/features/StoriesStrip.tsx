@@ -67,7 +67,7 @@ export function StoriesStrip() {
     const audio = new Audio(previewUrl);
     audio.loop = true;
     audio.volume = 0.6;
-    audio.play().catch(() => {});
+    audio.play().then(() => {}, () => {});
     storyAudioRef.current = audio;
   };
 
@@ -172,7 +172,7 @@ export function StoriesStrip() {
     if (previewingMusic?.id === track.id) { setPreviewingMusic(null); return; }
     const audio = new Audio(track.preview_url);
     musicPreviewRef.current = audio;
-    audio.play().catch(() => {});
+    audio.play().then(() => {}, () => {});
     audio.addEventListener('ended', () => setPreviewingMusic(null));
     setPreviewingMusic(track);
   };
@@ -256,7 +256,7 @@ export function StoriesStrip() {
       amount: 5,
       reason: 'story_creation',
       metadata: { date: today },
-    }).catch(() => {});
+    }).then(() => {}, () => {});
     toast.success('🎉 +5 credits for creating a story!', { duration: 3000 });
   }, []);
 
@@ -660,7 +660,7 @@ export function StoriesStrip() {
     if (!pendingFile || !user) return;
     setUploading(true);
     // Grant +5 credits for story creation (once per day)
-    grantStoryCreationReward(user.id).catch(() => {});
+    grantStoryCreationReward(user.id).then(() => {}, () => {});
     const ext = pendingFile.name.split('.').pop();
     const path = `stories/${user.id}/${Date.now()}.${ext}`;
     const { error: upErr } = await supabase.storage.from('posts').upload(path, pendingFile);
