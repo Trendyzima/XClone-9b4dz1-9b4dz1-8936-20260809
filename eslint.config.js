@@ -1,11 +1,27 @@
 import js from '@eslint/js';
-import tseslint from 'typescript-eslint';
+import globals from 'globals';
 
-// ESLint 9 flat config: TypeScript correctness remains enforced by the dedicated typecheck gate.
+// TypeScript/TSX correctness is enforced by `npm run typecheck`.
+// ESLint is intentionally scoped to JavaScript tooling/configuration so it does not
+// parse TS/TSX with Espree or report Node globals as browser errors.
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      '**/*.ts',
+      '**/*.tsx',
+      '_*.cjs',
+      'vite-fix-loader.mjs',
+      'vite.config.cjs',
+    ],
   },
-  js.configs.recommended,
-  tseslint.configs.eslintRecommended,
+  {
+    files: ['**/*.js', '**/*.cjs', '**/*.mjs'],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: js.configs.recommended.rules,
+  },
 ];
