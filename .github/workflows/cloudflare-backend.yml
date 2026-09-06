@@ -36,6 +36,7 @@ jobs:
           test -f supabase/migrations/20260906_backend_core.sql
           test -f supabase/migrations/20260906104613_harden_production_api_security.sql
           test -f supabase/migrations/20260906150000_media_assets_20mb_limit.sql
+          test -f supabase/migrations/20260906160000_harden_media_visibility_and_function_security.sql
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
