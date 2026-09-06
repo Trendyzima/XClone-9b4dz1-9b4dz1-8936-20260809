@@ -17,9 +17,9 @@ jobs:
           git restore --source=8c077922f5d4f41bdb42e892b00b18db76df72b3 -- \
             src/pages/TeamChatPage.tsx \
             src/pages/VideosPage.tsx \
-            src/components/features/UserSuggestionsWidget.tsx \
             src/types/app-types.ts \
             src/components/features/VideoPlayer.tsx
+          git restore --source=9f80dbf3dbf897faa1661d272d2f24f65c30d3bd -- src/components/features/UserSuggestionsWidget.tsx
           python3 - <<'PY'
           from pathlib import Path
           for name in ('TeamChatPage.tsx','VideosPage.tsx'):
