@@ -7,5 +7,5 @@ export default [
     ignores: ['dist/**', 'node_modules/**', 'coverage/**'],
   },
   js.configs.recommended,
-  ...tseslint.configs.eslintRecommended,
+  tseslint.configs.eslintRecommended,
 ];
