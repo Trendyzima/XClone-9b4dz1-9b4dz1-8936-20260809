@@ -26,6 +26,15 @@ jobs:
 
       - name: Install dependencies
         run: npm install --ignore-scripts
+        env:
+          NODE_OPTIONS: ''
 
-      - name: TypeScript/Vite build
+      - name: TypeScript check
+        run: npm run typecheck
+        env:
+          NODE_OPTIONS: ''
+
+      - name: Production build
         run: npm run build
+        env:
+          NODE_OPTIONS: ''
