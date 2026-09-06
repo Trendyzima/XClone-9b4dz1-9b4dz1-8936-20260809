@@ -34,6 +34,7 @@ interface FediversePost {
     acct?: string;
     display_name?: string;
     avatar?: string;
+    icon?: { url?: string };
     avatar_url?: string;
   };
   media_attachments?: { type?: string; url?: string; preview_url?: string; description?: string }[];
