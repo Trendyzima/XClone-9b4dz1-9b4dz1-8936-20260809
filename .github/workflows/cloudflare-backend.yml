@@ -77,3 +77,16 @@ jobs:
           npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy \
             --config cloudflare/wrangler.jsonc \
             --secrets-file "$secrets_file"
+      - name: Smoke test production API
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            payload="$(curl --fail --silent --show-error --max-time 15 https://testagram.site/api/health || true)"
+            if printf '%s' "$payload" | grep -Fq '"ok":true' && printf '%s' "$payload" | grep -Fq 'cloudflare-r2'; then
+              printf '%s\n' "$payload"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Production API health check failed or did not reach the Cloudflare Worker.'
+          exit 1
