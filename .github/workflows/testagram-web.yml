@@ -12,7 +12,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: testagram-web-quality-${{ github.ref }}
+  group: testagram-web-quality-v2-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
