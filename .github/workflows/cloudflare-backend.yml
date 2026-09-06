@@ -1,0 +1,31 @@
+name: Testagram Cloudflare Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/cloudflare-backend.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/cloudflare-backend.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Validate Cloudflare Worker configuration
+        run: npx --yes wrangler@4.126.0 deploy --config cloudflare/wrangler.jsonc --dry-run
+      - name: Verify backend migration exists
+        run: test -f supabase/migrations/20260906_backend_core.sql
