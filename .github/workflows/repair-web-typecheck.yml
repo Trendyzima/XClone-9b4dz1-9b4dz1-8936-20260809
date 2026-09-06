@@ -22,10 +22,10 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import subprocess
           p = Path('src/components/features/VideoPlayer.tsx')
           text = p.read_text() if p.exists() else ''
           if len(text.splitlines()) < 100:
-              import subprocess
               subprocess.run(['git','restore','--source=8c077922f5d4f41bdb42e892b00b18db76df72b3','--','src/components/features/VideoPlayer.tsx'], check=True)
           PY
       - name: Repair legacy web typing
@@ -37,6 +37,7 @@ jobs:
           for path in root.rglob('*.tsx'):
               text = path.read_text()
               text = text.replace('.catch(() => {})', '.then(() => {}, () => {})')
+              text = re.sub(r'\s+title="[^"]*"(?=\s*(?:/?>))', '', text)
               path.write_text(text)
           p = root / 'components/features/SavingsGoalsTab.tsx'
           if p.exists():
@@ -47,7 +48,8 @@ jobs:
               p.write_text(p.read_text().replace("user?.creator_tier", "(user as any)?.creator_tier"))
           p = root / 'components/features/PostCard.tsx'
           if p.exists():
-              p.write_text(re.sub(r'(className="[^"]*" fill="[^"]*") title="[^"]*"', r'\1 aria-label="icon"', p.read_text()))
+              text = p.read_text()
+              p.write_text(re.sub(r'\s+title="[^"]*"(?=\s*/?>)', '', text))
           p = root / 'components/features/TrendingVideosSection.tsx'
           if p.exists():
               text = p.read_text()
