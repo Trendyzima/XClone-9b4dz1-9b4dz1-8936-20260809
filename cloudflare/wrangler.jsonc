@@ -12,6 +12,12 @@
   "vars": {
     "APP_ORIGIN": "https://testagram.site"
   },
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "testagram-media"
+    }
+  ],
   "secrets": {
     "required": ["SUPABASE_URL", "SUPABASE_ANON_KEY"]
   }
