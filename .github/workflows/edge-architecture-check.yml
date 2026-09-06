@@ -2,7 +2,7 @@ name: Edge Architecture Check
 
 on:
   push:
-    branches: [main, edge-native-serverless-migration]
+    branches: [main, edge-native-serverless-migration, cloudflare-native-migration]
   pull_request:
     branches: [main]
 
@@ -30,5 +30,5 @@ jobs:
       - name: Install dependencies
         run: NODE_OPTIONS= npm install --ignore-scripts --no-audit --no-fund
 
-      - name: TypeScript/Vite build
+      - name: Production build
         run: NODE_OPTIONS= npm run build
