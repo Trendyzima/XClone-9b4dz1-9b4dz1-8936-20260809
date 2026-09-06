@@ -11,8 +11,8 @@
   ],
   "vars": {
     "APP_ORIGIN": "https://testagram.site",
-    "SUPABASE_URL": "https://aepbqfrmheihfsauzcby.supabase.co",
-    "SUPABASE_PROJECT_REF": "aepbqfrmheihfsauzcby"
+    "SUPABASE_URL": "https://zcjtvykwwplnzyyslnop.supabase.co",
+    "SUPABASE_PROJECT_REF": "zcjtvykwwplnzyyslnop"
   },
   "r2_buckets": [
     {
