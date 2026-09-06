@@ -73,10 +73,6 @@ export function PollCard({ poll, postId }: PollCardProps) {
     ? pollData.options.reduce((a, b) => (a.votes >= b.votes ? a : b))
     : null;
 
-
-
-
-
   if (!poll) return null;
 
   return (
