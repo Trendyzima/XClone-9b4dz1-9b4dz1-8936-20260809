@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Github, Loader2, Mail } from 'lucide-react';
 import { authService } from '@/lib/auth';
 import { useAuth } from '@/hooks/useAuth';
@@ -15,36 +14,51 @@ function GoogleMark() {
 
 export default function AuthPage() {
   useSEO({ noindex: true, title: 'Sign in', url: '/auth' });
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { login } = useAuthStore();
   const { toast } = useToast();
-  const [mode, setMode] = useState<'signin' | 'signup' | 'verify'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup' | 'sent'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) navigate('/', { replace: true });
-  }, [user, navigate]);
+    let active = true;
+    const hydrate = async () => {
+      try {
+        const authUser = await authService.hydrateSession();
+        if (active && authUser) login(authService.mapUser(authUser));
+      } catch (error: any) {
+        if (active) toast({ title: 'Authentication error', description: error?.message || 'Could not restore your session.', variant: 'destructive' });
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void hydrate();
+    const { data } = authService.onAuthStateChange(async authUser => {
+      if (!active) return;
+      if (authUser) {
+        try {
+          await authService.ensureProfile(authUser);
+          if (active) login(authService.mapUser(authUser));
+        } catch (error: any) {
+          if (active) toast({ title: 'Profile setup failed', description: error?.message || 'Your account was authenticated but the profile could not be prepared.', variant: 'destructive' });
+        }
+      }
+      if (active) setLoading(false);
+    });
+    return () => { active = false; data.subscription.unsubscribe(); };
+  }, [login, toast]);
 
   useEffect(() => {
-    const error = searchParams.get('error_description') || searchParams.get('error');
-    if (error) toast({ title: 'Authentication failed', description: error.replace(/\+/g, ' '), variant: 'destructive' });
-  }, [searchParams, toast]);
+    if (user) window.location.replace('/');
+  }, [user]);
 
   const run = async (action: () => Promise<void>, success?: string) => {
     setLoading(true);
-    try {
-      await action();
-      if (success) toast({ title: 'Success', description: success });
-    } catch (error: any) {
-      toast({ title: 'Authentication error', description: error?.message || 'Please try again.', variant: 'destructive' });
-    } finally {
-      setLoading(false);
-    }
+    try { await action(); if (success) toast({ title: 'Success', description: success }); }
+    catch (error: any) { toast({ title: 'Authentication error', description: error?.message || 'Please try again.', variant: 'destructive' }); }
+    finally { setLoading(false); }
   };
 
   const signInEmail = async (event: React.FormEvent) => {
@@ -52,28 +66,15 @@ export default function AuthPage() {
     await run(async () => {
       const authUser = await authService.signInWithPassword(email, password);
       if (authUser) login(authService.mapUser(authUser));
-      navigate('/', { replace: true });
     });
   };
 
-  const sendOtp = async (event?: React.FormEvent) => {
-    event?.preventDefault();
-    if (!email.trim()) return;
-    await run(async () => {
-      await authService.sendOtp(email);
-      setMode('verify');
-      setOtp('');
-    }, 'A 6-digit verification code was sent to your email.');
-  };
-
-  const verify = async (event: React.FormEvent) => {
+  const sendMagicLink = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (otp.length !== 6 || password.length < 6) return;
     await run(async () => {
-      const authUser = await authService.verifyOtpAndSetPassword(email, otp, password);
-      if (authUser) login(authService.mapUser(authUser));
-      navigate('/', { replace: true });
-    });
+      await authService.sendMagicLink(email);
+      setMode('sent');
+    }, 'Check your email and click the secure Testagram sign-in link.');
   };
 
   const social = (provider: 'google' | 'github') => run(async () => {
@@ -84,19 +85,15 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8"><div className="mx-auto w-16 h-16 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center text-3xl font-black">T</div><h1 className="mt-5 text-3xl font-black">{mode === 'verify' ? 'Verify your email' : mode === 'signup' ? 'Join Testagram' : 'Welcome back'}</h1><p className="mt-2 text-sm text-muted-foreground">Production authentication for testagram.site</p></div>
+        <div className="text-center mb-8"><div className="mx-auto w-16 h-16 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center text-3xl font-black">T</div><h1 className="mt-5 text-3xl font-black">{mode === 'signup' ? 'Join Testagram' : mode === 'sent' ? 'Check your email' : 'Welcome back'}</h1><p className="mt-2 text-sm text-muted-foreground">Production authentication for testagram.site</p></div>
 
-        {mode !== 'verify' && <div className="space-y-3">
-          <Button type="button" variant="outline" className="w-full h-12 rounded-full gap-3" disabled={loading} onClick={() => social('google')}><GoogleMark />Continue with Google</Button>
-          <Button type="button" variant="outline" className="w-full h-12 rounded-full gap-3" disabled={loading} onClick={() => social('github')}><Github className="w-5 h-5" />Continue with GitHub</Button>
-          <div className="flex items-center gap-3 py-2 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border"/><span>OR</span><span className="h-px flex-1 bg-border"/></div>
-        </div>}
+        {mode !== 'sent' && <div className="space-y-3"><Button type="button" variant="outline" className="w-full h-12 rounded-full gap-3" disabled={loading} onClick={() => void social('google')}><GoogleMark />Continue with Google</Button><Button type="button" variant="outline" className="w-full h-12 rounded-full gap-3" disabled={loading} onClick={() => void social('github')}><Github className="w-5 h-5" />Continue with GitHub</Button><div className="flex items-center gap-3 py-2 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border"/><span>OR</span><span className="h-px flex-1 bg-border"/></div></div>}
 
         {mode === 'signin' && <form onSubmit={signInEmail} className="space-y-4"><div><label className="text-sm font-semibold">Email</label><Input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required className="mt-1 h-12" /></div><div><label className="text-sm font-semibold">Password</label><Input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required className="mt-1 h-12" /></div><Button className="w-full h-12 rounded-full" disabled={loading}>{loading ? <Loader2 className="w-5 h-5 animate-spin"/> : <><Mail className="w-4 h-4 mr-2"/>Sign in with email</>}</Button><button type="button" className="w-full text-sm text-primary hover:underline" onClick={() => setMode('signup')}>New to Testagram? Create an account</button></form>}
 
-        {mode === 'signup' && <form onSubmit={sendOtp} className="space-y-4"><div><label className="text-sm font-semibold">Email</label><Input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required className="mt-1 h-12" /></div><Button className="w-full h-12 rounded-full" disabled={loading}>{loading ? <Loader2 className="w-5 h-5 animate-spin"/> : 'Send verification code'}</Button><button type="button" className="w-full text-sm text-primary hover:underline" onClick={() => setMode('signin')}>Already have an account? Sign in</button></form>}
+        {mode === 'signup' && <form onSubmit={sendMagicLink} className="space-y-4"><div><label className="text-sm font-semibold">Email</label><Input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required className="mt-1 h-12" /></div><Button className="w-full h-12 rounded-full" disabled={loading}>{loading ? <Loader2 className="w-5 h-5 animate-spin"/> : 'Send secure sign-in link'}</Button><button type="button" className="w-full text-sm text-primary hover:underline" onClick={() => setMode('signin')}>Already have an account? Sign in</button></form>}
 
-        {mode === 'verify' && <form onSubmit={verify} className="space-y-4"><p className="text-sm text-muted-foreground text-center">Enter the 6-digit code sent to <strong>{email}</strong>.</p><Input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" className="h-14 text-center text-2xl tracking-[0.5em]" required/><div><label className="text-sm font-semibold">Create password</label><Input type="password" autoComplete="new-password" minLength={6} value={password} onChange={e => setPassword(e.target.value)} required className="mt-1 h-12" /></div><Button className="w-full h-12 rounded-full" disabled={loading || otp.length !== 6 || password.length < 6}>{loading ? <Loader2 className="w-5 h-5 animate-spin"/> : 'Verify and create account'}</Button><button type="button" className="w-full text-sm text-primary hover:underline" disabled={loading} onClick={() => void sendOtp()}>Resend code</button></form>}
+        {mode === 'sent' && <div className="space-y-4 text-center"><p className="text-sm text-muted-foreground">We sent a secure sign-in link to <strong>{email}</strong>.</p><p className="text-sm text-muted-foreground">Open the email and tap the link. You will be returned to Testagram and signed in automatically.</p><Button type="button" variant="outline" className="w-full h-12 rounded-full" onClick={() => setMode('signup')}>Use a different email</Button></div>}
 
         <div className="mt-8 text-center text-xs text-muted-foreground">By continuing, you agree to Testagram's terms and privacy policy.</div>
       </div>
