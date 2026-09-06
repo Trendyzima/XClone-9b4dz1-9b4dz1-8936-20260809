@@ -6,7 +6,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "routes": [
-    { "pattern": "testagram.site/api/*", "zone_name": "testagram.site" }
+    { "pattern": "testagram.site/api/*", "zone_name": "testagram.site" },
+    { "pattern": "www.testagram.site/api/*", "zone_name": "testagram.site" }
   ],
   "vars": {
     "APP_ORIGIN": "https://testagram.site"
