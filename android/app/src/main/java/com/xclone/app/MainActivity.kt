@@ -1,6 +1,8 @@
 package com.testagram.android
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -52,7 +54,30 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")
+        loadInitialUrl(intent)
+    }
+
+    private fun isTrustedDeepLink(uri: Uri): Boolean {
+        return uri.scheme == "https" &&
+            (uri.host == "testagram.site" || uri.host == "www.testagram.site")
+    }
+
+    private fun loadInitialUrl(sourceIntent: Intent?) {
+        val deepLink = sourceIntent?.data
+        if (deepLink != null && isTrustedDeepLink(deepLink)) {
+            webView.loadUrl(deepLink.toString())
+        } else {
+            webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val deepLink = intent.data
+        if (deepLink != null && isTrustedDeepLink(deepLink)) {
+            webView.loadUrl(deepLink.toString())
+        }
     }
 
     override fun onBackPressed() {
