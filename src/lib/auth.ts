@@ -45,6 +45,16 @@ export class AuthService {
     return updateData.user;
   }
 
+  async signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: PRODUCTION_AUTH_REDIRECT,
+      },
+    });
+    if (error) throw error;
+  }
+
   async signInWithPassword(email: string, password: string) {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
