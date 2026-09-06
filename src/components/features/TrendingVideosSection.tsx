@@ -149,7 +149,7 @@ function FediverseDiscoveryRail({ posts }: { posts: FediversePost[] }) {
               <p className="mt-2 text-xs leading-relaxed text-foreground/85 line-clamp-3">{text || 'Federated post'}</p>
               {media?.url && <img src={media.preview_url ?? media.url} alt={media.description ?? ''} className="mt-2 h-24 w-full rounded-lg object-cover" loading="lazy" />}
               <div className="mt-2 flex items-center gap-3 text-[9px] text-muted-foreground/65">
-                <span>{formatNumber(post.platform_rank_score ?? 0)} rank</span>
+                <span>Ranked for you</span>
                 <span>·</span>
                 <span>Open on origin</span>
               </div>
