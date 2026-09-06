@@ -30,8 +30,7 @@ function AuthAdBanner() {
 
 export default function AuthPage() {
   useSEO({ noindex: true, title: 'Sign In', url: '/auth' });
-  // esbuild guard: no explicit generic on useState — infer from initial value
-  const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'verify'
+  const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
@@ -39,11 +38,9 @@ export default function AuthPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  // esbuild guard: store initial ref param at module boundary, no useRef generic needed
   const referrerIdRef = useRef(searchParams.get('ref'));
   const { login } = useAuthStore();
 
-  // esbuild guard: ref param is stored in localStorage on mount so it survives OTP redirect
   useEffect(() => {
     const ref = searchParams.get('ref');
     if (ref) {
@@ -65,13 +62,14 @@ export default function AuthPage() {
     }
   };
 
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const sendOtp = async () => {
+    if (!email.trim()) return;
     setLoading(true);
     try {
-      await authService.sendOtp(email);
+      await authService.sendOtp(email.trim());
       setMode('verify');
-      toast({ title: 'Success', description: 'Verification code sent to your email' });
+      setOtp('');
+      toast({ title: 'Success', description: 'A 6-digit verification code was sent to your email' });
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     } finally {
@@ -79,12 +77,15 @@ export default function AuthPage() {
     }
   };
 
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await sendOtp();
+  };
+
   const recordReferral = async (newUserId: string) => {
-    // esbuild guard: read from localStorage (survives OTP redirect)
     const refUsername = localStorage.getItem('ts-pending-ref') ?? referrerIdRef.current;
     if (!refUsername) return;
     localStorage.removeItem('ts-pending-ref');
-    // Look up referrer by username (ref param is username, not UUID)
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(refUsername);
     let referrerId: string | null = null;
     if (isUuid) {
@@ -100,7 +101,6 @@ export default function AuthPage() {
       .select()
       .single();
     if (error) return;
-    // Award 100 credits to both referrer and new user
     await supabase.rpc('add_to_wallet', { p_user_id: referrerId, p_amount: 100 }).then(() => {}, () => {});
     await supabase.rpc('add_to_wallet', { p_user_id: newUserId, p_amount: 100 }).then(() => {}, () => {});
   };
@@ -109,7 +109,7 @@ export default function AuthPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const user = await authService.verifyOtpAndSetPassword(email, otp, password);
+      const user = await authService.verifyOtpAndSetPassword(email.trim(), otp.trim(), password);
       recordReferral(user.id).then(() => {}, () => {});
       login(authService.mapUser(user));
       navigate('/');
@@ -119,7 +119,6 @@ export default function AuthPage() {
     }
   };
 
-  // Pre-compute referral context for display
   const pendingRef = typeof window !== 'undefined' ? (localStorage.getItem('ts-pending-ref') ?? searchParams.get('ref')) : null;
 
   return (
@@ -172,14 +171,25 @@ export default function AuthPage() {
 
         {mode === 'verify' && (
           <form onSubmit={handleVerifyOtp} className="space-y-4">
-            <p className="text-muted-foreground text-center">Enter the 4-digit code sent to {email}</p>
-            <Input type="text" placeholder="Verification code" value={otp} onChange={(e) => setOtp(e.target.value)} required maxLength={4} className="h-14 text-center text-2xl tracking-widest" />
+            <p className="text-muted-foreground text-center">Enter the 6-digit code sent to {email}</p>
+            <Input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              placeholder="6-digit verification code"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              required
+              maxLength={6}
+              className="h-14 text-center text-2xl tracking-widest"
+            />
             <Input type="password" placeholder="Create password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className="h-14" />
-            <Button type="submit" className="w-full h-12 rounded-full" disabled={loading}>
+            <Button type="submit" className="w-full h-12 rounded-full" disabled={loading || otp.length !== 6}>
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Verify and create account'}
             </Button>
             <div className="text-center">
-              <button type="button" onClick={handleSendOtp} className="text-primary hover:underline text-sm" disabled={loading}>
+              <button type="button" onClick={sendOtp} className="text-primary hover:underline text-sm" disabled={loading}>
                 Resend code
               </button>
             </div>
