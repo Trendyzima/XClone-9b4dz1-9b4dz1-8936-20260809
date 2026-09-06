@@ -1,3 +1,5 @@
+// Shared application contracts. Keep authentication fields optional where they
+// are populated asynchronously from the profile/session pipeline.
 export interface AuthUser {
   id: string;
   email: string;
