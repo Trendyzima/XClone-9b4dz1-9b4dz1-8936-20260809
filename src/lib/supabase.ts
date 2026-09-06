@@ -18,7 +18,11 @@ export const supabase: any = createClient(supabaseUrl, supabasePublishableKey, {
   },
 });
 
-export const cloudflareApiUrl = (import.meta.env.VITE_CLOUDFLARE_API_URL || '/api').replace(/\/$/, '');
+// The Testagram custom-domain /api route is currently being repaired at the
+// DNS/Cloudflare edge. Keep the deployed Worker as the deterministic fallback
+// so production clients never fall back to localhost or an unavailable origin.
+const DIRECT_CLOUDFLARE_API = 'https://testagram-api.nahashonnyaga794.workers.dev/api';
+export const cloudflareApiUrl = (import.meta.env.VITE_CLOUDFLARE_API_URL || DIRECT_CLOUDFLARE_API).replace(/\/$/, '');
 export const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 
 export async function cloudflareHealth() {
