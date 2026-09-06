@@ -1,0 +1,39 @@
+name: One-shot Source Recovery
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  recover:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Restore pre-repair baseline files
+        run: |
+          git restore --source=8c077922f5d4f41bdb42e892b00b18db76df72b3 -- \
+            src/pages/TeamChatPage.tsx \
+            src/pages/VideosPage.tsx \
+            src/components/features/UserSuggestionsWidget.tsx \
+            src/types/app-types.ts \
+            src/components/features/VideoPlayer.tsx
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('TeamChatPage.tsx','VideosPage.tsx'):
+              p=Path('src/pages')/name
+              p.write_text(p.read_text().replace("import React from 'react';", "import * as React from 'react';"))
+          p=Path('src/types/app-types.ts')
+          text=p.read_text()
+          if 'is_creator?: boolean;' not in text:
+              text=text.replace('  creator_tier?: string;\n','  creator_tier?: string;\n  is_creator?: boolean;\n  verified?: boolean;\n',1)
+          p.write_text(text)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix(web): restore complete source files'
+          git push
