@@ -1,24 +1,23 @@
 import js from '@eslint/js';
 import globals from 'globals';
+import { globalIgnores } from 'eslint/config';
 
 // TypeScript/TSX correctness is enforced by `npm run typecheck`.
-// ESLint is intentionally scoped to JavaScript tooling/configuration so it does not
-// parse TS/TSX with Espree or report Node globals as browser errors.
+// Legacy build helpers are generated/compatibility tooling; lint the project configuration itself.
 export default [
+  globalIgnores([
+    'dist/**',
+    'node_modules/**',
+    'coverage/**',
+    '**/*.ts',
+    '**/*.tsx',
+    '**/*.js',
+    '**/*.cjs',
+    '**/*.mjs',
+    '!eslint.config.js',
+  ]),
   {
-    ignores: [
-      'dist/**',
-      'node_modules/**',
-      'coverage/**',
-      '**/*.ts',
-      '**/*.tsx',
-      '_*.cjs',
-      'vite-fix-loader.mjs',
-      'vite.config.cjs',
-    ],
-  },
-  {
-    files: ['**/*.js', '**/*.cjs', '**/*.mjs'],
+    files: ['eslint.config.js'],
     languageOptions: {
       globals: globals.node,
     },
