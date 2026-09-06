@@ -2,8 +2,10 @@ interface Env {
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   APP_ORIGIN: string;
+  MEDIA: R2Bucket;
 }
 
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 const TABLES = new Set([
   'ai_usage', 'audio_spaces', 'blocks', 'bookmark_folder_items', 'bookmark_folders', 'bookmarks',
   'communities', 'community_members', 'content_events', 'conversation_members', 'conversations',
@@ -21,6 +23,7 @@ const TABLES = new Set([
 const READ_ONLY_TABLES = new Set(['trending_posts', 'user_profiles']);
 const MUTATING_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
+const MEDIA_TYPES = new Set(['image', 'video', 'audio', 'document']);
 
 function cors(request: Request, env: Env): HeadersInit {
   const origin = request.headers.get('Origin');
@@ -34,7 +37,7 @@ function cors(request: Request, env: Env): HeadersInit {
   const allowed = origin ? allowedOrigins.has(origin) : false;
   return {
     'Access-Control-Allow-Origin': allowed ? origin! : env.APP_ORIGIN,
-    'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, range',
+    'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, range, x-media-type, x-file-name',
     'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin'
@@ -67,9 +70,30 @@ function supabaseHeaders(request: Request, env: Env): Headers {
   return headers;
 }
 
+function requireAuth(request: Request, env: Env): Response | null {
+  if (!request.headers.get('Authorization')) {
+    return response(request, env, { error: 'Authentication required' }, 401);
+  }
+  return null;
+}
+
 function tableFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/api\/db\/([A-Za-z_][A-Za-z0-9_]*)$/);
   return match?.[1] || null;
+}
+
+async function currentUserId(request: Request, env: Env): Promise<string | null> {
+  const authorization = request.headers.get('Authorization');
+  if (!authorization) return null;
+  const upstream = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      apikey: env.SUPABASE_ANON_KEY,
+      Authorization: authorization
+    }
+  });
+  if (!upstream.ok) return null;
+  const user = await upstream.json() as { id?: string };
+  return user.id || null;
 }
 
 async function proxyDatabase(request: Request, env: Env, table: string) {
@@ -106,6 +130,135 @@ async function proxyDatabase(request: Request, env: Env, table: string) {
   return new Response(upstream.body, { status: upstream.status, headers });
 }
 
+async function uploadMedia(request: Request, env: Env): Promise<Response> {
+  const authError = requireAuth(request, env);
+  if (authError) return authError;
+
+  const contentLength = Number(request.headers.get('Content-Length') || 0);
+  if (contentLength <= 0) return response(request, env, { error: 'Media body is required' }, 400);
+  if (contentLength > MAX_MEDIA_BYTES) {
+    return response(request, env, { error: 'Media exceeds the 20 MiB limit', maxBytes: MAX_MEDIA_BYTES }, 413);
+  }
+
+  const mediaType = request.headers.get('X-Media-Type') || 'document';
+  if (!MEDIA_TYPES.has(mediaType)) {
+    return response(request, env, { error: 'Invalid media type' }, 400);
+  }
+
+  const userId = await currentUserId(request, env);
+  if (!userId) return response(request, env, { error: 'Invalid or expired session' }, 401);
+
+  const assetId = crypto.randomUUID();
+  const rawName = request.headers.get('X-File-Name') || 'upload';
+  const safeName = rawName.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120) || 'upload';
+  const key = `${userId}/${assetId}/${safeName}`;
+  const contentType = request.headers.get('Content-Type') || 'application/octet-stream';
+
+  try {
+    await env.MEDIA.put(key, request.body, {
+      httpMetadata: {
+        contentType,
+        cacheControl: 'public, max-age=31536000, immutable'
+      },
+      customMetadata: {
+        ownerId: userId,
+        assetId,
+        mediaType
+      }
+    });
+
+    const dbResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/media_assets`, {
+      method: 'POST',
+      headers: supabaseHeaders(request, env),
+      body: JSON.stringify({
+        id: assetId,
+        owner_id: userId,
+        storage_key: key,
+        media_url: `/api/media/${assetId}`,
+        media_type: mediaType,
+        mime_type: contentType,
+        byte_size: contentLength,
+        metadata: { storage: 'cloudflare_r2', bucket: 'testagram-media', original_name: rawName }
+      })
+    });
+
+    if (!dbResponse.ok) {
+      await env.MEDIA.delete(key);
+      const detail = await dbResponse.text();
+      return response(request, env, { error: 'Media metadata write failed', detail }, 502);
+    }
+
+    return response(request, env, {
+      id: assetId,
+      storage: 'cloudflare-r2',
+      storageKey: key,
+      url: `/api/media/${assetId}`,
+      byteSize: contentLength,
+      mediaType,
+      mimeType: contentType
+    }, 201);
+  } catch (error) {
+    try { await env.MEDIA.delete(key); } catch { /* best effort cleanup */ }
+    return response(request, env, {
+      error: error instanceof Error ? error.message : 'Media upload failed'
+    }, 502);
+  }
+}
+
+function mediaIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/api\/media\/([0-9a-f-]{36})$/i);
+  return match?.[1] || null;
+}
+
+async function getMedia(request: Request, env: Env, id: string): Promise<Response> {
+  const authError = requireAuth(request, env);
+  if (authError) return authError;
+
+  const target = new URL(`${env.SUPABASE_URL}/rest/v1/media_assets`);
+  target.searchParams.set('select', 'storage_key,mime_type,owner_id,byte_size');
+  target.searchParams.set('id', `eq.${id}`);
+  target.searchParams.set('limit', '1');
+  const metadataResponse = await fetch(target, { headers: supabaseHeaders(request, env) });
+  if (!metadataResponse.ok) return response(request, env, { error: 'Media metadata lookup failed' }, 502);
+  const rows = await metadataResponse.json() as Array<{ storage_key: string; mime_type?: string; owner_id: string; byte_size: number }>;
+  if (!rows.length) return response(request, env, { error: 'Media not found' }, 404);
+
+  const object = await env.MEDIA.get(rows[0].storage_key);
+  if (!object) return response(request, env, { error: 'Media object not found' }, 404);
+
+  const headers = new Headers(cors(request, env));
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Content-Type', rows[0].mime_type || object.httpMetadata?.contentType || 'application/octet-stream');
+  headers.set('Content-Length', String(rows[0].byte_size));
+  return new Response(object.body, { status: 200, headers });
+}
+
+async function deleteMedia(request: Request, env: Env, id: string): Promise<Response> {
+  const authError = requireAuth(request, env);
+  if (authError) return authError;
+  const userId = await currentUserId(request, env);
+  if (!userId) return response(request, env, { error: 'Invalid or expired session' }, 401);
+
+  const target = new URL(`${env.SUPABASE_URL}/rest/v1/media_assets`);
+  target.searchParams.set('select', 'storage_key,owner_id');
+  target.searchParams.set('id', `eq.${id}`);
+  target.searchParams.set('owner_id', `eq.${userId}`);
+  target.searchParams.set('limit', '1');
+  const lookup = await fetch(target, { headers: supabaseHeaders(request, env) });
+  if (!lookup.ok) return response(request, env, { error: 'Media metadata lookup failed' }, 502);
+  const rows = await lookup.json() as Array<{ storage_key: string; owner_id: string }>;
+  if (!rows.length) return response(request, env, { error: 'Media not found' }, 404);
+
+  await env.MEDIA.delete(rows[0].storage_key);
+  const deleted = await fetch(`${env.SUPABASE_URL}/rest/v1/media_assets?id=eq.${id}&owner_id=eq.${userId}`, {
+    method: 'DELETE',
+    headers: supabaseHeaders(request, env)
+  });
+  if (!deleted.ok) return response(request, env, { error: 'Media metadata delete failed' }, 502);
+  return response(request, env, { ok: true, id });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') {
@@ -118,9 +271,19 @@ export default {
         ok: true,
         service: 'testagram-api',
         database: 'supabase',
+        media: 'cloudflare-r2',
+        maxMediaBytes: MAX_MEDIA_BYTES,
         edge: 'cloudflare'
       });
     }
+
+    if (url.pathname === '/api/media' && request.method === 'POST') {
+      return uploadMedia(request, env);
+    }
+
+    const mediaId = mediaIdFromPath(url.pathname);
+    if (mediaId && request.method === 'GET') return getMedia(request, env, mediaId);
+    if (mediaId && request.method === 'DELETE') return deleteMedia(request, env, mediaId);
 
     const table = tableFromPath(url.pathname);
     if (table && (TABLES.has(table) || READ_ONLY_TABLES.has(table))) {
