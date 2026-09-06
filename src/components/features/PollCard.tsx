@@ -79,6 +79,8 @@ export function PollCard({ poll, postId }: PollCardProps) {
 
   if (!poll) return null;
 
+  if (!poll) return null;
+
   return (
     <div className="mt-3 rounded-2xl border border-border bg-card overflow-hidden" onClick={e => e.stopPropagation()}>
       {/* Header */}
