@@ -1,0 +1,77 @@
+name: Testagram Android
+
+on:
+  push:
+    branches: [main, testagram-native-shell, native-shell-build-certification, native-shell-build-certification-v2]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install web dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Build canonical web application
+        run: npm run build
+      - name: Upload web build for native packaging
+        uses: actions/upload-artifact@v4
+        with:
+          name: testagram-web-dist
+          path: dist
+          if-no-files-found: error
+
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify canonical Testagram surface and repository parity
+        run: python3 tools/verify_testagram.py
+
+  android:
+    needs: [web, parity]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: testagram-web-dist
+          path: dist
+      - name: Package web build into native WebView assets
+        run: |
+          rm -rf android/app/src/main/assets/www
+          mkdir -p android/app/src/main/assets/www
+          cp -R dist/. android/app/src/main/assets/www/
+          test -f android/app/src/main/assets/www/index.html
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Restore Gradle wrapper executable permission
+        run: chmod +x android/gradlew
+      - name: Verify native Android project has no Capacitor wiring
+        run: |
+          ! grep -RniE 'capacitor|BridgeActivity|cordova' \
+            android/app/build.gradle \
+            android/settings.gradle \
+            android/build.gradle \
+            android/app/src/main/java \
+            android/app/src/main/AndroidManifest.xml
+      - name: Assemble native debug APK
+        working-directory: android
+        run: ./gradlew clean assembleDebug --stacktrace --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: testagram-native-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
