@@ -61,5 +61,37 @@ export interface Notification {
   type: 'like' | 'repost' | 'follow' | 'reply' | 'mention' | 'verified' | 'activity';
   from_user_id?: string;
   post_id?: string;
-  created_at?: string;
+  read: boolean;
+  created_at: string;
+  from_user?: UserProfile;
+  post?: Post;
+}
+
+export interface Hashtag {
+  id: string;
+  tag: string;
+  usage_count: number;
+  last_used_at: string;
+  created_at: string;
+}
+
+export interface Space {
+  id: string;
+  host_id: string;
+  title: string;
+  description?: string;
+  is_live: boolean;
+  listener_count: number;
+  started_at: string;
+  ended_at?: string;
+  host?: UserProfile;
+}
+
+export interface UserSuggestion {
+  id: string;
+  user_id: string;
+  suggested_user_id: string;
+  score: number;
+  reason: string;
+  suggested_user?: UserProfile;
 }
