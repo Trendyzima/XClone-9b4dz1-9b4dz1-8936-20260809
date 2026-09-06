@@ -21,10 +21,6 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
         env: { NODE_OPTIONS: '' }
-      - name: TypeScript diagnostics
-        continue-on-error: true
-        run: npm run typecheck
-        env: { NODE_OPTIONS: '' }
       - name: Production build
         run: npm run build
         env: { NODE_OPTIONS: '' }
