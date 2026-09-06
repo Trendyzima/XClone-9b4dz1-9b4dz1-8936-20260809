@@ -1,0 +1,23 @@
+name: Recover VideoPlayer
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  restore:
+    if: github.event.head_commit.message != 'chore(recovery): restore VideoPlayer'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore known-good file
+        run: |
+          git restore --source=8c077922f5d4f41bdb42e892b00b18db76df72b3 -- src/components/features/VideoPlayer.tsx
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/features/VideoPlayer.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore(recovery): restore VideoPlayer'
+          git push
