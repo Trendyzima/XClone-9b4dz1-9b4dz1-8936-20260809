@@ -24,8 +24,8 @@ permissions:
 env:
   WRANGLER_VERSION: '4.126.0'
   MEDIA_BUCKET: 'testagram-media'
-  SUPABASE_PROJECT_REF: 'aepbqfrmheihfsauzcby'
-  SUPABASE_URL: 'https://aepbqfrmheihfsauzcby.supabase.co'
+  SUPABASE_PROJECT_REF: 'zcjtvykwwplnzyyslnop'
+  SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
   WORKER_HEALTH_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/health'
   PRODUCTION_HEALTH_URL: 'https://testagram.site/api/health'
 
@@ -99,7 +99,7 @@ jobs:
           printf '%s' "$payload" | grep -Fq '"ok":true'
           printf '%s' "$payload" | grep -Fq '"databaseReachable":true'
           printf '%s' "$payload" | grep -Fq '"media":"cloudflare-r2"'
-          printf '%s' "$payload" | grep -Fq 'aepbqfrmheihfsauzcby'
+          printf '%s' "$payload" | grep -Fq "${SUPABASE_PROJECT_REF}"
       - name: Diagnose production /api route
         continue-on-error: true
         run: |
