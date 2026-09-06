@@ -19,8 +19,6 @@ export class AuthService {
       email,
       options: {
         shouldCreateUser: true,
-        // Always use the production domain for Auth redirects. This prevents
-        // Supabase from falling back to a localhost Site URL in confirmation links.
         emailRedirectTo: PRODUCTION_AUTH_REDIRECT,
       },
     });
@@ -48,9 +46,15 @@ export class AuthService {
   async signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: PRODUCTION_AUTH_REDIRECT,
-      },
+      options: { redirectTo: PRODUCTION_AUTH_REDIRECT },
+    });
+    if (error) throw error;
+  }
+
+  async signInWithGitHub() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: { redirectTo: PRODUCTION_AUTH_REDIRECT },
     });
     if (error) throw error;
   }
