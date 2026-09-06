@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
         webView.apply {
             stopLoading()
             webChromeClient = null
-            webViewClient = null
+            webViewClient = WebViewClient()
             destroy()
         }
         super.onDestroy()
