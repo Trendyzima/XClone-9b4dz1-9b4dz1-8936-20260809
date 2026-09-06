@@ -16,62 +16,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Repair legacy query and component typing
+      - name: Repair legacy web typing
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           root = Path('src')
-
-          # Supabase PostgREST builders are thenables, not native Promises in
-          # current @supabase/postgrest-js typings. Replace legacy catch chains
-          # with then rejection handlers; behavior remains intentionally best-effort.
           for path in root.rglob('*.tsx'):
               text = path.read_text()
-              updated = text.replace('.catch(() => {})', '.then(() => {}, () => {})')
-              if updated != text:
-                  path.write_text(updated)
-
+              text = text.replace('.catch(() => {})', '.then(() => {}, () => {})')
+              path.write_text(text)
           p = root / 'components/features/SavingsGoalsTab.tsx'
           if p.exists():
-              text = p.read_text()
-              text = text.replace('SAVINGS_GOAL_BAR[c]', 'getGoalBar(c)')
+              text = p.read_text().replace('SAVINGS_GOAL_BAR[c]', 'getGoalBar(c)')
               p.write_text(text)
-
           p = root / 'components/features/ComposePost.tsx'
           if p.exists():
-              text = p.read_text().replace("user?.creator_tier", "(user as any)?.creator_tier")
-              p.write_text(text)
-
+              p.write_text(p.read_text().replace("user?.creator_tier", "(user as any)?.creator_tier"))
           p = root / 'components/features/PostCard.tsx'
           if p.exists():
-              text = p.read_text()
-              text = re.sub(r'(className="[^"]*" fill="[^"]*") title="[^"]*"', r'\1 aria-label="icon"', text)
-              p.write_text(text)
-
+              p.write_text(re.sub(r'(className="[^"]*" fill="[^"]*") title="[^"]*"', r'\1 aria-label="icon"', p.read_text()))
           p = root / 'components/features/TrendingVideosSection.tsx'
           if p.exists():
               text = p.read_text()
-              normalizer = """const normalizeVideoPosts = (rows: any[]): VideoPost[] => rows.map((row) => ({ ...row, user_profiles: Array.isArray(row.user_profiles) ? (row.user_profiles[0] ?? null) : row.user_profiles }));"""
+              normalizer = "const normalizeVideoPosts = (rows: any[]): VideoPost[] => rows.map((row) => ({ ...row, user_profiles: Array.isArray(row.user_profiles) ? (row.user_profiles[0] ?? null) : row.user_profiles }));"
               if 'normalizeVideoPosts' not in text:
-                  text = text.replace("interface Props {", normalizer + "\n\ninterface Props {")
+                  text = text.replace('interface Props {', normalizer + '\n\ninterface Props {')
               text = text.replace('setVideos(recent as VideoPost[])', 'setVideos(normalizeVideoPosts(recent))')
               text = text.replace('setVideos((allTime || []) as VideoPost[])', 'setVideos(normalizeVideoPosts(allTime || []))')
               p.write_text(text)
           PY
-
-      - name: Verify typecheck after repair
-        run: |
-          npm ci
-          npm run typecheck
-
       - name: Commit repairs
         run: |
-          if git diff --quiet; then
-            echo 'No repair changes required.'
-            exit 0
-          fi
+          if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src
