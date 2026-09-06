@@ -36,18 +36,6 @@ const json = (body: unknown, status = 200, cache = false) => new Response(JSON.s
   },
 });
 
-function htmlToText(value: string): string {
-  return value
-    .replace(/<br\s*\/?>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function scoreStatus(status: FediverseStatus): number {
   const created = new Date(status.created_at ?? status.published ?? 0).getTime();
   const ageHours = Math.max(0, (Date.now() - created) / 3_600_000);
