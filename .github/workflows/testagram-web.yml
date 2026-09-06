@@ -38,16 +38,18 @@ jobs:
               p = Path(name)
               if not p.exists() or len(p.read_text().splitlines()) < minimum_lines:
                   subprocess.run(['git','restore','--source='+ref,'--',name], check=True)
-          # Current type contract additions required by feature consumers.
           p = Path('src/types/app-types.ts')
           text = p.read_text()
           if 'is_creator?: boolean;' not in text:
               text = text.replace('  creator_tier?: string;\n', '  creator_tier?: string;\n  is_creator?: boolean;\n  verified?: boolean;\n', 1)
           p.write_text(text)
-          # React namespace imports for current tsconfig.
+          # Normalize both default-only and default-plus-named React imports.
           for name in ('TeamChatPage.tsx','VideosPage.tsx'):
               p = Path('src/pages')/name
-              p.write_text(p.read_text().replace("import React from 'react';", "import * as React from 'react';"))
+              text = p.read_text()
+              text = re.sub(r"import React, \{([^}]*)\} from 'react';", lambda m: "import * as React from 'react';\nimport {" + m.group(1) + "} from 'react';", text, count=1)
+              text = text.replace("import React from 'react';", "import * as React from 'react';")
+              p.write_text(text)
           # Lucide React components do not accept title as a prop; preserve accessibility via aria-label.
           for path in Path('src').rglob('*.tsx'):
               text = path.read_text()
