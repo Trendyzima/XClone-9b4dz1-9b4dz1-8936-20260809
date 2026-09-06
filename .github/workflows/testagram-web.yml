@@ -9,8 +9,12 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: testagram-web-quality-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
+  contents: read
 
 env:
   NODE_VERSION: '22'
@@ -43,14 +47,12 @@ jobs:
           if 'is_creator?: boolean;' not in text:
               text = text.replace('  creator_tier?: string;\n', '  creator_tier?: string;\n  is_creator?: boolean;\n  verified?: boolean;\n', 1)
           p.write_text(text)
-          # Normalize both default-only and default-plus-named React imports.
           for name in ('TeamChatPage.tsx','VideosPage.tsx'):
               p = Path('src/pages')/name
               text = p.read_text()
               text = re.sub(r"import React, \{([^}]*)\} from 'react';", lambda m: "import * as React from 'react';\nimport {" + m.group(1) + "} from 'react';", text, count=1)
               text = text.replace("import React from 'react';", "import * as React from 'react';")
               p.write_text(text)
-          # Lucide React components do not accept title as a prop; preserve accessibility via aria-label.
           for path in Path('src').rglob('*.tsx'):
               text = path.read_text()
               text = re.sub(r'\s+title="([^"]*)"(?=\s*/?>)', r' aria-label="\1"', text)
@@ -69,15 +71,3 @@ jobs:
         run: npm run build
       - name: Verify production output
         run: test -s dist/index.html
-      - name: Persist recovery
-        run: |
-          # npm install can mutate tracked node_modules and create a lockfile. Neither
-          # is part of this recovery workflow's source-code persistence contract.
-          git restore -- node_modules 2>/dev/null || true
-          rm -f package-lock.json
-          if git diff --quiet -- src; then exit 0; fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src
-          git commit -m 'fix(web): restore complete source contracts'
-          git push
