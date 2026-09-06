@@ -1,5 +1,7 @@
 name: Testagram Web Quality
 
+# CI is intentionally read-only: source repair belongs in explicit commits/workflows.
+
 on:
   push:
     branches: [main]
