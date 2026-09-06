@@ -16,6 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Restore known-good VideoPlayer if corrupted
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/features/VideoPlayer.tsx')
+          text = p.read_text() if p.exists() else ''
+          if len(text.splitlines()) < 100:
+              import subprocess
+              subprocess.run(['git','restore','--source=8c077922f5d4f41bdb42e892b00b18db76df72b3','--','src/components/features/VideoPlayer.tsx'], check=True)
+          PY
       - name: Repair legacy web typing
         run: |
           python3 - <<'PY'
