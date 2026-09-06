@@ -18,17 +18,25 @@ const TABLES = new Set([
   'wallet_transactions', 'wallets', 'media_assets', 'audit_events'
 ]);
 
-const READ_ONLY_TABLES = new Set([
-  'trending_posts', 'user_profiles'
-]);
+const READ_ONLY_TABLES = new Set(['trending_posts', 'user_profiles']);
+const MUTATING_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
 
 function cors(request: Request, env: Env): HeadersInit {
   const origin = request.headers.get('Origin');
-  const allowed = origin === env.APP_ORIGIN || origin === 'https://www.testagram.site' || origin === 'capacitor://localhost' || origin === 'http://localhost';
+  const allowedOrigins = new Set([
+    env.APP_ORIGIN,
+    'https://testagram.site',
+    'https://www.testagram.site',
+    'capacitor://localhost',
+    'http://localhost'
+  ]);
+  const allowed = origin ? allowedOrigins.has(origin) : false;
   return {
     'Access-Control-Allow-Origin': allowed ? origin! : env.APP_ORIGIN,
-    'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
+    'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, range',
     'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+    'Access-Control-Max-Age': '86400',
     'Vary': 'Origin'
   };
 }
@@ -36,7 +44,13 @@ function cors(request: Request, env: Env): HeadersInit {
 function response(request: Request, env: Env, body: unknown, status = 200, extra: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', ...cors(request, env), ...extra }
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      ...cors(request, env),
+      ...extra
+    }
   });
 }
 
@@ -48,6 +62,8 @@ function supabaseHeaders(request: Request, env: Env): Headers {
   if (authorization) headers.set('Authorization', authorization);
   const clientInfo = request.headers.get('X-Client-Info');
   if (clientInfo) headers.set('X-Client-Info', clientInfo);
+  const range = request.headers.get('Range');
+  if (range) headers.set('Range', range);
   return headers;
 }
 
@@ -58,7 +74,17 @@ function tableFromPath(pathname: string): string | null {
 
 async function proxyDatabase(request: Request, env: Env, table: string) {
   const writable = !READ_ONLY_TABLES.has(table);
-  if (request.method !== 'GET' && !writable) return response(request, env, { error: 'Read-only resource' }, 405);
+  if (MUTATING_METHODS.has(request.method) && !request.headers.get('Authorization')) {
+    return response(request, env, { error: 'Authentication required' }, 401);
+  }
+  if (request.method !== 'GET' && !writable) {
+    return response(request, env, { error: 'Read-only resource' }, 405);
+  }
+
+  const contentLength = Number(request.headers.get('Content-Length') || 0);
+  if (MUTATING_METHODS.has(request.method) && contentLength > MAX_JSON_BODY_BYTES) {
+    return response(request, env, { error: 'Request body too large' }, 413);
+  }
 
   const url = new URL(request.url);
   const target = new URL(`/rest/v1/${table}`, env.SUPABASE_URL);
@@ -71,6 +97,8 @@ async function proxyDatabase(request: Request, env: Env, table: string) {
   });
 
   const headers = new Headers(cors(request, env));
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Cache-Control', 'no-store');
   const contentType = upstream.headers.get('content-type');
   if (contentType) headers.set('content-type', contentType);
   const contentRange = upstream.headers.get('content-range');
@@ -80,11 +108,18 @@ async function proxyDatabase(request: Request, env: Env, table: string) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(request, env) });
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: cors(request, env) });
+    }
 
     const url = new URL(request.url);
     if (url.pathname === '/api/health') {
-      return response(request, env, { ok: true, service: 'testagram-api', database: 'supabase', edge: 'cloudflare' });
+      return response(request, env, {
+        ok: true,
+        service: 'testagram-api',
+        database: 'supabase',
+        edge: 'cloudflare'
+      });
     }
 
     const table = tableFromPath(url.pathname);
@@ -92,7 +127,9 @@ export default {
       try {
         return await proxyDatabase(request, env, table);
       } catch (error) {
-        return response(request, env, { error: error instanceof Error ? error.message : 'Upstream database request failed' }, 502);
+        return response(request, env, {
+          error: error instanceof Error ? error.message : 'Upstream database request failed'
+        }, 502);
       }
     }
 
