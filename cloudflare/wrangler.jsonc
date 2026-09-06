@@ -10,7 +10,9 @@
     { "pattern": "www.testagram.site/api/*", "zone_name": "testagram.site" }
   ],
   "vars": {
-    "APP_ORIGIN": "https://testagram.site"
+    "APP_ORIGIN": "https://testagram.site",
+    "SUPABASE_URL": "https://aepbqfrmheihfsauzcby.supabase.co",
+    "SUPABASE_PROJECT_REF": "aepbqfrmheihfsauzcby"
   },
   "r2_buckets": [
     {
@@ -19,6 +21,6 @@
     }
   ],
   "secrets": {
-    "required": ["SUPABASE_URL", "SUPABASE_ANON_KEY"]
+    "required": ["SUPABASE_ANON_KEY"]
   }
 }
