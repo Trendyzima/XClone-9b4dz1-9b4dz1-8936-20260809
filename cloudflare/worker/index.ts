@@ -1,5 +1,6 @@
 interface Env {
   SUPABASE_URL: string;
+  SUPABASE_PROJECT_REF: string;
   SUPABASE_ANON_KEY: string;
   APP_ORIGIN: string;
   MEDIA: R2Bucket;
@@ -288,6 +289,36 @@ async function deleteMedia(request: Request, env: Env, id: string): Promise<Resp
   return response(request, env, { ok: true, id });
 }
 
+async function backendHealth(request: Request, env: Env): Promise<Response> {
+  let databaseReachable = false;
+  let databaseStatus = 0;
+  try {
+    const upstream = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=id&limit=1`, {
+      headers: { apikey: env.SUPABASE_ANON_KEY },
+      method: 'GET'
+    });
+    databaseStatus = upstream.status;
+    databaseReachable = upstream.ok;
+  } catch {
+    databaseReachable = false;
+  }
+
+  const r2Reachable = Boolean(env.MEDIA);
+  const ok = databaseReachable && r2Reachable;
+  return response(request, env, {
+    ok,
+    service: 'testagram-api',
+    database: 'supabase',
+    supabaseProjectRef: env.SUPABASE_PROJECT_REF,
+    databaseReachable,
+    databaseStatus,
+    media: 'cloudflare-r2',
+    r2Binding: r2Reachable,
+    maxMediaBytes: MAX_MEDIA_BYTES,
+    edge: 'cloudflare'
+  }, ok ? 200 : 503);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') {
@@ -296,14 +327,7 @@ export default {
 
     const url = new URL(request.url);
     if (url.pathname === '/api/health') {
-      return response(request, env, {
-        ok: true,
-        service: 'testagram-api',
-        database: 'supabase',
-        media: 'cloudflare-r2',
-        maxMediaBytes: MAX_MEDIA_BYTES,
-        edge: 'cloudflare'
-      });
+      return backendHealth(request, env);
     }
 
     if (url.pathname === '/api/media' && request.method === 'POST') {
