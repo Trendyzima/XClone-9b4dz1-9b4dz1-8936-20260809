@@ -20,6 +20,8 @@ permissions:
 env:
   WRANGLER_VERSION: '4.126.0'
   MEDIA_BUCKET: 'testagram-media'
+  SUPABASE_PROJECT_REF: 'aepbqfrmheihfsauzcby'
+  SUPABASE_URL: 'https://aepbqfrmheihfsauzcby.supabase.co'
 
 jobs:
   validate:
@@ -37,6 +39,14 @@ jobs:
           test -f supabase/migrations/20260906104613_harden_production_api_security.sql
           test -f supabase/migrations/20260906150000_media_assets_20mb_limit.sql
           test -f supabase/migrations/20260906160000_harden_media_visibility_and_function_security.sql
+      - name: Verify Supabase project endpoint
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "${SUPABASE_URL}/rest/v1/")"
+          case "$status" in
+            200|401|403) echo "Supabase endpoint reachable for project ${SUPABASE_PROJECT_REF} (HTTP ${status})" ;;
+            *) echo "Supabase endpoint check failed: HTTP ${status}"; exit 1 ;;
+          esac
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -63,30 +73,31 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$SUPABASE_URL"
           test -n "$SUPABASE_PUBLISHABLE_KEY"
           secrets_file="$(mktemp)"
           trap 'rm -f "$secrets_file"' EXIT
-          printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_PUBLISHABLE_KEY" > "$secrets_file"
+          printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" > "$secrets_file"
           npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy \
             --config cloudflare/wrangler.jsonc \
             --secrets-file "$secrets_file"
-      - name: Smoke test production API
+      - name: Smoke test production API and Supabase bridge
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5; do
             payload="$(curl --fail --silent --show-error --max-time 15 https://testagram.site/api/health || true)"
-            if printf '%s' "$payload" | grep -Fq '"ok":true' && printf '%s' "$payload" | grep -Fq 'cloudflare-r2'; then
+            if printf '%s' "$payload" | grep -Fq '"ok":true' \
+              && printf '%s' "$payload" | grep -Fq '"databaseReachable":true' \
+              && printf '%s' "$payload" | grep -Fq '"media":"cloudflare-r2"' \
+              && printf '%s' "$payload" | grep -Fq 'aepbqfrmheihfsauzcby'; then
               printf '%s\n' "$payload"
               exit 0
             fi
             sleep 10
           done
-          echo 'Production API health check failed or did not reach the Cloudflare Worker.'
+          echo 'Production API health check failed, Supabase bridge is unreachable, or the request did not reach the Cloudflare Worker.'
           exit 1
