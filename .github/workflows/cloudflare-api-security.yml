@@ -14,6 +14,7 @@ permissions:
 env:
   ZONE_NAME: testagram.site
   API_HOST: api.testagram.site
+  FEDERATION_HOST: fedi.testagram.site
   API_PATH_PREFIX: /api/
 
 jobs:
@@ -30,45 +31,17 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing CLOUDFLARE_API_TOKEN'; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing CLOUDFLARE_ACCOUNT_ID'; exit 1; }
 
-      - name: Resolve Cloudflare zone and inspect bot protection
+      - name: Resolve Cloudflare zone
         id: zone
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
-          zones="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}&status=active" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json')"
+          zones="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}&status=active" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
           echo "$zones" | jq -e '.success == true and (.result | length) >= 1' >/dev/null
           zone_id="$(echo "$zones" | jq -r '.result[0].id')"
           test -n "$zone_id" && test "$zone_id" != "null"
           echo "zone_id=${zone_id}" >> "$GITHUB_OUTPUT"
-
-          # Bot Management is intentionally advisory here. A zone API token does not
-          # need Bot Management permissions just to provision the scoped Ruleset below.
-          # In particular, do NOT try a privileged zone-wide Bot Fight Mode mutation from CI.
-          bot_status="$(curl -sS -o /tmp/bot.json -w '%{http_code}' --max-time 20 \
-            "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json' || true)"
-          echo "Bot Management API HTTP status: ${bot_status}"
-          cat /tmp/bot.json || true
-
-          case "$bot_status" in
-            200)
-              fight_mode="$(jq -r '.result.fight_mode // false' /tmp/bot.json)"
-              echo "Bot Fight Mode reported by Cloudflare: ${fight_mode}"
-              if [ "$fight_mode" = "true" ]; then
-                echo 'WARNING: Bot Fight Mode is enabled. The scoped Ruleset cannot perform a path-specific Bot Fight Mode disable; keep Bot Management out of CI and use the API hostname/ruleset verification below.'
-              fi
-              ;;
-            401|403)
-              echo 'WARNING: this token cannot read Cloudflare Bot Management. Continuing because Bot Management read/write is not required to provision the scoped custom Ruleset.'
-              ;;
-            *)
-              echo "WARNING: Bot Management inspection returned HTTP ${bot_status}; continuing without attempting a privileged Bot Management mutation."
-              ;;
-          esac
 
       - name: Provision or locate zone custom-rule entrypoint
         id: ruleset
@@ -78,69 +51,57 @@ jobs:
         run: |
           set -euo pipefail
           url="https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/phases/http_request_firewall_custom/entrypoint"
-          status="$(curl -sS -o /tmp/entrypoint.json -w '%{http_code}' --max-time 20 "$url" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json')"
-          echo "Custom-rule entrypoint HTTP status: ${status}"
+          status="$(curl -sS -o /tmp/entrypoint.json -w '%{http_code}' --max-time 20 "$url" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
           cat /tmp/entrypoint.json || true
           if [ "$status" = "200" ]; then
             ruleset_id="$(jq -r '.result.id // empty' /tmp/entrypoint.json)"
             test -n "$ruleset_id"
           elif [ "$status" = "404" ]; then
-            create_status="$(curl -sS -o /tmp/created-ruleset.json -w '%{http_code}' --max-time 20 -X POST \
-              "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets" \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              -H 'Content-Type: application/json' \
-              --data '{"name":"Testagram production API security exceptions","description":"Scoped exceptions for the Testagram API host","kind":"zone","phase":"http_request_firewall_custom"}')"
-            echo "Custom-rule entrypoint create HTTP status: ${create_status}"
+            create_status="$(curl -sS -o /tmp/created-ruleset.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"name":"Testagram production federation security exceptions","description":"Scoped exceptions for Testagram API and federation hosts","kind":"zone","phase":"http_request_firewall_custom"}')"
             cat /tmp/created-ruleset.json || true
             test "$create_status" = "200"
             ruleset_id="$(jq -r '.result.id // empty' /tmp/created-ruleset.json)"
             test -n "$ruleset_id"
           else
-            echo 'Cannot read/create the zone WAF custom-rule entrypoint. The Cloudflare token needs the required zone Rulesets/WAF permissions.'
+            echo 'Cannot read/create Cloudflare custom-rule entrypoint.'
             exit 1
           fi
           echo "ruleset_id=${ruleset_id}" >> "$GITHUB_OUTPUT"
 
-      - name: Install idempotent scoped API edge exception
+      - name: Install idempotent API and federation edge exceptions
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ZONE_ID: ${{ steps.zone.outputs.zone_id }}
           RULESET_ID: ${{ steps.ruleset.outputs.ruleset_id }}
         run: |
           set -euo pipefail
-          expression='(http.host eq "api.testagram.site" and starts_with(http.request.uri.path, "/api/"))'
-          rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json')"
+          expression='((http.host eq "api.testagram.site" and starts_with(http.request.uri.path, "/api/")) or (http.host eq "fedi.testagram.site"))'
+          rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
           if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and ((.action_parameters.phases // []) | index("http_request_sbfm")) and ((.action_parameters.phases // []) | index("http_request_firewall_managed")) and ((.action_parameters.phases // []) | index("http_ratelimit")) and ((.action_parameters.products // []) | index("securityLevel")) and ((.action_parameters.products // []) | index("bic")))' >/dev/null; then
-            echo 'Scoped API edge exception already exists; no mutation required.'
+            echo 'Scoped API/federation edge exception already exists; no mutation required.'
             exit 0
           fi
-          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm","http_request_firewall_managed","http_ratelimit"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API traffic to reach the Worker without bot, managed-WAF, rate-limit, security-level, or browser-integrity challenge interference"}')"
-          status="$(curl -sS -o /tmp/add-rule.json -w '%{http_code}' --max-time 20 -X POST \
-            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            --data "$payload")"
-          echo "Scoped API edge security rule HTTP status: ${status}"
+          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm","http_request_firewall_managed","http_ratelimit"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API and ActivityPub federation traffic to reach the Worker without bot, managed-WAF, rate-limit, security-level, or browser-integrity challenge interference"}')"
+          status="$(curl -sS -o /tmp/add-rule.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data "$payload")"
           cat /tmp/add-rule.json || true
           test "$status" = "200"
           jq -e '.success == true' /tmp/add-rule.json >/dev/null
 
-      - name: Verify API host is no longer challenge-blocked
+      - name: Verify API and federation hosts are not challenge-blocked
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6; do
-            status="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health' || true)"
-            echo "Production API verification attempt ${attempt}: HTTP ${status}"
-            cat /tmp/api-health.json || true
-            if [ "$status" = "200" ]; then
+            api_status="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health' || true)"
+            fedi_status="$(curl -sS -o /tmp/fedi-health.json -w '%{http_code}' --max-time 20 'https://fedi.testagram.site/api/health' || true)"
+            echo "Attempt ${attempt}: API=${api_status} FEDI=${fedi_status}"
+            if [ "$api_status" = "200" ] && [ "$fedi_status" = "200" ]; then
               jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/api-health.json >/dev/null
+              jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/fedi-health.json >/dev/null
               exit 0
             fi
             sleep 5
           done
-          echo 'The API host is still challenge-blocked or not healthy after Cloudflare edge configuration.'
+          cat /tmp/api-health.json || true
+          cat /tmp/fedi-health.json || true
+          echo 'API or federation host is still challenge-blocked or unhealthy.'
           exit 1
