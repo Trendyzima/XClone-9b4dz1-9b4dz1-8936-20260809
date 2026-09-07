@@ -1,7 +1,5 @@
 begin;
 
--- Production compatibility layer: keep the canonical profile/post schema while
--- preserving the older client field names still used by parts of the web app.
 alter table if exists public.posts add column if not exists user_id uuid;
 alter table if exists public.posts add column if not exists author_id uuid;
 
@@ -30,21 +28,19 @@ begin
     end;
     $fn$;
     drop trigger if exists trg_sync_post_owner_columns on public.posts;
-    create trigger trg_sync_post_owner_columns before insert or update on public.posts
-      for each row execute function public.sync_post_owner_columns();
+    create trigger trg_sync_post_owner_columns before insert or update on public.posts for each row execute function public.sync_post_owner_columns();
     revoke all on function public.sync_post_owner_columns() from public;
   end if;
 end $$;
 
 do $$
+declare verified_expr text := 'null::boolean as verified';
 begin
   if to_regclass('public.user_profiles') is null and to_regclass('public.profiles') is not null then
-    execute $v$
-      create view public.user_profiles with (security_invoker = true) as
-      select id, username, display_name, avatar_url, bio, website, location,
-             coalesce(verified, false) as verified
-      from public.profiles
-    $v$;
+    if exists(select 1 from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='verified') then
+      verified_expr := 'coalesce(verified, false) as verified';
+    end if;
+    execute format($v$create view public.user_profiles with (security_invoker = true) as select id, username, display_name, avatar_url, bio, website, location, %s from public.profiles$v$, verified_expr);
   end if;
 end $$;
 
@@ -95,8 +91,7 @@ begin
 end $$;
 
 do $$
-declare
-  t text;
+declare t text;
 begin
   foreach t in array array['follows','follow_requests','user_blocks','mutes','post_likes','post_views','bookmarks','mentions','user_interests'] loop
     if to_regclass('public.'||t) is not null then
@@ -104,21 +99,18 @@ begin
       execute format('grant select, insert, update, delete on public.%I to authenticated', t);
     end if;
   end loop;
-
   if to_regclass('public.follows') is not null then
     drop policy if exists follows_public_read on public.follows;
     drop policy if exists follows_owner_write on public.follows;
     create policy follows_public_read on public.follows for select to anon, authenticated using (true);
     create policy follows_owner_write on public.follows for all to authenticated using (follower_id = (select auth.uid())) with check (follower_id = (select auth.uid()));
   end if;
-
   if to_regclass('public.follow_requests') is not null then
     drop policy if exists follow_requests_participant_read on public.follow_requests;
     drop policy if exists follow_requests_participant_write on public.follow_requests;
     create policy follow_requests_participant_read on public.follow_requests for select to authenticated using (requester_id = (select auth.uid()) or target_id = (select auth.uid()));
     create policy follow_requests_participant_write on public.follow_requests for all to authenticated using (requester_id = (select auth.uid()) or target_id = (select auth.uid())) with check (requester_id = (select auth.uid()) or target_id = (select auth.uid()));
   end if;
-
   if to_regclass('public.user_blocks') is not null then
     drop policy if exists user_blocks_owner on public.user_blocks;
     create policy user_blocks_owner on public.user_blocks for all to authenticated using (blocker_id = (select auth.uid())) with check (blocker_id = (select auth.uid()));
@@ -127,14 +119,12 @@ begin
     drop policy if exists mutes_owner on public.mutes;
     create policy mutes_owner on public.mutes for all to authenticated using (muter_id = (select auth.uid())) with check (muter_id = (select auth.uid()));
   end if;
-
   foreach t in array array['post_likes','post_views','bookmarks','user_interests'] loop
     if to_regclass('public.'||t) is not null and exists(select 1 from information_schema.columns where table_schema='public' and table_name=t and column_name='user_id') then
       execute format('drop policy if exists %I on public.%I', t||'_owner', t);
       execute format('create policy %I on public.%I for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t||'_owner', t);
     end if;
   end loop;
-
   if to_regclass('public.mentions') is not null then
     drop policy if exists mentions_public_read on public.mentions;
     create policy mentions_public_read on public.mentions for select to anon, authenticated using (true);
@@ -147,30 +137,33 @@ end $$;
 
 do $$
 begin
-  if to_regclass('public.post_replies') is not null then
+  if to_regclass('public.post_replies') is not null and exists(select 1 from information_schema.columns where table_schema='public' and table_name='post_replies' and column_name='author_id') then
     execute 'grant select on public.post_replies to anon, authenticated';
     execute 'grant insert, update, delete on public.post_replies to authenticated';
     execute 'alter table public.post_replies enable row level security';
-    if exists(select 1 from information_schema.columns where table_schema='public' and table_name='post_replies' and column_name='author_id') then
-      drop policy if exists post_replies_public_read on public.post_replies;
-      drop policy if exists post_replies_owner_write on public.post_replies;
-      create policy post_replies_public_read on public.post_replies for select to anon, authenticated using (true);
-      create policy post_replies_owner_write on public.post_replies for all to authenticated using (author_id = (select auth.uid())) with check (author_id = (select auth.uid()));
-    end if;
+    drop policy if exists post_replies_public_read on public.post_replies;
+    drop policy if exists post_replies_owner_write on public.post_replies;
+    create policy post_replies_public_read on public.post_replies for select to anon, authenticated using (true);
+    create policy post_replies_owner_write on public.post_replies for all to authenticated using (author_id = (select auth.uid())) with check (author_id = (select auth.uid()));
   end if;
 end $$;
 
 do $$
+declare recipient_expr text := null;
 begin
   if to_regclass('public.notifications') is not null then
     execute 'grant select, update, delete on public.notifications to authenticated';
     execute 'alter table public.notifications enable row level security';
-    drop policy if exists notifications_recipient_read on public.notifications;
-    drop policy if exists notifications_recipient_update on public.notifications;
-    drop policy if exists notifications_recipient_delete on public.notifications;
-    create policy notifications_recipient_read on public.notifications for select to authenticated using (recipient_id = (select auth.uid()) or user_id = (select auth.uid()));
-    create policy notifications_recipient_update on public.notifications for update to authenticated using (recipient_id = (select auth.uid()) or user_id = (select auth.uid())) with check (recipient_id = (select auth.uid()) or user_id = (select auth.uid()));
-    create policy notifications_recipient_delete on public.notifications for delete to authenticated using (recipient_id = (select auth.uid()) or user_id = (select auth.uid()));
+    if exists(select 1 from information_schema.columns where table_schema='public' and table_name='notifications' and column_name='recipient_id') then recipient_expr := 'recipient_id = (select auth.uid())';
+    elsif exists(select 1 from information_schema.columns where table_schema='public' and table_name='notifications' and column_name='user_id') then recipient_expr := 'user_id = (select auth.uid())'; end if;
+    if recipient_expr is not null then
+      drop policy if exists notifications_recipient_read on public.notifications;
+      drop policy if exists notifications_recipient_update on public.notifications;
+      drop policy if exists notifications_recipient_delete on public.notifications;
+      execute format('create policy notifications_recipient_read on public.notifications for select to authenticated using (%s)', recipient_expr);
+      execute format('create policy notifications_recipient_update on public.notifications for update to authenticated using (%s) with check (%s)', recipient_expr, recipient_expr);
+      execute format('create policy notifications_recipient_delete on public.notifications for delete to authenticated using (%s)', recipient_expr);
+    end if;
   end if;
 end $$;
 
@@ -189,7 +182,7 @@ end $$;
 
 do $$
 begin
-  if to_regclass('public.media_assets') is not null then
+  if to_regclass('public.media_assets') is not null and exists(select 1 from information_schema.columns where table_schema='public' and table_name='media_assets' and column_name='owner_id') then
     execute 'grant select, insert, update, delete on public.media_assets to authenticated';
     execute 'alter table public.media_assets enable row level security';
     drop policy if exists media_assets_owner_read on public.media_assets;
