@@ -1,9 +1,8 @@
 name: Testagram Production Smoke
 
 on:
-  workflow_run:
-    workflows: ["Testagram Web Quality"]
-    types: [completed]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,7 +10,6 @@ permissions:
 
 jobs:
   production-smoke:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     env:
       SITE_URL: https://testagram.site
