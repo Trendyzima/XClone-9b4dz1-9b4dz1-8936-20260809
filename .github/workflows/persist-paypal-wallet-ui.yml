@@ -17,20 +17,22 @@ concurrency:
   group: paypal-wallet-ui-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NODE_VERSION: '22'
+
 jobs:
   persist-and-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
-          cache: npm
+          node-version: ${{ env.NODE_VERSION }}
       - name: Install
-        run: npm ci --ignore-scripts
+        run: npm install --legacy-peer-deps --no-audit --no-fund
       - name: Apply persistent PayPal wallet patch
         run: python3 tools/apply_paypal_wallet.py
       - name: Web build
