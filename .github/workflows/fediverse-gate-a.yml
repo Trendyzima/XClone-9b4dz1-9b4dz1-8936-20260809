@@ -1,0 +1,84 @@
+name: Testagram Fediverse Gate A
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/gateway-relay/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/fediverse-gate-a.yml'
+      - 'src/api/federation.ts'
+
+permissions:
+  contents: read
+
+env:
+  SUPABASE_URL: https://zcjtvykwwplnzyyslnop.supabase.co
+  GATEWAY_URL: https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/gateway-relay
+
+jobs:
+  gate-a:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate federation source contract
+        run: |
+          set -euo pipefail
+          test -s supabase/functions/gateway-relay/index.ts
+          test -s supabase/migrations/20260907210000_federation_core.sql
+          grep -Fq 'federation_outbox' supabase/functions/gateway-relay/index.ts
+          grep -Fq 'federation_inbox' supabase/functions/gateway-relay/index.ts
+          grep -Fq 'RSASSA-PKCS1-v1_5' supabase/functions/gateway-relay/index.ts
+          grep -Fq 'webfinger' supabase/functions/gateway-relay/index.ts
+
+      - name: Gateway health
+        env:
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PUBLISHABLE_KEY"
+          status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "Authorization: Bearer $SUPABASE_PUBLISHABLE_KEY")"
+          cat /tmp/health.json
+          test "$status" = 200
+          jq -e '.ok == true and .activityPub == true' /tmp/health.json
+
+      - name: Remote WebFinger interoperability
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body --max-time 20 'https://mastodon.social/.well-known/webfinger?resource=acct:Mastodon@mastodon.social' -o /tmp/webfinger.json
+          jq -e '.subject and (.links | map(select(.rel == "self" and (.type | contains("activity+json")))) | length > 0)' /tmp/webfinger.json
+
+      - name: Authenticated Follow and durable outbox
+        env:
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          RUN="${GITHUB_RUN_ID}-${RANDOM}"
+          EMAIL="fediverse-gate-a-${RUN}@example.invalid"
+          PASS="TgFed-${RUN}-X9!"
+          USER_ID=""
+          trap 'test -z "$USER_ID" || curl -sS -o /dev/null -X DELETE "$SUPABASE_URL/auth/v1/admin/users/$USER_ID" -H "apikey: $SUPABASE_SECRET_KEY" || true' EXIT
+
+          curl -sS --fail-with-body -X POST "$SUPABASE_URL/auth/v1/admin/users" -H "apikey: $SUPABASE_SECRET_KEY" -H 'Content-Type: application/json' -d "$(jq -nc --arg e "$EMAIL" --arg p "$PASS" '{email:$e,password:$p,email_confirm:true}')" >/tmp/user.json
+          USER_ID="$(jq -r '.id' /tmp/user.json)"
+          test -n "$USER_ID"
+          curl -sS --fail-with-body -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H 'Content-Type: application/json' -d "$(jq -nc --arg e "$EMAIL" --arg p "$PASS" '{email:$e,password:$p}')" >/tmp/login.json
+          TOKEN="$(jq -r '.access_token' /tmp/login.json)"
+          test -n "$TOKEN"
+
+          curl -sS --fail-with-body -X POST "$GATEWAY_URL" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d '{"path":"/follow","body":{"target":"@Mastodon@mastodon.social"}}' >/tmp/follow.json
+          cat /tmp/follow.json
+          jq -e '.activity.type == "Follow" and (.activity.object | startswith("https://")) and (.activityId | startswith("https://"))' /tmp/follow.json
+          ACTIVITY_ID="$(jq -r '.activityId' /tmp/follow.json)"
+          curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_outbox?activity_id=eq.$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$ACTIVITY_ID")&select=activity_type,status,attempts,http_status" -H "apikey: $SUPABASE_SECRET_KEY" >/tmp/outbox.json
+          cat /tmp/outbox.json
+          jq -e 'length == 1 and .[0].activity_type == "Follow" and .[0].attempts == 1 and (. [0].status == "delivered" or .[0].status == "pending")' /tmp/outbox.json
+          echo 'PASS: Gate A local gateway + WebFinger + signed Follow + durable outbox.'
