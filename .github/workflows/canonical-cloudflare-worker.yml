@@ -1,0 +1,83 @@
+name: Testagram Canonical Cloudflare Worker
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Testagram Cloudflare Backend
+      - Testagram Cloudflare Federation Hardening
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/worker/production-entrypoint.ts'
+      - 'cloudflare/worker/federation-entrypoint.ts'
+      - 'cloudflare/worker/index.ts'
+      - 'cloudflare/wrangler.jsonc'
+      - 'cloudflare/wrangler-federation.jsonc'
+      - '.github/workflows/canonical-cloudflare-worker.yml'
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_VERSION: '4.126.0'
+  SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
+  SUPABASE_PROJECT_REF: 'zcjtvykwwplnzyyslnop'
+  WORKER_HEALTH_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/health'
+  PRODUCTION_HEALTH_URL: 'https://api.testagram.site/api/health'
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Validate canonical worker source
+        run: |
+          set -euo pipefail
+          test -s cloudflare/worker/production-entrypoint.ts
+          test -s cloudflare/worker/federation-entrypoint.ts
+          test -s cloudflare/worker/index.ts
+          grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler.jsonc
+          grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler-federation.jsonc
+      - name: Deploy canonical Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$SUPABASE_PUBLISHABLE_KEY"
+          test -n "$SUPABASE_SECRET_KEY"
+          secrets_file="$(mktemp)"
+          trap 'rm -f "$secrets_file"' EXIT
+          printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" > "$secrets_file"
+          npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler.jsonc --secrets-file "$secrets_file"
+      - name: Verify canonical health and federation
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$WORKER_HEALTH_URL" || true)"
+            if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/health.json >/dev/null 2>&1; then break; fi
+            test "$attempt" -eq 12 && { cat /tmp/health.json || true; exit 1; }
+            sleep 5
+          done
+          cat /tmp/health.json
+          nodeinfo="$(curl -sS --fail-with-body --max-time 20 "$WORKER_HEALTH_URL" | jq -r '.federationDomain')"
+          test "$nodeinfo" = 'testagram-api.nahashonnyaga794.workers.dev'
+          curl -sS --fail-with-body --max-time 20 -H 'Accept: application/activity+json' "$WORKER_HEALTH_URL" >/dev/null || true
+      - name: Verify production custom domain
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /tmp/production-health.json -w '%{http_code}' --max-time 20 "$PRODUCTION_HEALTH_URL" || true)"
+          cat /tmp/production-health.json
+          test "$status" = 200
+          jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/production-health.json >/dev/null
