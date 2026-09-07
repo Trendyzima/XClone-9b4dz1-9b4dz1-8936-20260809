@@ -36,37 +36,39 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
-          zones="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}&status=active" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
+          zones="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}&status=active" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json')"
           echo "$zones" | jq -e '.success == true and (.result | length) >= 1' >/dev/null
           zone_id="$(echo "$zones" | jq -r '.result[0].id')"
+          test -n "$zone_id" && test "$zone_id" != "null"
           echo "zone_id=${zone_id}" >> "$GITHUB_OUTPUT"
-          bot_status="$(curl -sS -o /tmp/bot.json -w '%{http_code}' --max-time 20 "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
+
+          # Bot Management is intentionally advisory here. A zone API token does not
+          # need Bot Management permissions just to provision the scoped Ruleset below.
+          # In particular, do NOT try a privileged zone-wide Bot Fight Mode mutation from CI.
+          bot_status="$(curl -sS -o /tmp/bot.json -w '%{http_code}' --max-time 20 \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' || true)"
           echo "Bot Management API HTTP status: ${bot_status}"
           cat /tmp/bot.json || true
-          if [ "$bot_status" = "200" ]; then
-            fight_mode="$(jq -r '.result.fight_mode // false' /tmp/bot.json)"
-            echo "Bot Fight Mode: ${fight_mode}"
-            if [ "$fight_mode" = "true" ]; then
-              echo 'Bot Fight Mode is enabled; attempting a controlled zone-level disable because Cloudflare does not support path-specific BFM skips.'
-              disable_status="$(curl -sS -o /tmp/disable-bfm.json -w '%{http_code}' --max-time 20 -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"fight_mode":false}')"
-              echo "Bot Fight Mode disable HTTP status: ${disable_status}"
-              cat /tmp/disable-bfm.json || true
-              test "$disable_status" = "200"
-            fi
-          elif [ "$bot_status" = "403" ]; then
-            echo 'Bot Management read is forbidden; attempting the documented Bot Management write operation with fight_mode=false.'
-            disable_status="$(curl -sS -o /tmp/disable-bfm.json -w '%{http_code}' --max-time 20 -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"fight_mode":false}')"
-            echo "Bot Management write HTTP status: ${disable_status}"
-            cat /tmp/disable-bfm.json || true
-            if [ "$disable_status" = "200" ]; then
-              echo 'Bot Fight Mode disable request accepted.'
-            else
-              echo 'Cloudflare Bot Management is still inaccessible. The token needs Bot Management Write permission if Bot Fight Mode is the challenge source.'
-              exit 2
-            fi
-          else
-            echo "Unexpected Bot Management API response: HTTP ${bot_status}"; exit 1
-          fi
+
+          case "$bot_status" in
+            200)
+              fight_mode="$(jq -r '.result.fight_mode // false' /tmp/bot.json)"
+              echo "Bot Fight Mode reported by Cloudflare: ${fight_mode}"
+              if [ "$fight_mode" = "true" ]; then
+                echo 'WARNING: Bot Fight Mode is enabled. The scoped Ruleset cannot perform a path-specific Bot Fight Mode disable; keep Bot Management out of CI and use the API hostname/ruleset verification below.'
+              fi
+              ;;
+            401|403)
+              echo 'WARNING: this token cannot read Cloudflare Bot Management. Continuing because Bot Management read/write is not required to provision the scoped custom Ruleset.'
+              ;;
+            *)
+              echo "WARNING: Bot Management inspection returned HTTP ${bot_status}; continuing without attempting a privileged Bot Management mutation."
+              ;;
+          esac
 
       - name: Provision or locate zone custom-rule entrypoint
         id: ruleset
@@ -76,21 +78,27 @@ jobs:
         run: |
           set -euo pipefail
           url="https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/phases/http_request_firewall_custom/entrypoint"
-          status="$(curl -sS -o /tmp/entrypoint.json -w '%{http_code}' --max-time 20 "$url" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
+          status="$(curl -sS -o /tmp/entrypoint.json -w '%{http_code}' --max-time 20 "$url" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json')"
           echo "Custom-rule entrypoint HTTP status: ${status}"
           cat /tmp/entrypoint.json || true
           if [ "$status" = "200" ]; then
             ruleset_id="$(jq -r '.result.id // empty' /tmp/entrypoint.json)"
             test -n "$ruleset_id"
           elif [ "$status" = "404" ]; then
-            create_status="$(curl -sS -o /tmp/created-ruleset.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"name":"Testagram production API security exceptions","description":"Scoped exceptions for the Testagram API host","kind":"zone","phase":"http_request_firewall_custom"}')"
+            create_status="$(curl -sS -o /tmp/created-ruleset.json -w '%{http_code}' --max-time 20 -X POST \
+              "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data '{"name":"Testagram production API security exceptions","description":"Scoped exceptions for the Testagram API host","kind":"zone","phase":"http_request_firewall_custom"}')"
             echo "Custom-rule entrypoint create HTTP status: ${create_status}"
             cat /tmp/created-ruleset.json || true
             test "$create_status" = "200"
             ruleset_id="$(jq -r '.result.id // empty' /tmp/created-ruleset.json)"
             test -n "$ruleset_id"
           else
-            echo 'Cannot read/create the zone WAF custom-rule entrypoint. The Cloudflare token needs zone WAF/Rulesets read/write permission.'
+            echo 'Cannot read/create the zone WAF custom-rule entrypoint. The Cloudflare token needs the required zone Rulesets/WAF permissions.'
             exit 1
           fi
           echo "ruleset_id=${ruleset_id}" >> "$GITHUB_OUTPUT"
@@ -103,13 +111,19 @@ jobs:
         run: |
           set -euo pipefail
           expression='(http.host eq "api.testagram.site" and starts_with(http.request.uri.path, "/api/"))'
-          rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
+          rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json')"
           if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and ((.action_parameters.phases // []) | index("http_request_sbfm")) and ((.action_parameters.phases // []) | index("http_request_firewall_managed")) and ((.action_parameters.phases // []) | index("http_ratelimit")) and ((.action_parameters.products // []) | index("securityLevel")) and ((.action_parameters.products // []) | index("bic")))' >/dev/null; then
             echo 'Scoped API edge exception already exists; no mutation required.'
             exit 0
           fi
           payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm","http_request_firewall_managed","http_ratelimit"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API traffic to reach the Worker without bot, managed-WAF, rate-limit, security-level, or browser-integrity challenge interference"}')"
-          status="$(curl -sS -o /tmp/add-rule.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data "$payload")"
+          status="$(curl -sS -o /tmp/add-rule.json -w '%{http_code}' --max-time 20 -X POST \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data "$payload")"
           echo "Scoped API edge security rule HTTP status: ${status}"
           cat /tmp/add-rule.json || true
           test "$status" = "200"
