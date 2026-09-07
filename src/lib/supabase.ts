@@ -1,7 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Production-safe public runtime fallback. These are intentionally non-secret
+// Supabase client values: publishable/anon keys are designed for browser use
+// and remain constrained by Supabase RLS. Vite replaces VITE_* variables at
+// build time, so a Vercel deployment with missing environment configuration
+// must not crash before React starts.
+const PRODUCTION_SUPABASE_URL = 'https://zcjtvykwwplnzyyslnop.supabase.co';
+const PRODUCTION_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_LYmosWe1b1cqFyyd8qaCQg_WIFjgoqQ';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || PRODUCTION_SUPABASE_URL;
+const supabasePublishableKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  PRODUCTION_SUPABASE_PUBLISHABLE_KEY;
 
 if (!supabaseUrl || !supabasePublishableKey) {
   throw new Error('Testagram backend is not configured: VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY are required.');
