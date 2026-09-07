@@ -271,3 +271,75 @@ jobs:
           echo "Production CORS preflight HTTP status: ${status}"
           cat /tmp/production-options.txt || true
           test "$status" = "204"
+
+      - name: End-to-end authenticated R2 media test
+        env:
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          test_email="testagram-ci-${GITHUB_RUN_ID}@example.invalid"
+          test_password="TgCI-${GITHUB_RUN_ID}-${RANDOM}-X9!"
+          user_id=""
+          access_token=""
+          asset_id=""
+          cleanup() {
+            if [ -n "$asset_id" ] && [ -n "$access_token" ]; then
+              curl -sS -o /dev/null --max-time 15 -X DELETE \
+                "$PRODUCTION_HEALTH_URL" >/dev/null 2>&1 || true
+            fi
+            if [ -n "$user_id" ]; then
+              curl -sS -o /dev/null --max-time 15 -X DELETE \
+                -H "apikey: ${SUPABASE_SECRET_KEY}" \
+                "${SUPABASE_URL}/auth/v1/admin/users/${user_id}" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+
+          printf '\x89PNG\r\n\x1a\n' > /tmp/testagram-ci.png
+
+          create_status="$(curl -sS -o /tmp/create-user.json -w '%{http_code}' --max-time 20 \
+            -X POST "${SUPABASE_URL}/auth/v1/admin/users" \
+            -H "apikey: ${SUPABASE_SECRET_KEY}" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg email "$test_email" --arg password "$test_password" '{email:$email,password:$password,email_confirm:true}')")"
+          echo "Temporary Auth user creation HTTP status: ${create_status}"
+          test "$create_status" = "200"
+          user_id="$(jq -r '.id // .user.id // empty' /tmp/create-user.json)"
+          test -n "$user_id"
+
+          login_status="$(curl -sS -o /tmp/login.json -w '%{http_code}' --max-time 20 \
+            -X POST "${SUPABASE_URL}/auth/v1/token?grant_type=password" \
+            -H "apikey: ${SUPABASE_PUBLISHABLE_KEY}" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg email "$test_email" --arg password "$test_password" '{email:$email,password:$password}')")"
+          echo "Temporary Auth login HTTP status: ${login_status}"
+          test "$login_status" = "200"
+          access_token="$(jq -r '.access_token // empty' /tmp/login.json)"
+          test -n "$access_token"
+
+          upload_status="$(curl -sS -o /tmp/upload.json -w '%{http_code}' --max-time 30 \
+            -X POST "${PRODUCTION_HEALTH_URL%/api/health}/api/media" \
+            -H "Authorization: Bearer ${access_token}" \
+            -H 'Content-Type: image/png' \
+            -H 'X-Media-Type: image' \
+            -H 'X-File-Name: ci-smoke.png' \
+            --data-binary @/tmp/testagram-ci.png)"
+          echo "R2 media upload HTTP status: ${upload_status}"
+          test "$upload_status" = "201"
+          asset_id="$(jq -r '.id // empty' /tmp/upload.json)"
+          test -n "$asset_id"
+
+          get_status="$(curl -sS -o /tmp/get-media.bin -w '%{http_code}' --max-time 20 \
+            -X GET "${PRODUCTION_HEALTH_URL%/api/health}/api/media/${asset_id}" \
+            -H "Authorization: Bearer ${access_token}")"
+          echo "R2 media retrieval HTTP status: ${get_status}"
+          test "$get_status" = "200"
+          test -s /tmp/get-media.bin
+
+          delete_status="$(curl -sS -o /tmp/delete-media.json -w '%{http_code}' --max-time 20 \
+            -X DELETE "${PRODUCTION_HEALTH_URL%/api/health}/api/media/${asset_id}" \
+            -H "Authorization: Bearer ${access_token}")"
+          echo "R2 media deletion HTTP status: ${delete_status}"
+          test "$delete_status" = "200"
+          asset_id=""
