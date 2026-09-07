@@ -26,6 +26,7 @@ env:
   MEDIA_BUCKET: 'testagram-media'
   SUPABASE_PROJECT_REF: 'zcjtvykwwplnzyyslnop'
   SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
+  SUPABASE_JWKS_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co/auth/v1/.well-known/jwks.json'
   WORKER_HEALTH_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/health'
   PRODUCTION_HEALTH_URL: 'https://testagram.site/api/health'
 
@@ -37,8 +38,27 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
+      - name: Validate required Supabase deployment secrets
+        env:
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_PUBLISHABLE_KEY" || { echo 'Missing GitHub Actions secret: SUPABASE_PUBLISHABLE_KEY'; exit 1; }
+          test -n "$SUPABASE_SECRET_KEY" || { echo 'Missing GitHub Actions secret: SUPABASE_SECRET_KEY'; exit 1; }
       - name: Validate Cloudflare Worker configuration
-        run: npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy --config cloudflare/wrangler.jsonc --dry-run
+        env:
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          secrets_file="$(mktemp)"
+          trap 'rm -f "$secrets_file"' EXIT
+          {
+            printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY"
+            printf 'SUPABASE_SECRET_KEY=%s\n' "$SUPABASE_SECRET_KEY"
+          } > "$secrets_file"
+          npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy --config cloudflare/wrangler.jsonc --dry-run --secrets-file "$secrets_file"
       - name: Verify backend migrations are tracked
         run: |
           test -f supabase/migrations/20260906_backend_core.sql
@@ -53,6 +73,12 @@ jobs:
             200|401|403) echo "Supabase endpoint reachable for project ${SUPABASE_PROJECT_REF} (HTTP ${status})" ;;
             *) echo "Supabase endpoint check failed: HTTP ${status}"; exit 1 ;;
           esac
+      - name: Verify Supabase JWKS endpoint
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /tmp/jwks.json -w '%{http_code}' --max-time 15 "$SUPABASE_JWKS_URL")"
+          test "$status" = "200"
+          grep -Fq '"keys"' /tmp/jwks.json
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -85,19 +111,19 @@ jobs:
             SUPABASE_URL: string;
             SUPABASE_PROJECT_REF: string;
             SUPABASE_ANON_KEY: string;
-            SUPABASE_SECRET_KEY?: string;
+            SUPABASE_SECRET_KEY: string;
+            SUPABASE_JWKS_URL: string;
             APP_ORIGIN: string;
             MEDIA: R2Bucket;
           }
 
           async function health(request: Request, env: Env): Promise<Response> {
-            const key = env.SUPABASE_SECRET_KEY || env.SUPABASE_ANON_KEY;
             let databaseStatus = 0;
             let databaseReachable = false;
             let databaseError: string | undefined;
             try {
               const upstream = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=id&limit=1`, {
-                headers: { apikey: key, Authorization: `Bearer ${key}` }
+                headers: { apikey: env.SUPABASE_SECRET_KEY }
               });
               databaseStatus = upstream.status;
               databaseReachable = upstream.ok;
@@ -106,8 +132,14 @@ jobs:
               databaseError = error instanceof Error ? error.message : 'Supabase request failed';
             }
 
+            let jwksReachable = false;
+            try {
+              const jwks = await fetch(env.SUPABASE_JWKS_URL, { headers: { Accept: 'application/json' } });
+              jwksReachable = jwks.ok;
+            } catch { /* health will report false */ }
+
             const r2Binding = Boolean(env.MEDIA);
-            const ok = databaseReachable && r2Binding;
+            const ok = databaseReachable && jwksReachable && r2Binding;
             return new Response(JSON.stringify({
               ok,
               service: 'testagram-api',
@@ -115,7 +147,7 @@ jobs:
               supabaseProjectRef: env.SUPABASE_PROJECT_REF,
               databaseReachable,
               databaseStatus,
-              ...(databaseError ? { databaseError } : {}),
+              jwksReachable,
               media: 'cloudflare-r2',
               r2Binding,
               maxMediaBytes: 20 * 1024 * 1024,
@@ -145,7 +177,6 @@ jobs:
           p = Path('/tmp/wrangler-production.jsonc')
           text = p.read_text()
           text = text.replace('"main": "./worker/index.ts"', '"main": "./worker/production-entrypoint.ts"')
-          text = text.replace('"required": ["SUPABASE_ANON_KEY"]', '"required": ["SUPABASE_ANON_KEY", "SUPABASE_SECRET_KEY"]')
           p.write_text(text)
           PY
       - name: Deploy Testagram API to Cloudflare
@@ -178,6 +209,7 @@ jobs:
           test "$status" = "200"
           grep -Fq '"ok":true' /tmp/worker-health.json
           grep -Fq '"databaseReachable":true' /tmp/worker-health.json
+          grep -Fq '"jwksReachable":true' /tmp/worker-health.json
           grep -Fq '"media":"cloudflare-r2"' /tmp/worker-health.json
           grep -Fq "${SUPABASE_PROJECT_REF}" /tmp/worker-health.json
       - name: Diagnose production /api route
