@@ -45,6 +45,8 @@ jobs:
           npx playwright install chromium
 
       - name: Real browser render smoke
+        id: browser
+        continue-on-error: true
         run: |
           node <<'NODE'
           const { chromium } = require('playwright');
@@ -67,9 +69,7 @@ jobs:
               const root = await page.locator('#root').innerHTML().catch(() => 'ROOT_MISSING');
               console.log(JSON.stringify({ path, title, textLength: text.length, firstText: text.slice(0, 300), rootLength: root.length, rootStart: root.slice(0, 500), failures }));
               if (text.includes('Testagram could not load')) throw new Error(`boot failure rendered at ${path}`);
-              if (text.trim().length < 80) {
-                throw new Error(`suspiciously empty render at ${path}; failures=${failures.join(' | ')}`);
-              }
+              if (text.trim().length < 80) throw new Error(`suspiciously empty render at ${path}; failures=${failures.join(' | ')}`);
               if (failures.length) throw new Error(failures.join('\n'));
             }
 
@@ -78,12 +78,21 @@ jobs:
           NODE
 
       - name: Verify wallet PayPal backend configuration
+        id: paypal
+        continue-on-error: true
         run: |
           set -euo pipefail
           payload=$(curl -sS -X POST "$SUPABASE_FUNCTION_URL" -H 'content-type: application/json' --data '{"action":"health"}')
           echo "$payload"
           node -e 'const p=JSON.parse(process.argv[1]); if(!p.ok) process.exit(1); if(p.paypalMode!=="sandbox") process.exit(2); if(!p.configured) process.exit(3)' "$payload"
 
-      - name: Verify wallet schema and ledger are reachable
+      - name: Final production hard gate
+        if: always()
         run: |
-          echo "Production browser and PayPal health passed. Ledger verification is performed against Supabase after an authenticated sandbox capture."
+          echo "browser=${{ steps.browser.outcome }} paypal=${{ steps.paypal.outcome }}"
+          test "${{ steps.browser.outcome }}" = success
+          test "${{ steps.paypal.outcome }}" = success
+
+      - name: Verify wallet schema and ledger are reachable
+        if: success()
+        run: echo "Production browser and PayPal health passed. Ledger verification follows an authenticated sandbox capture."
