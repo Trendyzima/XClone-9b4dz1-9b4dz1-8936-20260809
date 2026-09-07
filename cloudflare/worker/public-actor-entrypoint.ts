@@ -1,49 +1,48 @@
 import federation from './federation-entrypoint';
 
-// Federation identity is intentionally anchored to the globally reachable Worker.
 const ORIGIN = 'https://testagram-api.nahashonnyaga794.workers.dev';
+const GATEWAY = 'https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/gateway-relay';
+const AP = 'application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json';
 
-async function actor(request: Request, env: any, username: string) {
-  const encoded = encodeURIComponent(username);
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/federation_actors?username=eq.${encoded}&select=username,public_key_pem`, {
-    headers: { apikey: env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}` }
-  });
-  if (!response.ok) return new Response(JSON.stringify({ error: 'actor lookup failed' }), { status: 502, headers: { 'Content-Type': 'application/json' } });
-  const rows = await response.json() as any[];
-  const row = rows[0];
-  if (!row) return new Response(JSON.stringify({ error: 'actor not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
-  const id = `${ORIGIN}/users/${encodeURIComponent(row.username)}`;
+async function actor(username: string) {
+  const response = await fetch(`${GATEWAY}/users/${encodeURIComponent(username)}`, { headers: { Accept: AP, 'User-Agent': 'Testagram-Federation/1.5' } });
+  if (!response.ok) return new Response(JSON.stringify({ error: 'actor not found' }), { status: response.status === 404 ? 404 : 502, headers: { 'Content-Type': 'application/json' } });
+  const source = await response.json() as any;
+  const id = `${ORIGIN}/users/${encodeURIComponent(username)}`;
   const body = {
     '@context': ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1'],
     id,
     type: 'Person',
-    preferredUsername: row.username,
-    name: row.username,
+    preferredUsername: username,
+    name: username,
     url: id,
     inbox: `${id}/inbox`,
     outbox: `${id}/outbox`,
     followers: `${id}/followers`,
     following: `${id}/following`,
-    publicKey: { type: 'Key', id: `${id}#main-key`, owner: id, publicKeyPem: row.public_key_pem },
+    publicKey: { type: 'Key', id: `${id}#main-key`, owner: id, publicKeyPem: source.publicKey?.publicKeyPem },
     discoverable: true,
     indexable: true
   };
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/activity+json; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'Vary': 'Accept',
-      'X-Testagram-Actor-Source': 'direct'
-    }
-  });
+  if (!body.publicKey.publicKeyPem) return new Response(JSON.stringify({ error: 'actor public key unavailable' }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/activity+json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept', 'X-Testagram-Actor-Source': 'gateway-relay' } });
+}
+
+async function inbox(request: Request, username: string) {
+  const body = await request.arrayBuffer();
+  const headers = new Headers(request.headers);
+  headers.set('Content-Type', headers.get('Content-Type') || 'application/activity+json');
+  const response = await fetch(`${GATEWAY}/users/${encodeURIComponent(username)}/inbox`, { method: 'POST', headers, body });
+  return new Response(response.body, { status: response.status, headers: response.headers });
 }
 
 export default {
   async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const match = url.pathname.match(/^\/users\/([^/]+)$/);
-    if (request.method === 'GET' && match) return actor(request, env, decodeURIComponent(match[1]));
+    const actorMatch = url.pathname.match(/^\/users\/([^/]+)$/);
+    const inboxMatch = url.pathname.match(/^\/users\/([^/]+)\/inbox$/);
+    if (request.method === 'GET' && actorMatch) return actor(decodeURIComponent(actorMatch[1]));
+    if (request.method === 'POST' && inboxMatch) return inbox(request, decodeURIComponent(inboxMatch[1]));
     return federation.fetch(request, env, ctx);
   }
 };
