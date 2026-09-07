@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/worker/production-entrypoint.ts'
+      - 'cloudflare/worker/public-actor-entrypoint.ts'
       - 'cloudflare/worker/federation-entrypoint.ts'
       - 'cloudflare/worker/index.ts'
       - 'cloudflare/wrangler.jsonc'
@@ -41,6 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s cloudflare/worker/production-entrypoint.ts
+          test -s cloudflare/worker/public-actor-entrypoint.ts
           test -s cloudflare/worker/federation-entrypoint.ts
           test -s cloudflare/worker/index.ts
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler.jsonc
