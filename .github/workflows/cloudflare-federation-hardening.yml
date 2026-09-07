@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/worker/federation-entrypoint.ts'
+      - 'cloudflare/worker/public-actor-entrypoint.ts'
       - 'cloudflare/wrangler-federation.jsonc'
       - '.github/workflows/cloudflare-federation-hardening.yml'
       - 'supabase/migrations/*federation*'
