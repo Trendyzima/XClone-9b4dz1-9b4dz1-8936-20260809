@@ -1,15 +1,14 @@
 import federation from './federation-entrypoint';
 
-const ORIGIN = 'https://testagram-api.nahashonnyaga794.workers.dev';
+const ORIGIN = 'https://fedi.testagram.site';
 const GATEWAY = 'https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/gateway-relay';
 const AP = 'application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json';
 
 async function actor(username: string) {
-  const response = await fetch(`${GATEWAY}/users/${encodeURIComponent(username)}`, { headers: { Accept: AP, 'User-Agent': 'Testagram-Federation/1.6' } });
+  const response = await fetch(`${GATEWAY}/users/${encodeURIComponent(username)}`, { headers: { Accept: AP, 'User-Agent': 'Testagram-Federation/1.7' } });
   if (!response.ok) return new Response(JSON.stringify({ error: 'actor not found' }), { status: response.status === 404 ? 404 : 502, headers: { 'Content-Type': 'application/json' } });
   const source = await response.json() as any;
   const id = `${ORIGIN}/users/${encodeURIComponent(username)}`;
-  const webfinger = `acct:${username}@${new URL(ORIGIN).hostname}`;
   const body = {
     '@context': ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1'],
     id,
@@ -17,7 +16,7 @@ async function actor(username: string) {
     preferredUsername: username,
     name: username,
     url: id,
-    webfinger,
+    webfinger: `acct:${username}@${new URL(ORIGIN).hostname}`,
     inbox: `${id}/inbox`,
     outbox: `${id}/outbox`,
     followers: `${id}/followers`,
@@ -33,7 +32,7 @@ async function actor(username: string) {
 async function webfinger(request: Request) {
   const url = new URL(request.url);
   const resource = url.searchParams.get('resource') || '';
-  const upstream = await fetch(`${GATEWAY}/.well-known/webfinger?resource=${encodeURIComponent(resource)}`, { headers: { Accept: 'application/jrd+json, application/json', 'User-Agent': 'Testagram-Federation/1.6' } });
+  const upstream = await fetch(`${GATEWAY}/.well-known/webfinger?resource=${encodeURIComponent(resource)}`, { headers: { Accept: 'application/jrd+json, application/json', 'User-Agent': 'Testagram-Federation/1.7' } });
   return new Response(upstream.body, { status: upstream.status, headers: { 'Content-Type': 'application/jrd+json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept' } });
 }
 
