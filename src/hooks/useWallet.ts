@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from './useAuth';
 
@@ -6,6 +6,7 @@ export interface Wallet {
   id: string;
   user_id: string;
   balance: number;
+  currency: string;
   total_deposited: number;
   total_withdrawn: number;
   mpesa_phone: string | null;
@@ -20,77 +21,32 @@ export function useWallet() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (user) {
-      fetchWallet();
-    }
-  }, [user]);
-
-  const fetchWallet = async () => {
-    if (!user) return;
-
+  const fetchWallet = useCallback(async () => {
+    if (!user) { setWallet(null); setLoading(false); return; }
     try {
-      setLoading(true);
-      setError(null);
+      setLoading(true); setError(null);
+      const { data, error: fetchError } = await supabase.from('wallets').select('id,user_id,balance,currency,total_deposited,total_withdrawn,mpesa_phone,paypal_email,created_at,updated_at').eq('user_id', user.id).maybeSingle();
+      if (fetchError) throw fetchError;
+      if (!data) {
+        const { data: created, error: createError } = await supabase.rpc('ensure_user_wallet', { p_user_id: user.id, p_currency: 'USD' });
+        if (createError) throw createError;
+        setWallet(created as Wallet);
+      } else setWallet(data as Wallet);
+    } catch (err: any) { console.error('Wallet error:', err); setError(err?.message || 'Wallet unavailable'); }
+    finally { setLoading(false); }
+  }, [user?.id]);
 
-      const { data, error: fetchError } = await supabase
-        .from('user_wallets')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-      if (fetchError) {
-        // If wallet doesn't exist, create one
-        if (fetchError.code === 'PGRST116') {
-          const { data: newWallet, error: createError } = await supabase
-            .from('user_wallets')
-            .insert({ user_id: user.id, balance: 0 })
-            .select()
-            .single();
-
-          if (createError) throw createError;
-          setWallet(newWallet);
-        } else {
-          throw fetchError;
-        }
-      } else {
-        setWallet(data);
-      }
-    } catch (err: any) {
-      console.error('Wallet error:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => { void fetchWallet(); }, [fetchWallet]);
 
   const updatePaymentMethods = async (mpesaPhone: string, paypalEmail: string) => {
     if (!user || !wallet) return { success: false, error: 'No wallet found' };
-
     try {
-      const { error: updateError } = await supabase
-        .from('user_wallets')
-        .update({
-          mpesa_phone: mpesaPhone || null,
-          paypal_email: paypalEmail || null,
-        })
-        .eq('user_id', user.id);
-
+      const { data, error: updateError } = await supabase.rpc('update_wallet_payment_methods', { p_mpesa_phone: mpesaPhone || null, p_paypal_email: paypalEmail || null });
       if (updateError) throw updateError;
-
-      setWallet(prev => prev ? { ...prev, mpesa_phone: mpesaPhone, paypal_email: paypalEmail } : null);
+      setWallet(data as Wallet);
       return { success: true };
-    } catch (err: any) {
-      console.error('Update payment methods error:', err);
-      return { success: false, error: err.message };
-    }
+    } catch (err: any) { console.error('Update payment methods error:', err); return { success: false, error: err?.message || 'Unable to update payment methods' }; }
   };
 
-  return {
-    wallet,
-    loading,
-    error,
-    fetchWallet,
-    updatePaymentMethods,
-  };
+  return { wallet, loading, error, fetchWallet, updatePaymentMethods };
 }
