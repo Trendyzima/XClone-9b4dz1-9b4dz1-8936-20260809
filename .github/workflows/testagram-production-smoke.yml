@@ -54,19 +54,25 @@ jobs:
             const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
             const failures = [];
             page.on('pageerror', e => failures.push(`pageerror: ${e.message}`));
-            page.on('console', msg => { if (msg.type() === 'error') failures.push(`console: ${msg.text()}`); });
+            page.on('console', msg => { if (msg.type() === 'error') failures.push(`console:${msg.text()}`); });
+            page.on('requestfailed', req => failures.push(`requestfailed:${req.url()} :: ${req.failure()?.errorText || 'unknown'}`));
+            page.on('response', res => { if (res.status() >= 400) failures.push(`http:${res.status()} ${res.url()}`); });
 
             for (const path of ['/', '/wallet']) {
+              failures.length = 0;
               await page.goto(`${base}${path}`, { waitUntil: 'networkidle', timeout: 60000 });
-              await page.waitForTimeout(1500);
+              await page.waitForTimeout(5000);
               const text = await page.locator('body').innerText();
               const title = await page.title();
-              console.log(JSON.stringify({ path, title, textLength: text.length, firstText: text.slice(0, 300) }));
+              const root = await page.locator('#root').innerHTML().catch(() => 'ROOT_MISSING');
+              console.log(JSON.stringify({ path, title, textLength: text.length, firstText: text.slice(0, 300), rootLength: root.length, rootStart: root.slice(0, 500), failures }));
               if (text.includes('Testagram could not load')) throw new Error(`boot failure rendered at ${path}`);
-              if (text.trim().length < 80) throw new Error(`suspiciously empty render at ${path}`);
+              if (text.trim().length < 80) {
+                throw new Error(`suspiciously empty render at ${path}; failures=${failures.join(' | ')}`);
+              }
+              if (failures.length) throw new Error(failures.join('\n'));
             }
 
-            if (failures.length) throw new Error(failures.join('\n'));
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
