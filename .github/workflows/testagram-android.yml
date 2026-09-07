@@ -33,6 +33,7 @@ jobs:
       - name: Persist verified Fediverse implementation
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
+          set -euo pipefail
           if git diff --quiet; then
             echo 'Fediverse implementation already persisted.'
             exit 0
@@ -41,6 +42,8 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/pages/HomePage.tsx src/components/features/FederatedPostCard.tsx tools/apply_fediverse_unified.py .github/workflows/testagram-android.yml
           git commit -m 'feat(fediverse): unify ranking and enable native interactions'
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
       - name: Upload web build for native packaging
         uses: actions/upload-artifact@v4
