@@ -44,6 +44,19 @@ jobs:
           trap 'rm -f "$secrets_file"' EXIT
           printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" > "$secrets_file"
           npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler-federation.jsonc --secrets-file "$secrets_file"
+      - name: Disable Bot Fight Mode for federation compatibility
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+          zone_json="$(curl -sS --fail-with-body -H "$auth" "https://api.cloudflare.com/client/v4/zones?name=testagram.site&status=active&per_page=1")"
+          zone_id="$(jq -r '.result[0].id // empty' <<<"$zone_json")"
+          test -n "$zone_id"
+          bot="$(curl -sS --fail-with-body -H "$auth" "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management")"
+          if jq -e '.result.fight_mode == true' <<<"$bot" >/dev/null; then
+            curl -sS --fail-with-body -X PUT -H "$auth" -H 'Content-Type: application/json' "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" --data '{"fight_mode":false}'
+          fi
       - name: Configure public federation WAF bypass
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -72,8 +85,16 @@ jobs:
       - name: Verify public federation endpoints
         run: |
           set -euo pipefail
-          curl -sS --fail-with-body --max-time 20 -H 'Accept: application/json' 'https://federation.testagram.site/.well-known/nodeinfo' | jq -e '.links | length > 0'
-          curl -sS --fail-with-body --max-time 20 'https://federation.testagram.site/nodeinfo/2.1' | jq -e '.protocols | index("activitypub")'
+          for attempt in $(seq 1 12); do
+            if curl -sS --fail-with-body --max-time 20 -H 'Accept: application/json' 'https://federation.testagram.site/.well-known/nodeinfo' >/tmp/nodeinfo-link.json && jq -e '.links | length > 0' /tmp/nodeinfo-link.json >/dev/null; then break; fi
+            test "$attempt" -eq 12 && exit 1
+            sleep 5
+          done
+          for attempt in $(seq 1 12); do
+            if curl -sS --fail-with-body --max-time 20 'https://federation.testagram.site/nodeinfo/2.1' >/tmp/nodeinfo.json && jq -e '.protocols | index("activitypub")' /tmp/nodeinfo.json >/dev/null; then break; fi
+            test "$attempt" -eq 12 && exit 1
+            sleep 5
+          done
           status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 'https://federation.testagram.site/api/health')"
           cat /tmp/health.json
           test "$status" = 200
