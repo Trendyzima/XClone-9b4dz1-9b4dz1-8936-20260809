@@ -18,7 +18,6 @@ on:
       - 'cloudflare/wrangler-federation.jsonc'
       - '.github/workflows/canonical-cloudflare-worker.yml'
 
-authorizations: {}
 permissions:
   contents: read
 
@@ -80,7 +79,9 @@ jobs:
         run: |
           set -euo pipefail
           test "$(curl -sS --fail-with-body --max-time 20 "$WORKER_HEALTH_URL" | jq -r '.federationDomain')" = 'fedi.testagram.site'
-          test "$(curl -sS --fail-with-body --max-time 20 'https://fedi.testagram.site/.well-known/webfinger?resource=acct:health@fedi.testagram.site' -o /tmp/webfinger.json -w '%{http_code}')" = 404
+          status="$(curl -sS -o /tmp/webfinger.json -w '%{http_code}' --max-time 20 'https://fedi.testagram.site/.well-known/webfinger?resource=acct:health@fedi.testagram.site' || true)"
+          cat /tmp/webfinger.json
+          test "$status" = 404
           grep -q 'actor not found' /tmp/webfinger.json
       - name: Verify production custom domain (non-blocking if Cloudflare challenge is enabled)
         run: |
