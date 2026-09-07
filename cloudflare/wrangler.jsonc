@@ -12,7 +12,8 @@
   "vars": {
     "APP_ORIGIN": "https://testagram.site",
     "SUPABASE_URL": "https://zcjtvykwwplnzyyslnop.supabase.co",
-    "SUPABASE_PROJECT_REF": "zcjtvykwwplnzyyslnop"
+    "SUPABASE_PROJECT_REF": "zcjtvykwwplnzyyslnop",
+    "SUPABASE_JWKS_URL": "https://zcjtvykwwplnzyyslnop.supabase.co/auth/v1/.well-known/jwks.json"
   },
   "r2_buckets": [
     {
@@ -21,6 +22,6 @@
     }
   ],
   "secrets": {
-    "required": ["SUPABASE_ANON_KEY"]
+    "required": ["SUPABASE_ANON_KEY", "SUPABASE_SECRET_KEY"]
   }
 }
