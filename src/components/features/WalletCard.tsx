@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownToLine, ExternalLink, Loader2, Wallet, History } from 'lucide-react';
+import { ArrowDownToLine, Loader2, Wallet, History } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -17,10 +17,16 @@ export function WalletCard({ username }: { username: string }) {
     setLoading(true);
     try {
       const { data: session } = await supabase.auth.getSession();
-      if (!session.session?.user) return;
+      const userId = session.session?.user?.id;
+      if (!userId) return;
+
+      // Profile creation now provisions a wallet, but this keeps the UI safe for
+      // legacy accounts created before the wallet trigger was installed.
+      await supabase.rpc('ensure_user_wallet', { p_user_id: userId, p_currency: 'USD' });
+
       const [{ data: w, error: we }, { data: tx, error: te }] = await Promise.all([
-        supabase.from('wallets').select('id,balance,currency').eq('user_id', session.session.user.id).maybeSingle(),
-        supabase.from('wallet_transactions').select('id,type,status,amount,currency,description,created_at').eq('user_id', session.session.user.id).order('created_at', { ascending: false }).limit(8),
+        supabase.from('wallets').select('id,balance,currency').eq('user_id', userId).maybeSingle(),
+        supabase.from('wallet_transactions').select('id,type,status,amount,currency,description,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(8),
       ]);
       if (we) throw we;
       if (te) throw te;
@@ -45,7 +51,9 @@ export function WalletCard({ username }: { username: string }) {
         if (error || data?.error) throw new Error(error?.message || data?.error || 'PayPal capture failed');
         if (active) toast.success('PayPal payment completed and wallet credited.');
         await load();
-        const url = new URL(window.location.href); url.searchParams.delete('token'); url.searchParams.delete('PayerID'); url.searchParams.delete('paypal'); window.history.replaceState({}, '', url.toString());
+        const url = new URL(window.location.href);
+        url.searchParams.delete('token'); url.searchParams.delete('PayerID'); url.searchParams.delete('paypal');
+        window.history.replaceState({}, '', url.toString());
       } catch (e: any) { if (active) toast.error(e?.message || 'Payment capture failed'); }
       finally { if (active) setPaying(false); }
     })();
@@ -57,7 +65,14 @@ export function WalletCard({ username }: { username: string }) {
     if (!Number.isFinite(value) || value < 1 || value > 100000) { toast.error('Enter an amount between 1 and 100,000.'); return; }
     setPaying(true);
     try {
-      const { data, error } = await supabase.functions.invoke('paypal-create-order', { body: { amount: value, currency: wallet?.currency || 'USD', return_url: `${window.location.origin}/profile/${username}?paypal=success`, cancel_url: `${window.location.origin}/profile/${username}?paypal=cancel` } });
+      const { data, error } = await supabase.functions.invoke('paypal-create-order', {
+        body: {
+          amount: value,
+          currency: wallet?.currency || 'USD',
+          return_url: `${window.location.origin}/profile/${encodeURIComponent(username)}?paypal=success`,
+          cancel_url: `${window.location.origin}/profile/${encodeURIComponent(username)}?paypal=cancel`,
+        },
+      });
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Could not create PayPal order');
       if (!data?.approvalUrl) throw new Error('PayPal approval URL was not returned');
       window.location.assign(data.approvalUrl);
