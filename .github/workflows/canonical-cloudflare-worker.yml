@@ -25,7 +25,7 @@ env:
   WRANGLER_VERSION: '4.126.0'
   SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
   SUPABASE_PROJECT_REF: 'zcjtvykwwplnzyyslnop'
-  WORKER_HEALTH_URL: 'https://fedi.testagram.site/api/health'
+  WORKER_HEALTH_URL: 'https://federation.testagram.site/api/health'
   PRODUCTION_HEALTH_URL: 'https://api.testagram.site/api/health'
 
 jobs:
@@ -47,8 +47,8 @@ jobs:
           test -s cloudflare/worker/index.ts
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler.jsonc
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler-federation.jsonc
-          grep -Fq 'fedi.testagram.site' cloudflare/wrangler.jsonc
-          grep -Fq 'https://fedi.testagram.site' cloudflare/worker/public-actor-entrypoint.ts
+          grep -Fq 'federation.testagram.site' cloudflare/wrangler.jsonc
+          grep -Fq 'https://federation.testagram.site' cloudflare/worker/public-actor-entrypoint.ts
       - name: Deploy canonical Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -78,8 +78,8 @@ jobs:
       - name: Verify federation custom domain identity
         run: |
           set -euo pipefail
-          test "$(curl -sS --fail-with-body --max-time 20 "$WORKER_HEALTH_URL" | jq -r '.federationDomain')" = 'fedi.testagram.site'
-          status="$(curl -sS -o /tmp/webfinger.json -w '%{http_code}' --max-time 20 'https://fedi.testagram.site/.well-known/webfinger?resource=acct:health@fedi.testagram.site' || true)"
+          test "$(curl -sS --fail-with-body --max-time 20 "$WORKER_HEALTH_URL" | jq -r '.federationDomain')" = 'federation.testagram.site'
+          status="$(curl -sS -o /tmp/webfinger.json -w '%{http_code}' --max-time 20 'https://federation.testagram.site/.well-known/webfinger?resource=acct:health@federation.testagram.site' || true)"
           cat /tmp/webfinger.json
           test "$status" = 404
           grep -q 'actor not found' /tmp/webfinger.json
@@ -91,7 +91,7 @@ jobs:
           if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/production-health.json >/dev/null 2>&1; then
             echo 'Existing API custom domain health is directly reachable.'
           elif grep -qiE 'Just a moment|challenge|cf-chl|Enable JavaScript and cookies' /tmp/production-health.json; then
-            echo 'Existing API custom domain remains browser-challenge protected; dedicated federation domain is fedi.testagram.site.'
+            echo 'Existing API custom domain remains browser-challenge protected; federation uses federation.testagram.site.'
           else
-            echo "Existing API custom domain returned HTTP $status; federation uses fedi.testagram.site."
+            echo "Existing API custom domain returned HTTP $status; federation uses federation.testagram.site."
           fi
