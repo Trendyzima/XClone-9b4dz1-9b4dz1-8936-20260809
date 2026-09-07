@@ -61,8 +61,13 @@ jobs:
           if [ -z "$ruleset_id" ]; then
             payload="$(jq -nc --argjson rule "$rule" '{name:"Testagram federation public endpoints",description:"Allow ActivityPub WebFinger NodeInfo and public actor traffic without browser challenges",kind:"zone",phase:"http_request_firewall_custom",rules:[$rule]}')"
             curl -sS --fail-with-body -X POST -H "$auth" -H 'Content-Type: application/json' "$ep" --data "$payload"
-          elif ! jq -e --arg expr "$expression" '.result.rules[]? | select(.ref == "testagram_federation_public" and .expression == $expr)' <<<"$entry" >/dev/null; then
-            curl -sS --fail-with-body -X POST -H "$auth" -H 'Content-Type: application/json' "https://api.cloudflare.com/client/v4/zones/${zone_id}/rulesets/${ruleset_id}/rules" --data "$rule"
+          else
+            existing_rule_id="$(jq -r '.result.rules[]? | select(.ref == "testagram_federation_public") | .id' <<<"$entry" | head -n1)"
+            if [ -n "$existing_rule_id" ]; then
+              curl -sS --fail-with-body -X PATCH -H "$auth" -H 'Content-Type: application/json' "https://api.cloudflare.com/client/v4/zones/${zone_id}/rulesets/${ruleset_id}/rules/${existing_rule_id}" --data "$rule"
+            else
+              curl -sS --fail-with-body -X POST -H "$auth" -H 'Content-Type: application/json' "https://api.cloudflare.com/client/v4/zones/${zone_id}/rulesets/${ruleset_id}/rules" --data "$rule"
+            fi
           fi
       - name: Verify public federation endpoints
         run: |
