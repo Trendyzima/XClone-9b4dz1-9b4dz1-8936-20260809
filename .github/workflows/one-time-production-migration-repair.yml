@@ -22,6 +22,25 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN"
           test -n "$SUPABASE_DB_PASSWORD"
+      - name: Normalize PostgreSQL function defaults
+        run: |
+          set -euo pipefail
+          migration='supabase/migrations/20260907130000_profiles_communities_spaces_production.sql'
+          test -f "$migration"
+          # PostgreSQL does not allow a subquery in a function parameter DEFAULT.
+          # auth.uid() is already a stable SQL function, so use it directly.
+          sed -i 's/default (select auth\.uid())/default auth.uid()/g' "$migration"
+          if grep -nF 'default (select auth.uid())' "$migration"; then
+            echo 'Invalid auth.uid() subquery default remains.' >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --quiet -- "$migration"; then
+            git add "$migration"
+            git commit -m 'fix(db): use valid auth uid defaults in community helpers'
+            git push origin HEAD:main
+          fi
       - name: Install Supabase CLI
         run: npm install --global supabase@latest
       - name: Link production project
