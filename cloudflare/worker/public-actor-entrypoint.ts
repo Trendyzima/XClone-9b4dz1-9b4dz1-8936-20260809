@@ -1,5 +1,6 @@
 import federation from './federation-entrypoint';
 
+// Federation identity is intentionally anchored to the globally reachable Worker.
 const ORIGIN = 'https://testagram-api.nahashonnyaga794.workers.dev';
 
 async function actor(request: Request, env: any, username: string) {
@@ -27,7 +28,15 @@ async function actor(request: Request, env: any, username: string) {
     discoverable: true,
     indexable: true
   };
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/activity+json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Testagram-Actor-Source': 'direct' } });
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/activity+json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Vary': 'Accept',
+      'X-Testagram-Actor-Source': 'direct'
+    }
+  });
 }
 
 export default {
