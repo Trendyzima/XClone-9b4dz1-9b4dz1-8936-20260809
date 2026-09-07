@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "testagram-api",
-  "main": "./worker/index.ts",
+  "main": "./worker/production-entrypoint.ts",
   "compatibility_date": "2026-09-06",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
