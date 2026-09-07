@@ -75,31 +75,111 @@ jobs:
           if ! npx --yes wrangler@${{ env.WRANGLER_VERSION }} r2 bucket list | grep -Fq "${MEDIA_BUCKET}"; then
             npx --yes wrangler@${{ env.WRANGLER_VERSION }} r2 bucket create "${MEDIA_BUCKET}"
           fi
+      - name: Prepare production Worker entrypoint
+        run: |
+          set -euo pipefail
+          cat > cloudflare/worker/production-entrypoint.ts <<'EOF'
+          import worker from './index';
+
+          interface Env {
+            SUPABASE_URL: string;
+            SUPABASE_PROJECT_REF: string;
+            SUPABASE_ANON_KEY: string;
+            SUPABASE_SECRET_KEY?: string;
+            APP_ORIGIN: string;
+            MEDIA: R2Bucket;
+          }
+
+          async function health(request: Request, env: Env): Promise<Response> {
+            const key = env.SUPABASE_SECRET_KEY || env.SUPABASE_ANON_KEY;
+            let databaseStatus = 0;
+            let databaseReachable = false;
+            let databaseError: string | undefined;
+            try {
+              const upstream = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=id&limit=1`, {
+                headers: { apikey: key, Authorization: `Bearer ${key}` }
+              });
+              databaseStatus = upstream.status;
+              databaseReachable = upstream.ok;
+              if (!upstream.ok) databaseError = (await upstream.text()).slice(0, 300);
+            } catch (error) {
+              databaseError = error instanceof Error ? error.message : 'Supabase request failed';
+            }
+
+            const r2Binding = Boolean(env.MEDIA);
+            const ok = databaseReachable && r2Binding;
+            return new Response(JSON.stringify({
+              ok,
+              service: 'testagram-api',
+              database: 'supabase',
+              supabaseProjectRef: env.SUPABASE_PROJECT_REF,
+              databaseReachable,
+              databaseStatus,
+              ...(databaseError ? { databaseError } : {}),
+              media: 'cloudflare-r2',
+              r2Binding,
+              maxMediaBytes: 20 * 1024 * 1024,
+              edge: 'cloudflare'
+            }), {
+              status: ok ? 200 : 503,
+              headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'no-store',
+                'X-Content-Type-Options': 'nosniff',
+                'Access-Control-Allow-Origin': env.APP_ORIGIN,
+                'Vary': 'Origin'
+              }
+            });
+          }
+
+          export default {
+            async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+              if (new URL(request.url).pathname === '/api/health') return health(request, env);
+              return worker.fetch(request, env, ctx);
+            }
+          };
+          EOF
+          cp cloudflare/wrangler.jsonc /tmp/wrangler-production.jsonc
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/wrangler-production.jsonc')
+          text = p.read_text()
+          text = text.replace('"main": "./worker/index.ts"', '"main": "./worker/production-entrypoint.ts"')
+          text = text.replace('"required": ["SUPABASE_ANON_KEY"]', '"required": ["SUPABASE_ANON_KEY", "SUPABASE_SECRET_KEY"]')
+          p.write_text(text)
+          PY
       - name: Deploy Testagram API to Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$SUPABASE_PUBLISHABLE_KEY"
+          test -n "$SUPABASE_SECRET_KEY"
           secrets_file="$(mktemp)"
           trap 'rm -f "$secrets_file"' EXIT
-          printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" > "$secrets_file"
+          {
+            printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY"
+            printf 'SUPABASE_SECRET_KEY=%s\n' "$SUPABASE_SECRET_KEY"
+          } > "$secrets_file"
           npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy \
-            --config cloudflare/wrangler.jsonc \
+            --config /tmp/wrangler-production.jsonc \
             --secrets-file "$secrets_file"
       - name: Smoke test direct Cloudflare Worker and Supabase bridge
         run: |
           set -euo pipefail
-          payload="$(curl --fail --silent --show-error --max-time 20 "$WORKER_HEALTH_URL")"
-          printf '%s\n' "$payload"
-          printf '%s' "$payload" | grep -Fq '"ok":true'
-          printf '%s' "$payload" | grep -Fq '"databaseReachable":true'
-          printf '%s' "$payload" | grep -Fq '"media":"cloudflare-r2"'
-          printf '%s' "$payload" | grep -Fq "${SUPABASE_PROJECT_REF}"
+          status="$(curl -sS -o /tmp/worker-health.json -w '%{http_code}' --max-time 20 "$WORKER_HEALTH_URL" || true)"
+          echo "Worker health HTTP status: ${status}"
+          cat /tmp/worker-health.json
+          test "$status" = "200"
+          grep -Fq '"ok":true' /tmp/worker-health.json
+          grep -Fq '"databaseReachable":true' /tmp/worker-health.json
+          grep -Fq '"media":"cloudflare-r2"' /tmp/worker-health.json
+          grep -Fq "${SUPABASE_PROJECT_REF}" /tmp/worker-health.json
       - name: Diagnose production /api route
         continue-on-error: true
         run: |
@@ -110,5 +190,5 @@ jobs:
           if [ "$status" = "200" ]; then
             echo 'Production custom-domain route is reaching the Worker.'
           else
-            echo 'Production custom-domain route is not reaching the Worker yet; direct workers.dev endpoint remains the production API endpoint.'
+            echo 'Production custom-domain route is not reaching the Worker yet.'
           fi
