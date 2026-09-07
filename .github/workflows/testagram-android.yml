@@ -5,6 +5,7 @@ on:
     branches: [main, testagram-native-shell, native-shell-build-certification, native-shell-build-certification-v2]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,6 +16,7 @@ env:
 jobs:
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
@@ -68,6 +70,7 @@ jobs:
 
   parity:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - name: Verify canonical Testagram surface and repository parity
@@ -76,6 +79,7 @@ jobs:
   android:
     needs: [web, parity]
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -84,10 +88,11 @@ jobs:
           path: dist
       - name: Package web build into native WebView assets
         run: |
+          set -euo pipefail
           rm -rf android/app/src/main/assets/www
           mkdir -p android/app/src/main/assets/www
           cp -R dist/. android/app/src/main/assets/www/
-          test -f android/app/src/main/assets/www/index.html
+          test -s android/app/src/main/assets/www/index.html
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -97,6 +102,7 @@ jobs:
         run: chmod +x android/gradlew
       - name: Verify native Android project has no Capacitor wiring
         run: |
+          set -euo pipefail
           ! grep -RniE 'capacitor|BridgeActivity|cordova' \
             android/app/build.gradle \
             android/settings.gradle \
@@ -106,6 +112,13 @@ jobs:
       - name: Assemble native debug APK
         working-directory: android
         run: ./gradlew clean assembleDebug --stacktrace --no-daemon
+      - name: Verify APK artifact
+        run: |
+          set -euo pipefail
+          apk=$(find android/app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n 1)
+          test -n "$apk"
+          test -s "$apk"
+          file "$apk"
       - name: Generate CI signing certificate fingerprint
         working-directory: android
         run: |
@@ -116,6 +129,7 @@ jobs:
         with:
           name: testagram-native-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: testagram-android-signing-report
