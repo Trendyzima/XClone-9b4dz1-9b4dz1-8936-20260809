@@ -38,7 +38,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
-      - name: Validate required Supabase deployment secrets
+
+      - name: Validate required deployment secrets
         env:
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
@@ -46,6 +47,7 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_PUBLISHABLE_KEY" || { echo 'Missing GitHub Actions secret: SUPABASE_PUBLISHABLE_KEY'; exit 1; }
           test -n "$SUPABASE_SECRET_KEY" || { echo 'Missing GitHub Actions secret: SUPABASE_SECRET_KEY'; exit 1; }
+
       - name: Validate Cloudflare Worker configuration
         env:
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
@@ -59,12 +61,27 @@ jobs:
             printf 'SUPABASE_SECRET_KEY=%s\n' "$SUPABASE_SECRET_KEY"
           } > "$secrets_file"
           npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy --config cloudflare/wrangler.jsonc --dry-run --secrets-file "$secrets_file"
+
+      - name: Verify Supabase secret against target Data API
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /tmp/supabase-rest.json -w '%{http_code}' --max-time 15 \
+            -H "apikey: ${SUPABASE_SECRET_KEY}" \
+            -H 'Accept: application/json' \
+            "${SUPABASE_URL}/rest/v1/")"
+          echo "Supabase Data API with secret key: HTTP ${status}"
+          cat /tmp/supabase-rest.json || true
+          test "$status" = "200"
+
       - name: Verify backend migrations are tracked
         run: |
           test -f supabase/migrations/20260906_backend_core.sql
           test -f supabase/migrations/20260906104613_harden_production_api_security.sql
           test -f supabase/migrations/20260906150000_media_assets_20mb_limit.sql
           test -f supabase/migrations/20260906160000_harden_media_visibility_and_function_security.sql
+
       - name: Verify Supabase project endpoint
         run: |
           set -euo pipefail
@@ -73,6 +90,7 @@ jobs:
             200|401|403) echo "Supabase endpoint reachable for project ${SUPABASE_PROJECT_REF} (HTTP ${status})" ;;
             *) echo "Supabase endpoint check failed: HTTP ${status}"; exit 1 ;;
           esac
+
       - name: Verify Supabase JWKS endpoint
         run: |
           set -euo pipefail
@@ -90,6 +108,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
+
       - name: Ensure Cloudflare R2 media bucket exists
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -101,6 +120,7 @@ jobs:
           if ! npx --yes wrangler@${{ env.WRANGLER_VERSION }} r2 bucket list | grep -Fq "${MEDIA_BUCKET}"; then
             npx --yes wrangler@${{ env.WRANGLER_VERSION }} r2 bucket create "${MEDIA_BUCKET}"
           fi
+
       - name: Prepare production Worker entrypoint
         run: |
           set -euo pipefail
@@ -117,13 +137,18 @@ jobs:
             MEDIA: R2Bucket;
           }
 
-          async function health(request: Request, env: Env): Promise<Response> {
+          async function health(env: Env): Promise<Response> {
             let databaseStatus = 0;
             let databaseReachable = false;
             let databaseError: string | undefined;
+
             try {
-              const upstream = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=id&limit=1`, {
-                headers: { apikey: env.SUPABASE_SECRET_KEY }
+              const upstream = await fetch(`${env.SUPABASE_URL}/rest/v1/`, {
+                headers: {
+                  apikey: env.SUPABASE_SECRET_KEY,
+                  Accept: 'application/json',
+                  'User-Agent': 'Testagram-Cloudflare-Worker/1.0'
+                }
               });
               databaseStatus = upstream.status;
               databaseReachable = upstream.ok;
@@ -134,12 +159,17 @@ jobs:
 
             let jwksReachable = false;
             try {
-              const jwks = await fetch(env.SUPABASE_JWKS_URL, { headers: { Accept: 'application/json' } });
+              const jwks = await fetch(env.SUPABASE_JWKS_URL, {
+                headers: { Accept: 'application/json', 'User-Agent': 'Testagram-Cloudflare-Worker/1.0' }
+              });
               jwksReachable = jwks.ok;
-            } catch { /* health will report false */ }
+            } catch (error) {
+              if (!databaseError) databaseError = error instanceof Error ? error.message : 'JWKS request failed';
+            }
 
             const r2Binding = Boolean(env.MEDIA);
             const ok = databaseReachable && jwksReachable && r2Binding;
+
             return new Response(JSON.stringify({
               ok,
               service: 'testagram-api',
@@ -160,29 +190,27 @@ jobs:
                 'Cache-Control': 'no-store',
                 'X-Content-Type-Options': 'nosniff',
                 'Access-Control-Allow-Origin': env.APP_ORIGIN,
-                'Vary': 'Origin'
+                Vary: 'Origin'
               }
             });
           }
 
           export default {
             async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-              if (new URL(request.url).pathname === '/api/health') return health(request, env);
+              if (new URL(request.url).pathname === '/api/health') return health(env);
               return worker.fetch(request, env, ctx);
             }
           };
           EOF
-          # Keep the temporary Wrangler config beside the production entrypoint.
-          # Wrangler resolves `main` relative to the config file, so placing the
-          # temporary config under cloudflare/ avoids the /tmp path resolution bug.
           cp cloudflare/wrangler.jsonc cloudflare/.wrangler-production.jsonc
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           p = Path('cloudflare/.wrangler-production.jsonc')
           text = p.read_text()
           text = text.replace('"main": "./worker/index.ts"', '"main": "./worker/production-entrypoint.ts"')
           p.write_text(text)
           PY
+
       - name: Deploy Testagram API to Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -195,8 +223,8 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$SUPABASE_PUBLISHABLE_KEY"
           test -n "$SUPABASE_SECRET_KEY"
-          test -f cloudflare/worker/production-entrypoint.ts
-          test -f cloudflare/.wrangler-production.jsonc
+          test -s cloudflare/worker/production-entrypoint.ts
+          test -s cloudflare/.wrangler-production.jsonc
           secrets_file="$(mktemp)"
           trap 'rm -f "$secrets_file" cloudflare/worker/production-entrypoint.ts cloudflare/.wrangler-production.jsonc' EXIT
           {
@@ -206,6 +234,7 @@ jobs:
           npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy \
             --config cloudflare/.wrangler-production.jsonc \
             --secrets-file "$secrets_file"
+
       - name: Smoke test direct Cloudflare Worker and Supabase bridge
         run: |
           set -euo pipefail
@@ -218,6 +247,7 @@ jobs:
           grep -Fq '"jwksReachable":true' /tmp/worker-health.json
           grep -Fq '"media":"cloudflare-r2"' /tmp/worker-health.json
           grep -Fq "${SUPABASE_PROJECT_REF}" /tmp/worker-health.json
+
       - name: Diagnose production /api route
         continue-on-error: true
         run: |
