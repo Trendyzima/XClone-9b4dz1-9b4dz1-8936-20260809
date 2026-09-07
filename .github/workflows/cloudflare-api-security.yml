@@ -1,0 +1,121 @@
+name: Testagram Cloudflare API Security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/**'
+      - '.github/workflows/cloudflare-api-security.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZONE_NAME: testagram.site
+  API_HOST: api.testagram.site
+  API_PATH_PREFIX: /api/
+
+jobs:
+  provision-api-exception:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validate Cloudflare credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing CLOUDFLARE_API_TOKEN'; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing CLOUDFLARE_ACCOUNT_ID'; exit 1; }
+
+      - name: Resolve Cloudflare zone and inspect bot protection
+        id: zone
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          zones="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}&status=active" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
+          echo "$zones" | jq -e '.success == true and (.result | length) >= 1' >/dev/null
+          zone_id="$(echo "$zones" | jq -r '.result[0].id')"
+          echo "zone_id=${zone_id}" >> "$GITHUB_OUTPUT"
+          bot_status="$(curl -sS -o /tmp/bot.json -w '%{http_code}' --max-time 20 "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
+          echo "Bot Management API HTTP status: ${bot_status}"
+          cat /tmp/bot.json || true
+          if [ "$bot_status" = "200" ]; then
+            fight_mode="$(jq -r '.result.fight_mode // false' /tmp/bot.json)"
+            echo "Bot Fight Mode: ${fight_mode}"
+            if [ "$fight_mode" = "true" ]; then
+              echo 'ERROR: Free Bot Fight Mode is enabled for testagram.site. Cloudflare does not support path-specific WAF exceptions for Bot Fight Mode.'
+              echo 'Disable Bot Fight Mode or upgrade to Super Bot Fight Mode/Bot Management before the production API health gate can pass.'
+              exit 2
+            fi
+          elif [ "$bot_status" = "403" ]; then
+            echo 'Bot Management status is not readable with the current token; continuing to WAF Rulesets API because a scoped SBFM exception may still be possible.'
+          else
+            echo "Unexpected Bot Management API response: HTTP ${bot_status}"; exit 1
+          fi
+
+      - name: Provision or locate zone custom-rule entrypoint
+        id: ruleset
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ZONE_ID: ${{ steps.zone.outputs.zone_id }}
+        run: |
+          set -euo pipefail
+          url="https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/phases/http_request_firewall_custom/entrypoint"
+          status="$(curl -sS -o /tmp/entrypoint.json -w '%{http_code}' --max-time 20 "$url" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
+          echo "Custom-rule entrypoint HTTP status: ${status}"
+          cat /tmp/entrypoint.json || true
+          if [ "$status" = "200" ]; then
+            ruleset_id="$(jq -r '.result.id // empty' /tmp/entrypoint.json)"
+            test -n "$ruleset_id"
+          elif [ "$status" = "404" ]; then
+            create_status="$(curl -sS -o /tmp/created-ruleset.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"name":"Testagram production API security exceptions","description":"Scoped exceptions for the Testagram API host","kind":"zone","phase":"http_request_firewall_custom"}')"
+            echo "Custom-rule entrypoint create HTTP status: ${create_status}"
+            cat /tmp/created-ruleset.json || true
+            test "$create_status" = "200"
+            ruleset_id="$(jq -r '.result.id // empty' /tmp/created-ruleset.json)"
+            test -n "$ruleset_id"
+          else
+            echo 'Cannot read/create the zone WAF custom-rule entrypoint. The Cloudflare token needs zone WAF/Rulesets read/write permission.'
+            exit 1
+          fi
+          echo "ruleset_id=${ruleset_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Install idempotent scoped Super Bot Fight Mode exception
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ZONE_ID: ${{ steps.zone.outputs.zone_id }}
+          RULESET_ID: ${{ steps.ruleset.outputs.ruleset_id }}
+        run: |
+          set -euo pipefail
+          expression='(http.host eq "api.testagram.site" and http.request.uri.path starts_with "/api/")'
+          rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
+          if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and (.action_parameters.phases // [] | index("http_request_sbfm")))' >/dev/null; then
+            echo 'Scoped API SBFM exception already exists; no mutation required.'
+            exit 0
+          fi
+          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm"]},expression:$expr,description:"Allow Testagram API traffic to reach the Worker without Super Bot Fight Mode challenges"}')"
+          status="$(curl -sS -o /tmp/add-rule.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data "$payload")"
+          echo "Scoped API security rule HTTP status: ${status}"
+          cat /tmp/add-rule.json || true
+          test "$status" = "200"
+          jq -e '.success == true' /tmp/add-rule.json >/dev/null
+
+      - name: Verify API host is no longer challenge-blocked
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health' || true)"
+            echo "Production API verification attempt ${attempt}: HTTP ${status}"
+            cat /tmp/api-health.json || true
+            if [ "$status" = "200" ]; then
+              jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/api-health.json >/dev/null
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'The API host is still challenge-blocked or not healthy after the scoped security exception.'
+          exit 1
