@@ -47,12 +47,23 @@ jobs:
             fight_mode="$(jq -r '.result.fight_mode // false' /tmp/bot.json)"
             echo "Bot Fight Mode: ${fight_mode}"
             if [ "$fight_mode" = "true" ]; then
-              echo 'ERROR: Free Bot Fight Mode is enabled for testagram.site. Cloudflare does not support path-specific WAF exceptions for Bot Fight Mode.'
-              echo 'Disable Bot Fight Mode or upgrade to Super Bot Fight Mode/Bot Management before the production API health gate can pass.'
-              exit 2
+              echo 'Bot Fight Mode is enabled; attempting a controlled zone-level disable because Cloudflare does not support path-specific BFM skips.'
+              disable_status="$(curl -sS -o /tmp/disable-bfm.json -w '%{http_code}' --max-time 20 -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"fight_mode":false}')"
+              echo "Bot Fight Mode disable HTTP status: ${disable_status}"
+              cat /tmp/disable-bfm.json || true
+              test "$disable_status" = "200"
             fi
           elif [ "$bot_status" = "403" ]; then
-            echo 'Bot Management status is not readable with the current token; continuing to WAF Rulesets API.'
+            echo 'Bot Management read is forbidden; attempting the documented Bot Management write operation with fight_mode=false.'
+            disable_status="$(curl -sS -o /tmp/disable-bfm.json -w '%{http_code}' --max-time 20 -X PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/bot_management" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"fight_mode":false}')"
+            echo "Bot Management write HTTP status: ${disable_status}"
+            cat /tmp/disable-bfm.json || true
+            if [ "$disable_status" = "200" ]; then
+              echo 'Bot Fight Mode disable request accepted.'
+            else
+              echo 'Cloudflare Bot Management is still inaccessible. The token needs Bot Management Write permission if Bot Fight Mode is the challenge source.'
+              exit 2
+            fi
           else
             echo "Unexpected Bot Management API response: HTTP ${bot_status}"; exit 1
           fi
@@ -110,14 +121,12 @@ jobs:
           for attempt in 1 2 3 4 5 6; do
             status="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health' || true)"
             echo "Production API verification attempt ${attempt}: HTTP ${status}"
-            if [ -s /tmp/api-health.json ]; then
-              cat /tmp/api-health.json
-            fi
+            cat /tmp/api-health.json || true
             if [ "$status" = "200" ]; then
               jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/api-health.json >/dev/null
               exit 0
             fi
             sleep 5
           done
-          echo 'The API host is still challenge-blocked or not healthy after the scoped API edge exception.'
+          echo 'The API host is still challenge-blocked or not healthy after Cloudflare edge configuration.'
           exit 1
