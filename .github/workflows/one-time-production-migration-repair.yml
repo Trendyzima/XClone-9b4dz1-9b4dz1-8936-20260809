@@ -26,10 +26,10 @@ jobs:
         run: npm install --global supabase@latest
       - name: Link production project
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
-      - name: Preview repaired migration chain
-        run: supabase db push --dry-run
-      - name: Apply repaired migration chain
-        run: supabase db push
+      - name: Preview repaired migration chain including out-of-order local history
+        run: supabase db push --dry-run --include-all
+      - name: Apply repaired migration chain including out-of-order local history
+        run: supabase db push --include-all
       - name: Verify production migration history
         run: supabase migration list --linked
       - name: Remove one-time repair workflow
