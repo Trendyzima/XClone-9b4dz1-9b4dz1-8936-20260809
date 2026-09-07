@@ -17,7 +17,7 @@ env:
   WRANGLER_VERSION: '4.126.0'
   SUPABASE_PROJECT_REF: 'zcjtvykwwplnzyyslnop'
   SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
-  FEDERATION_ORIGIN: 'https://api.testagram.site'
+  FEDERATION_ORIGIN: 'https://federation.testagram.site'
 
 jobs:
   deploy-and-harden:
@@ -44,19 +44,6 @@ jobs:
           trap 'rm -f "$secrets_file"' EXIT
           printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" > "$secrets_file"
           npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler-federation.jsonc --secrets-file "$secrets_file"
-      - name: Remove conflicting legacy API routes
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          auth="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
-          zone_json="$(curl -sS --fail-with-body -H "$auth" "https://api.cloudflare.com/client/v4/zones?name=testagram.site&status=active&per_page=1")"
-          zone_id="$(jq -r '.result[0].id // empty' <<<"$zone_json")"
-          test -n "$zone_id"
-          routes="$(curl -sS --fail-with-body -H "$auth" "https://api.cloudflare.com/client/v4/zones/${zone_id}/workers/routes?per_page=100")"
-          jq -r '.result[] | select(.pattern == "api.testagram.site/*") | .id' <<<"$routes" | while read -r route_id; do
-            test -z "$route_id" || curl -sS --fail-with-body -X DELETE -H "$auth" "https://api.cloudflare.com/client/v4/zones/${zone_id}/workers/routes/${route_id}"
-          done
       - name: Configure public federation WAF bypass
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -69,7 +56,7 @@ jobs:
           ep="https://api.cloudflare.com/client/v4/zones/${zone_id}/rulesets/phases/http_request_firewall_custom/entrypoint"
           entry="$(curl -sS -H "$auth" -H 'Content-Type: application/json' "$ep")"
           ruleset_id="$(jq -r '.result.id // empty' <<<"$entry")"
-          expression='(http.host eq "api.testagram.site") and (starts_with(http.request.uri.path, "/.well-known/") or starts_with(http.request.uri.path, "/users/") or starts_with(http.request.uri.path, "/nodeinfo/") or http.request.uri.path eq "/api/health")'
+          expression='(http.host eq "federation.testagram.site") and (starts_with(http.request.uri.path, "/.well-known/") or starts_with(http.request.uri.path, "/users/") or starts_with(http.request.uri.path, "/nodeinfo/") or http.request.uri.path eq "/api/health")'
           rule="$(jq -nc --arg expr "$expression" '{ref:"testagram_federation_public",description:"Skip security controls for public federation endpoints",expression:$expr,action:"skip",action_parameters:{phases:["http_request_sbfm","http_request_firewall_managed"],products:["securityLevel","bic"]}}')"
           if [ -z "$ruleset_id" ]; then
             payload="$(jq -nc --argjson rule "$rule" '{name:"Testagram federation public endpoints",description:"Allow ActivityPub WebFinger NodeInfo and public actor traffic without browser challenges",kind:"zone",phase:"http_request_firewall_custom",rules:[$rule]}')"
@@ -80,9 +67,9 @@ jobs:
       - name: Verify public federation endpoints
         run: |
           set -euo pipefail
-          curl -sS --fail-with-body --max-time 20 -H 'Accept: application/json' 'https://api.testagram.site/.well-known/nodeinfo' | jq -e '.links | length > 0'
-          curl -sS --fail-with-body --max-time 20 'https://api.testagram.site/nodeinfo/2.1' | jq -e '.protocols | index("activitypub")'
-          status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health')"
+          curl -sS --fail-with-body --max-time 20 -H 'Accept: application/json' 'https://federation.testagram.site/.well-known/nodeinfo' | jq -e '.links | length > 0'
+          curl -sS --fail-with-body --max-time 20 'https://federation.testagram.site/nodeinfo/2.1' | jq -e '.protocols | index("activitypub")'
+          status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 'https://federation.testagram.site/api/health')"
           cat /tmp/health.json
           test "$status" = 200
-          jq -e '.ok == true and .federation == true' /tmp/health.json
+          jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site"' /tmp/health.json
