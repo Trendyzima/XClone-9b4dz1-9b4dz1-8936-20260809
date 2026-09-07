@@ -93,11 +93,11 @@ jobs:
           set -euo pipefail
           expression='(http.host eq "api.testagram.site" and starts_with(http.request.uri.path, "/api/"))'
           rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
-          if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and ((.action_parameters.phases // []) | index("http_request_sbfm")) and ((.action_parameters.products // []) | index("securityLevel")) and ((.action_parameters.products // []) | index("bic")))' >/dev/null; then
+          if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and ((.action_parameters.phases // []) | index("http_request_sbfm")) and ((.action_parameters.phases // []) | index("http_request_firewall_managed")) and ((.action_parameters.phases // []) | index("http_ratelimit")) and ((.action_parameters.products // []) | index("securityLevel")) and ((.action_parameters.products // []) | index("bic")))' >/dev/null; then
             echo 'Scoped API edge exception already exists; no mutation required.'
             exit 0
           fi
-          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API traffic to reach the Worker without SBFM, Security Level, or Browser Integrity Challenge interference"}')"
+          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm","http_request_firewall_managed","http_ratelimit"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API traffic to reach the Worker without bot, managed-WAF, rate-limit, security-level, or browser-integrity challenge interference"}')"
           status="$(curl -sS -o /tmp/add-rule.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data "$payload")"
           echo "Scoped API edge security rule HTTP status: ${status}"
           cat /tmp/add-rule.json || true
@@ -111,9 +111,6 @@ jobs:
             status="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health' || true)"
             echo "Production API verification attempt ${attempt}: HTTP ${status}"
             if [ -s /tmp/api-health.json ]; then
-              if [ "$status" = "403" ] && grep -q 'cType: .managed.' /tmp/api-health.json; then
-                echo 'Cloudflare managed challenge still present; continuing retry while edge configuration propagates.'
-              fi
               cat /tmp/api-health.json
             fi
             if [ "$status" = "200" ]; then
