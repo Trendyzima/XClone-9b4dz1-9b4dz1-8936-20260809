@@ -17,8 +17,7 @@ async function paypalToken() {
   const basic = btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`);
   const r = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, { method: "POST", headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=client_credentials" });
   if (!r.ok) throw new Error(`PAYPAL_AUTH_${r.status}`);
-  const d = await r.json();
-  return d.access_token as string;
+  return (await r.json()).access_token as string;
 }
 
 Deno.serve(async req => {
@@ -31,22 +30,24 @@ Deno.serve(async req => {
     const authClient = createClient(SUPABASE_URL, ANON, { global: { headers: { Authorization: auth } } });
     const { data: { user }, error: authError } = await authClient.auth.getUser(token);
     if (authError || !user) return json({ error: "Invalid authentication" }, 401);
-
     const body = await req.json().catch(() => ({}));
     const amount = Number(body.amount);
     const currency = String(body.currency || "USD").toUpperCase();
     if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) return json({ error: "Invalid amount" }, 400);
     if (!/^[A-Z]{3}$/.test(currency)) return json({ error: "Invalid currency" }, 400);
+    const returnUrl = typeof body.return_url === "string" && /^https:\/\//i.test(body.return_url) ? body.return_url : null;
+    const cancelUrl = typeof body.cancel_url === "string" && /^https:\/\//i.test(body.cancel_url) ? body.cancel_url : null;
 
     const { data: wallet, error: walletError } = await admin.rpc("ensure_user_wallet", { p_user_id: user.id, p_currency: currency });
     if (walletError || !wallet?.id) return json({ error: "Wallet provisioning failed" }, 500);
     if (wallet.currency !== currency && Number(wallet.balance) !== 0) return json({ error: "Wallet currency is fixed once funded" }, 409);
 
     const tokenValue = await paypalToken();
+    const experience = { brand_name: "Testagram", user_action: "PAY_NOW", shipping_preference: "NO_SHIPPING", ...(returnUrl && cancelUrl ? { return_url: returnUrl, cancel_url: cancelUrl } : {}) };
     const orderPayload = {
       intent: "CAPTURE",
       purchase_units: [{ reference_id: wallet.id, custom_id: user.id, amount: { currency_code: currency, value: amount.toFixed(2) }, description: "Testagram wallet top-up" }],
-      application_context: { brand_name: "Testagram", user_action: "PAY_NOW", shipping_preference: "NO_SHIPPING" }
+      application_context: experience
     };
     const paypal = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, { method: "POST", headers: { Authorization: `Bearer ${tokenValue}`, "Content-Type": "application/json", "PayPal-Request-Id": crypto.randomUUID() }, body: JSON.stringify(orderPayload) });
     const raw = await paypal.json();
