@@ -91,7 +91,7 @@ jobs:
           RULESET_ID: ${{ steps.ruleset.outputs.ruleset_id }}
         run: |
           set -euo pipefail
-          expression='(http.host eq "api.testagram.site" and http.request.uri.path starts_with "/api/")'
+          expression='(http.host eq "api.testagram.site" and starts_with(http.request.uri.path, "/api/"))'
           rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
           if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and (.action_parameters.phases // [] | index("http_request_sbfm")))' >/dev/null; then
             echo 'Scoped API SBFM exception already exists; no mutation required.'
