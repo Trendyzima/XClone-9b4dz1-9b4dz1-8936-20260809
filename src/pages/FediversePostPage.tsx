@@ -14,36 +14,39 @@ function normalizePost(value: any) {
 }
 
 export default function FediversePostPage() {
-  const location = useLocation(); const navigate = useNavigate();
-  const [post, setPost] = useState<any>(() => normalizePost(location.state?.post)); const [loading, setLoading] = useState(!post); const [error, setError] = useState('');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [post, setPost] = useState<any>(() => normalizePost(location.state?.post));
+  const [loading, setLoading] = useState(!post);
+  const [error, setError] = useState('');
   const objectUrl = useMemo(() => new URLSearchParams(location.search).get('url') || post?.object_url || post?.url || post?.uri || post?.id || '', [location.search, post]);
+
   useSEO({ title: post ? `${post.actor?.name ?? post.actor?.preferredUsername ?? 'Fediverse post'} on Testagram` : 'Fediverse post — Testagram', description: post ? String(post.content ?? '').replace(/<[^>]*>/g, '').slice(0, 155) : 'View a Fediverse post inside Testagram.', url: `/fediverse/post?url=${encodeURIComponent(objectUrl)}`, type: 'article' });
 
   useEffect(() => {
     if (!objectUrl || post) { if (post) setLoading(false); return; }
     let cancelled = false;
     const load = async () => {
-      setLoading(true); setError('');
       try {
         const { data } = await supabase.from('remote_posts').select('*, remote_accounts(*)').eq('object_url', objectUrl).maybeSingle();
         if (data) { if (!cancelled) setPost(normalizePost(data)); return; }
-        const timeline = await federation.getFederatedTimeline({ limit: 100 });
-        const items = Array.isArray(timeline) ? timeline : timeline?.posts ?? timeline?.data ?? [];
+        const timeline: any = await federation.getFederatedTimeline({ limit: 100 });
+        const items: any[] = Array.isArray(timeline) ? timeline : ((timeline as any)?.posts ?? (timeline as any)?.data ?? []);
         const match = items.find((item: any) => [item.object_url, item.url, item.uri, item.id].includes(objectUrl));
         if (!match) throw new Error('This Fediverse post is not available in Testagram cache.');
         if (!cancelled) setPost(normalizePost(match));
-      } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : 'Unable to load this Fediverse post.'); }
-      finally { if (!cancelled) setLoading(false); }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Unable to load this Fediverse post.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
-    void load(); return () => { cancelled = true; };
+    void load();
+    return () => { cancelled = true; };
   }, [objectUrl, post]);
 
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (!post) return <div className="min-h-screen bg-background"><div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border p-3 flex items-center gap-3"><button onClick={() => navigate(-1)} className="p-2 rounded-full hover:bg-muted" aria-label="Go back"><ArrowLeft className="w-5 h-5" /></button><h1 className="font-bold">Fediverse post</h1></div><div className="p-8 text-center text-muted-foreground"><Globe className="w-12 h-12 mx-auto mb-3 opacity-30" /><p className="font-semibold">Unable to open this post in Testagram</p><p className="text-sm mt-1">{error || 'The remote post could not be resolved.'}</p><button onClick={() => navigate('/fediverse')} className="mt-5 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold">Back to Fediverse</button></div></div>;
 
-  return <div className="min-h-screen bg-background pb-20 md:pb-0">
-    <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border p-3 flex items-center gap-3"><button onClick={() => navigate(-1)} className="p-2 rounded-full hover:bg-muted" aria-label="Go back"><ArrowLeft className="w-5 h-5" /></button><div><h1 className="font-bold">Post</h1><p className="text-[11px] text-muted-foreground flex items-center gap-1"><Globe className="w-3 h-3" />Fediverse · viewed in Testagram</p></div></div>
-    <FederatedPostCard post={post} disableNavigation />
-    <div className="px-4 py-3 text-center text-xs text-muted-foreground border-t border-border">This remote post is rendered inside Testagram. Your interactions are sent through the federation gateway.</div>
-  </div>;
+  return <div className="min-h-screen bg-background pb-20 md:pb-0"><div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border p-3 flex items-center gap-3"><button onClick={() => navigate(-1)} className="p-2 rounded-full hover:bg-muted" aria-label="Go back"><ArrowLeft className="w-5 h-5" /></button><div><h1 className="font-bold">Post</h1><p className="text-[11px] text-muted-foreground flex items-center gap-1"><Globe className="w-3 h-3" />Fediverse · viewed in Testagram</p></div></div><FederatedPostCard post={post} disableNavigation /><div className="px-4 py-3 text-center text-xs text-muted-foreground border-t border-border">This remote post is rendered inside Testagram. Your interactions are sent through the federation gateway.</div></div>;
 }
