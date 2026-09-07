@@ -147,6 +147,7 @@ jobs:
               supabaseProjectRef: env.SUPABASE_PROJECT_REF,
               databaseReachable,
               databaseStatus,
+              ...(databaseError ? { databaseError } : {}),
               jwksReachable,
               media: 'cloudflare-r2',
               r2Binding,
@@ -171,10 +172,13 @@ jobs:
             }
           };
           EOF
-          cp cloudflare/wrangler.jsonc /tmp/wrangler-production.jsonc
+          # Keep the temporary Wrangler config beside the production entrypoint.
+          # Wrangler resolves `main` relative to the config file, so placing the
+          # temporary config under cloudflare/ avoids the /tmp path resolution bug.
+          cp cloudflare/wrangler.jsonc cloudflare/.wrangler-production.jsonc
           python - <<'PY'
           from pathlib import Path
-          p = Path('/tmp/wrangler-production.jsonc')
+          p = Path('cloudflare/.wrangler-production.jsonc')
           text = p.read_text()
           text = text.replace('"main": "./worker/index.ts"', '"main": "./worker/production-entrypoint.ts"')
           p.write_text(text)
@@ -191,14 +195,16 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$SUPABASE_PUBLISHABLE_KEY"
           test -n "$SUPABASE_SECRET_KEY"
+          test -f cloudflare/worker/production-entrypoint.ts
+          test -f cloudflare/.wrangler-production.jsonc
           secrets_file="$(mktemp)"
-          trap 'rm -f "$secrets_file"' EXIT
+          trap 'rm -f "$secrets_file" cloudflare/worker/production-entrypoint.ts cloudflare/.wrangler-production.jsonc' EXIT
           {
             printf 'SUPABASE_ANON_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY"
             printf 'SUPABASE_SECRET_KEY=%s\n' "$SUPABASE_SECRET_KEY"
           } > "$secrets_file"
           npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy \
-            --config /tmp/wrangler-production.jsonc \
+            --config cloudflare/.wrangler-production.jsonc \
             --secrets-file "$secrets_file"
       - name: Smoke test direct Cloudflare Worker and Supabase bridge
         run: |
