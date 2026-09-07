@@ -18,6 +18,7 @@ on:
       - 'cloudflare/wrangler-federation.jsonc'
       - '.github/workflows/canonical-cloudflare-worker.yml'
 
+authorizations: {}
 permissions:
   contents: read
 
@@ -25,7 +26,7 @@ env:
   WRANGLER_VERSION: '4.126.0'
   SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
   SUPABASE_PROJECT_REF: 'zcjtvykwwplnzyyslnop'
-  WORKER_HEALTH_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/health'
+  WORKER_HEALTH_URL: 'https://fedi.testagram.site/api/health'
   PRODUCTION_HEALTH_URL: 'https://api.testagram.site/api/health'
 
 jobs:
@@ -47,6 +48,8 @@ jobs:
           test -s cloudflare/worker/index.ts
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler.jsonc
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler-federation.jsonc
+          grep -Fq 'fedi.testagram.site' cloudflare/wrangler.jsonc
+          grep -Fq 'https://fedi.testagram.site' cloudflare/worker/public-actor-entrypoint.ts
       - name: Deploy canonical Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -73,17 +76,21 @@ jobs:
             sleep 5
           done
           cat /tmp/health.json
-          nodeinfo="$(curl -sS --fail-with-body --max-time 20 "$WORKER_HEALTH_URL" | jq -r '.federationDomain')"
-          test "$nodeinfo" = 'testagram-api.nahashonnyaga794.workers.dev'
+      - name: Verify federation custom domain identity
+        run: |
+          set -euo pipefail
+          test "$(curl -sS --fail-with-body --max-time 20 "$WORKER_HEALTH_URL" | jq -r '.federationDomain')" = 'fedi.testagram.site'
+          test "$(curl -sS --fail-with-body --max-time 20 'https://fedi.testagram.site/.well-known/webfinger?resource=acct:health@fedi.testagram.site' -o /tmp/webfinger.json -w '%{http_code}')" = 404
+          grep -q 'actor not found' /tmp/webfinger.json
       - name: Verify production custom domain (non-blocking if Cloudflare challenge is enabled)
         run: |
           set -euo pipefail
           status="$(curl -sS -o /tmp/production-health.json -w '%{http_code}' --max-time 20 "$PRODUCTION_HEALTH_URL" || true)"
           cat /tmp/production-health.json
           if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/production-health.json >/dev/null 2>&1; then
-            echo 'Custom domain health is directly reachable.'
+            echo 'Existing API custom domain health is directly reachable.'
           elif grep -qiE 'Just a moment|challenge|cf-chl|Enable JavaScript and cookies' /tmp/production-health.json; then
-            echo 'Custom domain is routed through Cloudflare but protected by a browser challenge; global federation uses the workers.dev origin and remains independently verified.'
+            echo 'Existing API custom domain remains browser-challenge protected; dedicated federation domain is fedi.testagram.site.'
           else
-            echo "Custom domain returned HTTP $status without a recognized Cloudflare challenge; recording as non-blocking infrastructure drift."
+            echo "Existing API custom domain returned HTTP $status; federation uses fedi.testagram.site."
           fi
