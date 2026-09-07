@@ -14,7 +14,7 @@ permissions:
 env:
   ZONE_NAME: testagram.site
   API_HOST: api.testagram.site
-  FEDERATION_HOST: fedi.testagram.site
+  FEDERATION_HOST: federation.testagram.site
   API_PATH_PREFIX: /api/
 
 jobs:
@@ -75,7 +75,7 @@ jobs:
           RULESET_ID: ${{ steps.ruleset.outputs.ruleset_id }}
         run: |
           set -euo pipefail
-          expression='((http.host eq "api.testagram.site" and starts_with(http.request.uri.path, "/api/")) or (http.host eq "fedi.testagram.site"))'
+          expression='((http.host eq "api.testagram.site" and starts_with(http.request.uri.path, "/api/")) or (http.host eq "federation.testagram.site"))'
           rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
           if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and ((.action_parameters.phases // []) | index("http_request_sbfm")) and ((.action_parameters.phases // []) | index("http_request_firewall_managed")) and ((.action_parameters.phases // []) | index("http_ratelimit")) and ((.action_parameters.products // []) | index("securityLevel")) and ((.action_parameters.products // []) | index("bic")))' >/dev/null; then
             echo 'Scoped API/federation edge exception already exists; no mutation required.'
@@ -92,16 +92,16 @@ jobs:
           set -euo pipefail
           for attempt in 1 2 3 4 5 6; do
             api_status="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health' || true)"
-            fedi_status="$(curl -sS -o /tmp/fedi-health.json -w '%{http_code}' --max-time 20 'https://fedi.testagram.site/api/health' || true)"
-            echo "Attempt ${attempt}: API=${api_status} FEDI=${fedi_status}"
-            if [ "$api_status" = "200" ] && [ "$fedi_status" = "200" ]; then
+            federation_status="$(curl -sS -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 'https://federation.testagram.site/api/health' || true)"
+            echo "Attempt ${attempt}: API=${api_status} FEDERATION=${federation_status}"
+            if [ "$api_status" = "200" ] && [ "$federation_status" = "200" ]; then
               jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/api-health.json >/dev/null
-              jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/fedi-health.json >/dev/null
+              jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/federation-health.json >/dev/null
               exit 0
             fi
             sleep 5
           done
           cat /tmp/api-health.json || true
-          cat /tmp/fedi-health.json || true
+          cat /tmp/federation-health.json || true
           echo 'API or federation host is still challenge-blocked or unhealthy.'
           exit 1
