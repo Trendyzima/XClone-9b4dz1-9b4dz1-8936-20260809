@@ -25,7 +25,7 @@ async function health(env: Env): Promise<Response> {
   catch (error) { if (!databaseError) databaseError = error instanceof Error ? error.message : 'JWKS request failed'; }
   const r2Binding = Boolean(env.MEDIA);
   const ok = databaseReachable && jwksReachable && r2Binding;
-  return new Response(JSON.stringify({ ok, service: 'testagram-api', federation: true, federationDomain: 'testagram-api.nahashonnyaga794.workers.dev', database: 'supabase', supabaseProjectRef: env.SUPABASE_PROJECT_REF, databaseReachable, databaseStatus, ...(databaseError ? { databaseError } : {}), jwksReachable, media: 'cloudflare-r2', r2Binding, maxMediaBytes: 20 * 1024 * 1024, edge: 'cloudflare' }), { status: ok ? 200 : 503, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Access-Control-Allow-Origin': env.APP_ORIGIN, 'Access-Control-Allow-Methods': 'GET,OPTIONS', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', Vary: 'Origin' } });
+  return new Response(JSON.stringify({ ok, service: 'testagram-api', federation: true, federationDomain: 'fedi.testagram.site', database: 'supabase', supabaseProjectRef: env.SUPABASE_PROJECT_REF, databaseReachable, databaseStatus, ...(databaseError ? { databaseError } : {}), jwksReachable, media: 'cloudflare-r2', r2Binding, maxMediaBytes: 20 * 1024 * 1024, edge: 'cloudflare' }), { status: ok ? 200 : 503, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Access-Control-Allow-Origin': env.APP_ORIGIN, 'Access-Control-Allow-Methods': 'GET,OPTIONS', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', Vary: 'Origin' } });
 }
 
 export default {
