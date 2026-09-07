@@ -109,7 +109,6 @@ jobs:
           set -euo pipefail
           cat > cloudflare/worker/production-entrypoint.ts <<'EOF'
           import worker from './index';
-
           interface Env {
             SUPABASE_URL: string;
             SUPABASE_PROJECT_REF: string;
@@ -119,15 +118,12 @@ jobs:
             APP_ORIGIN: string;
             MEDIA: R2Bucket;
           }
-
           async function health(env: Env): Promise<Response> {
             let databaseStatus = 0;
             let databaseReachable = false;
             let databaseError: string | undefined;
             try {
-              const upstream = await fetch(`${env.SUPABASE_URL}/rest/v1/`, {
-                headers: { apikey: env.SUPABASE_SECRET_KEY, Accept: 'application/json', 'User-Agent': 'Testagram-Cloudflare-Worker/1.0' }
-              });
+              const upstream = await fetch(`${env.SUPABASE_URL}/rest/v1/`, { headers: { apikey: env.SUPABASE_SECRET_KEY, Accept: 'application/json', 'User-Agent': 'Testagram-Cloudflare-Worker/1.0' } });
               databaseStatus = upstream.status;
               databaseReachable = upstream.ok;
               if (!upstream.ok) databaseError = (await upstream.text()).slice(0, 300);
@@ -148,7 +144,6 @@ jobs:
               headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Access-Control-Allow-Origin': env.APP_ORIGIN, 'Access-Control-Allow-Methods': 'GET,OPTIONS', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', Vary: 'Origin' }
             });
           }
-
           export default {
             async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
               const url = new URL(request.url);
@@ -188,7 +183,7 @@ jobs:
       - name: Smoke test direct Cloudflare Worker and Supabase bridge
         run: |
           set -euo pipefail
-          status="$(curl -sS -o /tmp/worker-health.json -w '%{http_code}' --max-time 20 "$WORKER_HEALTH_URL/api/health" || true)"
+          status="$(curl -sS -o /tmp/worker-health.json -w '%{http_code}' --max-time 20 "$WORKER_HEALTH_URL" || true)"
           echo "Worker health HTTP status: ${status}"
           cat /tmp/worker-health.json
           test "$status" = "200"
@@ -212,10 +207,10 @@ jobs:
       - name: Verify production CORS preflight
         run: |
           set -euo pipefail
-          status="$(curl -sS -o /tmp/production-options.txt -w '%{http_code}' --max-time 15 -X OPTIONS "$PRODUCTION_HEALTH_URL" -H 'Origin: https://testagram.site' -H 'Access-Control-Request-Method: GET')"
+          status="$(curl -sS -D /tmp/production-options.headers -o /dev/null -w '%{http_code}' --max-time 15 -X OPTIONS "$PRODUCTION_HEALTH_URL" -H 'Origin: https://testagram.site' -H 'Access-Control-Request-Method: GET')"
           echo "Production CORS preflight HTTP status: ${status}"
           test "$status" = "204"
-          grep -Fq 'access-control-allow-origin' /tmp/production-options.txt || true
+          grep -i '^access-control-allow-origin:' /tmp/production-options.headers
       - name: End-to-end authenticated R2 media test
         env:
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
