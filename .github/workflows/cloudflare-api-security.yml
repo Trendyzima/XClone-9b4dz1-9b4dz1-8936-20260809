@@ -52,7 +52,7 @@ jobs:
               exit 2
             fi
           elif [ "$bot_status" = "403" ]; then
-            echo 'Bot Management status is not readable with the current token; continuing to WAF Rulesets API because a scoped SBFM exception may still be possible.'
+            echo 'Bot Management status is not readable with the current token; continuing to WAF Rulesets API.'
           else
             echo "Unexpected Bot Management API response: HTTP ${bot_status}"; exit 1
           fi
@@ -84,7 +84,7 @@ jobs:
           fi
           echo "ruleset_id=${ruleset_id}" >> "$GITHUB_OUTPUT"
 
-      - name: Install idempotent scoped Super Bot Fight Mode exception
+      - name: Install idempotent scoped API edge exception
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           ZONE_ID: ${{ steps.zone.outputs.zone_id }}
@@ -93,13 +93,13 @@ jobs:
           set -euo pipefail
           expression='(http.host eq "api.testagram.site" and starts_with(http.request.uri.path, "/api/"))'
           rules="$(curl -fsS --max-time 20 "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')"
-          if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and (.action_parameters.phases // [] | index("http_request_sbfm")))' >/dev/null; then
-            echo 'Scoped API SBFM exception already exists; no mutation required.'
+          if echo "$rules" | jq -e --arg expr "$expression" '.result.rules[]? | select(.action == "skip" and .expression == $expr and ((.action_parameters.phases // []) | index("http_request_sbfm")) and ((.action_parameters.products // []) | index("securityLevel")) and ((.action_parameters.products // []) | index("bic")))' >/dev/null; then
+            echo 'Scoped API edge exception already exists; no mutation required.'
             exit 0
           fi
-          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm"]},expression:$expr,description:"Allow Testagram API traffic to reach the Worker without Super Bot Fight Mode challenges"}')"
+          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API traffic to reach the Worker without SBFM, Security Level, or Browser Integrity Challenge interference"}')"
           status="$(curl -sS -o /tmp/add-rule.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data "$payload")"
-          echo "Scoped API security rule HTTP status: ${status}"
+          echo "Scoped API edge security rule HTTP status: ${status}"
           cat /tmp/add-rule.json || true
           test "$status" = "200"
           jq -e '.success == true' /tmp/add-rule.json >/dev/null
@@ -107,15 +107,20 @@ jobs:
       - name: Verify API host is no longer challenge-blocked
         run: |
           set -euo pipefail
-          for attempt in 1 2 3 4 5; do
+          for attempt in 1 2 3 4 5 6; do
             status="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health' || true)"
             echo "Production API verification attempt ${attempt}: HTTP ${status}"
-            cat /tmp/api-health.json || true
+            if [ -s /tmp/api-health.json ]; then
+              if [ "$status" = "403" ] && grep -q 'cType: .managed.' /tmp/api-health.json; then
+                echo 'Cloudflare managed challenge still present; continuing retry while edge configuration propagates.'
+              fi
+              cat /tmp/api-health.json
+            fi
             if [ "$status" = "200" ]; then
               jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/api-health.json >/dev/null
               exit 0
             fi
             sleep 5
           done
-          echo 'The API host is still challenge-blocked or not healthy after the scoped security exception.'
+          echo 'The API host is still challenge-blocked or not healthy after the scoped API edge exception.'
           exit 1
