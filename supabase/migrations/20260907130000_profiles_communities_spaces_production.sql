@@ -113,7 +113,7 @@ create index if not exists idx_posts_community_created on public.posts(community
 -- Security-definer helpers avoid recursive RLS evaluation between communities,
 -- memberships and posts. They execute with a fixed search_path and only return
 -- boolean authorization decisions.
-create or replace function public.is_community_member(p_community_id uuid, p_user_id uuid default (select auth.uid()))
+create or replace function public.is_community_member(p_community_id uuid, p_user_id uuid default auth.uid())
 returns boolean
 language sql
 stable
@@ -129,7 +129,7 @@ as $$
   );
 $$;
 
-create or replace function public.can_manage_community(p_community_id uuid, p_user_id uuid default (select auth.uid()))
+create or replace function public.can_manage_community(p_community_id uuid, p_user_id uuid default auth.uid())
 returns boolean
 language sql
 stable
@@ -377,7 +377,7 @@ create index if not exists idx_space_participants_user on public.space_participa
 create index if not exists idx_space_recordings_created on public.space_recordings(created_at desc);
 create index if not exists idx_space_recordings_host on public.space_recordings(host_id, created_at desc);
 
-create or replace function public.is_space_participant(p_space_id uuid, p_user_id uuid default (select auth.uid()))
+create or replace function public.is_space_participant(p_space_id uuid, p_user_id uuid default auth.uid())
 returns boolean
 language sql
 stable
@@ -392,7 +392,7 @@ as $$
   );
 $$;
 
-create or replace function public.is_space_host(p_space_id uuid, p_user_id uuid default (select auth.uid()))
+create or replace function public.is_space_host(p_space_id uuid, p_user_id uuid default auth.uid())
 returns boolean
 language sql
 stable
