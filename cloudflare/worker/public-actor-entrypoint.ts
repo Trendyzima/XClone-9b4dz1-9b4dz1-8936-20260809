@@ -24,7 +24,7 @@ async function actor(request: Request, env: any, username: string) {
     outbox: `${id}/outbox`,
     followers: `${id}/followers`,
     following: `${id}/following`,
-    publicKey: { id: `${id}#main-key`, owner: id, publicKeyPem: row.public_key_pem },
+    publicKey: { type: 'Key', id: `${id}#main-key`, owner: id, publicKeyPem: row.public_key_pem },
     discoverable: true,
     indexable: true
   };
