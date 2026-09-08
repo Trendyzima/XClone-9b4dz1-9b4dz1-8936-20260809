@@ -1,4 +1,4 @@
-import { LegacyWalletDashboard } from './WalletDashboardLegacy';
+import { WalletDashboard as LegacyWalletDashboard } from './WalletDashboardLegacy';
 import { PayPalWalletActions } from './PayPalWalletActions';
 import { useWallet } from '@/hooks/useWallet';
 
