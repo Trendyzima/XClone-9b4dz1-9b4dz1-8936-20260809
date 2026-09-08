@@ -90,7 +90,10 @@ begin
   return v_wallet;
 end; $$;
 
-create or replace function public.finalize_paypal_topup(p_order_id text,p_capture_id text) returns jsonb language plpgsql security definer set search_path = public as $$
+-- PostgreSQL cannot change an existing function's return type with CREATE OR REPLACE.
+-- The older production function returns public.transactions; this migration's canonical API returns jsonb.
+drop function if exists public.finalize_paypal_topup(text,text);
+create function public.finalize_paypal_topup(p_order_id text,p_capture_id text) returns jsonb language plpgsql security definer set search_path = public as $$
 declare v_order public.paypal_orders; v_tx public.wallet_transactions; v_wallet public.wallets; v_before numeric; v_after numeric;
 begin
   if auth.role() <> 'service_role' then raise exception 'not_authorized' using errcode='42501'; end if;
