@@ -1,7 +1,7 @@
 begin;
 
 -- Production PayPal wallet ledger for XClone.
--- Existing wallet schema is preserved (wallets.user_id is text, transactions is the ledger).
+-- Existing wallet schema is preserved; the production wallets.user_id column is uuid.
 
 create table if not exists public.paypal_orders (
   id uuid primary key default gen_random_uuid(),
@@ -60,10 +60,10 @@ begin
   end if;
 
   insert into public.wallets(user_id, balance, currency)
-  values (p_user_id::text, 0, 'KES')
+  values (p_user_id, 0, 'KES')
   on conflict (user_id) do nothing;
 
-  select * into result from public.wallets where user_id = p_user_id::text for update;
+  select * into result from public.wallets where user_id = p_user_id for update;
   return result;
 end;
 $$;
@@ -81,7 +81,7 @@ grant execute on function public.finalize_paypal_topup(text,text) to service_rol
 -- Users can inspect only their own wallet/order/transaction records.
 drop policy if exists wallets_own on public.wallets;
 create policy wallets_own on public.wallets for select to authenticated
-  using (user_id = auth.uid()::text);
+  using (user_id = auth.uid());
 
 drop policy if exists transactions_own on public.transactions;
 create policy transactions_own on public.transactions for select to authenticated
