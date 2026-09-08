@@ -51,28 +51,49 @@ jobs:
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler-federation.jsonc
           grep -Fq 'federation.testagram.site' cloudflare/wrangler.jsonc
           grep -Fq 'https://federation.testagram.site' cloudflare/worker/public-actor-entrypoint.ts
+      - name: Resolve deployment secrets without printing them
+        env:
+          SUPABASE_PUBLISHABLE_KEY_INPUT: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_ANON_KEY_INPUT: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SECRET_KEY_INPUT: ${{ secrets.SUPABASE_SECRET_KEY }}
+          PAYPAL_CLIENT_ID_INPUT: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_ID_SANDBOX_INPUT: ${{ secrets.PAYPAL_CLIENT_ID_SANDBOX }}
+          PAYPAL_CLIENT_SECRET_INPUT: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_CLIENT_SECRET_SANDBOX_INPUT: ${{ secrets.PAYPAL_CLIENT_SECRET_SANDBOX }}
+          PAYPAL_WEBHOOK_ID_INPUT: ${{ secrets.PAYPAL_WEBHOOK_ID }}
+          PAYPAL_WEBHOOK_ID_SANDBOX_INPUT: ${{ secrets.PAYPAL_WEBHOOK_ID_SANDBOX }}
+        run: |
+          set -euo pipefail
+          anon="${SUPABASE_PUBLISHABLE_KEY_INPUT:-}"
+          [ -n "$anon" ] || anon="${SUPABASE_ANON_KEY_INPUT:-}"
+          client_id="${PAYPAL_CLIENT_ID_INPUT:-}"
+          [ -n "$client_id" ] || client_id="${PAYPAL_CLIENT_ID_SANDBOX_INPUT:-}"
+          client_secret="${PAYPAL_CLIENT_SECRET_INPUT:-}"
+          [ -n "$client_secret" ] || client_secret="${PAYPAL_CLIENT_SECRET_SANDBOX_INPUT:-}"
+          webhook_id="${PAYPAL_WEBHOOK_ID_INPUT:-}"
+          [ -n "$webhook_id" ] || webhook_id="${PAYPAL_WEBHOOK_ID_SANDBOX_INPUT:-}"
+          test -n "$anon"
+          test -n "${SUPABASE_SECRET_KEY_INPUT:-}"
+          test -n "$client_id"
+          test -n "$client_secret"
+          test -n "$webhook_id"
+          {
+            printf 'SUPABASE_ANON_KEY=%s\n' "$anon"
+            printf 'SUPABASE_SECRET_KEY=%s\n' "$SUPABASE_SECRET_KEY_INPUT"
+            printf 'PAYPAL_CLIENT_ID=%s\n' "$client_id"
+            printf 'PAYPAL_CLIENT_SECRET=%s\n' "$client_secret"
+            printf 'PAYPAL_WEBHOOK_ID=%s\n' "$webhook_id"
+          } > "$RUNNER_TEMP/paypal-secrets"
       - name: Deploy canonical Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
-          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
-          PAYPAL_WEBHOOK_ID: ${{ secrets.PAYPAL_WEBHOOK_ID }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$SUPABASE_PUBLISHABLE_KEY"
-          test -n "$SUPABASE_SECRET_KEY"
-          test -n "$PAYPAL_CLIENT_ID"
-          test -n "$PAYPAL_CLIENT_SECRET"
-          test -n "$PAYPAL_WEBHOOK_ID"
-          secrets_file="$(mktemp)"
-          trap 'rm -f "$secrets_file"' EXIT
-          printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\nPAYPAL_CLIENT_ID=%s\nPAYPAL_CLIENT_SECRET=%s\nPAYPAL_WEBHOOK_ID=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" "$PAYPAL_CLIENT_ID" "$PAYPAL_CLIENT_SECRET" "$PAYPAL_WEBHOOK_ID" > "$secrets_file"
-          npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler.jsonc --secrets-file "$secrets_file"
+          npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler.jsonc --secrets-file "$RUNNER_TEMP/paypal-secrets"
+          rm -f "$RUNNER_TEMP/paypal-secrets"
       - name: Verify canonical health and federation
         run: |
           set -euo pipefail
@@ -83,6 +104,13 @@ jobs:
             sleep 5
           done
           cat /tmp/health.json
+      - name: Verify PayPal configuration endpoint
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /tmp/paypal-config.json -w '%{http_code}' --max-time 20 'https://testagram-api.nahashonnyaga794.workers.dev/api/paypal/config' || true)"
+          cat /tmp/paypal-config.json
+          test "$status" = 200
+          jq -e '.ok == true and .provider == "paypal" and .environment == "sandbox" and .configured == true' /tmp/paypal-config.json >/dev/null
       - name: Verify federation custom domain identity
         run: |
           set -euo pipefail
@@ -94,7 +122,7 @@ jobs:
       - name: Verify production custom domain (non-blocking if Cloudflare challenge is enabled)
         run: |
           set -euo pipefail
-          status="$(curl -sS -o /tmp/production-health.json -w '%{http_code}' --max-time 20 "$PRODUCTION_HEALTH_URL" || true)"
+          status="$(curl -sS -o /tmp/production-health.json -w '%{http_code}' --max-time 20 "$PRODUCTION_HEALTH_URL" || true)
           cat /tmp/production-health.json
           if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/production-health.json >/dev/null 2>&1; then
             echo 'Existing API custom domain health is directly reachable.'
