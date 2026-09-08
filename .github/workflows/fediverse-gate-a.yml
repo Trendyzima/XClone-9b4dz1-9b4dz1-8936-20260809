@@ -14,8 +14,8 @@ on:
       - 'src/api/federation.ts'
 
 env:
-  SUPABASE_URL: https://zcjtvykwwplnzyyslnop.supabase.co
-  GATEWAY_URL: https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/gateway-relay
+  SUPABASE_URL: https://aepbqfrmheihfsauzcby.supabase.co
+  GATEWAY_URL: https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/gateway-relay
   FEDERATION_ORIGIN: https://federation.testagram.site
 
 jobs:

@@ -24,9 +24,9 @@ permissions:
 env:
   WRANGLER_VERSION: '4.126.0'
   MEDIA_BUCKET: 'testagram-media'
-  SUPABASE_PROJECT_REF: 'zcjtvykwwplnzyyslnop'
-  SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
-  SUPABASE_JWKS_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co/auth/v1/.well-known/jwks.json'
+  SUPABASE_PROJECT_REF: 'aepbqfrmheihfsauzcby'
+  SUPABASE_URL: 'https://aepbqfrmheihfsauzcby.supabase.co'
+  SUPABASE_JWKS_URL: 'https://aepbqfrmheihfsauzcby.supabase.co/auth/v1/.well-known/jwks.json'
   WORKER_HEALTH_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/health'
   PRODUCTION_HEALTH_URL: 'https://api.testagram.site/api/health'
 
