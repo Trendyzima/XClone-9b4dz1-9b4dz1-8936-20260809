@@ -10,8 +10,9 @@
     "APP_ORIGIN": "https://testagram.site",
     "SUPABASE_URL": "https://zcjtvykwwplnzyyslnop.supabase.co",
     "SUPABASE_PROJECT_REF": "zcjtvykwwplnzyyslnop",
-    "SUPABASE_JWKS_URL": "https://zcjtvykwwplnzyyslnop.supabase.co/auth/v1/.well-known/jwks.json"
+    "SUPABASE_JWKS_URL": "https://zcjtvykwwplnzyyslnop.supabase.co/auth/v1/.well-known/jwks.json",
+    "PAYPAL_ENV": "sandbox"
   },
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "testagram-media" }],
-  "secrets": { "required": ["SUPABASE_ANON_KEY", "SUPABASE_SECRET_KEY"] }
+  "secrets": { "required": ["SUPABASE_ANON_KEY", "SUPABASE_SECRET_KEY", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID"] }
 }
