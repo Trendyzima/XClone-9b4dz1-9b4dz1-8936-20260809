@@ -44,6 +44,50 @@ jobs:
           fi
           grep -Eq 'src="/assets/[^" ]+\.js"' dist/index.html
 
+      - name: Dispatch Supabase production migration gate
+        id: migration_dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          START=$(date -u +%s)
+          echo "started_at=$START" >> "$GITHUB_OUTPUT"
+          gh api --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "/repos/$REPO/actions/workflows/supabase-production-migrate.yml/dispatches" \
+            -f ref=main
+
+      - name: Wait for Supabase production migration gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          START: ${{ steps.migration_dispatch.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in $(seq 1 30); do
+            run_id=$(gh api "/repos/$REPO/actions/workflows/supabase-production-migrate.yml/runs?branch=main&event=workflow_dispatch&per_page=20" \
+              --jq '.workflow_runs | map(select((.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
+            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
+            sleep 5
+          done
+          test -n "$run_id" && test "$run_id" != null
+          echo "Supabase migration run=$run_id"
+          for attempt in $(seq 1 90); do
+            state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
+            conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
+            echo "attempt=$attempt status=$state conclusion=$conclusion"
+            if [ "$state" = completed ]; then
+              test "$conclusion" = success
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Supabase production migration did not complete within the release-gate timeout.'
+          exit 1
+
       - name: Dispatch Supabase authenticated E2E gate
         id: e2e_dispatch
         env:
