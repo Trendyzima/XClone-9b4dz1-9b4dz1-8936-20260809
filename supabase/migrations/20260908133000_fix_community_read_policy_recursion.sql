@@ -1,4 +1,6 @@
-create or replace function public.is_community_member(p_community_id uuid, p_user_id uuid)
+drop function if exists public.is_community_member(uuid, uuid);
+
+create function public.is_community_member(p_community_id uuid, p_user_id uuid)
 returns boolean
 language sql
 stable
