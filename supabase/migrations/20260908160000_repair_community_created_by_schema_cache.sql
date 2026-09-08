@@ -22,6 +22,35 @@ begin
 exception when duplicate_object then null;
 end $$;
 
+-- Recreate the ownership helper if production migration history says it exists
+-- but schema drift removed the function body. This keeps the repair independent
+-- of that specific drift while preserving the intended moderator semantics.
+create or replace function public.can_manage_community(
+  p_community_id uuid,
+  p_user_id uuid default auth.uid()
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.communities c
+    where c.id = p_community_id
+      and c.created_by = p_user_id
+  ) or exists (
+    select 1 from public.community_members cm
+    where cm.community_id = p_community_id
+      and cm.user_id = p_user_id
+      and cm.role in ('owner','moderator')
+      and cm.status = 'active'
+  );
+$$;
+
+revoke all on function public.can_manage_community(uuid, uuid) from public;
+grant execute on function public.can_manage_community(uuid, uuid) to authenticated;
+
 create index if not exists idx_communities_created_by
   on public.communities(created_by);
 
