@@ -1,5 +1,4 @@
 begin;
-
 create table if not exists public.wallet_accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique references auth.users(id) on delete cascade,
@@ -8,7 +7,6 @@ create table if not exists public.wallet_accounts (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.wallet_transactions (
   id uuid primary key default gen_random_uuid(),
   wallet_id uuid not null references public.wallet_accounts(id) on delete cascade,
@@ -24,12 +22,10 @@ create table if not exists public.wallet_transactions (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
-
 create unique index if not exists wallet_transactions_provider_ref_uidx
   on public.wallet_transactions(provider, provider_reference)
   where provider is not null and provider_reference is not null;
 create index if not exists wallet_transactions_user_created_idx on public.wallet_transactions(user_id, created_at desc);
-
 create table if not exists public.paypal_orders (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -44,18 +40,15 @@ create table if not exists public.paypal_orders (
   updated_at timestamptz not null default now()
 );
 create index if not exists paypal_orders_user_created_idx on public.paypal_orders(user_id, created_at desc);
-
 alter table public.wallet_accounts enable row level security;
 alter table public.wallet_transactions enable row level security;
 alter table public.paypal_orders enable row level security;
-
 drop policy if exists wallet_accounts_own_select on public.wallet_accounts;
 create policy wallet_accounts_own_select on public.wallet_accounts for select to authenticated using (user_id = auth.uid());
 drop policy if exists wallet_transactions_own_select on public.wallet_transactions;
 create policy wallet_transactions_own_select on public.wallet_transactions for select to authenticated using (user_id = auth.uid());
 drop policy if exists paypal_orders_own_select on public.paypal_orders;
 create policy paypal_orders_own_select on public.paypal_orders for select to authenticated using (user_id = auth.uid());
-
 create or replace function public.ensure_wallet_account(p_user_id uuid default auth.uid())
 returns public.wallet_accounts language plpgsql security definer set search_path=public as $$
 declare v public.wallet_accounts;
@@ -68,7 +61,6 @@ begin
 end; $$;
 revoke all on function public.ensure_wallet_account(uuid) from public;
 grant execute on function public.ensure_wallet_account(uuid) to authenticated, service_role;
-
 create or replace function public.credit_wallet_paypal(
   p_user_id uuid, p_paypal_order_id text, p_paypal_capture_id text,
   p_amount numeric, p_currency text, p_metadata jsonb default '{}'::jsonb
@@ -97,11 +89,9 @@ begin
 end; $$;
 revoke all on function public.credit_wallet_paypal(uuid,text,text,numeric,text,jsonb) from public;
 grant execute on function public.credit_wallet_paypal(uuid,text,text,numeric,text,jsonb) to service_role;
-
 create or replace function public.touch_wallet_updated_at() returns trigger language plpgsql security definer set search_path=public as $$ begin new.updated_at=now(); return new; end; $$;
 drop trigger if exists trg_wallet_accounts_updated_at on public.wallet_accounts;
 create trigger trg_wallet_accounts_updated_at before update on public.wallet_accounts for each row execute function public.touch_wallet_updated_at();
 drop trigger if exists trg_paypal_orders_updated_at on public.paypal_orders;
 create trigger trg_paypal_orders_updated_at before update on public.paypal_orders for each row execute function public.touch_wallet_updated_at();
-
 commit;
