@@ -68,75 +68,10 @@ begin
 end;
 $$;
 
--- Atomically finalize a PayPal capture. A replay of the same order/capture never credits twice.
-create or replace function public.finalize_paypal_topup(p_order_id text, p_capture_id text)
-returns public.transactions
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  po public.paypal_orders;
-  tx public.transactions;
-  w public.wallets;
-  old_balance numeric;
-  new_balance numeric;
-begin
-  if coalesce(trim(p_order_id),'') = '' then raise exception 'order_id_required'; end if;
-  if coalesce(trim(p_capture_id),'') = '' then raise exception 'capture_id_required'; end if;
-
-  select * into po from public.paypal_orders
-  where paypal_order_id = p_order_id
-  for update;
-  if not found then raise exception 'paypal_order_not_found'; end if;
-
-  if po.capture_id is not null then
-    if po.capture_id <> p_capture_id then raise exception 'capture_conflict'; end if;
-    if po.transaction_id is null then raise exception 'captured_order_missing_transaction'; end if;
-    select * into tx from public.transactions where id = po.transaction_id;
-    return tx;
-  end if;
-
-  if po.status = 'cancelled' or po.status = 'failed' then
-    raise exception 'paypal_order_not_capturable';
-  end if;
-
-  if po.transaction_id is null then raise exception 'paypal_order_missing_transaction'; end if;
-  select * into tx from public.transactions where id = po.transaction_id for update;
-  if not found then raise exception 'transaction_not_found'; end if;
-
-  if tx.user_id <> po.user_id::text then raise exception 'transaction_user_mismatch'; end if;
-  if tx.status = 'completed' then
-    update public.paypal_orders set capture_id = p_capture_id, status = 'captured', updated_at = now()
-    where id = po.id;
-    return tx;
-  end if;
-  if tx.status <> 'pending' then raise exception 'transaction_not_pending'; end if;
-
-  select * into w from public.wallets where user_id = po.user_id::text for update;
-  if not found then
-    select * into w from public.ensure_wallet(po.user_id);
-  end if;
-
-  old_balance := coalesce(w.balance, 0);
-  new_balance := old_balance + po.amount;
-
-  update public.wallets
-  set balance = new_balance, updated_at = now()
-  where id = w.id;
-
-  update public.transactions
-  set status = 'completed', type = 'paypal_topup', reference = p_order_id
-  where id = tx.id
-  returning * into tx;
-
-  update public.paypal_orders
-  set capture_id = p_capture_id, status = 'captured', updated_at = now()
-  where id = po.id;
-
-  return tx;
-end;
-$$;
+-- finalize_paypal_topup is intentionally defined by the canonical 20260908000000 migration.
+-- Do not redefine it here: the legacy implementation returned public.transactions while the
+-- canonical implementation returns jsonb, and PostgreSQL cannot change a function return type
+-- with CREATE OR REPLACE FUNCTION.
 
 revoke all on function public.ensure_wallet(uuid) from public;
 grant execute on function public.ensure_wallet(uuid) to authenticated, service_role;
