@@ -1,0 +1,61 @@
+name: PayPal Wallet E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/worker/paypal.ts'
+      - 'cloudflare/worker/production-entrypoint.ts'
+      - 'cloudflare/wrangler.jsonc'
+      - 'supabase/migrations/**'
+      - '.github/workflows/paypal-wallet-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_VERSION: '4.126.0'
+  SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
+  WORKER_URL: 'https://testagram-api.nahashonnyaga794.workers.dev'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Validate PayPal and backend secrets
+        env:
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_WEBHOOK_ID: ${{ secrets.PAYPAL_WEBHOOK_ID }}
+        run: |
+          set -euo pipefail
+          for pair in SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET PAYPAL_WEBHOOK_ID; do
+            test -n "${!pair}" || { echo "Missing GitHub Actions secret: $pair"; exit 1; }
+          done
+      - name: Typecheck Worker
+        run: npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy --config cloudflare/wrangler.jsonc --dry-run
+      - name: Verify Supabase payment primitives
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o /tmp/rest.json -w '%{http_code}' --max-time 15 -H "apikey: $SUPABASE_SECRET_KEY" "$SUPABASE_URL/rest/v1/paypal_orders?select=order_id&limit=1")
+          test "$status" = 200
+          echo "Supabase paypal_orders reachable: HTTP $status"
+      - name: Verify Worker PayPal configuration
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o /tmp/paypal-config.json -w '%{http_code}' --max-time 20 "$WORKER_URL/api/paypal/config" || true)
+          echo "Worker PayPal config HTTP: $status"
+          cat /tmp/paypal-config.json || true
+          test "$status" = 200
+          grep -Fq '"provider":"paypal"' /tmp/paypal-config.json
+          grep -Fq '"environment":"sandbox"' /tmp/paypal-config.json
+          grep -Fq '"configured":true' /tmp/paypal-config.json
