@@ -1,5 +1,4 @@
 begin;
-
 create table if not exists public.monetization_settings (
   id boolean primary key default true check (id),
   creator_share_percent numeric(5,2) not null default 70 check (creator_share_percent between 0 and 100),
@@ -22,7 +21,6 @@ create table if not exists public.monetization_settings (
   updated_at timestamptz not null default now()
 );
 insert into public.monetization_settings(id) values(true) on conflict (id) do nothing;
-
 create table if not exists public.platform_admins (
   user_id uuid primary key references auth.users(id) on delete cascade,
   role text not null default 'owner' check (role in ('owner','finance','support','auditor')),
@@ -37,7 +35,6 @@ create table if not exists public.platform_treasury (
   updated_at timestamptz not null default now()
 );
 insert into public.platform_treasury(currency) values('USD'),('KES') on conflict do nothing;
-
 create table if not exists public.monetization_events (
   id uuid primary key default gen_random_uuid(), payer_id uuid references auth.users(id) on delete set null,
   creator_id uuid references auth.users(id) on delete set null, event_type text not null,
@@ -88,14 +85,12 @@ create table if not exists public.creator_payouts (
   approved_by uuid references auth.users(id) on delete set null, completed_at timestamptz, provider_reference text,
   metadata jsonb not null default '{}'::jsonb
 );
-
 alter table public.posts add column if not exists fund_earnings_paid boolean not null default false;
 alter table public.wallets add column if not exists status text not null default 'active';
 alter table public.wallets add column if not exists spending_enabled boolean not null default true;
 alter table public.wallets add column if not exists withdrawals_enabled boolean not null default true;
 alter table public.wallets add column if not exists frozen_reason text;
 alter table public.wallets add column if not exists frozen_at timestamptz;
-
 alter table public.monetization_settings enable row level security;
 alter table public.platform_admins enable row level security;
 alter table public.platform_treasury enable row level security;
@@ -107,9 +102,9 @@ alter table public.video_revenue_rates enable row level security;
 alter table public.creator_subscriptions enable row level security;
 alter table public.ad_placements enable row level security;
 alter table public.creator_payouts enable row level security;
-
 create or replace function public.is_platform_admin(p_user_id uuid default auth.uid()) returns boolean language sql stable security definer set search_path=public as $$ select exists(select 1 from public.platform_admins where user_id=p_user_id); $$;
-revoke all on function public.is_platform_admin(uuid) from public; grant execute on function public.is_platform_admin(uuid) to authenticated;
+revoke all on function public.is_platform_admin(uuid) from public;
+grant execute on function public.is_platform_admin(uuid) to authenticated;
 create policy monetization_events_read on public.monetization_events for select to authenticated using(payer_id=auth.uid() or creator_id=auth.uid() or public.is_platform_admin());
 create policy creator_earnings_read on public.creator_earnings for select to authenticated using(user_id=auth.uid() or public.is_platform_admin());
 create policy revenue_shares_read on public.revenue_shares for select to authenticated using(user_id=auth.uid() or public.is_platform_admin());
@@ -119,7 +114,6 @@ create policy subscriptions_read on public.creator_subscriptions for select to a
 create policy creator_payouts_read on public.creator_payouts for select to authenticated using(user_id=auth.uid() or public.is_platform_admin());
 create policy monetization_settings_read on public.monetization_settings for select to authenticated using(true);
 create policy treasury_admin_read on public.platform_treasury for select to authenticated using(public.is_platform_admin());
-
 -- Service-role settlement is the only path that can mint creator earnings from an external payment.
 create or replace function public.settle_monetization_event(p_payer_id uuid,p_creator_id uuid,p_event_type text,p_gross_amount numeric,p_currency text default 'USD',p_provider text default 'internal',p_provider_reference text default null,p_metadata jsonb default '{}'::jsonb) returns public.monetization_events language plpgsql security definer set search_path=public as $$
 declare e public.monetization_events; w public.wallets; s public.monetization_settings; pct numeric; ca numeric; pa numeric;
@@ -146,9 +140,9 @@ begin
  insert into public.platform_treasury(currency,balance,lifetime_revenue,lifetime_creator_share) values(p_currency,pa,p_gross_amount,ca) on conflict(currency) do update set balance=public.platform_treasury.balance+excluded.balance,lifetime_revenue=public.platform_treasury.lifetime_revenue+excluded.lifetime_revenue,lifetime_creator_share=public.platform_treasury.lifetime_creator_share+excluded.lifetime_creator_share,updated_at=now();
  return e;
 end; $$;
-revoke all on function public.settle_monetization_event(uuid,uuid,text,numeric,text,text,text,jsonb) from public,anon,authenticated; grant execute on function public.settle_monetization_event(uuid,uuid,text,numeric,text,text,text,jsonb) to service_role;
-
+revoke all on function public.settle_monetization_event(uuid,uuid,text,numeric,text,text,text,jsonb) from public,anon,authenticated;
+grant execute on function public.settle_monetization_event(uuid,uuid,text,numeric,text,text,text,jsonb) to service_role;
 create or replace function public.platform_bootstrap_owner(p_user_id uuid) returns public.platform_admins language plpgsql security definer set search_path=public as $$ declare a public.platform_admins; n integer; begin if auth.uid() is not null then raise exception 'SERVICE_ROLE_ONLY'; end if; select count(*) into n from public.platform_admins; if n>0 then raise exception 'OWNER_ALREADY_CONFIGURED'; end if; insert into public.platform_admins(user_id,role) values(p_user_id,'owner') returning * into a; return a; end; $$;
-revoke all on function public.platform_bootstrap_owner(uuid) from public,anon,authenticated; grant execute on function public.platform_bootstrap_owner(uuid) to service_role;
-
+revoke all on function public.platform_bootstrap_owner(uuid) from public,anon,authenticated;
+grant execute on function public.platform_bootstrap_owner(uuid) to service_role;
 commit;

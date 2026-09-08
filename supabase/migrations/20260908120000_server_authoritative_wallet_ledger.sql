@@ -1,5 +1,4 @@
 begin;
-
 create or replace function public.credit_wallet_deposit(p_user_id uuid,p_amount numeric,p_currency text default 'USD',p_provider text default 'mpesa',p_provider_reference text default null,p_provider_status text default 'COMPLETED',p_payment_method text default 'mpesa',p_description text default null,p_metadata jsonb default '{}'::jsonb)
 returns public.wallet_transactions language plpgsql security definer set search_path='public' as $$
 declare w public.wallets; tx public.wallet_transactions; before_balance numeric; clean_amount numeric;
@@ -21,10 +20,8 @@ begin
  update public.wallets set balance=before_balance+clean_amount,total_deposited=coalesce(total_deposited,0)+clean_amount,updated_at=now() where id=w.id;
  return tx;
 end; $$;
-
 grant execute on function public.credit_wallet_deposit(uuid,numeric,text,text,text,text,text,text,jsonb) to service_role;
 revoke execute on function public.credit_wallet_deposit(uuid,numeric,text,text,text,text,text,text,jsonb) from anon,authenticated;
-
 create or replace function public.reserve_wallet_withdrawal(p_user_id uuid,p_amount numeric,p_currency text default 'USD',p_payment_method text default 'mpesa',p_provider text default 'mpesa',p_provider_reference text default null,p_description text default null,p_metadata jsonb default '{}'::jsonb)
 returns public.wallet_transactions language plpgsql security definer set search_path='public' as $$
 declare w public.wallets; tx public.wallet_transactions; before_balance numeric; clean_amount numeric;
@@ -44,10 +41,8 @@ begin
  update public.wallets set balance=before_balance-clean_amount,updated_at=now() where id=w.id;
  return tx;
 end; $$;
-
 grant execute on function public.reserve_wallet_withdrawal(uuid,numeric,text,text,text,text,text,jsonb) to service_role;
 revoke execute on function public.reserve_wallet_withdrawal(uuid,numeric,text,text,text,text,text,jsonb) from anon,authenticated;
-
 create or replace function public.complete_wallet_withdrawal(p_transaction_id uuid,p_provider_reference text,p_provider_status text default 'COMPLETED')
 returns public.wallet_transactions language plpgsql security definer set search_path='public' as $$
 declare tx public.wallet_transactions;
@@ -62,10 +57,8 @@ begin
  update public.wallets set total_withdrawn=coalesce(total_withdrawn,0)+tx.amount,updated_at=now() where id=tx.wallet_id;
  return tx;
 end; $$;
-
 grant execute on function public.complete_wallet_withdrawal(uuid,text,text) to service_role;
 revoke execute on function public.complete_wallet_withdrawal(uuid,text,text) from anon,authenticated;
-
 create or replace function public.fail_wallet_withdrawal(p_transaction_id uuid,p_provider_reference text default null,p_provider_status text default 'FAILED',p_reason text default null)
 returns public.wallet_transactions language plpgsql security definer set search_path='public' as $$
 declare tx public.wallet_transactions; w public.wallets; new_balance numeric;
@@ -82,8 +75,6 @@ begin
  update public.wallet_transactions set status='failed',provider_reference=coalesce(p_provider_reference,provider_reference),provider_status=p_provider_status,balance_after=new_balance,description=coalesce(p_reason,description),completed_at=now() where id=tx.id returning * into tx;
  return tx;
 end; $$;
-
 grant execute on function public.fail_wallet_withdrawal(uuid,text,text,text) to service_role;
 revoke execute on function public.fail_wallet_withdrawal(uuid,text,text,text) from anon,authenticated;
-
 commit;
