@@ -30,20 +30,6 @@ jobs:
           npm run typecheck
           npm run lint
 
-      - name: Genuine production build
-        run: npm run build
-
-      - name: Verify compiled production artifact
-        run: |
-          set -euo pipefail
-          test -s dist/index.html
-          test -d dist/assets
-          if grep -q '/src/main.jsx' dist/index.html; then
-            echo 'ERROR: compiled output still references raw Vite source.'
-            exit 1
-          fi
-          grep -Eq 'src="/assets/[^" ]+\.js"' dist/index.html
-
       - name: Dispatch Supabase production migration gate
         id: migration_dispatch
         env:
@@ -131,6 +117,20 @@ jobs:
           done
           echo 'Supabase E2E did not complete within the release-gate timeout.'
           exit 1
+
+      - name: Genuine production build
+        run: npm run build
+
+      - name: Verify compiled production artifact
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          test -d dist/assets
+          if grep -q '/src/main.jsx' dist/index.html; then
+            echo 'ERROR: compiled output still references raw Vite source.'
+            exit 1
+          fi
+          grep -Eq 'src="/assets/[^" ]+\.js"' dist/index.html
 
       - name: Dispatch Vercel production deployment
         id: vercel_dispatch
