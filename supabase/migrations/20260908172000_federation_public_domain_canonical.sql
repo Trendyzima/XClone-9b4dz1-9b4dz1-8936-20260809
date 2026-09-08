@@ -1,3 +1,4 @@
+-- Canonical federation public-domain normalization; unique migration version.
 create or replace function public.normalize_federation_actor_public_domain()
 returns trigger
 language plpgsql
