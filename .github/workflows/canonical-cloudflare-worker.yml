@@ -56,12 +56,34 @@ jobs:
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing GitHub secret: CLOUDFLARE_API_TOKEN'; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing GitHub secret: CLOUDFLARE_ACCOUNT_ID'; exit 1; }
+      - name: Validate PayPal sandbox credential set
+        env:
+          PAYPAL_CLIENT_ID_PRIMARY: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET_PRIMARY: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_CLIENT_SECRET_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_SECRET }}
+          PAYPAL_WEBHOOK_ID_PRIMARY: ${{ secrets.PAYPAL_WEBHOOK_ID }}
+          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_WEBHOOK_ID_SANDBOX }}
+        run: |
+          set -euo pipefail
+          client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
+          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
+          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
+          missing=()
+          [ -n "$client_id" ] || missing+=(PAYPAL_CLIENT_ID)
+          [ -n "$client_secret" ] || missing+=(PAYPAL_CLIENT_SECRET)
+          [ -n "$webhook_id" ] || missing+=(PAYPAL_WEBHOOK_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'PayPal sandbox configuration is incomplete. Missing GitHub secret value(s): %s\n' "${missing[*]}"
+            exit 1
+          fi
+          echo 'PayPal sandbox credential set is complete.'
       - name: Deploy canonical Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler.jsonc
-      - name: Synchronize PayPal secrets when available
+      - name: Synchronize PayPal secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -76,13 +98,9 @@ jobs:
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
           client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
           webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
-          if [ -n "$client_id" ] && [ -n "$client_secret" ] && [ -n "$webhook_id" ]; then
-            printf '%s' "$client_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_ID --config cloudflare/wrangler.jsonc
-            printf '%s' "$client_secret" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_SECRET --config cloudflare/wrangler.jsonc
-            printf '%s' "$webhook_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_WEBHOOK_ID --config cloudflare/wrangler.jsonc
-          else
-            echo 'PayPal GitHub secret set is incomplete; existing Cloudflare Worker secrets are preserved.'
-          fi
+          printf '%s' "$client_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_ID --config cloudflare/wrangler.jsonc
+          printf '%s' "$client_secret" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_SECRET --config cloudflare/wrangler.jsonc
+          printf '%s' "$webhook_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_WEBHOOK_ID --config cloudflare/wrangler.jsonc
       - name: Verify canonical Worker health
         run: |
           set -euo pipefail
