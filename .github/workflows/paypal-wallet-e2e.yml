@@ -11,7 +11,7 @@ on:
       - '.github/workflows/paypal-wallet-e2e.yml'
   workflow_dispatch:
 
-permissions:
+a permissions:
   contents: read
 
 env:
@@ -34,7 +34,8 @@ jobs:
           test -s cloudflare/worker/production-entrypoint.ts
           grep -Fq 'handlePayPal' cloudflare/worker/production-entrypoint.ts
           grep -Fq 'finalize_paypal_topup' cloudflare/worker/paypal.ts
-          grep -Fq 'aepbqfrmheihfsauzcby.supabase.co' cloudflare/wrangler.jsonc
+          grep -Fq "${SUPABASE_URL#https://}" cloudflare/wrangler.jsonc
+          grep -Fq '"SUPABASE_PROJECT_REF": "aepbqfrmheihfsauzcby"' cloudflare/wrangler.jsonc
       - name: Build Worker without secret material
         run: |
           set -euo pipefail
