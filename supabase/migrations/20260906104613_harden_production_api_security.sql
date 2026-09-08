@@ -1,51 +1,26 @@
--- Production API security hardening.
--- Some deployments start from a minimal Supabase project. Security hardening
--- must therefore skip functions that are not present yet rather than aborting
--- the entire migration chain.
-do $$
-declare
-  sig text;
-  revoke_sigs text[] := array[
-    'public.bump_post_like_count()',
-    'public.bump_post_reply_count()',
-    'public.ensure_wallet(uuid)',
-    'public.get_personalized_reels(integer, integer)',
-    'public.get_unified_feed(integer, integer, text)',
-    'public.get_unified_ranked_feed(integer, integer)',
-    'public.mark_message_status(uuid, text)',
-    'public.notify_social_action()',
-    'public.rank_reel_score(uuid, uuid, timestamptz, bigint, bigint, bigint, bigint)',
-    'public.record_federated_feed_event(text, text, bigint)',
-    'public.record_post_view(uuid)',
-    'public.respond_follow_request_atomic(uuid, boolean)',
-    'public.set_federated_follow(text, boolean)',
-    'public.set_federated_reaction(text, text, boolean)',
-    'public.social_sync_post_counters()'
-  ];
-  search_path_sigs text[] := array[
-    'public.ensure_wallet(uuid)',
-    'public.get_personalized_reels(integer, integer)',
-    'public.get_unified_feed(integer, integer, text)',
-    'public.get_unified_ranked_feed(integer, integer)',
-    'public.mark_message_status(uuid, text)',
-    'public.rank_reel_score(uuid, uuid, timestamptz, bigint, bigint, bigint, bigint)',
-    'public.record_federated_feed_event(text, text, bigint)',
-    'public.record_post_view(uuid)',
-    'public.respond_follow_request_atomic(uuid, boolean)',
-    'public.set_federated_follow(text, boolean)',
-    'public.set_federated_reaction(text, text, boolean)'
-  ];
-begin
-  foreach sig in array revoke_sigs loop
-    if to_regprocedure(sig) is not null then
-      execute format('revoke execute on function %s from public, authenticated, anon', sig);
-    end if;
-  end loop;
-
-  foreach sig in array search_path_sigs loop
-    if to_regprocedure(sig) is not null then
-      execute format('alter function %s set search_path = public, pg_temp', sig);
-    end if;
-  end loop;
-end
-$$;
+REVOKE EXECUTE ON FUNCTION public.bump_post_like_count() FROM PUBLIC, authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.bump_post_reply_count() FROM PUBLIC, authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.ensure_wallet(uuid) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.get_personalized_reels(integer, integer) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.get_unified_feed(integer, integer, text) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.get_unified_ranked_feed(integer, integer) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.mark_message_status(uuid, text) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.notify_social_action() FROM PUBLIC, authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.rank_reel_score(uuid, uuid, timestamptz, bigint, bigint, bigint, bigint) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.record_federated_feed_event(text, text, bigint) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.record_post_view(uuid) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.respond_follow_request_atomic(uuid, boolean) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.set_federated_follow(text, boolean) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.set_federated_reaction(text, text, boolean) FROM authenticated, anon;
+REVOKE EXECUTE ON FUNCTION public.social_sync_post_counters() FROM PUBLIC, authenticated, anon;
+ALTER FUNCTION public.ensure_wallet(uuid) SET search_path = public, pg_temp;
+ALTER FUNCTION public.get_personalized_reels(integer, integer) SET search_path = public, pg_temp;
+ALTER FUNCTION public.get_unified_feed(integer, integer, text) SET search_path = public, pg_temp;
+ALTER FUNCTION public.get_unified_ranked_feed(integer, integer) SET search_path = public, pg_temp;
+ALTER FUNCTION public.mark_message_status(uuid, text) SET search_path = public, pg_temp;
+ALTER FUNCTION public.rank_reel_score(uuid, uuid, timestamptz, bigint, bigint, bigint, bigint) SET search_path = public, pg_temp;
+ALTER FUNCTION public.record_federated_feed_event(text, text, bigint) SET search_path = public, pg_temp;
+ALTER FUNCTION public.record_post_view(uuid) SET search_path = public, pg_temp;
+ALTER FUNCTION public.respond_follow_request_atomic(uuid, boolean) SET search_path = public, pg_temp;
+ALTER FUNCTION public.set_federated_follow(text, boolean) SET search_path = public, pg_temp;
+ALTER FUNCTION public.set_federated_reaction(text, text, boolean) SET search_path = public, pg_temp;;
