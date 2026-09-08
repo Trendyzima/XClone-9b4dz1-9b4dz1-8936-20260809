@@ -11,12 +11,16 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/worker/production-entrypoint.ts'
+      - 'cloudflare/worker/paypal.ts'
       - 'cloudflare/worker/public-actor-entrypoint.ts'
       - 'cloudflare/worker/federation-entrypoint.ts'
       - 'cloudflare/worker/index.ts'
       - 'cloudflare/wrangler.jsonc'
       - 'cloudflare/wrangler-federation.jsonc'
       - '.github/workflows/canonical-cloudflare-worker.yml'
+
+authorizations:
+  contents: read
 
 permissions:
   contents: read
@@ -42,6 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s cloudflare/worker/production-entrypoint.ts
+          test -s cloudflare/worker/paypal.ts
           test -s cloudflare/worker/public-actor-entrypoint.ts
           test -s cloudflare/worker/federation-entrypoint.ts
           test -s cloudflare/worker/index.ts
@@ -55,15 +60,21 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_WEBHOOK_ID: ${{ secrets.PAYPAL_WEBHOOK_ID }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$SUPABASE_PUBLISHABLE_KEY"
           test -n "$SUPABASE_SECRET_KEY"
+          test -n "$PAYPAL_CLIENT_ID"
+          test -n "$PAYPAL_CLIENT_SECRET"
+          test -n "$PAYPAL_WEBHOOK_ID"
           secrets_file="$(mktemp)"
           trap 'rm -f "$secrets_file"' EXIT
-          printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" > "$secrets_file"
+          printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\nPAYPAL_CLIENT_ID=%s\nPAYPAL_CLIENT_SECRET=%s\nPAYPAL_WEBHOOK_ID=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" "$PAYPAL_CLIENT_ID" "$PAYPAL_CLIENT_SECRET" "$PAYPAL_WEBHOOK_ID" > "$secrets_file"
           npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler.jsonc --secrets-file "$secrets_file"
       - name: Verify canonical health and federation
         run: |
