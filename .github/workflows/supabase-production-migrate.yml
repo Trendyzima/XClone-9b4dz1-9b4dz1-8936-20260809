@@ -2,6 +2,11 @@ name: Testagram Supabase Production Migrations
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**'
 
 permissions:
   contents: write
@@ -40,17 +45,9 @@ jobs:
             "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF")"
 
           case "$status_code" in
-            200)
-              echo 'Supabase Management API authorization verified for the canonical project.'
-              ;;
-            401)
-              echo 'Supabase Management API rejected SUPABASE_ACCESS_TOKEN (401). Replace it with a valid PAT.'
-              exit 1
-              ;;
-            403)
-              echo 'Supabase Management API denied this token for the canonical project (403). The token owner must have project/org access and the token must include the required project permissions.'
-              exit 1
-              ;;
+            200) echo 'Supabase Management API authorization verified for the canonical project.' ;;
+            401) echo 'Supabase Management API rejected SUPABASE_ACCESS_TOKEN (401). Replace it with a valid PAT.'; exit 1 ;;
+            403) echo 'Supabase Management API denied this token for the canonical project (403). The token owner must have project/org access and the token must include the required project permissions.'; exit 1 ;;
             *)
               echo "Supabase Management API preflight failed with HTTP $status_code."
               sed -E 's/"(access_token|token|password|secret|api_key)"[[:space:]]*:[[:space:]]*"[^"]*"/"\1":"***"/g' "$response_file" | head -c 2000
@@ -79,10 +76,6 @@ jobs:
       - name: Fetch remote migration definitions
         run: |
           set -euo pipefail
-          # The remote project contains migration definitions that are not yet
-          # committed to this repository. The CLI may also normalize tracked
-          # local copies while fetching. Both states are expected and must be
-          # persisted before the production apply is attempted.
           supabase migration fetch --linked
 
       - name: Verify migration history after fetch
@@ -98,10 +91,6 @@ jobs:
           status_file="$RUNNER_TEMP/migration-status.txt"
           git status --porcelain -- supabase/migrations | tee "$status_file"
 
-          # Fetch can legitimately produce both modified tracked migrations and
-          # new remote-only migration files. Reject only unexpected paths or
-          # status types; do not reject the tracked M entries that the CLI
-          # produced while reconciling the remote definitions.
           if grep -qvE '^( M|M |MM|A |\?\?) supabase/migrations/[^/]+\.sql$' "$status_file"; then
             echo 'ERROR: unexpected migration workspace changes were produced by migration fetch.'
             exit 1
@@ -122,9 +111,6 @@ jobs:
       - name: Preview interleaved production migrations
         run: |
           set -euo pipefail
-          # Production history contains migrations newer than several local
-          # migrations. --include-all is required so Supabase can reconcile
-          # those historical-but-unrecorded local versions in timestamp order.
           supabase db push --dry-run --include-all
 
       - name: Apply interleaved production migrations
