@@ -17,12 +17,10 @@ begin
   return new;
 end;
 $$;
-
 drop trigger if exists federation_actors_public_domain on public.federation_actors;
 create trigger federation_actors_public_domain
 before insert or update of username, actor_url, inbox_url on public.federation_actors
 for each row execute function public.normalize_federation_actor_public_domain();
-
 update public.federation_actors
 set actor_url = 'https://api.testagram.site/users/' || regexp_replace(lower(username), '[^a-z0-9_-]', '_', 'g'),
     inbox_url = 'https://api.testagram.site/users/' || regexp_replace(lower(username), '[^a-z0-9_-]', '_', 'g') || '/inbox';

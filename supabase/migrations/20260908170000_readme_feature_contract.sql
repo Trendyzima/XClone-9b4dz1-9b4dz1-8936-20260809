@@ -1,5 +1,4 @@
 begin;
-
 -- Testagram README feature contract.
 -- This migration reconciles legacy/partial schemas with the database contract
 -- required by the documented social, creator, discovery, moderation,
@@ -18,13 +17,11 @@ alter table if exists public.posts add column if not exists quote_post_id uuid;
 alter table if exists public.posts add column if not exists language_code text;
 alter table if exists public.posts add column if not exists edited_at timestamptz;
 alter table if exists public.posts add column if not exists deleted_at timestamptz;
-
 update public.posts set media_url = coalesce(media_url, image_url, video_url) where media_url is null;
 update public.posts set like_count = likes_count where like_count = 0 and likes_count <> 0;
 update public.posts set reply_count = replies_count where reply_count = 0 and replies_count <> 0;
 update public.posts set repost_count = reposts_count where repost_count = 0 and repost_count <> 0;
 update public.posts set view_count = views_count where view_count = 0 and views_count <> 0;
-
 create table if not exists public.post_reposts (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
@@ -34,7 +31,6 @@ create table if not exists public.post_reposts (
 );
 create index if not exists post_reposts_post_idx on public.post_reposts(post_id,created_at desc);
 create index if not exists post_reposts_user_idx on public.post_reposts(user_id,created_at desc);
-
 create table if not exists public.post_shares (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
@@ -43,7 +39,6 @@ create table if not exists public.post_shares (
   created_at timestamptz not null default now()
 );
 create index if not exists post_shares_post_idx on public.post_shares(post_id,created_at desc);
-
 create table if not exists public.post_edits (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
@@ -53,20 +48,17 @@ create table if not exists public.post_edits (
   edited_at timestamptz not null default now()
 );
 create index if not exists post_edits_post_idx on public.post_edits(post_id,edited_at desc);
-
 create table if not exists public.quote_posts (
   post_id uuid primary key references public.posts(id) on delete cascade,
   quoted_post_id uuid not null references public.posts(id) on delete cascade,
   created_at timestamptz not null default now(),
   check(post_id <> quoted_post_id)
 );
-
 -- Profile/settings/feed preferences -----------------------------------------
 alter table if exists public.profiles add column if not exists cover_url text;
 alter table if exists public.profiles add column if not exists social_links jsonb not null default '{}'::jsonb;
 alter table if exists public.profiles add column if not exists verified_tier text not null default 'none';
 alter table if exists public.profiles add column if not exists profile_views bigint not null default 0;
-
 create table if not exists public.user_settings (
   user_id uuid primary key references public.profiles(id) on delete cascade,
   theme text not null default 'system',
@@ -78,7 +70,6 @@ create table if not exists public.user_settings (
   push_notifications boolean not null default true,
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.feed_preferences (
   user_id uuid primary key references public.profiles(id) on delete cascade,
   chronological boolean not null default false,
@@ -87,7 +78,6 @@ create table if not exists public.feed_preferences (
   muted_words text[] not null default '{}',
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.push_subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -99,7 +89,6 @@ create table if not exists public.push_subscriptions (
   last_seen_at timestamptz not null default now(),
   unique(user_id,endpoint)
 );
-
 -- Discovery/trending/search --------------------------------------------------
 create table if not exists public.search_queries (
   id uuid primary key default gen_random_uuid(),
@@ -109,7 +98,6 @@ create table if not exists public.search_queries (
   created_at timestamptz not null default now()
 );
 create index if not exists search_queries_user_idx on public.search_queries(user_id,created_at desc);
-
 create table if not exists public.trending_snapshots (
   id uuid primary key default gen_random_uuid(),
   tag text not null,
@@ -120,16 +108,13 @@ create table if not exists public.trending_snapshots (
   unique(tag,"window",captured_at)
 );
 create index if not exists trending_snapshots_window_idx on public.trending_snapshots("window",score desc,captured_at desc);
-
 -- Communities ----------------------------------------------------------------
 alter table if exists public.communities add column if not exists created_by uuid;
 alter table if exists public.communities add column if not exists owner_id uuid;
 alter table if exists public.communities add column if not exists member_count bigint not null default 0;
 update public.communities set created_by=owner_id where created_by is null and owner_id is not null;
 update public.communities set owner_id=created_by where owner_id is null and created_by is not null;
-
 alter table if exists public.community_members add column if not exists status text not null default 'active';
-
 create table if not exists public.community_posts (
   community_id uuid not null references public.communities(id) on delete cascade,
   post_id uuid not null references public.posts(id) on delete cascade,
@@ -137,7 +122,6 @@ create table if not exists public.community_posts (
   created_at timestamptz not null default now(),
   primary key(community_id,post_id)
 );
-
 -- Polls, media, voice, translation ------------------------------------------
 create table if not exists public.post_media (
   id uuid primary key default gen_random_uuid(),
@@ -154,7 +138,6 @@ create table if not exists public.post_media (
   created_at timestamptz not null default now(),
   unique(post_id,sort_order)
 );
-
 create table if not exists public.polls (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null unique references public.posts(id) on delete cascade,
@@ -177,7 +160,6 @@ create table if not exists public.poll_votes (
   created_at timestamptz not null default now(),
   primary key(poll_id,option_id,user_id)
 );
-
 create table if not exists public.voice_notes (
   id uuid primary key default gen_random_uuid(),
   author_id uuid not null references public.profiles(id) on delete cascade,
@@ -187,7 +169,6 @@ create table if not exists public.voice_notes (
   transcript text,
   created_at timestamptz not null default now()
 );
-
 create table if not exists public.post_translations (
   post_id uuid not null references public.posts(id) on delete cascade,
   language_code text not null,
@@ -195,7 +176,6 @@ create table if not exists public.post_translations (
   created_at timestamptz not null default now(),
   primary key(post_id,language_code)
 );
-
 -- Messaging and live spaces --------------------------------------------------
 create table if not exists public.audio_spaces (
   id uuid primary key default gen_random_uuid(),
@@ -216,7 +196,6 @@ create table if not exists public.space_members (
   joined_at timestamptz not null default now(),
   primary key(space_id,user_id)
 );
-
 alter table if exists public.messages add column if not exists body text;
 alter table if exists public.messages add column if not exists edited_at timestamptz;
 alter table if exists public.messages add column if not exists deleted_at timestamptz;
@@ -232,7 +211,6 @@ begin
     execute 'update public.messages set body=content where body is null and content is not null';
   end if;
 end $$;
-
 -- Moderation/privacy ---------------------------------------------------------
 create table if not exists public.content_reports (
   id uuid primary key default gen_random_uuid(),
@@ -246,7 +224,6 @@ create table if not exists public.content_reports (
   resolved_at timestamptz
 );
 create index if not exists content_reports_status_idx on public.content_reports(status,created_at desc);
-
 create table if not exists public.moderation_actions (
   id uuid primary key default gen_random_uuid(),
   moderator_id uuid references public.profiles(id) on delete set null,
@@ -257,7 +234,6 @@ create table if not exists public.moderation_actions (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
-
 create table if not exists public.privacy_preferences (
   user_id uuid primary key references public.profiles(id) on delete cascade,
   discoverable boolean not null default true,
@@ -267,7 +243,6 @@ create table if not exists public.privacy_preferences (
   analytics_opt_out boolean not null default false,
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.data_export_requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -277,7 +252,6 @@ create table if not exists public.data_export_requests (
   expires_at timestamptz,
   object_key text
 );
-
 create table if not exists public.account_deletion_requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -285,7 +259,6 @@ create table if not exists public.account_deletion_requests (
   requested_at timestamptz not null default now(),
   completed_at timestamptz
 );
-
 -- Analytics/ranking ----------------------------------------------------------
 create table if not exists public.post_analytics (
   post_id uuid primary key references public.posts(id) on delete cascade,
@@ -315,7 +288,6 @@ create table if not exists public.content_events (
   check(post_id is not null)
 );
 create index if not exists content_events_rank_idx on public.content_events(post_id,created_at desc);
-
 create table if not exists public.recommendation_feedback (
   user_id uuid not null references public.profiles(id) on delete cascade,
   topic text not null,
@@ -324,7 +296,6 @@ create table if not exists public.recommendation_feedback (
   updated_at timestamptz not null default now(),
   primary key(user_id,topic)
 );
-
 -- Creator tools and monetization --------------------------------------------
 create table if not exists public.creator_earnings (
   id uuid primary key default gen_random_uuid(),
@@ -406,7 +377,6 @@ create table if not exists public.ad_events (
   event_type text not null check(event_type in('impression','click')),
   created_at timestamptz not null default now()
 );
-
 -- AI infrastructure ----------------------------------------------------------
 create table if not exists public.ai_usage (
   id uuid primary key default gen_random_uuid(),
@@ -418,7 +388,6 @@ create table if not exists public.ai_usage (
   estimated_cost_micros bigint not null default 0,
   created_at timestamptz not null default now()
 );
-
 create table if not exists public.ai_news_sources (
   id uuid primary key default gen_random_uuid(),
   source_url text not null unique,
@@ -428,7 +397,6 @@ create table if not exists public.ai_news_sources (
   processed boolean not null default false,
   metadata jsonb not null default '{}'::jsonb
 );
-
 -- Federation / ActivityPub ---------------------------------------------------
 create table if not exists public.federated_instances (
   id uuid primary key default gen_random_uuid(),
@@ -494,7 +462,6 @@ create table if not exists public.federation_deliveries (
   delivered_at timestamptz,
   unique(activity_id,target_inbox)
 );
-
 -- PayPal wallet/payment records ---------------------------------------------
 create table if not exists public.wallets (
   user_id uuid primary key references public.profiles(id) on delete cascade,
@@ -527,7 +494,6 @@ create table if not exists public.paypal_orders (
   created_at timestamptz not null default now(),
   captured_at timestamptz
 );
-
 -- Live reels/recommendation support -----------------------------------------
 create table if not exists public.reels (
   id uuid primary key default gen_random_uuid(),
@@ -555,7 +521,6 @@ create table if not exists public.reel_events (
   created_at timestamptz not null default now()
 );
 create index if not exists reel_events_rank_idx on public.reel_events(reel_id,created_at desc);
-
 -- RLS for user-owned feature tables. Service-role/admin processing remains
 -- outside these policies; client users only see or mutate their own records.
 do $$
@@ -577,8 +542,6 @@ begin
     execute format('alter table public.%I enable row level security',t);
   end loop;
 end $$;
-
 -- Realtime-safe metadata invalidation after the additive schema reconciliation.
 notify pgrst, 'reload schema';
-
 commit;
