@@ -64,3 +64,5 @@ jobs:
             sleep 10
           done
           test "$ok" = 1
+
+# Secret synchronization remains intentionally delegated to the canonical Cloudflare workflow.
