@@ -1,18 +1,8 @@
 {
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist",
-        "zeroConfig": false
-      }
-    }
-  ],
+  "framework": "vite",
   "installCommand": "sed -i '/^node-options/d' .npmrc && npm install && node _patch-vite.cjs",
   "buildCommand": "node _build.cjs",
   "outputDirectory": "dist",
-  "framework": "vite",
   "rewrites": [
     { "source": "/.well-known/webfinger", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/.well-known/webfinger" },
     { "source": "/.well-known/nodeinfo", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/.well-known/nodeinfo" },
