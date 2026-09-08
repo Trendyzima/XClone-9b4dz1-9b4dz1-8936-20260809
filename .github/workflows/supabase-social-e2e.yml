@@ -17,16 +17,18 @@ jobs:
     env:
       # Canonical production Supabase project for Testagram.
       SUPABASE_URL: https://aepbqfrmheihfsauzcby.supabase.co
-      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      # Public client key: safe for API requests when RLS is correctly configured.
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      # Server-only privileged key. Never expose this in browser/mobile code.
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Validate required secrets
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_PUBLISHABLE_KEY"
-          test -n "$SUPABASE_SECRET_KEY"
+          test -n "$SUPABASE_PUBLISHABLE_KEY" || { echo 'Missing VITE_SUPABASE_ANON_KEY GitHub secret.'; exit 1; }
+          test -n "$SUPABASE_SECRET_KEY" || { echo 'Missing SUPABASE_SERVICE_ROLE_KEY GitHub secret.'; exit 1; }
 
       - name: Run authenticated profiles, communities and spaces E2E
         shell: bash
