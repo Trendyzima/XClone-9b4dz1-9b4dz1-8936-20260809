@@ -51,20 +51,26 @@ jobs:
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler-federation.jsonc
           grep -Fq 'federation.testagram.site' cloudflare/wrangler.jsonc
           grep -Fq 'https://federation.testagram.site' cloudflare/worker/public-actor-entrypoint.ts
-      - name: Validate Cloudflare and PayPal deployment credentials
+      - name: Resolve deployment credentials without printing them
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
-          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
-          PAYPAL_WEBHOOK_ID: ${{ secrets.PAYPAL_WEBHOOK_ID }}
+          PAYPAL_CLIENT_ID_PRIMARY: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET_PRIMARY: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_CLIENT_SECRET_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_SECRET }}
+          PAYPAL_WEBHOOK_ID_PRIMARY: ${{ secrets.PAYPAL_WEBHOOK_ID }}
+          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_WEBHOOK_ID }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$PAYPAL_CLIENT_ID"
-          test -n "$PAYPAL_CLIENT_SECRET"
-          test -n "$PAYPAL_WEBHOOK_ID"
+          PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
+          PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
+          PAYPAL_WEBHOOK_ID="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
+          test -n "$PAYPAL_CLIENT_ID" || { echo 'No PayPal client-id secret is available under the supported GitHub secret names.'; exit 1; }
+          test -n "$PAYPAL_CLIENT_SECRET" || { echo 'No PayPal client-secret secret is available under the supported GitHub secret names.'; exit 1; }
+          test -n "$PAYPAL_WEBHOOK_ID" || { echo 'No PayPal webhook-id secret is available under the supported GitHub secret names.'; exit 1; }
       - name: Deploy canonical Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -76,11 +82,17 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
-          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
-          PAYPAL_WEBHOOK_ID: ${{ secrets.PAYPAL_WEBHOOK_ID }}
+          PAYPAL_CLIENT_ID_PRIMARY: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET_PRIMARY: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_CLIENT_SECRET_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_SECRET }}
+          PAYPAL_WEBHOOK_ID_PRIMARY: ${{ secrets.PAYPAL_WEBHOOK_ID }}
+          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_WEBHOOK_ID }}
         run: |
           set -euo pipefail
+          PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
+          PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
+          PAYPAL_WEBHOOK_ID="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
           printf '%s' "$PAYPAL_CLIENT_ID" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_ID --config cloudflare/wrangler.jsonc
           printf '%s' "$PAYPAL_CLIENT_SECRET" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_SECRET --config cloudflare/wrangler.jsonc
           printf '%s' "$PAYPAL_WEBHOOK_ID" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_WEBHOOK_ID --config cloudflare/wrangler.jsonc
