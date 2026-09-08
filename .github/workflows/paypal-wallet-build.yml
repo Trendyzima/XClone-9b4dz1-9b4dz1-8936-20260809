@@ -1,0 +1,49 @@
+name: PayPal Wallet Build Verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/worker/paypal.ts'
+      - 'cloudflare/worker/production-entrypoint.ts'
+      - 'cloudflare/wrangler.jsonc'
+      - 'supabase/migrations/**paypal**'
+      - '.github/workflows/paypal-wallet-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Validate source wiring
+        run: |
+          set -euo pipefail
+          test -s cloudflare/worker/paypal.ts
+          test -s cloudflare/worker/production-entrypoint.ts
+          grep -Fq 'zcjtvykwwplnzyyslnop.supabase.co' cloudflare/wrangler.jsonc
+          grep -Fq 'handlePayPal' cloudflare/worker/production-entrypoint.ts
+          grep -Fq 'finalize_paypal_topup' cloudflare/worker/paypal.ts
+      - name: Build Worker with Wrangler dry-run
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/paypal-worker-build
+          npx --yes wrangler@4.126.0 deploy --config cloudflare/wrangler.jsonc --dry-run --outdir /tmp/paypal-worker-build
+          test -s /tmp/paypal-worker-build/index.js
+          wc -c /tmp/paypal-worker-build/index.js
+      - name: Inspect generated bundle
+        run: |
+          set -euo pipefail
+          grep -Fq '/api/paypal' /tmp/paypal-worker-build/index.js
+          grep -Fq 'finalize_paypal_topup' /tmp/paypal-worker-build/index.js
+          grep -Fq 'PAYPAL_CLIENT_ID' /tmp/paypal-worker-build/index.js
+      - name: Validate migration is present
+        run: |
+          set -euo pipefail
+          test -n "$(find supabase/migrations -maxdepth 1 -type f -iname '*paypal*' -print -quit)"
