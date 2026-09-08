@@ -96,7 +96,7 @@ jobs:
 
           echo '3. User A creates a private community...'
           COMMUNITY_ID="$(cat /proc/sys/kernel/random/uuid)"
-          COMMUNITY_PAYLOAD="$(jq -nc --arg id "$COMMUNITY_ID" --arg uid "$USER_A" --arg n "e2e-${RUN}" '{id:$id,name:$n,display_name:"E2E Community",description:"isolated test community",created_by:$uid,is_private:true,rules:[{id:1,rule:"be respectful"}]}')"
+          COMMUNITY_PAYLOAD="$(jq -nc --arg id "$COMMUNITY_ID" --arg uid "$USER_A" --arg n "e2e-${RUN}" '{id:$id,name:$n,display_name:"E2E Community",description:"isolated test community",created_by:$uid,owner_id:$uid,is_private:true,rules:[{id:1,rule:"be respectful"}]}')"
           COMMUNITY_STATUS="$(curl -sS -o /tmp/community.json -w '%{http_code}' -X POST "$BASE/rest/v1/communities" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" -H 'Content-Type: application/json' \
             -H 'Prefer: return=minimal' -d "$COMMUNITY_PAYLOAD")"
