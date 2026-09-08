@@ -38,10 +38,11 @@ jobs:
       - name: Gateway health
         env:
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_PUBLISHABLE_KEY"
-          status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "Authorization: Bearer $SUPABASE_PUBLISHABLE_KEY")"
+          test -n "$SUPABASE_SECRET_KEY"
+          status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY")"
           cat /tmp/health.json
           test "$status" = 200
           jq -e '.ok == true and .activityPub == true' /tmp/health.json
