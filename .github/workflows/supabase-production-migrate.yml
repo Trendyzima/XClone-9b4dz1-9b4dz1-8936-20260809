@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
-      SUPABASE_PROJECT_REF: zcjtvykwwplnzyyslnop
+      # Canonical production Supabase project for Testagram.
+      SUPABASE_PROJECT_REF: aepbqfrmheihfsauzcby
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
