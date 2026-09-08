@@ -89,6 +89,13 @@ create table if not exists public.community_members (
   created_at timestamptz not null default now(),
   unique (community_id, user_id)
 );
+-- Production can contain a legacy community_members table created by an older
+-- schema. CREATE TABLE IF NOT EXISTS does not reconcile that shape, so add the
+-- columns required by the authorization helpers before defining those helpers.
+alter table public.community_members add column if not exists role text not null default 'member';
+alter table public.community_members add column if not exists status text not null default 'active';
+update public.community_members set role = 'member' where role is null or role = '';
+update public.community_members set status = 'active' where status is null or status = '';
 alter table public.community_members enable row level security;
 
 create table if not exists public.community_suggestions (
