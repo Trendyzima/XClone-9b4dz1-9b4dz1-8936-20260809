@@ -15,7 +15,8 @@ jobs:
   authenticated-social-e2e:
     runs-on: ubuntu-latest
     env:
-      SUPABASE_URL: https://zcjtvykwwplnzyyslnop.supabase.co
+      # Canonical production Supabase project for Testagram.
+      SUPABASE_URL: https://aepbqfrmheihfsauzcby.supabase.co
       SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
     steps:
