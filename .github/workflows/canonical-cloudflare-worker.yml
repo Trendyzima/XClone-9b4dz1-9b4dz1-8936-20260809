@@ -122,7 +122,7 @@ jobs:
       - name: Verify production custom domain (non-blocking if Cloudflare challenge is enabled)
         run: |
           set -euo pipefail
-          status="$(curl -sS -o /tmp/production-health.json -w '%{http_code}' --max-time 20 "$PRODUCTION_HEALTH_URL" || true)
+          status="$(curl -sS -o /tmp/production-health.json -w '%{http_code}' --max-time 20 "$PRODUCTION_HEALTH_URL" || true)"
           cat /tmp/production-health.json
           if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/production-health.json >/dev/null 2>&1; then
             echo 'Existing API custom domain health is directly reachable.'
