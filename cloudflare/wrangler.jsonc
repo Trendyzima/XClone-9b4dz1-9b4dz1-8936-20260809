@@ -13,7 +13,6 @@
     "SUPABASE_JWKS_URL": "https://zcjtvykwwplnzyyslnop.supabase.co/auth/v1/.well-known/jwks.json",
     "PAYPAL_ENV": "sandbox"
   },
-  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "testagram-media" }],
-  "secrets": { "required": ["SUPABASE_ANON_KEY", "SUPABASE_SECRET_KEY", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID"] }
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "testagram-media" }]
 }
 // PayPal sandbox runtime verification is performed by the canonical Worker workflow.
