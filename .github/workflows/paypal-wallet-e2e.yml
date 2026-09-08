@@ -40,7 +40,18 @@ jobs:
             test -n "${!pair}" || { echo "Missing GitHub Actions secret: $pair"; exit 1; }
           done
       - name: Typecheck Worker
-        run: npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy --config cloudflare/wrangler.jsonc --dry-run
+        env:
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_WEBHOOK_ID: ${{ secrets.PAYPAL_WEBHOOK_ID }}
+        run: |
+          set -euo pipefail
+          secrets_file=$(mktemp)
+          trap 'rm -f "$secrets_file"' EXIT
+          printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\nPAYPAL_CLIENT_ID=%s\nPAYPAL_CLIENT_SECRET=%s\nPAYPAL_WEBHOOK_ID=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" "$PAYPAL_CLIENT_ID" "$PAYPAL_CLIENT_SECRET" "$PAYPAL_WEBHOOK_ID" > "$secrets_file"
+          npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy --config cloudflare/wrangler.jsonc --dry-run --secrets-file "$secrets_file"
       - name: Verify Supabase payment primitives
         env:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
@@ -49,12 +60,37 @@ jobs:
           status=$(curl -sS -o /tmp/rest.json -w '%{http_code}' --max-time 15 -H "apikey: $SUPABASE_SECRET_KEY" "$SUPABASE_URL/rest/v1/paypal_orders?select=order_id&limit=1")
           test "$status" = 200
           echo "Supabase paypal_orders reachable: HTTP $status"
-      - name: Verify Worker PayPal configuration
+
+  deploy:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Deploy PayPal-enabled Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_WEBHOOK_ID: ${{ secrets.PAYPAL_WEBHOOK_ID }}
         run: |
           set -euo pipefail
-          status=$(curl -sS -o /tmp/paypal-config.json -w '%{http_code}' --max-time 20 "$WORKER_URL/api/paypal/config" || true)
-          echo "Worker PayPal config HTTP: $status"
-          cat /tmp/paypal-config.json || true
+          secrets_file=$(mktemp)
+          trap 'rm -f "$secrets_file"' EXIT
+          printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\nPAYPAL_CLIENT_ID=%s\nPAYPAL_CLIENT_SECRET=%s\nPAYPAL_WEBHOOK_ID=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" "$PAYPAL_CLIENT_ID" "$PAYPAL_CLIENT_SECRET" "$PAYPAL_WEBHOOK_ID" > "$secrets_file"
+          npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy --config cloudflare/wrangler.jsonc --secrets-file "$secrets_file"
+      - name: Verify deployed PayPal configuration
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o /tmp/paypal-config.json -w '%{http_code}' --max-time 20 "$WORKER_URL/api/paypal/config")
+          cat /tmp/paypal-config.json
           test "$status" = 200
           grep -Fq '"provider":"paypal"' /tmp/paypal-config.json
           grep -Fq '"environment":"sandbox"' /tmp/paypal-config.json
