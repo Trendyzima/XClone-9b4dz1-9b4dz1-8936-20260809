@@ -3,8 +3,12 @@ begin;
 -- The production database already has the legacy wallets/transactions tables.
 -- Extend that schema instead of introducing a second wallet_accounts model.
 alter table if exists public.wallets
+  add column if not exists id uuid default gen_random_uuid(),
   add column if not exists total_deposited numeric not null default 0,
   add column if not exists total_withdrawn numeric not null default 0;
+
+create unique index if not exists wallets_id_uidx
+  on public.wallets(id);
 
 create table if not exists public.wallet_transactions (
   id uuid primary key default gen_random_uuid(),
