@@ -28,7 +28,7 @@ create table if not exists public.wallet_transactions (
 );
 
 -- CREATE TABLE IF NOT EXISTS does not reconcile columns on a pre-existing table.
--- Production may already have wallet_transactions without the newer PayPal reference column.
+-- Production may already have wallet_transactions without the newer PayPal fields.
 alter table if exists public.wallet_transactions
   add column if not exists provider text,
   add column if not exists provider_reference text,
@@ -66,6 +66,25 @@ create table if not exists public.paypal_orders (
   captured_at timestamptz,
   updated_at timestamptz not null default now()
 );
+
+-- CREATE TABLE IF NOT EXISTS likewise does not reconcile a legacy paypal_orders table.
+-- Add every column used below before indexes, triggers, and functions reference it.
+alter table if exists public.paypal_orders
+  add column if not exists wallet_id uuid references public.wallets(id) on delete set null,
+  add column if not exists transaction_id uuid references public.transactions(id) on delete set null,
+  add column if not exists wallet_transaction_id uuid references public.wallet_transactions(id) on delete set null,
+  add column if not exists paypal_order_id text,
+  add column if not exists order_id text,
+  add column if not exists amount numeric(20,2),
+  add column if not exists amount_cents bigint,
+  add column if not exists currency text not null default 'USD',
+  add column if not exists status text not null default 'created',
+  add column if not exists approval_url text,
+  add column if not exists capture_id text,
+  add column if not exists paypal_capture_id text,
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists captured_at timestamptz,
+  add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists paypal_orders_user_created_idx
   on public.paypal_orders(user_id, created_at desc);
