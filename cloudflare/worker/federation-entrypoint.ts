@@ -1,6 +1,6 @@
 import worker from './index';
 interface Env { SUPABASE_URL:string; SUPABASE_PROJECT_REF:string; SUPABASE_ANON_KEY:string; SUPABASE_SECRET_KEY:string; SUPABASE_JWKS_URL:string; APP_ORIGIN:string; MEDIA:R2Bucket }
-const DOMAIN='testagram-api.nahashonnyaga794.workers.dev'; const ORIGIN=`https://${DOMAIN}`; const AP='application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json'; const CTX=['https://www.w3.org/ns/activitystreams','https://w3id.org/security/v1'];
+const DOMAIN='federation.testagram.site'; const ORIGIN=`https://${DOMAIN}`; const AP='application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json'; const CTX=['https://www.w3.org/ns/activitystreams','https://w3id.org/security/v1'];
 const enc=(s:string)=>encodeURIComponent(s); const b64=(x:ArrayBuffer|Uint8Array)=>btoa(String.fromCharCode(...new Uint8Array(x))); const ub64=(s:string)=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 function json(body:unknown,status=200,h:HeadersInit={}){return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...h}})}
 function ap(body:unknown,status=200){return json(body,status,{'Content-Type':'application/activity+json; charset=utf-8','Access-Control-Allow-Origin':'*'})}
