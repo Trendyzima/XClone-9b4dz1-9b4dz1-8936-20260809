@@ -81,18 +81,12 @@ jobs:
           set -euo pipefail
           supabase migration fetch --linked
 
-      - name: Verify synchronized migration history
+      - name: Verify migration history after fetch
         run: |
           set -euo pipefail
           supabase migration list --linked
-          echo 'Remote migration definitions have been fetched into supabase/migrations.'
-          echo 'Fetched migration files:'
+          echo 'Remote migration definitions fetched successfully.'
           git status --short -- supabase/migrations
-
-      - name: Preview pending production migrations
-        run: |
-          set -euo pipefail
-          supabase db push --dry-run
 
       - name: Persist fetched migration definitions
         run: |
@@ -116,12 +110,20 @@ jobs:
             echo 'No remote-only migration definitions needed to be persisted.'
           fi
 
-      - name: Apply pending production migrations
+      - name: Preview interleaved production migrations
         run: |
           set -euo pipefail
-          supabase db push
+          # Production history contains migrations newer than several local
+          # migrations. --include-all is required so Supabase can reconcile
+          # those historical-but-unrecorded local versions in timestamp order.
+          supabase db push --dry-run --include-all
 
-      - name: Verify migration history
+      - name: Apply interleaved production migrations
+        run: |
+          set -euo pipefail
+          supabase db push --include-all
+
+      - name: Verify production migration history
         run: |
           set -euo pipefail
           supabase migration list --linked
