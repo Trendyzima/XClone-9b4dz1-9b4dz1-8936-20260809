@@ -18,7 +18,7 @@ env:
   WRANGLER_VERSION: '4.126.0'
   SUPABASE_PROJECT_REF: 'zcjtvykwwplnzyyslnop'
   SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
-  FEDERATION_ORIGIN: 'https://testagram-api.nahashonnyaga794.workers.dev'
+  FEDERATION_ORIGIN: 'https://federation.testagram.site'
 
 jobs:
   deploy-and-harden:
@@ -29,11 +29,16 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
-      - name: Normalize federation origin for workers.dev
+      - name: Validate canonical federation origin
         run: |
           set -euo pipefail
-          sed -i 's/federation\.testagram\.site/testagram-api.nahashonnyaga794.workers.dev/g' cloudflare/worker/federation-entrypoint.ts
-      - name: Deploy globally reachable federation Worker
+          grep -Fq "const DOMAIN='federation.testagram.site'" cloudflare/worker/federation-entrypoint.ts
+          grep -Fq 'federation.testagram.site' cloudflare/wrangler-federation.jsonc
+          if grep -Fq 'testagram-api.nahashonnyaga794.workers.dev' cloudflare/worker/federation-entrypoint.ts; then
+            echo 'workers.dev federation origin is forbidden in canonical federation source'
+            exit 1
+          fi
+      - name: Deploy canonical federation Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -49,21 +54,21 @@ jobs:
           trap 'rm -f "$secrets_file"' EXIT
           printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" > "$secrets_file"
           npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler-federation.jsonc --secrets-file "$secrets_file"
-      - name: Verify worldwide federation discovery endpoints
+      - name: Verify canonical federation edge
         run: |
           set -euo pipefail
-          base='https://testagram-api.nahashonnyaga794.workers.dev'
+          base="$FEDERATION_ORIGIN"
           for attempt in $(seq 1 12); do
-            if curl -sS --fail-with-body --max-time 20 -H 'Accept: application/json' "$base/.well-known/nodeinfo" >/tmp/nodeinfo-link.json && jq -e '.links | length > 0' /tmp/nodeinfo-link.json >/dev/null; then break; fi
+            status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$base/api/health" || true)"
+            cat /tmp/health.json || true
+            if [ "$status" = 200 ]; then break; fi
             test "$attempt" -eq 12 && exit 1
             sleep 5
           done
-          for attempt in $(seq 1 12); do
-            if curl -sS --fail-with-body --max-time 20 "$base/nodeinfo/2.1" >/tmp/nodeinfo.json && jq -e '.protocols | index("activitypub")' /tmp/nodeinfo.json >/dev/null; then break; fi
-            test "$attempt" -eq 12 && exit 1
-            sleep 5
-          done
-          status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$base/api/health")"
-          cat /tmp/health.json
           test "$status" = 200
-          jq -e '.ok == true and .federation == true and .federationDomain == "testagram-api.nahashonnyaga794.workers.dev"' /tmp/health.json
+          jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site"' /tmp/health.json >/dev/null
+          curl -sS --fail-with-body --max-time 20 "$base/.well-known/nodeinfo" >/tmp/nodeinfo-link.json
+          jq -e '.links | length > 0' /tmp/nodeinfo-link.json >/dev/null
+          curl -sS --fail-with-body --max-time 20 "$base/nodeinfo/2.1" >/tmp/nodeinfo.json
+          jq -e '.protocols | index("activitypub")' /tmp/nodeinfo.json >/dev/null
+          echo 'PASS: canonical federation Worker deployed and edge health/discovery endpoints are reachable'
