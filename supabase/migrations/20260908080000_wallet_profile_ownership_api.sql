@@ -1,5 +1,8 @@
 begin;
 
+alter table if exists public.wallets
+  add column if not exists balance numeric not null default 0;
+
 create unique index if not exists wallets_user_id_unique on public.wallets(user_id);
 
 create or replace function public.ensure_user_wallet(p_user_id uuid, p_currency text default 'USD')
