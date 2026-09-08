@@ -131,7 +131,7 @@ jobs:
           echo '4. Owner membership is created and User B cannot edit the community...'
           curl -sS --fail-with-body -X POST "$BASE/rest/v1/community_members" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" -H 'Content-Type: application/json' \
-            -d "$(jq -nc --arg c "$COMMUNITY_ID" --arg u "$USER_A" '{community_id:$c,user_id:$u,role:"owner",status:"active"}')" >/tmp/member-a.json
+            -d "$(jq -nc --arg c "$COMMUNITY_ID" --arg u "$USER_A" '{community_id:$c,user_id:$u,role:"admin",status:"active"}')" >/tmp/member-a.json
 
           COMMUNITY_FORBIDDEN="$(curl -sS -o /tmp/community-forbidden.json -w '%{http_code}' -X PATCH "$BASE/rest/v1/communities?id=eq.$COMMUNITY_ID" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" -H 'Content-Type: application/json' \
