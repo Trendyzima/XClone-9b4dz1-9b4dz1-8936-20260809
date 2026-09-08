@@ -12,7 +12,6 @@ begin
   return new;
 end;
 $$;
-
 -- stream_chat is optional in a fresh deployment. Only install its analytics
 -- function when the underlying table exists.
 do $$
@@ -36,7 +35,6 @@ begin
   end if;
 end
 $$;
-
 -- Trigger helper may not exist in a fresh schema; revoke it only when present.
 do $$
 begin
@@ -46,7 +44,6 @@ begin
   end if;
 end
 $$;
-
 -- Optional media tables/columns are hardened when present.
 do $$
 begin

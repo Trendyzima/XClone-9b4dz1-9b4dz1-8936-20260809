@@ -1,8 +1,6 @@
 begin;
-
 alter table if exists public.posts add column if not exists user_id uuid;
 alter table if exists public.posts add column if not exists author_id uuid;
-
 do $$
 begin
   if to_regclass('public.posts') is not null then
@@ -32,7 +30,6 @@ begin
     revoke all on function public.sync_post_owner_columns() from public;
   end if;
 end $$;
-
 do $$
 declare verified_expr text := 'null::boolean as verified';
 begin
@@ -43,7 +40,6 @@ begin
     execute format($v$create view public.user_profiles with (security_invoker = true) as select id, username, display_name, avatar_url, bio, website, location, %s from public.profiles$v$, verified_expr);
   end if;
 end $$;
-
 do $$
 begin
   if to_regclass('public.user_settings') is not null then
@@ -55,7 +51,6 @@ begin
     execute 'alter table public.user_devices enable row level security';
   end if;
 end $$;
-
 do $$
 begin
   if to_regclass('public.profiles') is not null then
@@ -72,7 +67,6 @@ begin
     create policy profiles_owner_delete on public.profiles for delete to authenticated using (id = (select auth.uid()));
   end if;
 end $$;
-
 do $$
 begin
   if to_regclass('public.posts') is not null then
@@ -89,7 +83,6 @@ begin
     create policy posts_owner_delete on public.posts for delete to authenticated using (author_id = (select auth.uid()) or user_id = (select auth.uid()));
   end if;
 end $$;
-
 do $$
 declare t text;
 begin
@@ -134,7 +127,6 @@ begin
     end if;
   end if;
 end $$;
-
 do $$
 begin
   if to_regclass('public.post_replies') is not null and exists(select 1 from information_schema.columns where table_schema='public' and table_name='post_replies' and column_name='author_id') then
@@ -147,7 +139,6 @@ begin
     create policy post_replies_owner_write on public.post_replies for all to authenticated using (author_id = (select auth.uid())) with check (author_id = (select auth.uid()));
   end if;
 end $$;
-
 do $$
 declare recipient_expr text := null;
 begin
@@ -166,7 +157,6 @@ begin
     end if;
   end if;
 end $$;
-
 do $$
 begin
   if to_regclass('public.hashtags') is not null then
@@ -179,7 +169,6 @@ begin
     create policy hashtags_authenticated_insert on public.hashtags for insert to authenticated with check (true);
   end if;
 end $$;
-
 do $$
 begin
   if to_regclass('public.media_assets') is not null and exists(select 1 from information_schema.columns where table_schema='public' and table_name='media_assets' and column_name='owner_id') then
@@ -191,5 +180,4 @@ begin
     create policy media_assets_owner_write on public.media_assets for all to authenticated using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
   end if;
 end $$;
-
 commit;

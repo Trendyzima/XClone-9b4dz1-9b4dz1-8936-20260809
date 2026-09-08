@@ -16,7 +16,6 @@ begin
   end if;
 end
 $$;
-
 comment on table public.media_assets is
   'Testagram media metadata. Binary objects are stored in Cloudflare R2; byte_size is capped at 20 MiB.';
 comment on column public.media_assets.storage_key is

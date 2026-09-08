@@ -1,5 +1,4 @@
 begin;
-
 -- Core account/device/settings/media primitives used by the web and native clients.
 create table if not exists public.user_settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -16,7 +15,6 @@ create policy user_settings_own on public.user_settings
   for all to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
-
 create table if not exists public.user_devices (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -34,7 +32,6 @@ create policy user_devices_own on public.user_devices
   for all to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
-
 create table if not exists public.media_assets (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
@@ -59,7 +56,6 @@ create policy media_assets_write_own on public.media_assets
   for all to authenticated
   using (owner_id = auth.uid())
   with check (owner_id = auth.uid());
-
 create table if not exists public.audit_events (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete set null,
@@ -80,7 +76,6 @@ create policy audit_events_insert_own on public.audit_events
 create policy audit_events_read_own on public.audit_events
   for select to authenticated
   using (user_id = auth.uid());
-
 -- Query paths used by feed, notifications, messaging and media.
 create index if not exists idx_posts_created_at on public.posts(created_at desc);
 create index if not exists idx_posts_author_created_at on public.posts(author_id, created_at desc);
@@ -92,12 +87,10 @@ create index if not exists idx_notifications_recipient_created on public.notific
 create index if not exists idx_messages_conversation_created on public.messages(conversation_id, created_at desc);
 create index if not exists idx_media_assets_owner_created on public.media_assets(owner_id, created_at desc);
 create index if not exists idx_audit_events_user_created on public.audit_events(user_id, created_at desc);
-
 -- Private Supabase Storage bucket for camera, microphone, post and message media.
 insert into storage.buckets (id, name, public)
 values ('user-media', 'user-media', false)
 on conflict (id) do nothing;
-
 drop policy if exists user_media_select on storage.objects;
 drop policy if exists user_media_insert on storage.objects;
 drop policy if exists user_media_update on storage.objects;
@@ -115,5 +108,4 @@ create policy user_media_update on storage.objects
 create policy user_media_delete on storage.objects
   for delete to authenticated
   using (bucket_id = 'user-media' and (storage.foldername(name))[1] = auth.uid()::text);
-
 commit;

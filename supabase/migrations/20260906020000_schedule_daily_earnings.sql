@@ -18,4 +18,4 @@
 -- );
 --
 -- Budget alerts and trending-hashtag alerts should be enabled only after their
--- Edge Functions and production secrets are deployed.
+-- Edge Functions and production secrets are deployed.;
