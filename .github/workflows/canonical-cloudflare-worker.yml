@@ -18,6 +18,7 @@ on:
       - 'cloudflare/wrangler.jsonc'
       - 'cloudflare/wrangler-federation.jsonc'
       - '.github/workflows/canonical-cloudflare-worker.yml'
+      - '.github/workflows/paypal-wallet-e2e.yml'
 
 permissions:
   contents: read
@@ -92,7 +93,7 @@ jobs:
           set -euo pipefail
           PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
           PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
-          PAYPAL_WEBHOOK_ID="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
+          PAYPAL_WEBHOOK_ID="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_SANDBOX_WEBHOOK_ID:-}}"
           printf '%s' "$PAYPAL_CLIENT_ID" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_ID --config cloudflare/wrangler.jsonc
           printf '%s' "$PAYPAL_CLIENT_SECRET" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_SECRET --config cloudflare/wrangler.jsonc
           printf '%s' "$PAYPAL_WEBHOOK_ID" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_WEBHOOK_ID --config cloudflare/wrangler.jsonc
