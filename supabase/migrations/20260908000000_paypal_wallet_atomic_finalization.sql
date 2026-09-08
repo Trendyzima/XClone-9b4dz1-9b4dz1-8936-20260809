@@ -28,8 +28,17 @@ create table if not exists public.wallet_transactions (
 );
 
 -- CREATE TABLE IF NOT EXISTS does not reconcile columns on a pre-existing table.
--- Production may already have wallet_transactions without the newer PayPal fields.
+-- Production may already have wallet_transactions without the newer PayPal fields
+-- or even without the canonical row identity used by later foreign keys/functions.
 alter table if exists public.wallet_transactions
+  add column if not exists id uuid default gen_random_uuid(),
+  add column if not exists wallet_id uuid,
+  add column if not exists user_id text,
+  add column if not exists type text not null default 'deposit',
+  add column if not exists direction text not null default 'credit',
+  add column if not exists amount numeric(20,2),
+  add column if not exists currency text not null default 'USD',
+  add column if not exists status text not null default 'pending',
   add column if not exists provider text,
   add column if not exists provider_reference text,
   add column if not exists provider_status text,
@@ -38,8 +47,11 @@ alter table if exists public.wallet_transactions
   add column if not exists metadata jsonb not null default '{}'::jsonb,
   add column if not exists balance_before numeric(20,2),
   add column if not exists balance_after numeric(20,2),
+  add column if not exists created_at timestamptz not null default now(),
   add column if not exists completed_at timestamptz;
 
+create unique index if not exists wallet_transactions_id_uidx
+  on public.wallet_transactions(id);
 create index if not exists wallet_transactions_user_created_idx
   on public.wallet_transactions(user_id, created_at desc);
 create unique index if not exists wallet_transactions_provider_ref_uidx
