@@ -16,3 +16,4 @@
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "testagram-media" }],
   "secrets": { "required": ["SUPABASE_ANON_KEY", "SUPABASE_SECRET_KEY", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_WEBHOOK_ID"] }
 }
+// PayPal sandbox runtime verification is performed by the canonical Worker workflow.
