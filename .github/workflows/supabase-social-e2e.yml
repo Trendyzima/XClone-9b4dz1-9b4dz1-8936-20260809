@@ -40,16 +40,21 @@ jobs:
 
           cleanup() {
             if [ -n "$USER_A" ]; then
-              curl -sS -o /dev/null -X DELETE "$BASE/auth/v1/admin/users/$USER_A" -H "apikey: $SUPABASE_SECRET_KEY" || true
+              curl -sS -o /dev/null -X DELETE "$BASE/auth/v1/admin/users/$USER_A" \
+                -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY" || true
             fi
             if [ -n "$USER_B" ]; then
-              curl -sS -o /dev/null -X DELETE "$BASE/auth/v1/admin/users/$USER_B" -H "apikey: $SUPABASE_SECRET_KEY" || true
+              curl -sS -o /dev/null -X DELETE "$BASE/auth/v1/admin/users/$USER_B" \
+                -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY" || true
             fi
           }
           trap cleanup EXIT
 
           json_post() {
-            curl -sS --fail-with-body -X POST "$1" -H "apikey: $SUPABASE_SECRET_KEY" -H 'Content-Type: application/json' -d "$2"
+            curl -sS --fail-with-body -X POST "$1" \
+              -H "apikey: $SUPABASE_SECRET_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
+              -H 'Content-Type: application/json' -d "$2"
           }
 
           echo 'Creating isolated authenticated users...'
