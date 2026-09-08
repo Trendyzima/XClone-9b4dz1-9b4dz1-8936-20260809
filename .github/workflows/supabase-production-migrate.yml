@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: testagram-supabase-production-migrations
+  cancel-in-progress: false
+
 jobs:
   migrate-production:
     runs-on: ubuntu-latest
