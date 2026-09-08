@@ -21,7 +21,10 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
   const avatarUrl = actor.icon?.url ?? actor.avatar ?? actor.avatar_url;
   const displayName = actor.name ?? actor.display_name ?? username;
   const actorTarget = actor.url ?? actor.id ?? handle;
-  const postUrl = post.url ?? post.uri ?? post.object_url ?? '';
+  // A remote object's canonical ActivityPub identity is its object_url. Local
+  // cache UUIDs are implementation details and must never be sent as remote IDs.
+  const canonicalObjectUrl = post.object_url ?? post.uri ?? post.url ?? post.raw_object?.id ?? post.raw_object?.url ?? '';
+  const postUrl = canonicalObjectUrl;
   const createdAt = post.created_at ?? post.published ?? post.published_at ?? '';
   const rawText = stripHtml(post.content ?? post.text ?? '');
   const media = useMemo(() => Array.isArray(post.media_attachments) ? post.media_attachments : [], [post.media_attachments]);
@@ -46,13 +49,15 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
   };
 
   const toggleLike = () => run('like', async () => {
-    if (liked) { await federation.unfavorite(post.id); setLiked(false); setLikes(v => Math.max(0, v - 1)); }
-    else { await federation.favorite(post.id); setLiked(true); setLikes(v => v + 1); }
+    if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL');
+    if (liked) { await federation.unfavorite(canonicalObjectUrl); setLiked(false); setLikes(v => Math.max(0, v - 1)); }
+    else { await federation.favorite(canonicalObjectUrl); setLiked(true); setLikes(v => v + 1); }
   });
 
   const toggleRepost = () => run('repost', async () => {
-    if (reposted) { await federation.unboost(post.id); setReposted(false); setReposts(v => Math.max(0, v - 1)); }
-    else { await federation.boost(post.id); setReposted(true); setReposts(v => v + 1); }
+    if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL');
+    if (reposted) { await federation.unboost(canonicalObjectUrl); setReposted(false); setReposts(v => Math.max(0, v - 1)); }
+    else { await federation.boost(canonicalObjectUrl); setReposted(true); setReposts(v => v + 1); }
   });
 
   const toggleFollow = () => run('follow', async () => {
@@ -63,12 +68,13 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
   const submitReply = () => run('reply', async () => {
     const content = replyText.trim();
     if (!content) return;
-    await federation.reply({ postId: post.id, content });
+    if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL');
+    await federation.reply({ postId: canonicalObjectUrl, content });
     setReplyText(''); setReplyOpen(false); setReplies(v => v + 1);
   });
 
   const share = async () => {
-    const url = postUrl || actorTarget;
+    const url = canonicalObjectUrl || actorTarget;
     if (!url) return;
     if (navigator.share) {
       try { await navigator.share({ title: displayName, text: rawText.slice(0, 180), url: `${window.location.origin}/fediverse/post?url=${encodeURIComponent(url)}` }); return; } catch {}
@@ -80,7 +86,7 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
     const text = window.prompt('Add a comment to your quote (optional):', '');
     if (text === null) return;
     const comment = text.trim();
-    await federation.postStatus({ content: `${comment}${comment ? '\n\n' : ''}${postUrl || 'Fediverse post'}` });
+    await federation.postStatus({ content: `${comment}${comment ? '\n\n' : ''}${canonicalObjectUrl || 'Fediverse post'}` });
   });
 
   const translate = async () => {
@@ -95,13 +101,12 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
     finally { setTranslating(false); }
   };
 
-  // Every normal post-body click is deliberately an in-app navigation. The origin URL
-  // is data used to resolve/render the object, never the navigation destination.
+  // The remote URL is data used to resolve/render the object. Never navigate
+  // the browser to that URL; all post navigation stays inside Testagram.
   const openDetail = () => {
     if (disableNavigation) return;
-    const key = postUrl || post.object_url || post.uri || post.id || '';
-    if (!key) return;
-    navigate(`/fediverse/post?url=${encodeURIComponent(key)}`, { state: { post } });
+    if (!canonicalObjectUrl) return;
+    navigate(`/fediverse/post?url=${encodeURIComponent(canonicalObjectUrl)}`, { state: { post } });
   };
 
   const handleDetailKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
