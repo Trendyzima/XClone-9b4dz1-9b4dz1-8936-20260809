@@ -55,9 +55,15 @@ jobs:
               await page.goto(`${base}${path}`, { waitUntil: 'networkidle', timeout: 60000 });
               await page.waitForTimeout(5000);
               const text = await page.locator('body').innerText();
+              const html = await page.locator('body').innerHTML();
+              console.log(`BROWSER_DIAGNOSTIC path=${path} url=${page.url()} body_chars=${text.trim().length}`);
+              console.log(`BROWSER_DIAGNOSTIC title=${JSON.stringify(await page.title())}`);
+              console.log(`BROWSER_DIAGNOSTIC body_text=${JSON.stringify(text.slice(0, 1000))}`);
+              console.log(`BROWSER_DIAGNOSTIC body_html=${JSON.stringify(html.slice(0, 3000))}`);
+              console.log(`BROWSER_DIAGNOSTIC failures=${JSON.stringify(failures)}`);
+              if (failures.length) throw new Error(failures.join('\n'));
               if (text.includes('Testagram could not load')) throw new Error(`boot failure rendered at ${path}`);
               if (text.trim().length < 80) throw new Error(`suspiciously empty render at ${path}`);
-              if (failures.length) throw new Error(failures.join('\n'));
             }
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
