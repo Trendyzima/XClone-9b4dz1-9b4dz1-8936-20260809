@@ -104,15 +104,28 @@ jobs:
           COMMUNITY_CURL_STATUS=$?
           set -e
           COMMUNITY_STATUS="$(cat /tmp/community-status.txt)"
-          echo "Community curl exit=$COMMUNITY_CURL_STATUS HTTP=$COMMUNITY_STATUS"
+          echo "Community insert curl exit=$COMMUNITY_CURL_STATUS HTTP=$COMMUNITY_STATUS"
           if [ "$COMMUNITY_STATUS" != 201 ]; then
             echo "Community insert failed with HTTP $COMMUNITY_STATUS"
             echo 'Community API response body:'
             cat /tmp/community.json
             exit 1
           fi
-          curl -sS --fail-with-body "$BASE/rest/v1/communities?id=eq.$COMMUNITY_ID&select=id,name,created_by,is_private" \
-            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" >/tmp/community.json
+
+          set +e
+          curl -sS -o /tmp/community-get.json -w '%{http_code}' "$BASE/rest/v1/communities?id=eq.$COMMUNITY_ID&select=id,name,created_by,is_private" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" >/tmp/community-get-status.txt
+          COMMUNITY_GET_CURL_STATUS=$?
+          set -e
+          COMMUNITY_GET_STATUS="$(cat /tmp/community-get-status.txt)"
+          echo "Community GET curl exit=$COMMUNITY_GET_CURL_STATUS HTTP=$COMMUNITY_GET_STATUS"
+          if [ "$COMMUNITY_GET_STATUS" != 200 ]; then
+            echo "Community GET failed with HTTP $COMMUNITY_GET_STATUS"
+            echo 'Community GET API response body:'
+            cat /tmp/community-get.json
+            exit 1
+          fi
+          cp /tmp/community-get.json /tmp/community.json
           jq -e --arg id "$COMMUNITY_ID" --arg uid "$USER_A" 'length == 1 and .[0].id == $id and .[0].created_by == $uid and .[0].is_private == true' /tmp/community.json
 
           echo '4. Owner membership is created and User B cannot edit the community...'
