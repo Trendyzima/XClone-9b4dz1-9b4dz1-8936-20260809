@@ -22,7 +22,7 @@ alter table if exists public.posts add column if not exists deleted_at timestamp
 update public.posts set media_url = coalesce(media_url, image_url, video_url) where media_url is null;
 update public.posts set like_count = likes_count where like_count = 0 and likes_count <> 0;
 update public.posts set reply_count = replies_count where reply_count = 0 and replies_count <> 0;
-update public.posts set repost_count = reposts_count where repost_count = 0 and reposts_count <> 0;
+update public.posts set repost_count = reposts_count where repost_count = 0 and repost_count <> 0;
 update public.posts set view_count = views_count where view_count = 0 and views_count <> 0;
 
 create table if not exists public.post_reposts (
@@ -220,7 +220,18 @@ create table if not exists public.space_members (
 alter table if exists public.messages add column if not exists body text;
 alter table if exists public.messages add column if not exists edited_at timestamptz;
 alter table if exists public.messages add column if not exists deleted_at timestamptz;
-update public.messages set body=content where body is null and content is not null;
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'messages'
+      and column_name = 'content'
+  ) then
+    execute 'update public.messages set body=content where body is null and content is not null';
+  end if;
+end $$;
 
 -- Moderation/privacy ---------------------------------------------------------
 create table if not exists public.content_reports (
