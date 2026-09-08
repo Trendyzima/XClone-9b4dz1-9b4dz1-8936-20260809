@@ -101,9 +101,42 @@ jobs:
             git diff --cached --check
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'chore: synchronize Supabase remote migration definitions'
-            git push origin HEAD:main
-            echo 'Remote migration definitions persisted to main before production apply.'
+
+            pushed=false
+            for attempt in 1 2 3; do
+              if git diff --cached --quiet; then
+                echo 'Remote migration definitions are already synchronized.'
+                pushed=true
+                break
+              fi
+
+              git commit -m 'chore: synchronize Supabase remote migration definitions'
+              if git push origin HEAD:main; then
+                echo 'Remote migration definitions persisted to main before production apply.'
+                pushed=true
+                break
+              fi
+
+              echo "Migration definition push raced with another main update; resynchronizing (attempt $attempt/3)."
+              git reset --hard HEAD^
+              git fetch origin main
+              git reset --hard origin/main
+              supabase migration fetch --linked
+              git status --porcelain -- supabase/migrations | tee "$status_file"
+
+              if grep -qvE '^( M|M |MM|A |\?\?) supabase/migrations/[^/]+\.sql$' "$status_file"; then
+                echo 'ERROR: unexpected migration workspace changes were produced during race recovery.'
+                exit 1
+              fi
+
+              git add -- supabase/migrations/*.sql
+              git diff --cached --check
+            done
+
+            if [ "$pushed" != true ]; then
+              echo 'ERROR: could not persist synchronized migration definitions after 3 attempts.'
+              exit 1
+            fi
           else
             echo 'No remote migration definitions needed to be persisted.'
           fi
