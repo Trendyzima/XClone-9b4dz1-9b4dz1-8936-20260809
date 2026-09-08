@@ -16,7 +16,7 @@ permissions:
 
 env:
   WRANGLER_VERSION: '4.126.0'
-  SUPABASE_URL: 'https://zcjtvykwwplnzyyslnop.supabase.co'
+  SUPABASE_URL: 'https://aepbqfrmheihfsauzcby.supabase.co'
   WORKER_URL: 'https://testagram-api.nahashonnyaga794.workers.dev'
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
           test -s cloudflare/worker/production-entrypoint.ts
           grep -Fq 'handlePayPal' cloudflare/worker/production-entrypoint.ts
           grep -Fq 'finalize_paypal_topup' cloudflare/worker/paypal.ts
-          grep -Fq 'zcjtvykwwplnzyyslnop.supabase.co' cloudflare/wrangler.jsonc
+          grep -Fq 'aepbqfrmheihfsauzcby.supabase.co' cloudflare/wrangler.jsonc
       - name: Build Worker without secret material
         run: |
           set -euo pipefail
