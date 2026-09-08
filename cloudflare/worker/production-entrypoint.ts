@@ -1,10 +1,8 @@
 import publicActor from './public-actor-entrypoint';
+import { handlePayPal, PayPalEnv } from './paypal';
 
-interface Env {
-  SUPABASE_URL: string;
+interface Env extends PayPalEnv {
   SUPABASE_PROJECT_REF: string;
-  SUPABASE_ANON_KEY: string;
-  SUPABASE_SECRET_KEY: string;
   SUPABASE_JWKS_URL: string;
   APP_ORIGIN: string;
   MEDIA: R2Bucket;
@@ -30,5 +28,6 @@ export default { async fetch(request: Request, env: Env, ctx: ExecutionContext):
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': env.APP_ORIGIN, 'Access-Control-Allow-Methods': 'GET,OPTIONS', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } });
     return health(env);
   }
+  if (url.pathname.startsWith('/api/paypal/')) return handlePayPal(request, env);
   return publicActor.fetch(request, env, ctx);
 } };
