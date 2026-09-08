@@ -1,6 +1,27 @@
 import { supabase } from '@/lib/supabase';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
+// Keep remote Fediverse objects inside Testagram. This guards legacy/secondary
+// Fediverse links (including the Mastodon tab) that may still render as anchors.
+// The remote URL remains an object identity; it is never used as the browser destination.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  document.addEventListener('click', event => {
+    const target = event.target as HTMLElement | null;
+    const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+    if (!anchor || event.defaultPrevented || !anchor.target) return;
+    if (!window.location.pathname.startsWith('/fediverse')) return;
+    if (anchor.target !== '_blank') return;
+    let remoteUrl: URL;
+    try { remoteUrl = new URL(anchor.href, window.location.origin); } catch { return; }
+    if (!/^https?:$/.test(remoteUrl.protocol) || remoteUrl.origin === window.location.origin) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const inAppUrl = `/fediverse/post?url=${encodeURIComponent(remoteUrl.toString())}`;
+    window.history.pushState({}, '', inAppUrl);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, true);
+}
+
 async function getToken(): Promise<string | null> { try { const { data } = await supabase.auth.getSession(); return data.session?.access_token ?? null; } catch { return null; } }
 async function relay<T = any>(path: string, method = 'GET', body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
   const token = await getToken();
