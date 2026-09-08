@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
 import { ProductionEditProfileDialog } from '@/components/features/ProductionEditProfileDialog';
+import { WalletCard } from '@/components/features/WalletCard';
 import { toast } from 'sonner';
 
 interface ProfileRow {
@@ -333,6 +334,8 @@ export default function ProfilePage() {
           {Object.values(profile.social_links ?? {}).some(Boolean) && <div className="flex gap-3 mt-3 text-sm"><span className="text-muted-foreground">Social:</span>{profile.social_links.twitter && <a href={`https://x.com/${profile.social_links.twitter.replace(/^@/, '')}`} target="_blank" rel="noreferrer" className="text-primary">X</a>}{profile.social_links.instagram && <a href={`https://instagram.com/${profile.social_links.instagram.replace(/^@/, '')}`} target="_blank" rel="noreferrer" className="text-primary">Instagram</a>}{profile.social_links.linkedin && <a href={profile.social_links.linkedin} target="_blank" rel="noreferrer" className="text-primary">LinkedIn</a>}</div>}
         </div>
       </div>
+
+      {isOwn && <WalletCard username={profile.username} />}
 
       <div className="sticky top-0 z-20 border-y border-border bg-background/95 backdrop-blur flex overflow-x-auto">
         {([['posts', 'Posts'], ['media', 'Media'], ['followers', 'Followers'], ['following', 'Following']] as const).map(([key, label]) => <button key={key} onClick={() => setTab(key)} className={`px-5 py-3.5 text-sm font-semibold shrink-0 border-b-2 ${tab === key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}>{label}</button>)}
