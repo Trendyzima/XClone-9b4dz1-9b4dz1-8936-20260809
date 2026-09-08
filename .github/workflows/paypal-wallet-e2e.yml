@@ -11,7 +11,7 @@ on:
       - '.github/workflows/paypal-wallet-e2e.yml'
   workflow_dispatch:
 
-a permissions:
+permissions:
   contents: read
 
 env:
