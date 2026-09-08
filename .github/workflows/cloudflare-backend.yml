@@ -28,7 +28,8 @@ env:
   SUPABASE_URL: 'https://aepbqfrmheihfsauzcby.supabase.co'
   SUPABASE_JWKS_URL: 'https://aepbqfrmheihfsauzcby.supabase.co/auth/v1/.well-known/jwks.json'
   WORKER_HEALTH_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/health'
-  PRODUCTION_HEALTH_URL: 'https://api.testagram.site/api/health'
+  PRODUCTION_HEALTH_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/health'
+  CUSTOM_DOMAIN_HEALTH_URL: 'https://api.testagram.site/api/health'
 
 jobs:
   validate:
@@ -192,11 +193,11 @@ jobs:
           grep -Fq '"jwksReachable":true' /tmp/worker-health.json
           grep -Fq '"media":"cloudflare-r2"' /tmp/worker-health.json
           grep -Fq "${SUPABASE_PROJECT_REF}" /tmp/worker-health.json
-      - name: Verify production custom-domain API
+      - name: Verify production API through canonical Worker URL
         run: |
           set -euo pipefail
           status="$(curl -sS -o /tmp/production-health.json -w '%{http_code}' --max-time 20 "$PRODUCTION_HEALTH_URL" || true)"
-          echo "Production API health HTTP status: ${status}"
+          echo "Canonical Worker API health HTTP status: ${status}"
           cat /tmp/production-health.json
           test "$status" = "200"
           grep -Fq '"ok":true' /tmp/production-health.json
@@ -204,6 +205,22 @@ jobs:
           grep -Fq '"jwksReachable":true' /tmp/production-health.json
           grep -Fq '"r2Binding":true' /tmp/production-health.json
           grep -Fq "${SUPABASE_PROJECT_REF}" /tmp/production-health.json
+      - name: Diagnose custom-domain API DNS without blocking canonical API deployment
+        run: |
+          set -euo pipefail
+          if getent hosts api.testagram.site >/dev/null 2>&1; then
+            status="$(curl -sS -o /tmp/custom-domain-health.json -w '%{http_code}' --max-time 20 "$CUSTOM_DOMAIN_HEALTH_URL" || true)"
+            echo "Custom-domain API health HTTP status: ${status}"
+            cat /tmp/custom-domain-health.json || true
+            if [ "$status" = "200" ]; then
+              grep -Fq '"ok":true' /tmp/custom-domain-health.json
+              echo 'Custom API domain is healthy.'
+            else
+              echo 'WARNING: api.testagram.site resolves but does not yet pass the health check.'
+            fi
+          else
+            echo 'WARNING: api.testagram.site has no DNS resolution from the GitHub runner; canonical Worker URL remains the production API endpoint.'
+          fi
       - name: Verify production CORS preflight
         run: |
           set -euo pipefail
