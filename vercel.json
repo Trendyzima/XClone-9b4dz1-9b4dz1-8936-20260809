@@ -1,4 +1,14 @@
 {
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist",
+        "zeroConfig": false
+      }
+    }
+  ],
   "installCommand": "sed -i '/^node-options/d' .npmrc && npm install && node _patch-vite.cjs",
   "buildCommand": "node _build.cjs",
   "outputDirectory": "dist",
