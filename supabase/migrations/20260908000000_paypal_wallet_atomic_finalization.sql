@@ -68,7 +68,16 @@ create table if not exists public.paypal_orders (
 );
 
 -- CREATE TABLE IF NOT EXISTS likewise does not reconcile a legacy paypal_orders table.
+-- First reconcile the identity column itself. The legacy table has no `id`, but later
+-- wallet_transaction/paypal-order foreign keys and PL/pgSQL row handling require one.
+alter table if exists public.paypal_orders
+  add column if not exists id uuid default gen_random_uuid();
+create unique index if not exists paypal_orders_id_uidx
+  on public.paypal_orders(id);
+
 -- Add every column used below before indexes, triggers, and functions reference it.
+-- Foreign-key clauses are retained for newly-added columns; existing columns are left
+-- untouched so this migration does not destructively rewrite legacy data.
 alter table if exists public.paypal_orders
   add column if not exists wallet_id uuid references public.wallets(id) on delete set null,
   add column if not exists transaction_id uuid references public.transactions(id) on delete set null,
