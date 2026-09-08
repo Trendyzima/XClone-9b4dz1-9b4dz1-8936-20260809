@@ -20,7 +20,6 @@ begin
   return new;
 end;
 $$;
-
 update public.federation_actors
 set actor_url = regexp_replace(regexp_replace(actor_url, '^http://', 'https://'), '^https://([^/]+)/users/', 'https://\\1/functions/v1/gateway-relay/users/'),
     inbox_url = regexp_replace(regexp_replace(inbox_url, '^http://', 'https://'), '^https://([^/]+)/users/', 'https://\\1/functions/v1/gateway-relay/users/')

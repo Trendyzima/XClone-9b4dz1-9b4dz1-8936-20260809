@@ -27,7 +27,6 @@ begin
   return new;
 end;
 $$;
-
 update public.federation_actors
 set actor_url = format('https://%s/functions/v1/activitypub-actor/users/%s', (regexp_match(regexp_replace(actor_url, '^http://', 'https://'), '^https://([^/]+)'))[1], (regexp_match(actor_url, '/users/([^/?#]+)'))[1]),
     inbox_url = format('https://%s/functions/v1/gateway-relay/users/%s/inbox', (regexp_match(regexp_replace(inbox_url, '^http://', 'https://'), '^https://([^/]+)'))[1], (regexp_match(inbox_url, '/users/([^/?#]+)'))[1])
