@@ -19,9 +19,6 @@ on:
       - 'cloudflare/wrangler-federation.jsonc'
       - '.github/workflows/canonical-cloudflare-worker.yml'
 
-authorizations:
-  contents: read
-
 permissions:
   contents: read
 
