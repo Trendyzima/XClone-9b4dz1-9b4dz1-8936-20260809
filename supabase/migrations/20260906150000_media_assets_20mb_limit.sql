@@ -1,5 +1,7 @@
 -- Testagram media contract: metadata lives in Postgres; binary media lives in Cloudflare R2.
 -- Keep this invariant in the database so every write path enforces the same 20 MiB ceiling.
+-- Zero-byte metadata is allowed for an upload that has not completed yet; the
+-- production write path must enforce the final object size before publication.
 do $$
 begin
   if not exists (
@@ -10,7 +12,7 @@ begin
   ) then
     alter table public.media_assets
       add constraint media_assets_byte_size_max_20mb
-      check (byte_size > 0 and byte_size <= 20971520);
+      check (byte_size >= 0 and byte_size <= 20971520);
   end if;
 end
 $$;
