@@ -1,1 +1,1 @@
--- Remote migration-history marker. HTTPS actor URL normalization is superseded by the canonical public federation-domain trigger.
+-- Remote migration-history marker. HTTPS actor URL normalization is superseded by the canonical public federation-domain trigger.;

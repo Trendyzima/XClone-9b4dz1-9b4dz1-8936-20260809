@@ -1,5 +1,4 @@
 begin;
-
 -- Production backend contract for Profiles, Communities and Audio Spaces.
 -- Safe to run after the existing social/auth migrations: objects are created only
 -- when missing, while existing objects receive the columns/indexes/policies they need.
@@ -10,7 +9,6 @@ begin;
 -- Keep the canonical profile table tied 1:1 to auth.users. The existing auth
 -- profile trigger remains responsible for initial row creation.
 alter table if exists public.profiles enable row level security;
-
 drop policy if exists profiles_public_read on public.profiles;
 drop policy if exists profiles_owner_insert on public.profiles;
 drop policy if exists profiles_owner_update on public.profiles;
@@ -28,7 +26,6 @@ create policy profiles_owner_update on public.profiles
 create policy profiles_owner_delete on public.profiles
   for delete to authenticated
   using (id = (select auth.uid()));
-
 -- Browsing history is referenced by ProfilePage and HistoryPage. Keep it private.
 create table if not exists public.browsing_history (
   id uuid primary key default gen_random_uuid(),
@@ -46,7 +43,6 @@ create policy browsing_history_own on public.browsing_history
   with check (user_id = (select auth.uid()));
 create index if not exists idx_browsing_history_user_created
   on public.browsing_history(user_id, created_at desc);
-
 -- -----------------------------------------------------------------------------
 -- Communities
 -- -----------------------------------------------------------------------------
@@ -65,7 +61,6 @@ create table if not exists public.communities (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 alter table public.communities add column if not exists name text;
 alter table public.communities add column if not exists display_name text;
 alter table public.communities add column if not exists description text;
@@ -79,7 +74,6 @@ alter table public.communities add column if not exists rules jsonb not null def
 alter table public.communities add column if not exists created_at timestamptz not null default now();
 alter table public.communities add column if not exists updated_at timestamptz not null default now();
 alter table public.communities enable row level security;
-
 create table if not exists public.community_members (
   id uuid primary key default gen_random_uuid(),
   community_id uuid not null references public.communities(id) on delete cascade,
@@ -97,7 +91,6 @@ alter table public.community_members add column if not exists status text not nu
 update public.community_members set role = 'member' where role is null or role = '';
 update public.community_members set status = 'active' where status is null or status = '';
 alter table public.community_members enable row level security;
-
 create table if not exists public.community_suggestions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -108,7 +101,6 @@ create table if not exists public.community_suggestions (
   unique (user_id, community_id)
 );
 alter table public.community_suggestions enable row level security;
-
 -- Add the community relationship to posts without changing existing post IDs.
 alter table public.posts add column if not exists community_id uuid references public.communities(id) on delete set null;
 create index if not exists idx_communities_member_count on public.communities(member_count desc);
@@ -116,7 +108,6 @@ create index if not exists idx_communities_created_by on public.communities(crea
 create index if not exists idx_community_members_user on public.community_members(user_id, created_at desc);
 create index if not exists idx_community_members_community on public.community_members(community_id, created_at desc);
 create index if not exists idx_posts_community_created on public.posts(community_id, created_at desc);
-
 -- Security-definer helpers avoid recursive RLS evaluation between communities,
 -- memberships and posts. They execute with a fixed search_path and only return
 -- boolean authorization decisions.
@@ -135,7 +126,6 @@ as $$
       and cm.status = 'active'
   );
 $$;
-
 create or replace function public.can_manage_community(p_community_id uuid, p_user_id uuid default auth.uid())
 returns boolean
 language sql
@@ -157,12 +147,10 @@ as $$
       and cm.status = 'active'
   );
 $$;
-
 revoke all on function public.is_community_member(uuid, uuid) from public;
 revoke all on function public.can_manage_community(uuid, uuid) from public;
 grant execute on function public.is_community_member(uuid, uuid) to anon, authenticated;
 grant execute on function public.can_manage_community(uuid, uuid) to authenticated;
-
 drop policy if exists communities_public_or_member_read on public.communities;
 drop policy if exists communities_create_own on public.communities;
 drop policy if exists communities_manage_own on public.communities;
@@ -184,7 +172,6 @@ drop policy if exists communities_delete_own on public.communities;
 create policy communities_delete_own on public.communities
   for delete to authenticated
   using (created_by = (select auth.uid()));
-
 drop policy if exists community_members_visible on public.community_members;
 drop policy if exists community_members_join_own on public.community_members;
 drop policy if exists community_members_leave_own on public.community_members;
@@ -209,13 +196,11 @@ create policy community_members_manage on public.community_members
   for update to authenticated
   using (public.can_manage_community(community_id))
   with check (public.can_manage_community(community_id));
-
 drop policy if exists community_suggestions_own on public.community_suggestions;
 create policy community_suggestions_own on public.community_suggestions
   for all to authenticated
   using (user_id = (select auth.uid()))
   with check (user_id = (select auth.uid()));
-
 -- Enforce community membership for community posts. Existing global post policies
 -- are adjusted so an owner cannot bypass the community boundary.
 drop policy if exists posts_public_read on public.posts;
@@ -256,7 +241,6 @@ create policy posts_owner_update on public.posts
 create policy posts_owner_delete on public.posts
   for delete to authenticated
   using (author_id = (select auth.uid()));
-
 -- Maintain community counters transactionally from membership/post changes.
 create or replace function public.refresh_community_counts()
 returns trigger
@@ -283,12 +267,10 @@ begin
   return coalesce(new, old);
 end;
 $$;
-
 drop trigger if exists trg_community_member_counts on public.community_members;
 create trigger trg_community_member_counts after insert or update or delete on public.community_members for each row execute function public.refresh_community_counts();
 drop trigger if exists trg_community_post_counts on public.posts;
 create trigger trg_community_post_counts after insert or update or delete on public.posts for each row execute function public.refresh_community_counts();
-
 -- -----------------------------------------------------------------------------
 -- Audio Spaces
 -- -----------------------------------------------------------------------------
@@ -332,7 +314,6 @@ alter table public.spaces add column if not exists archived_at timestamptz;
 alter table public.spaces add column if not exists created_at timestamptz not null default now();
 alter table public.spaces add column if not exists updated_at timestamptz not null default now();
 alter table public.spaces enable row level security;
-
 -- If an existing spaces table does not yet have a profile FK, add a dedicated
 -- relationship for PostgREST nested profile queries without disturbing legacy FKs.
 do $$
@@ -345,7 +326,6 @@ begin
   end if;
 exception when duplicate_object then null;
 end $$;
-
 create table if not exists public.space_participants (
   id uuid primary key default gen_random_uuid(),
   space_id uuid not null references public.spaces(id) on delete cascade,
@@ -357,7 +337,6 @@ create table if not exists public.space_participants (
   unique (space_id, user_id)
 );
 alter table public.space_participants enable row level security;
-
 create table if not exists public.space_recordings (
   id uuid primary key default gen_random_uuid(),
   space_id uuid not null references public.spaces(id) on delete cascade,
@@ -375,7 +354,6 @@ create table if not exists public.space_recordings (
   created_at timestamptz not null default now()
 );
 alter table public.space_recordings enable row level security;
-
 create index if not exists idx_spaces_live on public.spaces(is_live, listener_count desc);
 create index if not exists idx_spaces_host_created on public.spaces(host_id, created_at desc);
 create index if not exists idx_spaces_scheduled on public.spaces(scheduled_for) where scheduled_for is not null;
@@ -383,7 +361,6 @@ create index if not exists idx_space_participants_space on public.space_particip
 create index if not exists idx_space_participants_user on public.space_participants(user_id, joined_at desc);
 create index if not exists idx_space_recordings_created on public.space_recordings(created_at desc);
 create index if not exists idx_space_recordings_host on public.space_recordings(host_id, created_at desc);
-
 create or replace function public.is_space_participant(p_space_id uuid, p_user_id uuid default auth.uid())
 returns boolean
 language sql
@@ -398,7 +375,6 @@ as $$
       and sp.left_at is null
   );
 $$;
-
 create or replace function public.is_space_host(p_space_id uuid, p_user_id uuid default auth.uid())
 returns boolean
 language sql
@@ -411,12 +387,10 @@ as $$
     where s.id = p_space_id and s.host_id = p_user_id
   );
 $$;
-
 revoke all on function public.is_space_participant(uuid, uuid) from public;
 revoke all on function public.is_space_host(uuid, uuid) from public;
 grant execute on function public.is_space_participant(uuid, uuid) to authenticated;
 grant execute on function public.is_space_host(uuid, uuid) to authenticated;
-
 drop policy if exists spaces_public_read on public.spaces;
 drop policy if exists spaces_host_insert on public.spaces;
 drop policy if exists spaces_host_update on public.spaces;
@@ -441,7 +415,6 @@ create policy spaces_host_update on public.spaces
 create policy spaces_host_delete on public.spaces
   for delete to authenticated
   using (host_id = (select auth.uid()));
-
 drop policy if exists space_participants_visible on public.space_participants;
 drop policy if exists space_participants_join on public.space_participants;
 drop policy if exists space_participants_leave on public.space_participants;
@@ -466,7 +439,6 @@ create policy space_participants_host_manage on public.space_participants
   for update to authenticated
   using (public.is_space_host(space_id))
   with check (public.is_space_host(space_id));
-
 -- Recordings are public unless explicitly subscriber-only; only the host owns mutations.
 drop policy if exists space_recordings_public_read on public.space_recordings;
 drop policy if exists space_recordings_host_insert on public.space_recordings;
@@ -488,7 +460,6 @@ create policy space_recordings_host_update on public.space_recordings
 create policy space_recordings_host_delete on public.space_recordings
   for delete to authenticated
   using (host_id = (select auth.uid()));
-
 -- Listener counts are derived from participants, not trusted client input.
 create or replace function public.sync_space_listener_count(p_space_id uuid)
 returns void
@@ -505,7 +476,6 @@ as $$
 $$;
 revoke all on function public.sync_space_listener_count(uuid) from public;
 grant execute on function public.sync_space_listener_count(uuid) to authenticated;
-
 create or replace function public.space_participant_count_trigger()
 returns trigger
 language plpgsql
@@ -519,7 +489,6 @@ end;
 $$;
 drop trigger if exists trg_space_participant_count on public.space_participants;
 create trigger trg_space_participant_count after insert or update or delete on public.space_participants for each row execute function public.space_participant_count_trigger();
-
 -- Realtime for the social surfaces that actually need live state.
 do $$
 begin
@@ -530,5 +499,4 @@ begin
     begin alter publication supabase_realtime add table public.notifications; exception when duplicate_object then null; end;
   end if;
 end $$;
-
 commit;

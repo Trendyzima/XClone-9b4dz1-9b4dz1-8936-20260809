@@ -14,14 +14,12 @@ begin
   return new;
 end;
 $$;
-
 drop trigger if exists federation_actor_https_urls on public.federation_actors;
 create trigger federation_actor_https_urls
 before insert or update of actor_url, inbox_url
 on public.federation_actors
 for each row
 execute function public.normalize_federation_actor_urls();
-
 update public.federation_actors
 set actor_url = regexp_replace(actor_url, '^http://', 'https://'),
     inbox_url = regexp_replace(inbox_url, '^http://', 'https://')

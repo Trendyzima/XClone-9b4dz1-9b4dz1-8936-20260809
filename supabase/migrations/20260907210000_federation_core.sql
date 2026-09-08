@@ -1,5 +1,4 @@
 begin;
-
 create table if not exists public.federation_actors (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique references auth.users(id) on delete cascade,
@@ -11,7 +10,6 @@ create table if not exists public.federation_actors (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.federation_remote_actors (
   id uuid primary key default gen_random_uuid(),
   actor_url text not null unique,
@@ -24,7 +22,6 @@ create table if not exists public.federation_remote_actors (
   fetched_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.federation_objects (
   id uuid primary key default gen_random_uuid(),
   object_url text not null unique,
@@ -35,7 +32,6 @@ create table if not exists public.federation_objects (
   fetched_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.federation_relationships (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -47,7 +43,6 @@ create table if not exists public.federation_relationships (
   updated_at timestamptz not null default now(),
   unique (user_id, remote_actor_url)
 );
-
 create table if not exists public.federation_outbox (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete set null,
@@ -65,7 +60,6 @@ create table if not exists public.federation_outbox (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.federation_inbox (
   id uuid primary key default gen_random_uuid(),
   activity_id text not null unique,
@@ -77,20 +71,17 @@ create table if not exists public.federation_inbox (
   received_at timestamptz not null default now(),
   processed_at timestamptz
 );
-
 create index if not exists federation_objects_actor_idx on public.federation_objects(actor_url, published_at desc);
 create index if not exists federation_objects_published_idx on public.federation_objects(published_at desc);
 create index if not exists federation_relationships_user_idx on public.federation_relationships(user_id, updated_at desc);
 create index if not exists federation_outbox_retry_idx on public.federation_outbox(status, next_attempt_at);
 create index if not exists federation_inbox_received_idx on public.federation_inbox(received_at desc);
-
 alter table public.federation_actors enable row level security;
 alter table public.federation_remote_actors enable row level security;
 alter table public.federation_objects enable row level security;
 alter table public.federation_relationships enable row level security;
 alter table public.federation_outbox enable row level security;
 alter table public.federation_inbox enable row level security;
-
 -- Federation secrets and delivery state are service-role managed. No client policies are intentionally exposed.
 
 commit;

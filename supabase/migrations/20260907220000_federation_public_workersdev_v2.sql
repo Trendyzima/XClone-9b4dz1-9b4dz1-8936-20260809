@@ -15,13 +15,11 @@ begin
   return new;
 end;
 $$;
-
 drop trigger if exists zz_federation_actor_workersdev_canonical on public.federation_actors;
 create trigger zz_federation_actor_workersdev_canonical
 before insert or update of username, actor_url, inbox_url
 on public.federation_actors
 for each row execute function public.federation_actor_workersdev_canonical();
-
 update public.federation_actors
 set actor_url = 'https://testagram-api.nahashonnyaga794.workers.dev/users/' || username,
     inbox_url = 'https://testagram-api.nahashonnyaga794.workers.dev/users/' || username || '/inbox';
