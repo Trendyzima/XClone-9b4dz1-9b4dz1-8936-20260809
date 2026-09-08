@@ -4,6 +4,7 @@ begin;
 -- README feature migration. RLS is already enabled; these policies make the
 -- intended user-facing operations explicit without exposing financial,
 -- moderation, or delivery internals.
+-- Production gate touch: keep this migration in the automatic migration path.
 
 -- User-owned settings/preferences -------------------------------------------
 drop policy if exists user_settings_own on public.user_settings;
