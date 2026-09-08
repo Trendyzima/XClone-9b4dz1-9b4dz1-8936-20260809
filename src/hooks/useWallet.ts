@@ -15,38 +15,85 @@ export interface Wallet {
   updated_at: string;
 }
 
+export interface WalletTransaction {
+  id: string;
+  wallet_id: string;
+  user_id: string;
+  type: string;
+  status: string;
+  amount: number;
+  currency: string;
+  balance_before: number | null;
+  balance_after: number | null;
+  provider: string | null;
+  provider_reference: string | null;
+  provider_status: string | null;
+  description: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  completed_at: string | null;
+  payment_method: string | null;
+  reference: string | null;
+}
+
 export function useWallet() {
   const { user } = useAuth();
   const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchWallet = useCallback(async () => {
-    if (!user) { setWallet(null); setLoading(false); return; }
+    if (!user) { setWallet(null); setTransactions([]); setLoading(false); return; }
     try {
       setLoading(true); setError(null);
-      const { data, error: fetchError } = await supabase.from('wallets').select('id,user_id,balance,currency,total_deposited,total_withdrawn,mpesa_phone,paypal_email,created_at,updated_at').eq('user_id', user.id).maybeSingle();
-      if (fetchError) throw fetchError;
-      if (!data) {
-        const { data: created, error: createError } = await supabase.rpc('ensure_user_wallet', { p_user_id: user.id, p_currency: 'USD' });
-        if (createError) throw createError;
-        setWallet(created as Wallet);
-      } else setWallet(data as Wallet);
-    } catch (err: any) { console.error('Wallet error:', err); setError(err?.message || 'Wallet unavailable'); }
-    finally { setLoading(false); }
+      const { data, error: walletError } = await supabase.rpc('get_my_wallet');
+      if (walletError) throw walletError;
+      setWallet((data as Wallet) || null);
+    } catch (err: any) {
+      console.error('Wallet error:', err);
+      setError(err?.message || 'Wallet unavailable');
+      setWallet(null);
+    } finally { setLoading(false); }
+  }, [user?.id]);
+
+  const fetchTransactions = useCallback(async (limit = 100, offset = 0) => {
+    if (!user) { setTransactions([]); return; }
+    try {
+      setTransactionsLoading(true);
+      const { data, error: txError } = await supabase.rpc('get_my_wallet_transactions', { p_limit: limit, p_offset: offset });
+      if (txError) throw txError;
+      setTransactions((data as WalletTransaction[]) || []);
+    } catch (err: any) {
+      console.error('Wallet transactions error:', err);
+      setError(err?.message || 'Transaction history unavailable');
+      setTransactions([]);
+    } finally { setTransactionsLoading(false); }
   }, [user?.id]);
 
   useEffect(() => { void fetchWallet(); }, [fetchWallet]);
+  useEffect(() => { void fetchTransactions(); }, [fetchTransactions]);
 
   const updatePaymentMethods = async (mpesaPhone: string, paypalEmail: string) => {
     if (!user || !wallet) return { success: false, error: 'No wallet found' };
     try {
-      const { data, error: updateError } = await supabase.rpc('update_wallet_payment_methods', { p_mpesa_phone: mpesaPhone || null, p_paypal_email: paypalEmail || null });
+      const { data, error: updateError } = await supabase.rpc('update_wallet_payment_methods', {
+        p_mpesa_phone: mpesaPhone || null,
+        p_paypal_email: paypalEmail || null,
+      });
       if (updateError) throw updateError;
       setWallet(data as Wallet);
       return { success: true };
-    } catch (err: any) { console.error('Update payment methods error:', err); return { success: false, error: err?.message || 'Unable to update payment methods' }; }
+    } catch (err: any) {
+      console.error('Update payment methods error:', err);
+      return { success: false, error: err?.message || 'Unable to update payment methods' };
+    }
   };
 
-  return { wallet, loading, error, fetchWallet, updatePaymentMethods };
+  const refresh = useCallback(async () => {
+    await Promise.all([fetchWallet(), fetchTransactions()]);
+  }, [fetchWallet, fetchTransactions]);
+
+  return { wallet, transactions, loading, transactionsLoading, error, fetchWallet, fetchTransactions, refresh, updatePaymentMethods };
 }
