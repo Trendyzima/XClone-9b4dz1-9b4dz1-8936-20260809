@@ -24,11 +24,26 @@ export async function postStatus(payload: { content: string; mediaIds?: string[]
 export async function deletePost(postId: string): Promise<void> { return relay(`/posts/${encodeURIComponent(postId)}`, 'DELETE'); }
 export async function follow(target: string): Promise<any> { return relay('/follow', 'POST', { target }); }
 export async function unfollow(target: string): Promise<any> { return relay('/unfollow', 'POST', { target }); }
-export async function boost(postId: string): Promise<any> { return relay('/boost', 'POST', { post_id: postId }); }
-export async function unboost(postId: string): Promise<any> { return relay('/unboost', 'POST', { post_id: postId }); }
-export async function favorite(postId: string): Promise<any> { return relay('/favorite', 'POST', { post_id: postId }); }
-export async function unfavorite(postId: string): Promise<any> { return relay('/unfavorite', 'POST', { post_id: postId }); }
-export async function reply(payload: { postId: string; content: string }): Promise<any> { return relay('/reply', 'POST', { post_id: payload.postId, content: payload.content }); }
+
+// Federation mutations operate on the remote ActivityPub object identity, not
+// the local remote_posts UUID. Resolve cached UUIDs to object_url defensively so
+// every caller follows the same canonical identity contract.
+async function canonicalPostId(postId: string): Promise<string> {
+  const value = String(postId ?? '').trim();
+  if (!value) throw new Error('Fediverse post identity is required');
+  if (/^https?:\/\//i.test(value)) return value;
+  const { data, error } = await supabase.from('remote_posts').select('object_url').eq('id', value).maybeSingle();
+  if (error) throw error;
+  const objectUrl = data?.object_url;
+  if (!objectUrl) throw new Error('Fediverse post has no canonical object URL');
+  return objectUrl;
+}
+
+export async function boost(postId: string): Promise<any> { return relay('/boost', 'POST', { post_id: await canonicalPostId(postId) }); }
+export async function unboost(postId: string): Promise<any> { return relay('/unboost', 'POST', { post_id: await canonicalPostId(postId) }); }
+export async function favorite(postId: string): Promise<any> { return relay('/favorite', 'POST', { post_id: await canonicalPostId(postId) }); }
+export async function unfavorite(postId: string): Promise<any> { return relay('/unfavorite', 'POST', { post_id: await canonicalPostId(postId) }); }
+export async function reply(payload: { postId: string; content: string }): Promise<any> { return relay('/reply', 'POST', { post_id: await canonicalPostId(payload.postId), content: payload.content }); }
 export async function getNotifications(params: TimelineParams = {}): Promise<any[]> { return relay('/notifications', 'GET', undefined, params as any); }
 export async function clearNotifications(): Promise<void> { return relay('/notifications', 'DELETE'); }
 export async function search(q: string, type: 'users' | 'posts' | 'hashtags' | 'instances' = 'users'): Promise<any[]> { return relay('/search', 'GET', undefined, { q, type }); }
