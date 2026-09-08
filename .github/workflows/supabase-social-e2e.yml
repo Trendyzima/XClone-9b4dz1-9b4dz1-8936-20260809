@@ -2,11 +2,6 @@ name: Testagram Supabase Social E2E
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'supabase/migrations/**'
-      - '.github/workflows/supabase-social-e2e.yml'
 
 permissions:
   contents: read
@@ -15,11 +10,8 @@ jobs:
   authenticated-social-e2e:
     runs-on: ubuntu-latest
     env:
-      # Canonical production Supabase project for Testagram.
       SUPABASE_URL: https://aepbqfrmheihfsauzcby.supabase.co
-      # Public client key: safe for API requests when RLS is correctly configured.
       SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      # Server-only privileged key. Never expose this in browser/mobile code.
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v5
