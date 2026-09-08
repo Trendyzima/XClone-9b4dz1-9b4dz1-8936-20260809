@@ -41,8 +41,37 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Build production bundle
-        run: npm run build
+      - name: Bind deployment to the exact Vercel project
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          printf '%s\n' '{"orgId":"'"$VERCEL_ORG_ID"'","projectId":"'"$VERCEL_PROJECT_ID"'"}' > .vercel/project.json
+          cat .vercel/project.json
+
+      - name: Pull Vercel Production environment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest pull --yes --environment=production --token "$VERCEL_TOKEN"
+          test -s .vercel/.env.production.local
+          echo 'Vercel Production environment was pulled for the build.'
+          if grep -Eq '^(VITE_SUPABASE_URL|VITE_SUPABASE_PUBLISHABLE_KEY|VITE_SUPABASE_ANON_KEY)=' .vercel/.env.production.local; then
+            echo 'Required Supabase build variables are present in the pulled Vercel Production environment.'
+          else
+            echo 'ERROR: Vercel Production is missing VITE_SUPABASE_URL and/or VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY).'
+            exit 1
+          fi
+
+      - name: Build production bundle with Vercel Production environment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes vercel@latest build --prod --token "$VERCEL_TOKEN"
 
       - name: Verify Vite output is a compiled deployment
         run: |
@@ -54,16 +83,6 @@ jobs:
             exit 1
           fi
           grep -Eq 'src="/assets/[^" ]+\.js"' dist/index.html
-
-      - name: Bind deployment to the exact Vercel project
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          set -euo pipefail
-          mkdir -p .vercel
-          printf '%s\n' '{"orgId":"'"$VERCEL_ORG_ID"'","projectId":"'"$VERCEL_PROJECT_ID"'"}' > .vercel/project.json
-          cat .vercel/project.json
 
       - name: Deploy exact production bundle to Vercel
         env:
