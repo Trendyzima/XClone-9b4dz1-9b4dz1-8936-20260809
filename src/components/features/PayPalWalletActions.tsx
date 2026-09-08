@@ -28,7 +28,8 @@ export function PayPalWalletActions({ wallet, refresh }: { wallet: Wallet; refre
   const [withdrawing, setWithdrawing] = useState(false);
 
   useEffect(() => {
-    const orderId = new URLSearchParams(window.location.search).get('paypal_order_id');
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get('token') || params.get('paypal_order_id');
     if (!orderId) return;
     let cancelled = false;
     (async () => {
@@ -40,6 +41,8 @@ export function PayPalWalletActions({ wallet, refresh }: { wallet: Wallet; refre
         if (!cancelled) toast.error(error instanceof Error ? error.message : 'PayPal payment could not be captured.');
       } finally {
         const clean = new URL(window.location.href);
+        clean.searchParams.delete('token');
+        clean.searchParams.delete('PayerID');
         clean.searchParams.delete('paypal_order_id');
         window.history.replaceState({}, '', clean.toString());
       }
@@ -52,15 +55,15 @@ export function PayPalWalletActions({ wallet, refresh }: { wallet: Wallet; refre
     if (!Number.isFinite(amount) || amount <= 0) return toast.error('Enter a valid USD deposit amount.');
     setDepositing(true);
     try {
-      const returnUrl = new URL(window.location.href);
-      returnUrl.searchParams.set('paypal_order_id', '');
-      const cancelUrl = new URL(window.location.href);
-      const result = await paypalRequest('/api/paypal/orders', { method: 'POST', body: JSON.stringify({ amount, currency: 'USD', return_url: returnUrl.toString(), cancel_url: cancelUrl.toString() }) });
+      const returnUrl = new URL(window.location.href).toString();
+      const cancelUrl = new URL(window.location.href).toString();
+      const result = await paypalRequest('/api/paypal/orders', { method: 'POST', body: JSON.stringify({ amount, currency: 'USD', return_url: returnUrl, cancel_url: cancelUrl }) });
       if (!result.approval_url) throw new Error('PayPal approval URL was not returned.');
       window.location.assign(result.approval_url);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to start PayPal deposit.');
-    } finally { setDepositing(false); }
+      setDepositing(false);
+    }
   };
 
   const withdraw = async () => {
