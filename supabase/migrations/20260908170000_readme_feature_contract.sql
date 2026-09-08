@@ -113,13 +113,13 @@ create index if not exists search_queries_user_idx on public.search_queries(user
 create table if not exists public.trending_snapshots (
   id uuid primary key default gen_random_uuid(),
   tag text not null,
-  window text not null check(window in ('hour','day')),
+  "window" text not null check("window" in ('hour','day')),
   score numeric(18,6) not null default 0,
   post_count bigint not null default 0,
   captured_at timestamptz not null default now(),
-  unique(tag,window,captured_at)
+  unique(tag,"window",captured_at)
 );
-create index if not exists trending_snapshots_window_idx on public.trending_snapshots(window,score desc,captured_at desc);
+create index if not exists trending_snapshots_window_idx on public.trending_snapshots("window",score desc,captured_at desc);
 
 -- Communities ----------------------------------------------------------------
 alter table if exists public.communities add column if not exists created_by uuid;
