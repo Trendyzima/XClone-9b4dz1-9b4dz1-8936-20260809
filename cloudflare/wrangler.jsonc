@@ -8,9 +8,9 @@
   "routes": [{ "pattern": "federation.testagram.site", "custom_domain": true }],
   "vars": {
     "APP_ORIGIN": "https://testagram.site",
-    "SUPABASE_URL": "https://zcjtvykwwplnzyyslnop.supabase.co",
-    "SUPABASE_PROJECT_REF": "zcjtvykwwplnzyyslnop",
-    "SUPABASE_JWKS_URL": "https://zcjtvykwwplnzyyslnop.supabase.co/auth/v1/.well-known/jwks.json",
+    "SUPABASE_URL": "https://aepbqfrmheihfsauzcby.supabase.co",
+    "SUPABASE_PROJECT_REF": "aepbqfrmheihfsauzcby",
+    "SUPABASE_JWKS_URL": "https://aepbqfrmheihfsauzcby.supabase.co/auth/v1/.well-known/jwks.json",
     "PAYPAL_ENV": "sandbox"
   },
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "testagram-media" }]
