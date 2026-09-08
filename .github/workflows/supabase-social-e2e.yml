@@ -95,12 +95,19 @@ jobs:
           jq -e 'length == 0' /tmp/profile-forbidden.json
 
           echo '3. User A creates a private community...'
+          COMMUNITY_ID="$(cat /proc/sys/kernel/random/uuid)"
+          COMMUNITY_PAYLOAD="$(jq -nc --arg id "$COMMUNITY_ID" --arg uid "$USER_A" --arg n "e2e-${RUN}" '{id:$id,name:$n,display_name:"E2E Community",description:"isolated test community",created_by:$uid,is_private:true,rules:[{id:1,rule:"be respectful"}]}')"
           COMMUNITY_STATUS="$(curl -sS -o /tmp/community.json -w '%{http_code}' -X POST "$BASE/rest/v1/communities" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" -H 'Content-Type: application/json' \
-            -H 'Prefer: return=representation' -d "$(jq -nc --arg uid "$USER_A" --arg n "e2e-${RUN}" '{name:$n,display_name:"E2E Community",description:"isolated test community",created_by:$uid,is_private:true,rules:[{id:1,rule:"be respectful"}]}')")"
-          test "$COMMUNITY_STATUS" = 201
-          COMMUNITY_ID="$(jq -r '.[0].id' /tmp/community.json)"
-          test -n "$COMMUNITY_ID"
+            -H 'Prefer: return=minimal' -d "$COMMUNITY_PAYLOAD")"
+          if [ "$COMMUNITY_STATUS" != 201 ]; then
+            echo "Community insert failed with HTTP $COMMUNITY_STATUS"
+            cat /tmp/community.json
+            exit 1
+          fi
+          curl -sS --fail-with-body "$BASE/rest/v1/communities?id=eq.$COMMUNITY_ID&select=id,name,created_by,is_private" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" >/tmp/community.json
+          jq -e --arg id "$COMMUNITY_ID" --arg uid "$USER_A" 'length == 1 and .[0].id == $id and .[0].created_by == $uid and .[0].is_private == true' /tmp/community.json
 
           echo '4. Owner membership is created and User B cannot edit the community...'
           curl -sS --fail-with-body -X POST "$BASE/rest/v1/community_members" \
