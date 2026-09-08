@@ -1,0 +1,164 @@
+name: Testagram Production Release Gate
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: testagram-production-release
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Source/static validation
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts
+          npm run typecheck
+          npm run lint
+
+      - name: Genuine production build
+        run: npm run build
+
+      - name: Verify compiled production artifact
+        run: |
+          set -euo pipefail
+          test -s dist/index.html
+          test -d dist/assets
+          if grep -q '/src/main.jsx' dist/index.html; then
+            echo 'ERROR: compiled output still references raw Vite source.'
+            exit 1
+          fi
+          grep -Eq 'src="/assets/[^" ]+\.js"' dist/index.html
+
+      - name: Dispatch Supabase authenticated E2E gate
+        id: e2e_dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          START=$(date -u +%s)
+          echo "started_at=$START" >> "$GITHUB_OUTPUT"
+          gh api --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "/repos/$REPO/actions/workflows/supabase-social-e2e.yml/dispatches" \
+            -f ref=main
+
+      - name: Wait for Supabase E2E gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          START: ${{ steps.e2e_dispatch.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in $(seq 1 30); do
+            run_id=$(gh api "/repos/$REPO/actions/workflows/supabase-social-e2e.yml/runs?branch=main&event=workflow_dispatch&per_page=20" \
+              --jq '.workflow_runs | map(select((.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
+            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
+            sleep 5
+          done
+          test -n "$run_id" && test "$run_id" != null
+          echo "Supabase E2E run=$run_id"
+          for attempt in $(seq 1 60); do
+            state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
+            conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
+            echo "attempt=$attempt status=$state conclusion=$conclusion"
+            if [ "$state" = completed ]; then
+              test "$conclusion" = success
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Supabase E2E did not complete within the release-gate timeout.'
+          exit 1
+
+      - name: Dispatch Vercel production deployment
+        id: vercel_dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          START=$(date -u +%s)
+          echo "started_at=$START" >> "$GITHUB_OUTPUT"
+          gh api --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "/repos/$REPO/actions/workflows/vercel-production-deploy.yml/dispatches" \
+            -f ref=main
+
+      - name: Wait for Vercel production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          START: ${{ steps.vercel_dispatch.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in $(seq 1 30); do
+            run_id=$(gh api "/repos/$REPO/actions/workflows/vercel-production-deploy.yml/runs?branch=main&event=workflow_dispatch&per_page=20" \
+              --jq '.workflow_runs | map(select((.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
+            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
+            sleep 5
+          done
+          test -n "$run_id" && test "$run_id" != null
+          echo "Vercel deployment run=$run_id"
+          for attempt in $(seq 1 90); do
+            state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
+            conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
+            echo "attempt=$attempt status=$state conclusion=$conclusion"
+            if [ "$state" = completed ]; then
+              test "$conclusion" = success
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Vercel production deployment did not complete within the release-gate timeout.'
+          exit 1
+
+      - name: Wait for live production smoke test
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          START: ${{ steps.vercel_dispatch.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in $(seq 1 30); do
+            run_id=$(gh api "/repos/$REPO/actions/workflows/testagram-production-smoke.yml/runs?branch=main&per_page=20" \
+              --jq '.workflow_runs | map(select((.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
+            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
+            sleep 5
+          done
+          test -n "$run_id" && test "$run_id" != null
+          echo "Production smoke run=$run_id"
+          for attempt in $(seq 1 120); do
+            state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
+            conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
+            echo "attempt=$attempt status=$state conclusion=$conclusion"
+            if [ "$state" = completed ]; then
+              test "$conclusion" = success
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Production smoke test did not complete within the release-gate timeout.'
+          exit 1
