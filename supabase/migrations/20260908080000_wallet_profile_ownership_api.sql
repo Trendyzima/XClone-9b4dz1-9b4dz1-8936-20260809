@@ -1,10 +1,7 @@
 begin;
-
 alter table if exists public.wallets
   add column if not exists balance numeric not null default 0;
-
 create unique index if not exists wallets_user_id_unique on public.wallets(user_id);
-
 create or replace function public.ensure_user_wallet(p_user_id uuid, p_currency text default 'USD')
 returns public.wallets
 language plpgsql security definer set search_path = public
@@ -21,7 +18,6 @@ begin
 end; $$;
 revoke all on function public.ensure_user_wallet(uuid,text) from public, anon;
 grant execute on function public.ensure_user_wallet(uuid,text) to authenticated, service_role;
-
 create or replace function public.provision_profile_wallet()
 returns trigger
 language plpgsql security definer set search_path = public
@@ -32,17 +28,14 @@ begin
   on conflict(user_id) do nothing;
   return new;
 end; $$;
-
 drop trigger if exists profiles_provision_wallet on public.profiles;
 create trigger profiles_provision_wallet
 after insert on public.profiles
 for each row execute function public.provision_profile_wallet();
-
 insert into public.wallets(user_id,balance,currency)
 select p.id,0,'USD' from public.profiles p
 left join public.wallets w on w.user_id=p.id
 where w.id is null;
-
 create or replace function public.get_my_wallet()
 returns public.wallets
 language plpgsql security definer set search_path = public
@@ -56,7 +49,6 @@ begin
 end; $$;
 revoke all on function public.get_my_wallet() from public, anon;
 grant execute on function public.get_my_wallet() to authenticated;
-
 create or replace function public.get_my_wallet_transactions(p_limit integer default 100, p_offset integer default 0)
 returns setof public.wallet_transactions
 language plpgsql security definer set search_path = public
@@ -73,5 +65,4 @@ begin
 end; $$;
 revoke all on function public.get_my_wallet_transactions(integer,integer) from public, anon;
 grant execute on function public.get_my_wallet_transactions(integer,integer) to authenticated;
-
 commit;
