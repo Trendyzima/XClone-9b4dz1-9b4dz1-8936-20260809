@@ -1,8 +1,9 @@
 begin;
 
 -- Production social-schema foundation. The production Supabase project may be
--- freshly provisioned, so dependent migrations must not assume the application
--- tables already exist.
+-- freshly provisioned OR may already contain an older/partial social schema.
+-- CREATE TABLE IF NOT EXISTS does not reconcile an existing table's columns,
+-- so normalize the posts shape before indexes and later migrations depend on it.
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -34,6 +35,32 @@ create table if not exists public.posts (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Reconcile an already-existing posts table. These ADD COLUMN operations are
+-- intentionally idempotent and preserve existing rows/data. Defaults are used
+-- for newly-added non-null fields so an older production schema can migrate
+-- safely without a table rebuild.
+alter table public.posts add column if not exists author_id uuid references public.profiles(id) on delete cascade;
+alter table public.posts add column if not exists user_id uuid references public.profiles(id) on delete cascade;
+alter table public.posts add column if not exists content text not null default '';
+alter table public.posts add column if not exists media_urls jsonb not null default '[]'::jsonb;
+alter table public.posts add column if not exists image_url text;
+alter table public.posts add column if not exists video_url text;
+alter table public.posts add column if not exists is_video boolean not null default false;
+alter table public.posts add column if not exists visibility text not null default 'public';
+alter table public.posts add column if not exists likes_count bigint not null default 0;
+alter table public.posts add column if not exists reposts_count bigint not null default 0;
+alter table public.posts add column if not exists replies_count bigint not null default 0;
+alter table public.posts add column if not exists views_count bigint not null default 0;
+alter table public.posts add column if not exists created_at timestamptz not null default now();
+alter table public.posts add column if not exists updated_at timestamptz not null default now();
+
+-- Older Testagram schemas used author_id while newer application paths use
+-- user_id. Backfill the compatibility column where possible without touching
+-- rows that already have an explicit user_id.
+update public.posts
+set user_id = author_id
+where user_id is null and author_id is not null;
 
 create table if not exists public.follows (
   id uuid primary key default gen_random_uuid(),
@@ -165,8 +192,6 @@ create table if not exists public.notifications (
   created_at timestamptz not null default now()
 );
 
--- Lightweight profile provisioning trigger. The later auth-profile migration
--- replaces this function with the full username/metadata synchronization logic.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -223,8 +248,6 @@ create index if not exists idx_user_interests_user on public.user_interests(user
 create index if not exists idx_notifications_recipient_created on public.notifications(recipient_id, created_at desc);
 create index if not exists idx_messages_conversation_created on public.messages(conversation_id, created_at desc);
 
--- Grants are intentionally minimal; subsequent security migrations tighten the
--- policies and grants for production.
 grant select on public.profiles, public.posts, public.follows, public.post_likes, public.post_replies, public.hashtags to anon, authenticated;
 grant select, insert, update, delete on public.profiles, public.posts, public.follows, public.post_likes, public.post_replies, public.bookmarks, public.mentions, public.user_interests, public.notifications, public.conversations, public.conversation_members, public.messages to authenticated;
 grant execute on function public.handle_new_user() to service_role;
