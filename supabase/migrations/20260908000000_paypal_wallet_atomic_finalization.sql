@@ -27,6 +27,19 @@ create table if not exists public.wallet_transactions (
   completed_at timestamptz
 );
 
+-- CREATE TABLE IF NOT EXISTS does not reconcile columns on a pre-existing table.
+-- Production may already have wallet_transactions without the newer PayPal reference column.
+alter table if exists public.wallet_transactions
+  add column if not exists provider text,
+  add column if not exists provider_reference text,
+  add column if not exists provider_status text,
+  add column if not exists payment_method text,
+  add column if not exists description text not null default '',
+  add column if not exists metadata jsonb not null default '{}'::jsonb,
+  add column if not exists balance_before numeric(20,2),
+  add column if not exists balance_after numeric(20,2),
+  add column if not exists completed_at timestamptz;
+
 create index if not exists wallet_transactions_user_created_idx
   on public.wallet_transactions(user_id, created_at desc);
 create unique index if not exists wallet_transactions_provider_ref_uidx
