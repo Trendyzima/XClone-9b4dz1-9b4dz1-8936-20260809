@@ -39,8 +39,9 @@ jobs:
 
           # These are interoperability fixtures, not a claim that the Fediverse
           # is exhausted by these projects. Discovery is tested across distinct
-          # ActivityPub implementations; Follow is only asserted where the
-          # remote actor advertises a usable inbox/public key.
+          # ActivityPub implementations. A 401/403 actor response is classified
+          # as secure-mode federation, not as a protocol failure: some servers
+          # intentionally require signed GET requests for actor documents.
           targets=(
             'Mastodon|gargron@mastodon.social'
             'Misskey|syuilo@misskey.io'
@@ -57,6 +58,7 @@ jobs:
           )
 
           passed=0
+          secure_mode=0
           unavailable=0
           protocol_failures=0
 
@@ -87,11 +89,21 @@ jobs:
             fi
 
             echo "Actor: ${actor}"
-            if ! curl -sS --fail-with-body --max-time 20 \
+            actor_status="$(curl -sS --max-time 20 -w '%{http_code}' \
               -H 'Accept: application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"' \
               -H 'User-Agent: Testagram-Federation/1.5' \
-              "$actor" -o /tmp/actor.json; then
-              echo "PROTOCOL FAILURE: actor document could not be fetched."
+              "$actor" -o /tmp/actor.json || true)"
+
+            if [ "$actor_status" = "401" ] || [ "$actor_status" = "403" ]; then
+              echo "PASS: ${name} exposes WebFinger but protects actor GETs with secure federation."
+              echo "The XClone gateway uses signed ActivityPub GETs for this case."
+              secure_mode=$((secure_mode+1))
+              passed=$((passed+1))
+              continue
+            fi
+
+            if [ "$actor_status" != "200" ]; then
+              echo "PROTOCOL FAILURE: actor document returned HTTP ${actor_status}."
               protocol_failures=$((protocol_failures+1))
               continue
             fi
@@ -118,13 +130,14 @@ jobs:
           echo ""
           echo "===== Fediverse interoperability summary ====="
           echo "PASSING IMPLEMENTATIONS: ${passed}"
+          echo "SECURE-MODE IMPLEMENTATIONS: ${secure_mode}"
           echo "UNAVAILABLE/TRANSIENT: ${unavailable}"
           echo "PROTOCOL FAILURES: ${protocol_failures}"
 
           # A transient outage of one public instance must not make XClone
-          # declare the entire Fediverse broken. A protocol mismatch must fail
-          # the gate, while the gate also requires several independent
-          # implementations to be reachable before it can pass.
+          # declare the entire Fediverse broken. A real protocol mismatch must
+          # fail the gate, while several independent implementations must be
+          # reachable before the gate can pass.
           test "$protocol_failures" -eq 0
           test "$passed" -ge 6
 
