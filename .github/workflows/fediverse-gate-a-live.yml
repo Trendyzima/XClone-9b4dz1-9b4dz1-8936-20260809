@@ -32,7 +32,6 @@ jobs:
           test -n "$PUBLISHABLE_KEY"
           test -n "$SUPABASE_SECRET_KEY"
           RUN="${GITHUB_RUN_ID}-${RANDOM}"
-          USERNAME="fediverse_live_${GITHUB_RUN_ID}"
           EMAIL="fediverse-live-${RUN}@example.invalid"
           PASS="TgLive-${RUN}-X9!"
           USER_ID=""
@@ -41,18 +40,23 @@ jobs:
           USER_ID="$(jq -r '.id' /tmp/user.json)"
           TOKEN="$(curl -sS --fail-with-body -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" -H "apikey: $PUBLISHABLE_KEY" -H 'Content-Type: application/json' -d "$(jq -nc --arg e "$EMAIL" --arg p "$PASS" '{email:$e,password:$p}')" | jq -r '.access_token')"
           test -n "$USER_ID"; test -n "$TOKEN"
-          STATUS="$(curl -sS -o /tmp/follow.json -w '%{http_code}' --max-time 60 -X POST "$GATEWAY_URL" -H "apikey: $PUBLISHABLE_KEY" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$(jq -nc --arg u "@$USERNAME@$FEDERATION_ORIGIN" '{path:"/follow",body:{target:"@Mastodon@mastodon.social"}}')")"
+          PROFILE_STATUS="$(curl -sS -o /tmp/profile.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/profiles?id=eq.$USER_ID&select=username" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY" || true)"
+          echo "Profile HTTP status: $PROFILE_STATUS"; cat /tmp/profile.json || true
+          test "$PROFILE_STATUS" = 200
+          PROFILE_USERNAME="$(jq -er '.[0].username' /tmp/profile.json)"
+          EXPECTED_ACTOR="$FEDERATION_ORIGIN/users/$PROFILE_USERNAME"
+          echo "Canonical profile username: $PROFILE_USERNAME"
+          echo "Expected actor: $EXPECTED_ACTOR"
+          STATUS="$(curl -sS -o /tmp/follow.json -w '%{http_code}' --max-time 60 -X POST "$GATEWAY_URL" -H "apikey: $PUBLISHABLE_KEY" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$(jq -nc '{path:"/follow",body:{target:"@Mastodon@mastodon.social"}}')")"
           echo "Follow HTTP status: $STATUS"; cat /tmp/follow.json
           test "$STATUS" = 200
           LOCAL_ACTOR="$(jq -er '.activity.actor' /tmp/follow.json)"
           ACTIVITY_ID="$(jq -er '.activityId' /tmp/follow.json)"
           REMOTE_ACTOR="$(jq -er '.activity.object' /tmp/follow.json)"
-          EXPECTED_ACTOR="$FEDERATION_ORIGIN/users/$USERNAME"
           echo "Local actor: $LOCAL_ACTOR"
-          echo "Expected actor: $EXPECTED_ACTOR"
           test "$LOCAL_ACTOR" = "$EXPECTED_ACTOR"
           echo 'Probing WebFinger and actor endpoints before actor assertion...'
-          WF_STATUS="$(curl -sS -D /tmp/webfinger-headers.txt -o /tmp/webfinger.json -w '%{http_code}' --max-time 20 -H 'Accept: application/jrd+json, application/json' -H 'Cache-Control: no-cache' -H 'User-Agent: Testagram-Federation-Gate/1.0' "${FEDERATION_ORIGIN}/.well-known/webfinger?resource=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "acct:${USERNAME}@federation.testagram.site")" || true)"
+          WF_STATUS="$(curl -sS -D /tmp/webfinger-headers.txt -o /tmp/webfinger.json -w '%{http_code}' --max-time 20 -H 'Accept: application/jrd+json, application/json' -H 'Cache-Control: no-cache' -H 'User-Agent: Testagram-Federation-Gate/1.0' "${FEDERATION_ORIGIN}/.well-known/webfinger?resource=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "acct:${PROFILE_USERNAME}@federation.testagram.site")" || true)"
           echo "WebFinger HTTP status: $WF_STATUS"; cat /tmp/webfinger.json || true
           ACTOR_STATUS=""
           for attempt in $(seq 1 12); do
