@@ -99,11 +99,20 @@ jobs:
           ACTOR="$(jq -r '.[0].actor_url' /tmp/actor-query.json)"
           echo "LOCAL ACTOR: $ACTOR"
           case "$ACTOR" in https://federation.testagram.site/users/*) ;; *) echo "FAIL: actor origin $ACTOR"; exit 1;; esac
-          curl -sS --fail-with-body --max-time 20 -H 'Accept: application/activity+json' "$ACTOR" -o /tmp/local-actor.json
-          cat /tmp/local-actor.json
-          # WebFinger is verified independently below; it is not a required
-          # ActivityPub actor property and the live actor intentionally omits it.
-          jq -e --arg actor "$ACTOR" '.id == $actor and .inbox == ($actor + "/inbox") and .publicKey.id == ($actor + "#main-key") and .publicKey.owner == $actor and (.publicKey.publicKeyPem | startswith("-----BEGIN PUBLIC KEY-----"))' /tmp/local-actor.json
+
+          echo 'Waiting for the canonical public actor endpoint before remote delivery...'
+          PUBLIC_ACTOR_STATUS=""
+          for attempt in $(seq 1 12); do
+            PUBLIC_ACTOR_STATUS="$(curl -sS -o /tmp/local-actor.json -w '%{http_code}' --max-time 20 -H 'Accept: application/activity+json' -H 'Cache-Control: no-cache' -H 'User-Agent: Testagram-Federation-Gate/1.0' "$ACTOR" || true)"
+            echo "Local actor HTTP status attempt $attempt: $PUBLIC_ACTOR_STATUS"
+            cat /tmp/local-actor.json || true
+            if [ "$PUBLIC_ACTOR_STATUS" = 200 ] && jq -e --arg actor "$ACTOR" '.id == $actor and .inbox == ($actor + "/inbox") and .publicKey.id == ($actor + "#main-key") and .publicKey.owner == $actor and (.publicKey.publicKeyPem | startswith("-----BEGIN PUBLIC KEY-----"))' /tmp/local-actor.json >/dev/null 2>&1; then
+              echo 'Canonical actor preflight passed.'
+              break
+            fi
+            sleep 5
+          done
+          test "$PUBLIC_ACTOR_STATUS" = 200
           USERNAME="$(jq -r '.preferredUsername' /tmp/local-actor.json)"
           WEBFINGER_RESOURCE="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote("acct:"+sys.argv[1]+"@federation.testagram.site", safe=""))' "$USERNAME")"
           curl -sS --fail-with-body --max-time 20 "https://federation.testagram.site/.well-known/webfinger?resource=$WEBFINGER_RESOURCE" -o /tmp/local-webfinger.json
