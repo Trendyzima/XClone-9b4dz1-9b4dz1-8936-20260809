@@ -32,12 +32,10 @@ Deno.serve(async req => {
     const { orderId } = await req.json();
     if (!orderId || typeof orderId !== "string") return json({ error: "orderId is required" }, 400);
 
-    const { data: order, error: orderError } = await admin.from("paypal_orders").select("*").eq("order_id", orderId).eq("user_id", user.id).single();
+    const { data: order, error: orderError } = await admin.from("paypal_orders").select("*").or(`order_id.eq.${orderId},paypal_order_id.eq.${orderId}`).eq("user_id", user.id).maybeSingle();
     if (orderError || !order) return json({ error: "Order not found" }, 404);
-    if (order.capture_id) {
-      const { data: wallet } = await admin.from("wallets").select("id,balance,currency").eq("id", order.wallet_id).single();
-      return json({ ok: true, alreadyCaptured: true, orderId, captureId: order.capture_id, wallet });
-    }
+    const existingCapture = order.capture_id || order.paypal_capture_id;
+    if (existingCapture) return json({ ok: true, alreadyCaptured: true, orderId, captureId: existingCapture });
 
     const access = await token();
     const r = await fetch(`${BASE}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, { method: "POST", headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json", "PayPal-Request-Id": crypto.randomUUID() } });
@@ -48,12 +46,11 @@ Deno.serve(async req => {
     if (!capture?.id || capture.status !== "COMPLETED") return json({ error: "Payment not completed", status: capture?.status || raw.status }, 409);
     const paidAmount = Number(capture.amount?.value);
     const paidCurrency = String(capture.amount?.currency_code || "").toUpperCase();
-    if (paidAmount !== Number(order.amount) || paidCurrency !== String(order.currency).toUpperCase()) return json({ error: "Captured amount mismatch" }, 409);
+    if (paidAmount !== Number(order.amount ?? Number(order.amount_cents) / 100) || paidCurrency !== String(order.currency).toUpperCase()) return json({ error: "Captured amount mismatch" }, 409);
 
-    const { data: wallet, error: creditError } = await admin.rpc("credit_wallet_from_paypal", { p_order_id: orderId, p_capture_id: capture.id, p_amount: paidAmount, p_currency: paidCurrency, p_provider_status: capture.status, p_metadata: { paypal_order_status: raw.status, capture: capture } });
-    if (creditError) return json({ error: "Wallet credit failed", detail: creditError.message }, 500);
-    await admin.from("paypal_orders").update({ raw_capture_response: raw, status: "COMPLETED", capture_id: capture.id, captured_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", order.id);
-    return json({ ok: true, orderId, captureId: capture.id, wallet });
+    const { data: finalized, error: finalizeError } = await admin.rpc("finalize_paypal_topup", { p_order_id: orderId, p_capture_id: capture.id });
+    if (finalizeError) return json({ error: "Wallet credit failed", detail: finalizeError.message }, 500);
+    return json({ ok: true, orderId, captureId: capture.id, wallet: finalized });
   } catch (e) {
     console.error(e);
     return json({ error: e instanceof Error ? e.message : "PayPal capture failed" }, 500);
