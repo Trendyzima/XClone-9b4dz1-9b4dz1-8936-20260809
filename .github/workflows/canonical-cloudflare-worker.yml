@@ -14,22 +14,20 @@ on:
       - 'cloudflare/worker/paypal.ts'
       - 'cloudflare/worker/public-actor-entrypoint.ts'
       - 'cloudflare/worker/federation-entrypoint.ts'
+      - 'cloudflare/worker/federation-interop-entrypoint.ts'
       - 'cloudflare/worker/index.ts'
       - 'cloudflare/wrangler.jsonc'
       - 'cloudflare/wrangler-federation.jsonc'
       - '.github/workflows/canonical-cloudflare-worker.yml'
       - '.github/workflows/paypal-wallet-e2e.yml'
-
 permissions:
   contents: read
-
 env:
   WRANGLER_VERSION: '4.126.0'
   WORKER_DIRECT_URL: 'https://testagram-api.nahashonnyaga794.workers.dev'
   PAYPAL_CONFIG_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/paypal/config'
   FEDERATION_URL: 'https://federation.testagram.site'
   FEDERATION_HOST: 'federation.testagram.site'
-
 jobs:
   deploy:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
@@ -38,16 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
-        with:
-          node-version: '22'
+        with: {node-version: '22'}
       - name: Validate canonical worker source
         run: |
           set -euo pipefail
-          test -s cloudflare/worker/production-entrypoint.ts
-          test -s cloudflare/worker/paypal.ts
-          test -s cloudflare/worker/public-actor-entrypoint.ts
-          test -s cloudflare/worker/federation-entrypoint.ts
-          test -s cloudflare/worker/index.ts
+          for f in cloudflare/worker/production-entrypoint.ts cloudflare/worker/paypal.ts cloudflare/worker/public-actor-entrypoint.ts cloudflare/worker/federation-entrypoint.ts cloudflare/worker/federation-interop-entrypoint.ts cloudflare/worker/index.ts; do test -s "$f"; done
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler.jsonc
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler-federation.jsonc
       - name: Validate Cloudflare deployment credentials
@@ -56,8 +49,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing GitHub secret: CLOUDFLARE_API_TOKEN'; exit 1; }
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing GitHub secret: CLOUDFLARE_ACCOUNT_ID'; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
       - name: Validate PayPal sandbox credential set
         env:
           PAYPAL_CLIENT_ID_PRIMARY: ${{ secrets.PAYPAL_CLIENT_ID }}
@@ -65,21 +58,13 @@ jobs:
           PAYPAL_CLIENT_SECRET_PRIMARY: ${{ secrets.PAYPAL_CLIENT_SECRET }}
           PAYPAL_CLIENT_SECRET_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_SECRET }}
           PAYPAL_WEBHOOK_ID_PRIMARY: ${{ secrets.PAYPAL_WEBHOOK_ID }}
-          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_WEBHOOK_ID_SANDBOX }}
+          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_WEBHOOK_ID }}
         run: |
           set -euo pipefail
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
           client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
           webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
-          missing=()
-          [ -n "$client_id" ] || missing+=(PAYPAL_CLIENT_ID)
-          [ -n "$client_secret" ] || missing+=(PAYPAL_CLIENT_SECRET)
-          [ -n "$webhook_id" ] || missing+=(PAYPAL_WEBHOOK_ID)
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'PayPal sandbox configuration is incomplete. Missing GitHub secret value(s): %s\n' "${missing[*]}"
-            exit 1
-          fi
-          echo 'PayPal sandbox credential set is complete.'
+          test -n "$client_id" && test -n "$client_secret" && test -n "$webhook_id"
       - name: Deploy canonical Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -88,10 +73,8 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 6); do
             if npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler.jsonc; then exit 0; fi
-            echo "Cloudflare deploy attempt $attempt failed; retrying transient API failure..."
             sleep $((attempt * 5))
           done
-          echo 'Cloudflare deployment failed after retries.'
           exit 1
       - name: Synchronize PayPal secrets
         env:
@@ -108,45 +91,34 @@ jobs:
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
           client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
           webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
-          put_secret() {
-            local name="$1" value="$2"
-            for attempt in $(seq 1 6); do
-              if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then return 0; fi
-              echo "Cloudflare secret $name attempt $attempt failed; retrying transient API failure..."
-              sleep $((attempt * 5))
-            done
-            return 1
-          }
+          put_secret() { local name="$1" value="$2"; for attempt in $(seq 1 6); do if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then return 0; fi; sleep $((attempt * 5)); done; return 1; }
           put_secret PAYPAL_CLIENT_ID "$client_id"
           put_secret PAYPAL_CLIENT_SECRET "$client_secret"
           put_secret PAYPAL_WEBHOOK_ID "$webhook_id"
       - name: Verify canonical Worker health
         run: |
           set -euo pipefail
-          ok=0
           for attempt in $(seq 1 12); do
             status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$WORKER_DIRECT_URL/api/health" || true)"
-            cat /tmp/health.json || true
-            if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/health.json >/dev/null 2>&1; then ok=1; break; fi
+            if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/health.json >/dev/null 2>&1; then exit 0; fi
             sleep 5
           done
-          test "$ok" = 1
+          cat /tmp/health.json || true
+          exit 1
       - name: Verify federation custom domain health
         run: |
           set -euo pipefail
-          ok=0
           for attempt in $(seq 1 12); do
-            status="$(curl -sS -D /tmp/federation-headers.txt -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 "$FEDERATION_URL/api/health" || true)"
+            status="$(curl -sS -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 "$FEDERATION_URL/api/health" || true)"
             echo "Federation custom-domain HTTP status: $status"
             cat /tmp/federation-health.json || true
-            if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site" and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/federation-health.json >/dev/null 2>&1; then ok=1; break; fi
+            if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site" and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/federation-health.json >/dev/null 2>&1; then exit 0; fi
             sleep 5
           done
-          test "$ok" = 1
+          exit 1
       - name: Verify PayPal configuration
         run: |
           set -euo pipefail
           status="$(curl -sS -o /tmp/paypal-config.json -w '%{http_code}' --max-time 20 "$PAYPAL_CONFIG_URL" || true)"
-          cat /tmp/paypal-config.json || true
           test "$status" = 200
           jq -e '.ok == true and .provider == "paypal" and .environment == "sandbox" and .configured == true' /tmp/paypal-config.json >/dev/null
