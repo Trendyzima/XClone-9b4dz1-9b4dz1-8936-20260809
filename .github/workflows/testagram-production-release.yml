@@ -194,7 +194,7 @@ jobs:
               test "$status" -ge 200
               test "$status" -lt 400
               test -s "$tmp_body"
-              if grep -Eq '<div[^>]+id=["'"']root["'"']|/assets/[^"'"' ]+\.js' "$tmp_body"; then
+              if grep -Eq '<div[^>]+id="root"|/assets/[^" ]+\.js' "$tmp_body"; then
                 echo "Production smoke passed HTTP=$status and compiled app markers were found."
                 exit 0
               fi
