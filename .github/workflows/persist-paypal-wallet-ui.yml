@@ -32,7 +32,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install
-        run: npm install --legacy-peer-deps --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund --package-lock=false
+      - name: Normalize generated install files
+        run: |
+          rm -f package-lock.json
+          git restore --worktree -- node_modules/_preload-fix/package.json 2>/dev/null || true
       - name: Apply persistent PayPal wallet patch
         run: python3 tools/apply_paypal_wallet.py
       - name: Web build
@@ -41,7 +45,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if git diff --quiet; then
+          if git diff --quiet -- src/pages/ProfilePage.tsx src/components/features/WalletDashboard.tsx; then
             echo 'No source patch required.'
             exit 0
           fi
