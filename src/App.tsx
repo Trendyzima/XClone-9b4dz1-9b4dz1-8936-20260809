@@ -8,6 +8,7 @@ import { BottomNav } from '@/components/layout/BottomNav';
 import { FloatingActionButton } from '@/components/layout/FloatingActionButton';
 import { LiveSpaceBanner } from '@/components/features/LiveSpaceBanner';
 import { LiveNotificationBanner } from '@/components/features/LiveNotificationBanner';
+import { CommunitySpacesUpgrades } from '@/components/features/CommunitySpacesUpgrades';
 import { useCreatorTierAlert } from '@/hooks/useCreatorTierAlert';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from 'sonner';
@@ -187,7 +188,8 @@ function AppInner() {
             </Routes>
           </Suspense>
         </main>
-        <RightSidebar /><LiveSpaceBanner /><LiveNotificationBanner /><BottomNav /><FloatingActionButton /><InterestOnboardingSheet />
+        <RightSidebar /><LiveSpaceBanner /><LiveNotificationBanner />
+        <CommunitySpacesUpgrades /><BottomNav /><FloatingActionButton /><InterestOnboardingSheet />
       </div>
       <Toaster /><Sonner position="top-center" richColors /><Analytics />
     </AuthProvider>
