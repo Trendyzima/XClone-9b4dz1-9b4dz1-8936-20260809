@@ -6,7 +6,6 @@ import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
 import { ProductionEditProfileDialog } from '@/components/features/ProductionEditProfileDialog';
 import { WalletCard } from '@/components/features/WalletCard';
-import { WalletCard } from '@/components/features/WalletCard';
 import { ProfileEnhancements } from '@/components/features/ProfileEnhancements';
 import { toast } from 'sonner';
 
