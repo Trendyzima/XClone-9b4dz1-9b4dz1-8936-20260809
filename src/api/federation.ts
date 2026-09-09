@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
+// Gate A rerun marker: keep the source path in the workflow trigger set while
+// Mastodon gets its full asynchronous ActivityPub Accept processing window.
 // Keep remote Fediverse objects inside Testagram. This guards legacy/secondary
 // Fediverse links (including the Mastodon tab) that may still render as anchors.
 // The remote URL remains an object identity; it is never used as the browser destination.
