@@ -124,34 +124,41 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
 
   const handleContentChange = useCallback(async (val: string) => {
     setContent(val);
-    // Link preview detection (first URL) — detect embed type
     const urlMatch = val.match(/https?:\/\/[^\s]+/);
-    if (urlMatch) {
-      const isEmbed = !!detectEmbed(urlMatch[0]);
-      setLinkPreview({ url: urlMatch[0], isEmbed });
-    } else {
-      setLinkPreview(null);
-    }
+    if (urlMatch) setLinkPreview({ url: urlMatch[0], isEmbed: !!detectEmbed(urlMatch[0]) }); else setLinkPreview(null);
     const ta = textareaRef.current;
     const pos = ta?.selectionStart ?? val.length;
     const before = val.slice(0, pos);
-    const atMatch = before.match(/@(\w*)$/);
-    if (!atMatch) { setMentionQuery(null); setMentionResults([]); return; }
-    const q = atMatch[1];
-    setMentionQuery(q);
-    setMentionIdx(0);
-    mentionSearchRef.current = q;
-    if (q.length === 0) { setMentionResults([]); return; }
-    const { data } = await supabase.from('user_profiles').select('id, username, avatar_url').ilike('username', `${q}%`).limit(5);
-    if (mentionSearchRef.current === q) setMentionResults(data ?? []);
-  }, [linkPreview]);
+    const atMatch = before.match(/(^|\s)@([A-Za-z0-9_@.-]*)$/);
+    if (atMatch) {
+      const q = atMatch[2]; setMentionQuery(q); setMentionIdx(0); mentionSearchRef.current = q;
+      if (!q) { setMentionResults([]); return; }
+      try {
+        const { data } = await supabase.functions.invoke('fediverse-autocomplete', { body: { mode: 'mention', q } });
+        if (mentionSearchRef.current === q) setMentionResults(Array.isArray(data) ? data : []);
+      } catch {
+        const localQ = q.split('@')[0];
+        const { data } = await supabase.from('user_profiles').select('id, username, display_name, avatar_url').ilike('username', `${localQ}%`).limit(8);
+        if (mentionSearchRef.current === q) setMentionResults((data || []).map((x: any) => ({ kind: 'local', ...x, name: x.display_name || x.username, handle: `@${x.username}` })));
+      }
+      return;
+    }
+    setMentionQuery(null); setMentionResults([]);
+    const hashMatch = before.match(/(^|\s)#([A-Za-z0-9_]*)$/);
+    if (hashMatch && hashMatch[2]) {
+      try {
+        const { data } = await supabase.functions.invoke('fediverse-autocomplete', { body: { mode: 'hashtag', q: hashMatch[2] } });
+        window.dispatchEvent(new CustomEvent('testagram-hashtag-suggestions', { detail: Array.isArray(data) ? data : [] }));
+      } catch { /* preserve existing hashtag behavior */ }
+    } else window.dispatchEvent(new CustomEvent('testagram-hashtag-suggestions', { detail: [] }));
+  }, []);
 
-  const insertMention = useCallback((username: string) => {
+  const insertMention = useCallback((handle: string) => {
     const ta = textareaRef.current;
     const pos = ta?.selectionStart ?? content.length;
     const before = content.slice(0, pos);
     const after = content.slice(pos);
-    const replaced = before.replace(/@(\w*)$/, `@${username} `);
+    const replaced = before.replace(/(^|\s)@[A-Za-z0-9_@.-]*$/, `$1${handle.startsWith('@') ? handle : `@${handle}`} `);
     setContent(replaced + after);
     setMentionQuery(null);
     setMentionResults([]);

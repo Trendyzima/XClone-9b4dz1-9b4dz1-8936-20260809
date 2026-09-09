@@ -33,7 +33,7 @@ export async function getFederatedTimeline(params: TimelineParams = {}): Promise
 export async function getUser(acct: string): Promise<any> { return relay(`/webfinger/${encodeURIComponent(acct)}`); }
 export async function webfinger(acct: string): Promise<any> { return relay(`/webfinger/${encodeURIComponent(acct)}`); }
 export async function getActor(username: string): Promise<any> { return relay(`/users/${encodeURIComponent(username)}`); }
-export async function postStatus(payload: { content: string; mediaIds?: string[]; visibility?: 'public' | 'unlisted' | 'followers' | 'direct'; inReplyTo?: string; sensitive?: boolean; spoilerText?: string; }): Promise<any> { return relay('/posts', 'POST', payload); }
+export async function postStatus(payload: { content: string; mediaIds?: string[]; visibility?: 'public' | 'unlisted' | 'followers' | 'direct'; inReplyTo?: string; sensitive?: boolean; spoilerText?: string; mentions?: Array<{ href: string; name: string; acct?: string }>; hashtags?: Array<{ href: string; name: string }>; }): Promise<any> { return relay('/posts', 'POST', payload); }
 export async function deletePost(postId: string): Promise<void> { return relay(`/posts/${encodeURIComponent(postId)}`, 'DELETE'); }
 export async function follow(target: string): Promise<any> { return relay('/follow', 'POST', { target }); }
 export async function unfollow(target: string): Promise<any> { return relay('/unfollow', 'POST', { target }); }
