@@ -27,6 +27,7 @@ env:
   WRANGLER_VERSION: '4.126.0'
   WORKER_DIRECT_URL: 'https://testagram-api.nahashonnyaga794.workers.dev'
   PAYPAL_CONFIG_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/paypal/config'
+  FEDERATION_URL: 'https://federation.testagram.site'
 
 jobs:
   deploy:
@@ -92,11 +93,11 @@ jobs:
           PAYPAL_CLIENT_SECRET_PRIMARY: ${{ secrets.PAYPAL_CLIENT_SECRET }}
           PAYPAL_CLIENT_SECRET_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_SECRET }}
           PAYPAL_WEBHOOK_ID_PRIMARY: ${{ secrets.PAYPAL_WEBHOOK_ID }}
-          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_WEBHOOK_ID_SANDBOX }}
+          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_WEBHOOK_ID }}
         run: |
           set -euo pipefail
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
-          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
+          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_SANDBOX_CLIENT_SECRET:-}}"
           webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
           printf '%s' "$client_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_ID --config cloudflare/wrangler.jsonc
           printf '%s' "$client_secret" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_SECRET --config cloudflare/wrangler.jsonc
@@ -109,6 +110,21 @@ jobs:
             status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$WORKER_DIRECT_URL/api/health" || true)"
             cat /tmp/health.json || true
             if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/health.json >/dev/null 2>&1; then ok=1; break; fi
+            sleep 5
+          done
+          test "$ok" = 1
+      - name: Verify federation custom domain health
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in $(seq 1 12); do
+            status="$(curl -sS -D /tmp/federation-headers.txt -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 "$FEDERATION_URL/api/health" || true)"
+            echo "Federation custom-domain HTTP status: $status"
+            echo '--- response headers ---'
+            cat /tmp/federation-headers.txt || true
+            echo '--- response body ---'
+            cat /tmp/federation-health.json || true
+            if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site"' /tmp/federation-health.json >/dev/null 2>&1; then ok=1; break; fi
             sleep 5
           done
           test "$ok" = 1
