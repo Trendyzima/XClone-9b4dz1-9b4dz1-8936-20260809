@@ -1,30 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { BadgeCheck, Calendar, Check, Copy, ExternalLink, Heart, Image as ImageIcon, Link as LinkIcon, Loader2, MapPin, MoreHorizontal, Pencil, Share2, ShieldBan, UserPlus, UserRoundMinus, VolumeX } from 'lucide-react';
+import { BadgeCheck, Calendar, Loader2, Pencil, Share2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
 import { ProductionEditProfileDialog } from '@/components/features/ProductionEditProfileDialog';
 import { WalletCard } from '@/components/features/WalletCard';
-import { WalletCard } from '@/components/features/WalletCard';
 import { ProfileEnhancements } from '@/components/features/ProfileEnhancements';
 import { toast } from 'sonner';
 
-interface ProfileRow {
-  id: string;
-  username: string;
-  display_name: string;
-  avatar_url: string | null;
-  cover_url: string | null;
-  bio: string | null;
-  website: string | null;
-  location: string | null;
-  social_links: Record<string, string>;
-  verified_tier: string;
-  follower_count: number;
-  following_count: number;
-  profile_views: number;
-  protected_account: boolean;
-  birth_date: string | null;
-  created_at: string;
+type Profile = { id:string; username:string; display_name:string; avatar_url:string|null; cover_url:string|null; bio:string|null; website:string|null; location:string|null; social_links:Record<string,string>; verified_tier:string; follower_count:number; following_count:number; created_at:string; protected_account:boolean };
+type Post = { id:string; body:string; media_url:string|null; media_type:string|null; created_at:string; like_count:number; reply_count:number; repost_count:number };
+
+export default function ProfilePage(){
+ const {username}=useParams<{username:string}>(); const {user}=useAuth(); const navigate=useNavigate(); const [profile,setProfile]=useState<Profile|null>(null); const [posts,setPosts]=useState<Post[]>([]); const [loading,setLoading]=useState(true); const [following,setFollowing]=useState(false); const [edit,setEdit]=useState(false);
+ useSEO({title:profile?`@${profile.username} on Testagram`:'Profile',description:profile?.bio||'Testagram profile',image:profile?.avatar_url||undefined,url:profile?`/profile/${profile.username}`:undefined,type:'profile'});
+ useEffect(()=>{let alive=true;(async()=>{if(!username)return;setLoading(true);try{const name=username.replace(/^@/,'').toLowerCase();const {data,error}=await supabase.from('profiles').select('*').ilike('username',name).maybeSingle();if(error)throw error;if(!data){if(alive)setProfile(null);return;}const p=data as Profile;if(alive)setProfile(p);const {data:rows,error:pe}=await supabase.from('posts').select('id,body,media_url,media_type,created_at,like_count,reply_count,repost_count').eq('author_id',p.id).is('deleted_at',null).order('created_at',{ascending:false}).limit(50);if(pe)throw pe;if(alive)setPosts((rows??[]) as Post[]);if(user?.id&&user.id!==p.id){const {data:f}=await supabase.from('follows').select('follower_id').eq('follower_id',user.id).eq('following_id',p.id).maybeSingle();if(alive)setFollowing(Boolean(f));}}catch(e:any){if(alive)toast.error(e?.message||'Failed to load profile');}finally{if(alive)setLoading(false);}})();return()=>{alive=false};},[username,user?.id]);
+ const toggleFollow=async()=>{if(!user||!profile)return;navigate(user?window.location.pathname:'/auth');try{if(following){const {error}=await supabase.from('follows').delete().eq('follower_id',user.id).eq('following_id',profile.id);if(error)throw error;setFollowing(false);}else{const {error}=await supabase.from('follows').insert({follower_id:user.id,following_id:profile.id});if(error)throw error;setFollowing(true);}}catch(e:any){toast.error(e?.message||'Follow failed');}};
+ if(loading)return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-7 h-7 animate-spin text-primary"/></div>;
+ if(!profile)return <div className="min-h-screen flex flex-col items-center justify-center gap-3"><h1 className="text-xl font-bold">Profile not found</h1><button onClick={()=>navigate('/')} className="px-4 py-2 rounded-full bg-primary text-primary-foreground">Go home</button></div>;
+ const own=user?.id===profile.id;
+ return <div className="min-h-screen bg-background pb-20"><div className="h-44 sm:h-56 bg-muted relative overflow-hidden">{profile.cover_url&&<img src={profile.cover_url} alt="Cover" className="w-full h-full object-cover"/>}</div><div className="px-4 sm:px-6"><div className="flex items-end justify-between -mt-12 relative"><div className="w-24 h-24 rounded-full border-4 border-background overflow-hidden bg-primary/10 flex items-center justify-center text-3xl font-bold">{profile.avatar_url?<img src={profile.avatar_url} alt={profile.display_name||profile.username} className="w-full h-full object-cover"/>:(profile.display_name||profile.username)[0].toUpperCase()}</div><div className="flex gap-2 pb-2">{own?<button onClick={()=>setEdit(true)} className="px-4 py-2 rounded-full border font-semibold inline-flex gap-2"><Pencil className="w-4 h-4"/>Edit</button>:<button onClick={toggleFollow} className="px-4 py-2 rounded-full bg-primary text-primary-foreground font-semibold inline-flex gap-2"><UserPlus className="w-4 h-4"/>{following?'Following':'Follow'}</button>}<button onClick={()=>navigator.share?.({title:`@${profile.username}`,url:location.href})} className="w-10 h-10 rounded-full border flex items-center justify-center"><Share2 className="w-4 h-4"/></button></div></div><div className="py-4"><div className="flex items-center gap-2"><h1 className="text-2xl font-black">{profile.display_name||profile.username}</h1>{profile.verified_tier&&profile.verified_tier!=='none'&&<BadgeCheck className="w-5 h-5 text-primary"/>}</div><p className="text-muted-foreground">@{profile.username}</p>{profile.bio&&<p className="mt-3 whitespace-pre-wrap leading-6">{profile.bio}</p>}<ProfileEnhancements profile={profile}/><div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">{profile.location&&<span>{profile.location}</span>}<span className="inline-flex gap-1 items-center"><Calendar className="w-4 h-4"/>Joined {new Date(profile.created_at).toLocaleDateString(undefined,{month:'short',year:'numeric'})}</span></div><div className="flex gap-5 mt-4 text-sm"><span><b>{profile.follower_count??0}</b> Followers</span><span><b>{profile.following_count??0}</b> Following</span></div></div></div>{own&&<WalletCard username={profile.username}/>}<div className="border-y border-border"><div className="p-4 font-bold">Posts</div>{posts.map(p=><article key={p.id} className="p-4 border-t border-border"><button onClick={()=>navigate(`/post/${p.id}`)} className="text-left w-full"><p className="whitespace-pre-wrap">{p.body}</p>{p.media_url&&<div className="mt-3">{p.media_type?.startsWith('video')?<video src={p.media_url} controls playsInline className="w-full max-h-[560px] rounded-2xl bg-black object-cover"/>:<img src={p.media_url} alt="Post media" className="w-full max-h-[560px] rounded-2xl object-cover"/>}</div>}</button><div className="mt-3 text-xs text-muted-foreground">{p.like_count} likes · {p.reply_count} replies · {p.repost_count} reposts</div></article>)}{!posts.length&&<div className="p-10 text-center text-muted-foreground">No posts yet.</div>}</div>{own&&<ProductionEditProfileDialog open={edit} onOpenChange={setEdit} profile={profile} onSuccess={()=>location.reload()}/>}</div>;
 }
