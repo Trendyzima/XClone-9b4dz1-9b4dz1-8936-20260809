@@ -18,27 +18,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Make production gate concurrency commit-scoped
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
+      - name: Verify production gate concurrency is commit-scoped
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           p = Path('.github/workflows/testagram-production-release.yml')
           s = p.read_text()
-          old = "concurrency:\n  group: testagram-production-release\n  cancel-in-progress: true"
-          new = "concurrency:\n  group: testagram-production-release-${{ github.sha }}\n  cancel-in-progress: false"
-          if old not in s:
-              raise SystemExit('expected production gate concurrency block not found')
-          p.write_text(s.replace(old, new, 1))
+          expected = "concurrency:\n  group: testagram-production-release-${{ github.sha }}\n  cancel-in-progress: false"
+          legacy = "concurrency:\n  group: testagram-production-release\n  cancel-in-progress: true"
+          if expected in s:
+              print('Production gate concurrency is already repaired.')
+          elif legacy in s:
+              p.write_text(s.replace(legacy, expected, 1))
+              print('Production gate concurrency repaired.')
+          else:
+              raise SystemExit('production gate concurrency block is neither legacy nor repaired form')
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/workflows/testagram-production-release.yml
           if git diff --cached --quiet; then
-            echo 'Production gate concurrency is already repaired.'
+            echo 'No production gate workflow change required.'
           else
             git commit -m 'Make production release gate concurrency commit-scoped'
             git push origin HEAD:main
