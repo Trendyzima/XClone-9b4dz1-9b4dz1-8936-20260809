@@ -1,1 +1,1 @@
-trigger: federated posting composer upgrade
+trigger: federated posting composer upgrade v2
