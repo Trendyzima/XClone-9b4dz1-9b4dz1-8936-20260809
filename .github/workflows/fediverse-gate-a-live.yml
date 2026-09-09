@@ -7,6 +7,7 @@ on:
       - '.github/workflows/fediverse-gate-a-live.yml'
       - 'supabase/functions/gateway-relay/index.ts'
       - 'supabase/migrations/*federation*'
+      - 'cloudflare/worker/public-actor-entrypoint.ts'
 permissions:
   contents: read
 jobs:
@@ -43,9 +44,18 @@ jobs:
           LOCAL_ACTOR="$(jq -r '.activity.actor' /tmp/follow.json)"
           ACTIVITY_ID="$(jq -r '.activityId' /tmp/follow.json)"
           REMOTE_ACTOR="$(jq -r '.activity.object' /tmp/follow.json)"
-          test "$LOCAL_ACTOR" = "$FEDERATION_ORIGIN/users/fediverse_live_${GITHUB_RUN_ID}"
-          curl -sS --fail-with-body -H 'Accept: application/activity+json' "$LOCAL_ACTOR" >/tmp/actor.json
-          jq -e --arg id "${LOCAL_ACTOR}#main-key" '.publicKey.id == $id and (.publicKey.publicKeyPem | length > 100) and .inbox == ($id | sub("#main-key$"; "/inbox"))' /tmp/actor.json
+          EXPECTED_ACTOR="$FEDERATION_ORIGIN/users/fediverse_live_${GITHUB_RUN_ID}"
+          test "$LOCAL_ACTOR" = "$EXPECTED_ACTOR"
+          ACTOR_STATUS=""
+          for attempt in $(seq 1 12); do
+            ACTOR_STATUS="$(curl -sS -D /tmp/actor-headers.txt -o /tmp/actor.json -w '%{http_code}' --max-time 20 -H 'Accept: application/activity+json' "$LOCAL_ACTOR" || true)"
+            echo "Local actor HTTP status: $ACTOR_STATUS"
+            cat /tmp/actor.json || true
+            if [ "$ACTOR_STATUS" = 200 ] && jq -e --arg id "${LOCAL_ACTOR}#main-key" '.id == ($id | sub("#main-key$"; "")) and .publicKey.id == $id and (.publicKey.publicKeyPem | length > 100) and .inbox == (($id | sub("#main-key$"; "")) + "/inbox")' /tmp/actor.json >/dev/null 2>&1; then break; fi
+            sleep 5
+          done
+          test "$ACTOR_STATUS" = 200
+          jq -e --arg id "${LOCAL_ACTOR}#main-key" '.id == ($id | sub("#main-key$"; "")) and .publicKey.id == $id and (.publicKey.publicKeyPem | length > 100) and .inbox == (($id | sub("#main-key$"; "")) + "/inbox")' /tmp/actor.json
           curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_outbox?activity_id=eq.$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$ACTIVITY_ID")&select=activity_type,status,attempts,http_status" -H "apikey: $SUPABASE_SECRET_KEY" >/tmp/outbox.json
           jq -e 'length == 1 and .[0].activity_type == "Follow" and .[0].attempts == 1 and (. [0].status == "delivered" or . [0].status == "pending")' /tmp/outbox.json
           ACCEPT_FOUND=0
