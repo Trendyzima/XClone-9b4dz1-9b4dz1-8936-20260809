@@ -15,14 +15,15 @@ concurrency:
   group: testagram-supabase-production-migrations
   cancel-in-progress: false
 
+env:
+  SUPABASE_PROJECT_REF: aepbqfrmheihfsauzcby
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
 jobs:
   migrate-production:
     runs-on: ubuntu-latest
     environment: production
-    env:
-      SUPABASE_PROJECT_REF: aepbqfrmheihfsauzcby
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v5
@@ -72,6 +73,34 @@ jobs:
           echo 'Checked-out migration files are the pending source of truth; remote synchronization will not overwrite them.'
 
       - name: Inspect production migration history
+        run: |
+          set -euo pipefail
+          supabase migration list --linked
+
+      - name: Reconcile irrecoverable remote-only migration history
+        run: |
+          set -euo pipefail
+          history="$(supabase migration list --linked)"
+          # These five versions are present in production history but their original
+          # migration source is not recoverable from repository history. Do not create
+          # synthetic migrations with the same timestamps: Supabase will treat them as
+          # pending and attempt to insert duplicate schema_migrations rows. The schema
+          # changes are already present in production, so repair only the history rows.
+          for version in \
+            20260909202200 \
+            20260909202315 \
+            20260909202538 \
+            20260909212257 \
+            20260909215557; do
+            if printf '%s\n' "$history" | grep -q "$version"; then
+              echo "Repairing remote-only migration history: $version => reverted"
+              supabase migration repair "$version" --status reverted
+            else
+              echo "Remote-only migration $version is not present; nothing to repair."
+            fi
+          done
+
+      - name: Verify reconciled production migration history
         run: |
           set -euo pipefail
           supabase migration list --linked
