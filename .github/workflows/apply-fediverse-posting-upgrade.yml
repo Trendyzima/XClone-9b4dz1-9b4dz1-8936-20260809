@@ -1,0 +1,32 @@
+name: Apply Fediverse Posting Upgrade
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ci/fediverse-posting-upgrade.trigger'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply deterministic source patch
+        run: python scripts/upgrade_fediverse_posting.py
+      - name: Verify source patch
+        run: |
+          grep -q "fediverse-autocomplete" src/components/features/ComposePost.tsx
+          grep -q "mentions?: Array" src/api/federation.ts
+      - name: Commit patched sources
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/api/federation.ts src/components/features/ComposePost.tsx scripts/upgrade_fediverse_posting.py
+          git rm -f .github/workflows/apply-fediverse-posting-upgrade.yml ci/fediverse-posting-upgrade.trigger
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat: upgrade federated post composer'
+          git push origin main
