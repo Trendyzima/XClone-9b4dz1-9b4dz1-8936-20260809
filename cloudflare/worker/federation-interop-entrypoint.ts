@@ -120,3 +120,4 @@ export default {
 };
 
 // Public federation surface is intentionally handled before authenticated API routing.
+// Gate A preflights this exact public actor URL before Mastodon receives a Follow.
