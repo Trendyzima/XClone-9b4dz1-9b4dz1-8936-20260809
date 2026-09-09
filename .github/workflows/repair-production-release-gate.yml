@@ -29,19 +29,25 @@ jobs:
           s = p.read_text()
           repaired_re = re.compile(
               r"concurrency:\n"
-              r"  group: testagram-production-release-\\$\\{\\{ github\\.sha \\\}\\}\n"
+              r"  group: testagram-production-release-\$\{\{ github\.sha \}\}\n"
               r"  cancel-in-progress: false"
           )
           legacy = "concurrency:\n  group: testagram-production-release\n  cancel-in-progress: true"
+          repaired = "${" + "{ github.sha }}"
+          replacement = "concurrency:\n  group: testagram-production-release-" + repaired + "\n  cancel-in-progress: false"
 
           if repaired_re.search(s):
               print('Production gate concurrency is already repaired.')
           elif legacy in s:
-              replacement = "concurrency:\n  group: testagram-production-release-${{ github.sha }}\n  cancel-in-progress: false"
               p.write_text(s.replace(legacy, replacement, 1))
               print('Production gate concurrency repaired.')
           else:
-              raise SystemExit('production gate concurrency block is neither legacy nor repaired form')
+              block_start = s.find('concurrency:')
+              block = s[block_start:block_start + 180] if block_start >= 0 else '<missing>'
+              raise SystemExit(
+                  'production gate concurrency block is neither legacy nor repaired form; '
+                  f'actual block={block!r}'
+              )
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
