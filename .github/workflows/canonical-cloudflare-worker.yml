@@ -65,7 +65,7 @@ jobs:
           PAYPAL_CLIENT_SECRET_PRIMARY: ${{ secrets.PAYPAL_CLIENT_SECRET }}
           PAYPAL_CLIENT_SECRET_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_SECRET }}
           PAYPAL_WEBHOOK_ID_PRIMARY: ${{ secrets.PAYPAL_WEBHOOK_ID }}
-          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_WEBHOOK_ID_SANDBOX }}
+          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_WEBHOOK_ID }}
         run: |
           set -euo pipefail
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
@@ -84,7 +84,17 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler.jsonc
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 6); do
+            if npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler.jsonc; then
+              exit 0
+            fi
+            echo "Cloudflare deploy attempt $attempt failed; retrying transient API failure..."
+            sleep $((attempt * 5))
+          done
+          echo 'Cloudflare deployment failed after retries.'
+          exit 1
       - name: Synchronize PayPal secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -94,15 +104,27 @@ jobs:
           PAYPAL_CLIENT_SECRET_PRIMARY: ${{ secrets.PAYPAL_CLIENT_SECRET }}
           PAYPAL_CLIENT_SECRET_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_SECRET }}
           PAYPAL_WEBHOOK_ID_PRIMARY: ${{ secrets.PAYPAL_WEBHOOK_ID }}
-          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_WEBHOOK_ID_SANDBOX }}
+          PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_WEBHOOK_ID }}
         run: |
           set -euo pipefail
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
           client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
           webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
-          printf '%s' "$client_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_ID --config cloudflare/wrangler.jsonc
-          printf '%s' "$client_secret" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_SECRET --config cloudflare/wrangler.jsonc
-          printf '%s' "$webhook_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_WEBHOOK_ID --config cloudflare/wrangler.jsonc
+          put_secret() {
+            local name="$1" value="$2"
+            for attempt in $(seq 1 6); do
+              if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then
+                return 0
+              fi
+              echo "Cloudflare secret $name attempt $attempt failed; retrying transient API failure..."
+              sleep $((attempt * 5))
+            done
+            echo "Cloudflare secret $name failed after retries."
+            return 1
+          }
+          put_secret PAYPAL_CLIENT_ID "$client_id"
+          put_secret PAYPAL_CLIENT_SECRET "$client_secret"
+          put_secret PAYPAL_WEBHOOK_ID "$webhook_id"
       - name: Verify canonical Worker health
         run: |
           set -euo pipefail
@@ -121,18 +143,11 @@ jobs:
           for attempt in $(seq 1 12); do
             status="$(curl -sS -D /tmp/federation-headers.txt -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 "$FEDERATION_URL/api/health" || true)"
             echo "Federation custom-domain HTTP status: $status"
-            echo '--- response headers ---'
-            cat /tmp/federation-headers.txt || true
-            echo '--- response body ---'
             cat /tmp/federation-health.json || true
-            if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site"' /tmp/federation-health.json >/dev/null 2>&1; then ok=1; break; fi
+            if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/federation-health.json >/dev/null 2>&1; then ok=1; break; fi
             sleep 5
           done
-          if [ "$ok" != 1 ]; then
-            echo 'Federation custom domain is not externally healthy.'
-            echo 'This check is intentionally blocking: ActivityPub servers must be able to reach the canonical federation hostname without a Cloudflare challenge.'
-            exit 1
-          fi
+          test "$ok" = 1
       - name: Verify PayPal configuration
         run: |
           set -euo pipefail
