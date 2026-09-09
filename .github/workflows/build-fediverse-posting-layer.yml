@@ -1,0 +1,104 @@
+name: Implement Fediverse Posting Layer
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-fediverse-posting-layer.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - name: Patch federation posting and composer
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          fed = Path('src/api/federation.ts')
+          s = fed.read_text()
+          old = "export async function postStatus(payload: { content: string; mediaIds?: string[]; visibility?: 'public' | 'unlisted' | 'followers' | 'direct'; inReplyTo?: string; sensitive?: boolean; spoilerText?: string; }): Promise<any> { return relay('/posts', 'POST', payload); }"
+          new = "export async function postStatus(payload: { content: string; mediaIds?: string[]; visibility?: 'public' | 'unlisted' | 'followers' | 'direct'; inReplyTo?: string; sensitive?: boolean; spoilerText?: string; mentions?: Array<{ href: string; name: string; acct?: string }>; hashtags?: Array<{ href: string; name: string }>; }): Promise<any> { return relay('/posts', 'POST', payload); }"
+          if old in s:
+            fed.write_text(s.replace(old, new))
+          else:
+            print('postStatus signature already upgraded or source differs')
+
+          comp = Path('src/components/features/ComposePost.tsx')
+          s = comp.read_text()
+          start = s.find('  const handleContentChange = useCallback(async (val: string) => {')
+          end = s.find('  const insertMention = useCallback', start)
+          if start < 0 or end < 0:
+            raise SystemExit('ComposePost handleContentChange boundary not found')
+          fn = '''  const handleContentChange = useCallback(async (val: string) => {
+    setContent(val);
+    const urlMatch = val.match(/https?:\\/\\/[^\\s]+/);
+    if (urlMatch) setLinkPreview({ url: urlMatch[0], isEmbed: !!detectEmbed(urlMatch[0]) });
+    else setLinkPreview(null);
+
+    const ta = textareaRef.current;
+    const pos = ta?.selectionStart ?? val.length;
+    const before = val.slice(0, pos);
+    const atMatch = before.match(/(^|\\s)@([A-Za-z0-9_@.-]*)$/);
+    if (atMatch) {
+      const q = atMatch[2];
+      setMentionQuery(q);
+      setMentionIdx(0);
+      mentionSearchRef.current = q;
+      if (!q) { setMentionResults([]); return; }
+      try {
+        const { data } = await supabase.functions.invoke('fediverse-autocomplete', { body: { mode: 'mention', q } });
+        if (mentionSearchRef.current === q) setMentionResults(Array.isArray(data) ? data : []);
+      } catch {
+        const localQ = q.split('@')[0];
+        const { data } = await supabase.from('user_profiles').select('id, username, display_name, avatar_url').ilike('username', `${localQ}%`).limit(8);
+        if (mentionSearchRef.current === q) setMentionResults((data || []).map((x: any) => ({ kind: 'local', ...x, name: x.display_name || x.username, handle: `@${x.username}` })));
+      }
+      return;
+    }
+    setMentionQuery(null); setMentionResults([]);
+
+    const hashMatch = before.match(/(^|\\s)#([A-Za-z0-9_]*)$/);
+    if (hashMatch && hashMatch[2]) {
+      const hq = hashMatch[2];
+      try {
+        const { data } = await supabase.functions.invoke('fediverse-autocomplete', { body: { mode: 'hashtag', q: hq } });
+        (window as any).__testagramHashtagSuggestions = Array.isArray(data) ? data : [];
+        window.dispatchEvent(new CustomEvent('testagram-hashtag-suggestions', { detail: (window as any).__testagramHashtagSuggestions }));
+      } catch { /* local hashtag autocomplete remains available elsewhere */ }
+    } else {
+      window.dispatchEvent(new CustomEvent('testagram-hashtag-suggestions', { detail: [] }));
+    }
+  }, []);
+
+'''
+          comp.write_text(s[:start] + fn + s[end:])
+
+          # Upgrade mention insertion so remote handles such as @alice@mastodon.social remain intact.
+          s = comp.read_text()
+          old2 = "const insertMention = useCallback((username: string) => {"
+          new2 = "const insertMention = useCallback((handle: string) => {"
+          if old2 in s: s = s.replace(old2, new2, 1)
+          s = s.replace("before.replace(/@(\\w*)$/, `@${username} `)", "before.replace(/(^|\\s)@[A-Za-z0-9_@.-]*$/, `$1${handle.startsWith('@') ? handle : `@${handle}`} `)", 1)
+          comp.write_text(s)
+
+      - name: Validate modified sources
+        run: |
+          test -s src/api/federation.ts
+          test -s src/components/features/ComposePost.tsx
+          test -s supabase/functions/fediverse-autocomplete/index.ts
+          test -s supabase/migrations/20260909160000_fediverse_posting_mentions_hashtags.sql
+      - name: Commit implementation and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/api/federation.ts src/components/features/ComposePost.tsx supabase/functions/fediverse-autocomplete/index.ts supabase/migrations/20260909160000_fediverse_posting_mentions_hashtags.sql .github/workflows/build-fediverse-posting-layer.yml
+          git rm .github/workflows/build-fediverse-posting-layer.yml
+          git diff --cached --quiet && { echo 'No changes'; exit 0; }
+          git commit -m 'feat: upgrade federated posting composer'
+          git push origin main
