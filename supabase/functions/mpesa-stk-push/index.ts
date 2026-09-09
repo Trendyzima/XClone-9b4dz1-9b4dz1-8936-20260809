@@ -1,79 +1,12 @@
-import { corsHeaders } from '../_shared/cors.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const MPESA_BASE = 'https://api.safaricom.co.ke';
-const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-
-async function getMpesaToken(key: string, secret: string) {
-  const res = await fetch(`${MPESA_BASE}/oauth/v1/generate?grant_type=client_credentials`, { headers: { Authorization: `Basic ${btoa(`${key}:${secret}`)}` } });
-  if (!res.ok) throw new Error(`Token fetch failed (${res.status})`);
-  const data = await res.json() as { access_token?: string };
-  if (!data.access_token) throw new Error('No access_token');
-  return data.access_token;
-}
-
-function phone(raw: string) {
-  const d = raw.replace(/\D/g, '');
-  if (d.startsWith('254') && d.length === 12) return d;
-  if (d.startsWith('0') && d.length === 10) return `254${d.slice(1)}`;
-  if ((d.startsWith('7') || d.startsWith('1')) && d.length === 9) return `254${d}`;
-  throw new Error('Invalid phone number');
-}
-
-Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  try {
-    const service = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    if (!service || !supabaseUrl) throw new Error('Supabase service configuration is missing');
-    const admin = createClient(supabaseUrl, service, { auth: { persistSession: false, autoRefreshToken: false } });
-    const auth = req.headers.get('Authorization');
-    if (!auth) return json({ success: false, error: 'Unauthorized' }, 401);
-    const { data: { user }, error: authError } = await admin.auth.getUser(auth.replace(/^Bearer\s+/i, ''));
-    if (authError || !user) return json({ success: false, error: 'Unauthorized — invalid session' }, 401);
-
-    const key = Deno.env.get('MPESA_CONSUMER_KEY');
-    const secret = Deno.env.get('MPESA_CONSUMER_SECRET');
-    const shortCode = Deno.env.get('MPESA_SHORTCODE');
-    const passkey = Deno.env.get('MPESA_PASSKEY');
-    const callbackUrl = Deno.env.get('MPESA_CALLBACK_URL') ?? `${supabaseUrl}/functions/v1/mpesa-callback`;
-    if (!key || !secret || !shortCode || !passkey) throw new Error('M-Pesa STK secrets are not configured');
-
-    const body = await req.json() as { phone?: string; amount?: number | string; purpose?: string; metadata?: Record<string, unknown> };
-    const destination = phone(String(body.phone ?? ''));
-    const amount = Math.ceil(Number(body.amount));
-    if (!Number.isFinite(amount) || amount < 1) throw new Error('Amount must be at least KES 1');
-
-    const token = await getMpesaToken(key, secret);
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const payload = {
-      BusinessShortCode: shortCode,
-      Password: btoa(`${shortCode}${passkey}${timestamp}`),
-      Timestamp: timestamp,
-      TransactionType: 'CustomerPayBillOnline',
-      Amount: amount,
-      PartyA: destination,
-      PartyB: shortCode,
-      PhoneNumber: destination,
-      CallBackURL: callbackUrl,
-      AccountReference: body.purpose ?? 'WalletTopUp',
-      TransactionDesc: 'Testagram Wallet Top-Up',
-    };
-    const response = await fetch(`${MPESA_BASE}/mpesa/stkpush/v1/processrequest`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const data = await response.json() as { ResponseCode?: string; errorMessage?: string; ResponseDescription?: string; CheckoutRequestID?: string; MerchantRequestID?: string };
-    if (!response.ok || String(data.ResponseCode) !== '0' || !data.CheckoutRequestID) throw new Error(data.errorMessage ?? data.ResponseDescription ?? `STK Push failed (${response.status})`);
-
-    const metadata = { ...(body.metadata ?? {}), wallet_user_id: user.id, kes_amount: amount, provider: 'mpesa', provider_flow: 'stk_push' };
-    const { error: insertError } = await admin.from('mpesa_transactions').insert({ user_id: user.id, checkout_request_id: data.CheckoutRequestID, merchant_request_id: data.MerchantRequestID, phone_number: destination, amount, type: 'stk_push', purpose: body.purpose ?? 'wallet_topup', status: 'pending', metadata });
-    if (insertError) throw new Error(`Unable to persist M-Pesa payment intent: ${insertError.message}`);
-
-    const { error: phoneError } = await admin.rpc('update_wallet_payment_methods', { p_mpesa_phone: destination, p_paypal_email: null });
-    if (phoneError) console.warn('[mpesa-stk] phone save:', phoneError.message);
-    return json({ success: true, checkout_request_id: data.CheckoutRequestID, merchant_request_id: data.MerchantRequestID, customer_message: `M-Pesa PIN prompt sent to ${destination}. Enter your PIN to complete payment.` });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal error';
-    return json({ success: false, error: message }, 400);
-  }
-});
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
+const URL=Deno.env.get("SUPABASE_URL")!;const SERVICE=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")||Deno.env.get("SUPABASE_SECRET_KEY")!;const ANON=Deno.env.get("SUPABASE_ANON_KEY")||Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;const ENV=(Deno.env.get("MPESA_ENV")||"sandbox").toLowerCase();const BASE=ENV==="live"?"https://api.safaricom.co.ke":"https://sandbox.safaricom.co.ke";const KEY=Deno.env.get("MPESA_CONSUMER_KEY");const SECRET=Deno.env.get("MPESA_CONSUMER_SECRET");const SHORTCODE=Deno.env.get("MPESA_SHORTCODE");const PASSKEY=Deno.env.get("MPESA_PASSKEY");const FX=Number(Deno.env.get("MPESA_KES_PER_USD")||"");const CALLBACK=Deno.env.get("MPESA_CALLBACK_URL")||`${URL}/functions/v1/mpesa-callback`;const CORS={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type","Access-Control-Allow-Methods":"POST,OPTIONS"};const json=(v:unknown,s=200)=>new Response(JSON.stringify(v),{status:s,headers:{...CORS,"Content-Type":"application/json"}});const admin=createClient(URL,SERVICE,{auth:{persistSession:false,autoRefreshToken:false}});
+function normalizePhone(input:string){const s=input.replace(/\D/g,"");if(/^254[71]\d{8}$/.test(s))return s;if(/^0[17]\d{8}$/.test(s))return `254${s.slice(1)}`;if(/^[17]\d{8}$/.test(s))return `254${s}`;return null;}
+async function accessToken(){if(!KEY||!SECRET)throw new Error("MPESA_NOT_CONFIGURED");const r=await fetch(`${BASE}/oauth/v1/generate?grant_type=client_credentials`,{headers:{Authorization:`Basic ${btoa(`${KEY}:${SECRET}`)}`}});if(!r.ok)throw new Error(`MPESA_AUTH_${r.status}`);const data=await r.json();if(!data.access_token)throw new Error("MPESA_TOKEN_MISSING");return data.access_token as string;}
+Deno.serve(async req=>{if(req.method==="OPTIONS")return new Response(null,{status:204,headers:CORS});if(req.method!=="POST")return json({error:"Method not allowed"},405);try{const auth=req.headers.get("Authorization");if(!auth)return json({error:"Authentication required"},401);const jwt=auth.replace(/^Bearer\s+/i,"");const authClient=createClient(URL,ANON,{global:{headers:{Authorization:auth}}});const {data:{user},error}=await authClient.auth.getUser(jwt);if(error||!user)return json({error:"Invalid authentication"},401);if(!KEY||!SECRET||!SHORTCODE||!PASSKEY||!Number.isFinite(FX)||FX<=0)return json({error:"M-Pesa production configuration is incomplete"},503);const body=await req.json().catch(()=>({}));const amountKes=Number(body.amount_kes);const phone=normalizePhone(String(body.phone||""));if(!Number.isFinite(amountKes)||amountKes<10||amountKes>150000)return json({error:"Enter a valid M-Pesa amount between KES 10 and KES 150,000."},400);if(!phone)return json({error:"Enter a valid Kenyan M-Pesa number."},400);
+ const {data:wallet,error:walletError}=await admin.rpc("ensure_user_wallet",{p_user_id:user.id,p_currency:"USD"});if(walletError||!wallet?.id)return json({error:"Wallet provisioning failed"},500);if(String(wallet.currency).toUpperCase()!=="USD")return json({error:"M-Pesa top-ups currently settle into the USD wallet."},409);const walletAmount=Math.round((amountKes/FX)*100)/100;if(walletAmount<=0)return json({error:"M-Pesa amount is below the minimum wallet value."},400);
+ const {data:tx,error:txError}=await admin.from("wallet_transactions").insert({user_id:user.id,wallet_id:wallet.id,kind:"topup",type:"deposit",amount:walletAmount,amount_cents:Math.round(walletAmount*100),currency:"USD",direction:"credit",status:"pending",provider:"mpesa",provider_status:"INITIATED",payment_method:"mpesa",description:"M-Pesa wallet top-up",metadata:{amount_kes:amountKes,kes_per_usd:FX,phone_last4:phone.slice(-4)}}).select("id").single();if(txError||!tx?.id)return json({error:"Wallet transaction persistence failed"},500);
+ const timestamp=new Date().toISOString().replace(/[-:TZ.]/g,"").slice(0,14);const password=btoa(`${SHORTCODE}${PASSKEY}${timestamp}`);const access=await accessToken();const response=await fetch(`${BASE}/mpesa/stkpush/v1/processrequest`,{method:"POST",headers:{Authorization:`Bearer ${access}`,"Content-Type":"application/json"},body:JSON.stringify({BusinessShortCode:SHORTCODE,Password:password,Timestamp:timestamp,TransactionType:"CustomerPayBillOnline",Amount:Math.round(amountKes),PartyA:phone,PartyB:SHORTCODE,PhoneNumber:phone,CallBackURL:CALLBACK,AccountReference:"Testagram",TransactionDesc:"Testagram wallet top-up"})});const raw=await response.json();if(!response.ok||String(raw.ResponseCode)!=="0"||!raw.CheckoutRequestID){await admin.from("wallet_transactions").update({status:"failed",provider_status:raw?.ResponseDescription||raw?.errorMessage||"STK push failed"}).eq("id",tx.id);return json({error:"M-Pesa STK push failed",detail:raw?.ResponseDescription||raw?.errorMessage},502);}
+ const {data:payment,error:paymentError}=await admin.from("mpesa_payments").insert({user_id:user.id,wallet_id:wallet.id,wallet_transaction_id:tx.id,merchant_request_id:raw.MerchantRequestID,checkout_request_id:raw.CheckoutRequestID,amount_kes:amountKes,wallet_amount:walletAmount,wallet_currency:"USD",phone,status:"pending",raw_response:raw}).select("id").single();if(paymentError||!payment?.id){await admin.from("wallet_transactions").update({status:"failed",provider_status:"M-Pesa payment persistence failed"}).eq("id",tx.id);return json({error:"M-Pesa payment persistence failed"},500);}
+ await admin.from("wallet_transactions").update({provider_order_id:raw.CheckoutRequestID,provider_reference:raw.MerchantRequestID,provider_status:"STK_SENT",metadata:{amount_kes:amountKes,kes_per_usd:FX,checkout_request_id:raw.CheckoutRequestID,phone_last4:phone.slice(-4)}}).eq("id",tx.id);return json({ok:true,checkoutRequestId:raw.CheckoutRequestID,merchantRequestId:raw.MerchantRequestID,status:"pending",amountKes,walletAmount,walletCurrency:"USD"});
+}catch(e){console.error(e);return json({error:e instanceof Error?e.message:"M-Pesa STK push failed"},500);}});
