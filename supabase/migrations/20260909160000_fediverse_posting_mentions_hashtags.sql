@@ -7,13 +7,14 @@ create table if not exists public.federation_post_tags (
   name text not null,
   href text,
   acct text,
-  created_at timestamptz not null default now(),
-  unique (post_id, tag_type, name, coalesce(href, ''))
+  created_at timestamptz not null default now()
 );
 
 create index if not exists federation_post_tags_post_idx on public.federation_post_tags(post_id);
 create index if not exists federation_post_tags_name_idx on public.federation_post_tags(tag_type, lower(name));
 create index if not exists federation_post_tags_acct_idx on public.federation_post_tags(lower(acct));
+create unique index if not exists federation_post_tags_identity_idx
+  on public.federation_post_tags(post_id, tag_type, name, coalesce(href, ''));
 
 alter table public.federation_post_tags enable row level security;
 
