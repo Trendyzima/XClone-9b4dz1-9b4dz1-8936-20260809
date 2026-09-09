@@ -9,7 +9,7 @@ on:
       - 'supabase/migrations/**'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: testagram-supabase-production-migrations
@@ -20,7 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
-      # Canonical production Supabase project for Testagram.
       SUPABASE_PROJECT_REF: aepbqfrmheihfsauzcby
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -33,7 +32,6 @@ jobs:
           set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN" || { echo 'Missing SUPABASE_ACCESS_TOKEN.'; exit 1; }
           test -n "$SUPABASE_DB_PASSWORD" || { echo 'Missing SUPABASE_DB_PASSWORD.'; exit 1; }
-
           case "$SUPABASE_ACCESS_TOKEN" in
             sbp_*) echo 'Supabase Management API token format detected.' ;;
             *) echo 'SUPABASE_ACCESS_TOKEN is not a Supabase personal access token (expected sbp_*).'; exit 1 ;;
@@ -47,11 +45,10 @@ jobs:
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
             -H 'Accept: application/json' \
             "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF")"
-
           case "$status_code" in
             200) echo 'Supabase Management API authorization verified for the canonical project.' ;;
             401) echo 'Supabase Management API rejected SUPABASE_ACCESS_TOKEN (401). Replace it with a valid PAT.'; exit 1 ;;
-            403) echo 'Supabase Management API denied this token for the canonical project (403). The token owner must have project/org access and the token must include the required project permissions.'; exit 1 ;;
+            403) echo 'Supabase Management API denied this token for the canonical project (403).'; exit 1 ;;
             *)
               echo "Supabase Management API preflight failed with HTTP $status_code."
               sed -E 's/"(access_token|token|password|secret|api_key)"[[:space:]]*:[[:space:]]*"[^"]*"/"\1":"***"/g' "$response_file" | head -c 2000
@@ -68,89 +65,23 @@ jobs:
           set -euo pipefail
           supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
 
-      - name: Verify clean migration workspace
+      - name: Verify migration workspace is clean
         run: |
           set -euo pipefail
-          if [ -n "$(git status --porcelain -- supabase/migrations)" ]; then
-            echo 'ERROR: repository already contains migration workspace changes before remote synchronization.'
-            git status --short -- supabase/migrations
-            exit 1
-          fi
+          test -z "$(git status --porcelain -- supabase/migrations)"
+          echo 'Checked-out migration files are the pending source of truth; remote synchronization will not overwrite them.'
 
-      - name: Fetch remote migration definitions
-        run: |
-          set -euo pipefail
-          supabase migration fetch --linked
-
-      - name: Verify migration history after fetch
+      - name: Inspect production migration history
         run: |
           set -euo pipefail
           supabase migration list --linked
-          echo 'Remote migration definitions fetched successfully.'
-          git status --short -- supabase/migrations
 
-      - name: Persist fetched migration definitions
-        run: |
-          set -euo pipefail
-          status_file="$RUNNER_TEMP/migration-status.txt"
-          git status --porcelain -- supabase/migrations | tee "$status_file"
-
-          if grep -qvE '^( M|M |MM|A |\?\?) supabase/migrations/[^/]+\.sql$' "$status_file"; then
-            echo 'ERROR: unexpected migration workspace changes were produced by migration fetch.'
-            exit 1
-          fi
-
-          if [ -s "$status_file" ]; then
-            git add -- supabase/migrations/*.sql
-            git diff --cached --check
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-            pushed=false
-            for attempt in 1 2 3; do
-              if git diff --cached --quiet; then
-                echo 'Remote migration definitions are already synchronized.'
-                pushed=true
-                break
-              fi
-
-              git commit -m 'chore: synchronize Supabase remote migration definitions'
-              if git push origin HEAD:main; then
-                echo 'Remote migration definitions persisted to main before production apply.'
-                pushed=true
-                break
-              fi
-
-              echo "Migration definition push raced with another main update; resynchronizing (attempt $attempt/3)."
-              git reset --hard HEAD^
-              git fetch origin main
-              git reset --hard origin/main
-              supabase migration fetch --linked
-              git status --porcelain -- supabase/migrations | tee "$status_file"
-
-              if grep -qvE '^( M|M |MM|A |\?\?) supabase/migrations/[^/]+\.sql$' "$status_file"; then
-                echo 'ERROR: unexpected migration workspace changes were produced during race recovery.'
-                exit 1
-              fi
-
-              git add -- supabase/migrations/*.sql
-              git diff --cached --check
-            done
-
-            if [ "$pushed" != true ]; then
-              echo 'ERROR: could not persist synchronized migration definitions after 3 attempts.'
-              exit 1
-            fi
-          else
-            echo 'No remote migration definitions needed to be persisted.'
-          fi
-
-      - name: Preview interleaved production migrations
+      - name: Preview pending production migrations
         run: |
           set -euo pipefail
           supabase db push --dry-run --include-all
 
-      - name: Apply interleaved production migrations
+      - name: Apply pending production migrations
         run: |
           set -euo pipefail
           supabase db push --include-all
