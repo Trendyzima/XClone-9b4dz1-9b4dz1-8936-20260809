@@ -16,9 +16,7 @@ async function actor(username: string) {
     webfinger: `acct:${username}@${new URL(ORIGIN).hostname}`,
     inbox: `${id}/inbox`, outbox: `${id}/outbox`, followers: `${id}/followers`, following: `${id}/following`,
     publicKey: { id: `${id}#main-key`, owner: id, publicKeyPem: source.publicKey?.publicKeyPem },
-    discoverable: true, indexable: true, manuallyApprovesFollowers: false,
-    attachment: [],
-    featuredTags: `${id}/tags`
+    discoverable: true, indexable: true, manuallyApprovesFollowers: false, attachment: []
   };
   if (!body.publicKey.publicKeyPem) return new Response(JSON.stringify({ error: 'actor public key unavailable' }), { status: 502, headers: { 'Content-Type': 'application/json' } });
   return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/activity+json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept', 'X-Testagram-Actor-Source': 'gateway-relay' } });
