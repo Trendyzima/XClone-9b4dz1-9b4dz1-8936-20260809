@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - 'supabase/functions/**'
+      - 'supabase/migrations/**'
       - 'supabase/config.toml'
       - '.github/workflows/supabase-edge-functions-deploy.yml'
 
@@ -26,51 +27,27 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
       - uses: actions/checkout@v5
-
       - name: Validate deployment credentials
         run: |
           set -euo pipefail
           test -n "$SUPABASE_ACCESS_TOKEN" || { echo 'Missing SUPABASE_ACCESS_TOKEN.'; exit 1; }
-          case "$SUPABASE_ACCESS_TOKEN" in
-            sbp_*) echo 'Supabase Management API token format detected.' ;;
-            *) echo 'SUPABASE_ACCESS_TOKEN is not a Supabase personal access token.'; exit 1 ;;
-          esac
-
+          case "$SUPABASE_ACCESS_TOKEN" in sbp_*) echo 'Supabase Management API token format detected.';; *) echo 'SUPABASE_ACCESS_TOKEN is not a Supabase personal access token.'; exit 1;; esac
       - name: Verify target project access
         run: |
           set -euo pipefail
-          status_code="$(curl -sS -o "$RUNNER_TEMP/supabase-project.json" -w '%{http_code}' \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            -H 'Accept: application/json' \
-            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF")"
+          status_code="$(curl -sS -o "$RUNNER_TEMP/supabase-project.json" -w '%{http_code}' -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Accept: application/json' "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF")"
           test "$status_code" = 200 || { echo "Supabase project access failed with HTTP $status_code."; exit 1; }
-
       - name: Install Supabase CLI
         run: npm install --global supabase@latest
-
       - name: Deploy gateway-relay Edge Function
-        run: |
-          set -euo pipefail
-          test -s supabase/functions/gateway-relay/index.ts
-          supabase functions deploy gateway-relay --project-ref "$SUPABASE_PROJECT_REF"
-
+        run: supabase functions deploy gateway-relay --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy federation-transport Edge Function
-        run: |
-          set -euo pipefail
-          test -s supabase/functions/federation-transport/index.ts
-          supabase functions deploy federation-transport --project-ref "$SUPABASE_PROJECT_REF"
-
+        run: supabase functions deploy federation-transport --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Deploy search-everything Edge Function
+        run: supabase functions deploy search-everything --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy feed-fast Edge Function
-        run: |
-          set -euo pipefail
-          supabase functions deploy feed-fast --project-ref "$SUPABASE_PROJECT_REF"
-
+        run: supabase functions deploy feed-fast --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy media-upload Edge Function
-        run: |
-          set -euo pipefail
-          supabase functions deploy media-upload --project-ref "$SUPABASE_PROJECT_REF"
-
+        run: supabase functions deploy media-upload --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy federation-discovery Edge Function
-        run: |
-          set -euo pipefail
-          supabase functions deploy federation-discovery --project-ref "$SUPABASE_PROJECT_REF"
+        run: supabase functions deploy federation-discovery --project-ref "$SUPABASE_PROJECT_REF"
