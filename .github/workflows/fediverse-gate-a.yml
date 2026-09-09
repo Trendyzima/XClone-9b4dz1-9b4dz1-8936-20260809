@@ -101,7 +101,9 @@ jobs:
           case "$ACTOR" in https://federation.testagram.site/users/*) ;; *) echo "FAIL: actor origin $ACTOR"; exit 1;; esac
           curl -sS --fail-with-body --max-time 20 -H 'Accept: application/activity+json' "$ACTOR" -o /tmp/local-actor.json
           cat /tmp/local-actor.json
-          jq -e --arg actor "$ACTOR" '.id == $actor and .inbox == ($actor + "/inbox") and .webfinger == ("acct:" + (.preferredUsername) + "@federation.testagram.site") and .publicKey.id == ($actor + "#main-key") and .publicKey.owner == $actor and (.publicKey.publicKeyPem | startswith("-----BEGIN PUBLIC KEY-----"))' /tmp/local-actor.json
+          # WebFinger is verified independently below; it is not a required
+          # ActivityPub actor property and the live actor intentionally omits it.
+          jq -e --arg actor "$ACTOR" '.id == $actor and .inbox == ($actor + "/inbox") and .publicKey.id == ($actor + "#main-key") and .publicKey.owner == $actor and (.publicKey.publicKeyPem | startswith("-----BEGIN PUBLIC KEY-----"))' /tmp/local-actor.json
           USERNAME="$(jq -r '.preferredUsername' /tmp/local-actor.json)"
           WEBFINGER_RESOURCE="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote("acct:"+sys.argv[1]+"@federation.testagram.site", safe=""))' "$USERNAME")"
           curl -sS --fail-with-body --max-time 20 "https://federation.testagram.site/.well-known/webfinger?resource=$WEBFINGER_RESOURCE" -o /tmp/local-webfinger.json
