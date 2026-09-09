@@ -10,8 +10,8 @@ permissions:
   actions: write
 
 concurrency:
-  group: testagram-production-release
-  cancel-in-progress: true
+  group: testagram-production-release-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   release:
