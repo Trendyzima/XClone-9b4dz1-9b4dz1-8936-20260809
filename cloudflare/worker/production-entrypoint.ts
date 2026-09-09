@@ -1,5 +1,6 @@
 import publicActor from './public-actor-entrypoint';
 import federation from './federation-entrypoint';
+import federationInterop from './federation-interop-entrypoint';
 import { handlePayPal, PayPalEnv } from './paypal';
 
 interface Env extends PayPalEnv {
@@ -25,7 +26,7 @@ async function health(env: Env): Promise<Response> {
 
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
-  if (url.hostname === 'federation.testagram.site') return federation.fetch(request, env, ctx);
+  if (url.hostname === 'federation.testagram.site') return federationInterop.fetch(request, env, ctx);
   if (url.pathname === '/api/health') {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': env.APP_ORIGIN, 'Access-Control-Allow-Methods': 'GET,OPTIONS', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } });
     return health(env);
