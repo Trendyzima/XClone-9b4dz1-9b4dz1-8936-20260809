@@ -103,75 +103,6 @@ jobs:
           printf '%s' "$client_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_ID --config cloudflare/wrangler.jsonc
           printf '%s' "$client_secret" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_CLIENT_SECRET --config cloudflare/wrangler.jsonc
           printf '%s' "$webhook_id" | npx --yes wrangler@${WRANGLER_VERSION} secret put PAYPAL_WEBHOOK_ID --config cloudflare/wrangler.jsonc
-      - name: Configure federation security exception
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          api='https://api.cloudflare.com/client/v4'
-          auth=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json')
-          zone_json="$(curl -fsS "$api/zones?name=testagram.site&status=active&per_page=1" "${auth[@]}")"
-          echo "$zone_json" | jq -e '.success == true and (.result | length) == 1' >/dev/null
-          zone_id="$(echo "$zone_json" | jq -r '.result[0].id')"
-          echo "Cloudflare zone resolved for federation host: $zone_id"
-
-          bot_status="$(curl -sS -o /tmp/bot-management.json -w '%{http_code}' "$api/zones/$zone_id/bot_management" "${auth[@]}" || true)"
-          echo "Bot-management HTTP status: $bot_status"
-          if [ "$bot_status" = 200 ]; then
-            jq '{fight_mode, sbfm_likely_automated, sbfm_definitely_automated, sbfm_verified_bots, sbfm_static_resource_protection}' /tmp/bot-management.json || true
-          else
-            cat /tmp/bot-management.json || true
-          fi
-
-          entry_status="$(curl -sS -o /tmp/custom-entrypoint.json -w '%{http_code}' "$api/zones/$zone_id/rulesets/phases/http_request_firewall_custom/entrypoint" "${auth[@]}" || true)"
-          echo "Custom-rules entrypoint HTTP status: $entry_status"
-          if [ "$entry_status" = 200 ]; then
-            ruleset_id="$(jq -r '.result.id // empty' /tmp/custom-entrypoint.json)"
-          elif [ "$entry_status" = 404 ]; then
-            create_status="$(curl -sS -o /tmp/custom-entrypoint-created.json -w '%{http_code}' "$api/zones/$zone_id/rulesets" --request POST "${auth[@]}" --data @- <<'JSON'
-          {
-            "name": "Testagram federation custom security",
-            "description": "Zone-level custom rules for Testagram federation automation",
-            "kind": "zone",
-            "version": "1",
-            "phase": "http_request_firewall_custom",
-            "rules": []
-          }
-          JSON
-          )"
-            echo "Custom-rules entrypoint create HTTP status: $create_status"
-            cat /tmp/custom-entrypoint-created.json
-            jq -e '.success == true and .result.id' /tmp/custom-entrypoint-created.json >/dev/null
-            ruleset_id="$(jq -r '.result.id' /tmp/custom-entrypoint-created.json)"
-          else
-            cat /tmp/custom-entrypoint.json || true
-            exit 1
-          fi
-          test -n "$ruleset_id"
-
-          existing="$(jq -r '.result.rules[]? | select(.description == "Testagram federation automation bypass") | .id' /tmp/custom-entrypoint.json 2>/dev/null | head -n1 || true)"
-          if [ -z "$existing" ]; then
-            rule_status="$(curl -sS -o /tmp/federation-skip-rule.json -w '%{http_code}' "$api/zones/$zone_id/rulesets/$ruleset_id/rules" --request POST "${auth[@]}" --data @- <<'JSON'
-          {
-            "action": "skip",
-            "action_parameters": {
-              "phases": ["http_ratelimit", "http_request_firewall_managed", "http_request_sbfm"],
-              "products": ["bic", "securityLevel", "uaBlock", "waf", "zoneLockdown"]
-            },
-            "expression": "http.host eq \"federation.testagram.site\"",
-            "description": "Testagram federation automation bypass",
-            "enabled": true
-          }
-          JSON
-          )"
-            echo "Federation security-exception HTTP status: $rule_status"
-            cat /tmp/federation-skip-rule.json
-            jq -e '.success == true' /tmp/federation-skip-rule.json >/dev/null
-          else
-            echo "Federation automation bypass already exists: $existing"
-          fi
-
-          echo 'Federation security exception is configured only for federation.testagram.site.'
       - name: Verify canonical Worker health
         run: |
           set -euo pipefail
@@ -197,7 +128,11 @@ jobs:
             if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site"' /tmp/federation-health.json >/dev/null 2>&1; then ok=1; break; fi
             sleep 5
           done
-          test "$ok" = 1
+          if [ "$ok" != 1 ]; then
+            echo 'Federation custom domain is not externally healthy.'
+            echo 'This check is intentionally blocking: ActivityPub servers must be able to reach the canonical federation hostname without a Cloudflare challenge.'
+            exit 1
+          fi
       - name: Verify PayPal configuration
         run: |
           set -euo pipefail
