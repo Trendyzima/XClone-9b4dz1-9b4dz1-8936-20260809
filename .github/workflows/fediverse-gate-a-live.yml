@@ -71,7 +71,7 @@ jobs:
             sleep 5
           done
           test "$WF_STATUS" = 200
-          jq -e --arg actor "$LOCAL_ACTOR" '.aliases | index($actor) != null and (.links | any(.[]; .href == $actor and .rel == "self"))' /tmp/webfinger.json
+          jq -e --arg actor "$LOCAL_ACTOR" '(.aliases | index($actor) != null) and (.links | any(.[]; .href == $actor and .rel == "self"))' /tmp/webfinger.json
           test "$ACTOR_STATUS" = 200
           jq -e --arg actor "$LOCAL_ACTOR" --arg key "${LOCAL_ACTOR}#main-key" '(.id == $actor) and (.type == "Person") and (.preferredUsername | length > 0) and (.inbox == ($actor + "/inbox")) and (.publicKey.id == $key) and (.publicKey.owner == $actor) and ((.publicKey.publicKeyPem // "") | length > 100)' /tmp/actor.json
           curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_outbox?activity_id=eq.$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$ACTIVITY_ID")&select=activity_type,status,attempts,http_status" -H "apikey: $SUPABASE_SECRET_KEY" >/tmp/outbox.json
