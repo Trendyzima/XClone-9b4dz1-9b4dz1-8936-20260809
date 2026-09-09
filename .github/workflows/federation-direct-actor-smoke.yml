@@ -5,7 +5,9 @@ on:
     paths:
       - '.github/workflows/federation-direct-actor-smoke.yml'
       - 'cloudflare/worker/public-actor-entrypoint.ts'
+      - 'cloudflare/worker/federation-interop-entrypoint.ts'
       - 'cloudflare/wrangler-federation.jsonc'
+      - 'cloudflare/wrangler.jsonc'
 permissions:
   contents: read
 jobs:
@@ -13,10 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Verify public actor key
+      - name: Verify canonical public actor
         env:
-          SUPABASE_URL: https://zcjtvykwwplnzyyslnop.supabase.co
-          GATEWAY_URL: https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/gateway-relay
+          SUPABASE_URL: https://aepbqfrmheihfsauzcby.supabase.co
+          GATEWAY_URL: https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/gateway-relay
+          FEDERATION_ORIGIN: https://federation.testagram.site
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: |
@@ -31,13 +34,9 @@ jobs:
           test "$status" -ge 200 && test "$status" -lt 300
           ACTOR="$(curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_actors?user_id=eq.$USER_ID&select=actor_url" -H "apikey: $SUPABASE_SECRET_KEY" | jq -r '.[0].actor_url')"
           echo "actor URL: $ACTOR"
-          test -n "$ACTOR" && test "$ACTOR" != "null"
-          case "$ACTOR" in
-            https://testagram-api.nahashonnyaga794.workers.dev/users/*) ;;
-            *) echo "unexpected actor URL: $ACTOR" >&2; exit 1;;
-          esac
+          test "$ACTOR" = "${FEDERATION_ORIGIN}/users/$(curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_actors?user_id=eq.$USER_ID&select=username" -H "apikey: $SUPABASE_SECRET_KEY" | jq -r '.[0].username')"
           status="$(curl -sS -o /tmp/actor.json -D /tmp/headers -w '%{http_code}' --max-time 30 -H 'Accept: application/activity+json' "$ACTOR")"
           echo "actor HTTP $status"; cat /tmp/headers; cat /tmp/actor.json
           test "$status" = 200
-          grep -Fqi 'X-Testagram-Actor-Source: direct' /tmp/headers
-          jq -e --arg key "${ACTOR}#main-key" '.publicKey.id == $key and .publicKey.owner == .id and .inbox == ($actor + "/inbox")' --arg actor "$ACTOR" /tmp/actor.json
+          jq -e --arg key "${ACTOR}#main-key" --arg inbox "${ACTOR}/inbox" '.id == $actor and .type == "Person" and .publicKey.id == $key and .publicKey.owner == .id and .inbox == $inbox and (.publicKey.publicKeyPem | startswith("-----BEGIN PUBLIC KEY-----"))' --arg actor "$ACTOR" /tmp/actor.json
+          echo 'Canonical federation actor smoke passed.'
