@@ -13,7 +13,21 @@ create table if not exists public.knowledge_answers (
   is_accepted boolean not null default false, status text not null default 'published' check (status in ('published','draft','moderation','collapsed')),
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
-alter table public.knowledge_questions add constraint knowledge_questions_accepted_answer_fk foreign key (accepted_answer_id) references public.knowledge_answers(id) on delete set null;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.knowledge_questions'::regclass
+      and conname = 'knowledge_questions_accepted_answer_fk'
+  ) then
+    alter table public.knowledge_questions
+      add constraint knowledge_questions_accepted_answer_fk
+      foreign key (accepted_answer_id)
+      references public.knowledge_answers(id)
+      on delete set null;
+  end if;
+end $$;
 create table if not exists public.knowledge_answer_votes (answer_id uuid not null references public.knowledge_answers(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade, value smallint not null check (value in (-1,1)), created_at timestamptz not null default now(), primary key(answer_id,user_id));
 create table if not exists public.knowledge_question_follows (question_id uuid not null references public.knowledge_questions(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade, created_at timestamptz not null default now(), primary key(question_id,user_id));
 create table if not exists public.knowledge_answer_requests (
@@ -41,21 +55,37 @@ create index if not exists knowledge_requests_target_idx on public.knowledge_ans
 create index if not exists knowledge_credentials_user_topic_idx on public.knowledge_credentials(user_id,topic);
 create index if not exists knowledge_submissions_queue_idx on public.knowledge_question_submissions(community_id,status,created_at);
 alter table public.knowledge_questions enable row level security; alter table public.knowledge_answers enable row level security; alter table public.knowledge_answer_votes enable row level security; alter table public.knowledge_question_follows enable row level security; alter table public.knowledge_answer_requests enable row level security; alter table public.knowledge_credentials enable row level security; alter table public.knowledge_question_submissions enable row level security;
+drop policy if exists "published questions are public" on public.knowledge_questions;
 create policy "published questions are public" on public.knowledge_questions for select using(status='published' or author_id=auth.uid());
+drop policy if exists "users create questions" on public.knowledge_questions;
 create policy "users create questions" on public.knowledge_questions for insert with check(auth.uid()=author_id);
+drop policy if exists "authors update questions" on public.knowledge_questions;
 create policy "authors update questions" on public.knowledge_questions for update using(auth.uid()=author_id) with check(auth.uid()=author_id);
+drop policy if exists "published answers are public" on public.knowledge_answers;
 create policy "published answers are public" on public.knowledge_answers for select using(status='published' or author_id=auth.uid());
+drop policy if exists "users create answers" on public.knowledge_answers;
 create policy "users create answers" on public.knowledge_answers for insert with check(auth.uid()=author_id);
+drop policy if exists "authors update answers" on public.knowledge_answers;
 create policy "authors update answers" on public.knowledge_answers for update using(auth.uid()=author_id) with check(auth.uid()=author_id);
+drop policy if exists "users manage answer votes" on public.knowledge_answer_votes;
 create policy "users manage answer votes" on public.knowledge_answer_votes for all using(auth.uid()=user_id) with check(auth.uid()=user_id);
+drop policy if exists "users manage question follows" on public.knowledge_question_follows;
 create policy "users manage question follows" on public.knowledge_question_follows for all using(auth.uid()=user_id) with check(auth.uid()=user_id);
+drop policy if exists "request participants read requests" on public.knowledge_answer_requests;
 create policy "request participants read requests" on public.knowledge_answer_requests for select using(auth.uid()=requester_id or auth.uid()=target_user_id);
+drop policy if exists "users send requests" on public.knowledge_answer_requests;
 create policy "users send requests" on public.knowledge_answer_requests for insert with check(auth.uid()=requester_id);
+drop policy if exists "request participants update" on public.knowledge_answer_requests;
 create policy "request participants update" on public.knowledge_answer_requests for update using(auth.uid()=requester_id or auth.uid()=target_user_id) with check(auth.uid()=requester_id or auth.uid()=target_user_id);
+drop policy if exists "credentials are public" on public.knowledge_credentials;
 create policy "credentials are public" on public.knowledge_credentials for select using(true);
+drop policy if exists "users manage credentials" on public.knowledge_credentials;
 create policy "users manage credentials" on public.knowledge_credentials for all using(auth.uid()=user_id) with check(auth.uid()=user_id);
+drop policy if exists "submitters and reviewers read submissions" on public.knowledge_question_submissions;
 create policy "submitters and reviewers read submissions" on public.knowledge_question_submissions for select using(auth.uid()=submitted_by or exists(select 1 from public.community_members cm where cm.community_id=knowledge_question_submissions.community_id and cm.user_id=auth.uid() and cm.role in('owner','admin','moderator')));
+drop policy if exists "members submit questions" on public.knowledge_question_submissions;
 create policy "members submit questions" on public.knowledge_question_submissions for insert with check(auth.uid()=submitted_by and exists(select 1 from public.community_members cm where cm.community_id=knowledge_question_submissions.community_id and cm.user_id=auth.uid() and cm.status='active'));
+drop policy if exists "reviewers update submissions" on public.knowledge_question_submissions;
 create policy "reviewers update submissions" on public.knowledge_question_submissions for update using(exists(select 1 from public.community_members cm where cm.community_id=knowledge_question_submissions.community_id and cm.user_id=auth.uid() and cm.role in('owner','admin','moderator'))) with check(exists(select 1 from public.community_members cm where cm.community_id=knowledge_question_submissions.community_id and cm.user_id=auth.uid() and cm.role in('owner','admin','moderator')));
 create or replace function public.knowledge_recount_answer_stats() returns trigger language plpgsql security definer set search_path=public as $$ declare qid uuid; begin qid:=coalesce(new.question_id,old.question_id); update public.knowledge_questions set answer_count=(select count(*) from public.knowledge_answers where question_id=qid and status='published'),updated_at=now() where id=qid; return coalesce(new,old); end; $$;
 drop trigger if exists trg_knowledge_answer_stats on public.knowledge_answers;
