@@ -107,19 +107,16 @@ jobs:
           PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_WEBHOOK_ID }}
         run: |
           set -euo pipefail
-          client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
-          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
-          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
+          client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_SANDBOX_CLIENT_ID:-}}"
+          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_SANDBOX_CLIENT_SECRET:-}}"
+          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_SANDBOX_WEBHOOK_ID:-}}"
           put_secret() {
             local name="$1" value="$2"
             for attempt in $(seq 1 6); do
-              if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then
-                return 0
-              fi
+              if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then return 0; fi
               echo "Cloudflare secret $name attempt $attempt failed; retrying transient API failure..."
               sleep $((attempt * 5))
             done
-            echo "Cloudflare secret $name failed after retries."
             return 1
           }
           put_secret PAYPAL_CLIENT_ID "$client_id"
@@ -132,7 +129,7 @@ jobs:
           for attempt in $(seq 1 12); do
             status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$WORKER_DIRECT_URL/api/health" || true)"
             cat /tmp/health.json || true
-            if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/health.json >/dev/null 2>&1; then ok=1; break; fi
+            if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/health.json >/dev/null 2>&1; then ok=1; break; fi
             sleep 5
           done
           test "$ok" = 1
@@ -144,7 +141,7 @@ jobs:
             status="$(curl -sS -D /tmp/federation-headers.txt -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 "$FEDERATION_URL/api/health" || true)"
             echo "Federation custom-domain HTTP status: $status"
             cat /tmp/federation-health.json || true
-            if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/federation-health.json >/dev/null 2>&1; then ok=1; break; fi
+            if [ "$status" = 200 ] && jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site" and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/federation-health.json >/dev/null 2>&1; then ok=1; break; fi
             sleep 5
           done
           test "$ok" = 1
