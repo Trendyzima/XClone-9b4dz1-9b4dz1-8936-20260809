@@ -86,7 +86,7 @@ export async function getMergedHomeTimeline({ limit = 20, before }: { limit?: nu
   }
 
   const localPosts = (localRes?.data ?? []).map(normalizeLocal);
-  const fedPosts = (Array.isArray(fedRes) ? fedRes : fedRes?.posts ?? []).map(normalizeFederated);
+  const fedPosts = (Array.isArray(fedRes) ? fedRes : (fedRes as { posts?: any[] })?.posts ?? []).map(normalizeFederated);
 
   const map = new Map<string, Post>();
   [...localPosts, ...fedPosts].forEach((p) => {
