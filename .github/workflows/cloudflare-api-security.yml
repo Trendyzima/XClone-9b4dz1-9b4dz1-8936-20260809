@@ -29,8 +29,8 @@ jobs:
           set -euo pipefail
           if [ -z "$CLOUDFLARE_ZONE_API_TOKEN" ]; then
             echo 'Missing GitHub environment secret: CLOUDFLARE_ZONE_API_TOKEN'
-            echo 'Required Cloudflare token permissions for this workflow: Zone Read, Zone WAF Edit, and Bot Management Edit.'
-            echo 'The existing CLOUDFLARE_API_TOKEN is intentionally reserved for Worker deployment and returned HTTP 403 on zone Rulesets/Bot Management endpoints.'
+            echo 'Required Cloudflare token permissions: Zone Read, Zone WAF Edit, and Bot Management Edit.'
+            echo 'The existing CLOUDFLARE_API_TOKEN is reserved for Worker deployment and returned HTTP 403 on zone Rulesets/Bot Management endpoints.'
             exit 1
           fi
 
@@ -58,6 +58,33 @@ jobs:
           test "$status" = 200
           jq -e '.success == true' /tmp/bot-management.json >/dev/null
           jq '{fight_mode, sbfm_likely_automated, sbfm_definitely_automated, sbfm_verified_bots, sbfm_static_resource_protection}' /tmp/bot-management.json || true
+
+      - name: Disable Bot Fight Mode when federation host is challenge-blocked
+        env:
+          CLOUDFLARE_ZONE_API_TOKEN: ${{ secrets.CLOUDFLARE_ZONE_API_TOKEN }}
+          ZONE_ID: ${{ steps.zone.outputs.zone_id }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -D /tmp/federation-probe.headers -o /tmp/federation-probe.body -w '%{http_code}' --max-time 20 'https://federation.testagram.site/api/health' || true)"
+          echo "Pre-security federation probe HTTP status: ${status}"
+          grep -i '^cf-mitigated:' /tmp/federation-probe.headers || true
+          cat /tmp/federation-probe.body || true
+          if [ "$status" = "403" ] && grep -qi '^cf-mitigated:[[:space:]]*challenge' /tmp/federation-probe.headers; then
+            fight_mode="$(jq -r '.result.fight_mode // false' /tmp/bot-management.json)"
+            if [ "$fight_mode" = "true" ]; then
+              echo 'The federation host is returning a Cloudflare challenge and Bot Fight Mode is enabled.'
+              echo 'Disabling Bot Fight Mode is required because Cloudflare does not allow WAF Skip rules to bypass BFM.'
+              update_status="$(curl -sS -o /tmp/bot-management-update.json -w '%{http_code}' --max-time 20 -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/bot_management" -H "Authorization: Bearer ${CLOUDFLARE_ZONE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"fight_mode":false}')"
+              echo "Bot Fight Mode update HTTP status: ${update_status}"
+              cat /tmp/bot-management-update.json
+              test "$update_status" = 200
+              jq -e '.success == true and (.result.fight_mode == false)' /tmp/bot-management-update.json >/dev/null
+            else
+              echo 'Federation is challenge-blocked, but Bot Fight Mode is not enabled; continue to scoped WAF/SBFM exception handling.'
+            fi
+          else
+            echo 'Federation probe is not a Bot Fight Mode challenge; no Bot Fight Mode mutation required.'
+          fi
 
       - name: Provision or locate zone custom-rule entrypoint
         id: ruleset
