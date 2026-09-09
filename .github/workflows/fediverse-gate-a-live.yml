@@ -47,6 +47,31 @@ jobs:
           EXPECTED_ACTOR="$FEDERATION_ORIGIN/users/$PROFILE_USERNAME"
           echo "Canonical profile username: $PROFILE_USERNAME"
           echo "Expected actor: $EXPECTED_ACTOR"
+
+          echo 'Bootstrapping authenticated federation actor before any remote delivery...'
+          BOOTSTRAP_STATUS="$(curl -sS -o /tmp/bootstrap.json -w '%{http_code}' --max-time 20 -X POST "$GATEWAY_URL" -H "apikey: $PUBLISHABLE_KEY" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"path":"/timeline/federated","body":{}}')"
+          echo "Bootstrap HTTP status: $BOOTSTRAP_STATUS"; cat /tmp/bootstrap.json
+          test "$BOOTSTRAP_STATUS" = 200
+          ACTOR_QUERY_STATUS="$(curl -sS -o /tmp/actor-query.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/federation_actors?user_id=eq.$USER_ID&select=actor_url" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY")"
+          echo "Actor REST HTTP status: $ACTOR_QUERY_STATUS"; cat /tmp/actor-query.json
+          test "$ACTOR_QUERY_STATUS" = 200
+          LOCAL_ACTOR="$(jq -er '.[0].actor_url' /tmp/actor-query.json)"
+          test "$LOCAL_ACTOR" = "$EXPECTED_ACTOR"
+
+          echo 'Waiting for the canonical public actor endpoint to serve the durable actor before asking Mastodon to fetch it...'
+          ACTOR_STATUS=""
+          for attempt in $(seq 1 12); do
+            ACTOR_STATUS="$(curl -sS -o /tmp/actor.json -w '%{http_code}' --max-time 20 -H 'Accept: application/activity+json' -H 'Cache-Control: no-cache' -H 'User-Agent: Testagram-Federation-Gate/1.0' "$LOCAL_ACTOR" || true)"
+            echo "Preflight actor HTTP status attempt $attempt: $ACTOR_STATUS"
+            cat /tmp/actor.json || true
+            if [ "$ACTOR_STATUS" = 200 ] && jq -e --arg actor "$LOCAL_ACTOR" --arg key "${LOCAL_ACTOR}#main-key" '(.id == $actor) and (.type == "Person") and (.inbox == ($actor + "/inbox")) and (.publicKey.id == $key) and (.publicKey.owner == $actor) and ((.publicKey.publicKeyPem // "") | length > 100)' /tmp/actor.json >/dev/null 2>&1; then
+              echo 'Canonical actor preflight passed.'
+              break
+            fi
+            sleep 5
+          done
+          test "$ACTOR_STATUS" = 200
+
           STATUS="$(curl -sS -o /tmp/follow.json -w '%{http_code}' --max-time 60 -X POST "$GATEWAY_URL" -H "apikey: $PUBLISHABLE_KEY" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$(jq -nc '{path:"/follow",body:{target:"@Mastodon@mastodon.social"}}')")"
           echo "Follow HTTP status: $STATUS"; cat /tmp/follow.json
           test "$STATUS" = 200
