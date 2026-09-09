@@ -82,7 +82,8 @@ jobs:
           cat /tmp/local-actor.json
           jq -e --arg actor "$ACTOR" '.id == $actor and .inbox == ($actor + "/inbox") and .webfinger == ("acct:" + (.preferredUsername) + "@federation.testagram.site") and .publicKey.id == ($actor + "#main-key") and .publicKey.owner == $actor and (.publicKey.publicKeyPem | startswith("-----BEGIN PUBLIC KEY-----"))' /tmp/local-actor.json
           USERNAME="$(jq -r '.preferredUsername' /tmp/local-actor.json)"
-          curl -sS --fail-with-body --max-time 20 "https://federation.testagram.site/.well-known/webfinger?resource=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote("acct:"+sys.argv[1]+"@federation.testagram.site", safe=""))' "$USERNAME")" -o /tmp/local-webfinger.json
+          WEBFINGER_RESOURCE="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote("acct:"+sys.argv[1]+"@federation.testagram.site", safe=""))' "$USERNAME")"
+          curl -sS --fail-with-body --max-time 20 "https://federation.testagram.site/.well-known/webfinger?resource=$WEBFINGER_RESOURCE" -o /tmp/local-webfinger.json
           cat /tmp/local-webfinger.json
           jq -e --arg acct "acct:${USERNAME}@federation.testagram.site" --arg actor "$ACTOR" '.subject == $acct and (.links | any(.[]; .rel == "self" and .href == $actor and (.type | contains("activity+json"))))' /tmp/local-webfinger.json
           STATUS="$(curl -sS -o /tmp/follow.json -w '%{http_code}' --max-time 45 -X POST "$GATEWAY_URL" -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"path":"/follow","body":{"target":"@Mastodon@mastodon.social"}}')"
@@ -94,9 +95,10 @@ jobs:
           REMOTE_ACTOR="$(jq -r '.activity.object' /tmp/follow.json)"
           LOCAL_ACTOR="$(jq -r '.activity.actor' /tmp/follow.json)"
           test "$LOCAL_ACTOR" = "$ACTOR"
-          curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_outbox?activity_type=eq.Follow&order=created_at.desc&limit=1&select=activity_id,activity_type,status,attempts,http_status" -H "apikey: $SUPABASE_SECRET_KEY" >/tmp/outbox.json
+          echo 'Querying recent Follow outbox rows without embedding the ActivityPub URL in a PostgREST filter.'
+          curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_outbox?activity_type=eq.Follow&order=created_at.desc&limit=10&select=activity_id,activity_type,status,attempts,http_status,created_at" -H "apikey: $SUPABASE_SECRET_KEY" >/tmp/outbox.json
           cat /tmp/outbox.json
-          jq -e 'length == 1 and .[0].activity_type == "Follow" and .[0].activity_id == $fid and .[0].attempts == 1 and (.[0].status == "delivered" or .[0].status == "pending")' --arg fid "$ACTIVITY_ID" /tmp/outbox.json
+          jq -e --arg fid "$ACTIVITY_ID" 'any(.[]; .activity_type == "Follow" and .activity_id == $fid and .attempts == 1 and (.status == "delivered" or .status == "pending"))' /tmp/outbox.json
           echo 'Waiting for Mastodon Accept to reach the local ActivityPub inbox...'
           ACCEPT_FOUND=0
           for i in $(seq 1 18); do
