@@ -54,6 +54,12 @@ jobs:
           test -s supabase/functions/gateway-relay/index.ts
           supabase functions deploy gateway-relay --project-ref "$SUPABASE_PROJECT_REF"
 
+      - name: Deploy federation-transport Edge Function
+        run: |
+          set -euo pipefail
+          test -s supabase/functions/federation-transport/index.ts
+          supabase functions deploy federation-transport --project-ref "$SUPABASE_PROJECT_REF"
+
       - name: Deploy feed-fast Edge Function
         run: |
           set -euo pipefail
