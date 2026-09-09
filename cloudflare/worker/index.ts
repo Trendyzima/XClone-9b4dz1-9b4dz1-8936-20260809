@@ -71,6 +71,13 @@ function supabaseHeaders(request: Request, env: Env): Headers {
   return headers;
 }
 
+function jsonSupabaseHeaders(request: Request, env: Env): Headers {
+  const headers = new Headers(supabaseHeaders(request, env));
+  headers.set('Content-Type', 'application/json');
+  headers.set('Accept', 'application/json');
+  return headers;
+}
+
 function requireAuth(request: Request, env: Env): Response | null {
   if (!request.headers.get('Authorization')) {
     return response(request, env, { error: 'Authentication required' }, 401);
@@ -170,7 +177,7 @@ async function uploadMedia(request: Request, env: Env): Promise<Response> {
 
     const dbResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/media_assets`, {
       method: 'POST',
-      headers: supabaseHeaders(request, env),
+      headers: jsonSupabaseHeaders(request, env),
       body: JSON.stringify({
         id: assetId,
         owner_id: userId,
@@ -184,8 +191,9 @@ async function uploadMedia(request: Request, env: Env): Promise<Response> {
     });
 
     if (!dbResponse.ok) {
+      const detail = (await dbResponse.text()).slice(0, 500);
       await env.MEDIA.delete(key);
-      return response(request, env, { error: 'Media metadata write failed' }, 502);
+      return response(request, env, { error: 'Media metadata write failed', detail }, 502);
     }
 
     return response(request, env, {
