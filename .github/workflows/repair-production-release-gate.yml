@@ -23,14 +23,22 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import re
+
           p = Path('.github/workflows/testagram-production-release.yml')
           s = p.read_text()
-          expected = "concurrency:\n  group: testagram-production-release-${{ github.sha }}\n  cancel-in-progress: false"
+          repaired_re = re.compile(
+              r"concurrency:\n"
+              r"  group: testagram-production-release-\\$\\{\\{ github\\.sha \\\}\\}\n"
+              r"  cancel-in-progress: false"
+          )
           legacy = "concurrency:\n  group: testagram-production-release\n  cancel-in-progress: true"
-          if expected in s:
+
+          if repaired_re.search(s):
               print('Production gate concurrency is already repaired.')
           elif legacy in s:
-              p.write_text(s.replace(legacy, expected, 1))
+              replacement = "concurrency:\n  group: testagram-production-release-${{ github.sha }}\n  cancel-in-progress: false"
+              p.write_text(s.replace(legacy, replacement, 1))
               print('Production gate concurrency repaired.')
           else:
               raise SystemExit('production gate concurrency block is neither legacy nor repaired form')
