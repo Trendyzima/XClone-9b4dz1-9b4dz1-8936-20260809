@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, BarChart3, BadgeCheck, Bookmark, Calendar, Heart, Image as ImageIcon, Link as LinkIcon, Loader2, MessageCircle, Pencil, Pin, Repeat2, Search, Share2, UserPlus } from 'lucide-react';
+import { ArrowLeft, BarChart3, BadgeCheck, Calendar, Heart, Link as LinkIcon, Loader2, MessageCircle, Pencil, Pin, Repeat2, Search, Share2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
