@@ -1,0 +1,4 @@
+-- Remote migration 20260909215557 is already applied in the canonical production database.
+-- The original migration file was not retained in the repository, so this no-op
+-- reconciliation file restores migration-history parity without reapplying DDL.
+-- Production schema remains the source of truth for the already-applied version.
