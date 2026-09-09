@@ -176,31 +176,38 @@ jobs:
           echo 'Vercel production deployment did not complete within the release-gate timeout.'
           exit 1
 
-      - name: Wait for live production smoke test
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          START: ${{ steps.vercel_dispatch.outputs.started_at }}
+      - name: Live production smoke test
         run: |
           set -euo pipefail
-          run_id=''
-          for attempt in $(seq 1 30); do
-            run_id=$(gh api "/repos/$REPO/actions/workflows/testagram-production-smoke.yml/runs?event=workflow_run&per_page=20" \
-              --jq '.workflow_runs | map(select((.created_at | fromdateiso8601) >= ('"$START"') and .event == "workflow_run") | .id) | first' || true)
-            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
-            sleep 5
-          done
-          test -n "$run_id" && test "$run_id" != null
-          echo "Production smoke run=$run_id"
-          for attempt in $(seq 1 120); do
-            state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
-            conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
-            echo "attempt=$attempt status=$state conclusion=$conclusion"
-            if [ "$state" = completed ]; then
-              test "$conclusion" = success
-              exit 0
+          url='https://testagram.site/'
+          tmp_headers=$(mktemp)
+          tmp_body=$(mktemp)
+          trap 'rm -f "$tmp_headers" "$tmp_body"' EXIT
+
+          for attempt in $(seq 1 12); do
+            echo "Production smoke attempt=$attempt url=$url"
+            if curl --fail --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              --retry 2 --retry-delay 2 \
+              -D "$tmp_headers" -o "$tmp_body" "$url"; then
+              status=$(awk 'NR==1 {print $2}' "$tmp_headers")
+              test "$status" -ge 200
+              test "$status" -lt 400
+              test -s "$tmp_body"
+              if grep -Eq '<div[^>]+id=["'"']root["'"']|/assets/[^"'"' ]+\.js' "$tmp_body"; then
+                echo "Production smoke passed HTTP=$status and compiled app markers were found."
+                exit 0
+              fi
+              echo 'Production returned HTML, but the compiled app marker was not found yet.'
+            else
+              echo 'Production request failed; retrying for deployment propagation.'
             fi
             sleep 10
           done
-          echo 'Production smoke test did not complete within the release-gate timeout.'
+
+          echo 'Production smoke test failed after all propagation retries.'
+          echo '--- response headers ---'
+          cat "$tmp_headers" || true
+          echo '--- response body (first 120 lines) ---'
+          sed -n '1,120p' "$tmp_body" || true
           exit 1
