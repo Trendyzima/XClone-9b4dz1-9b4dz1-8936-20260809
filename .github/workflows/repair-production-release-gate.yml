@@ -1,0 +1,69 @@
+name: Repair production release gate concurrency
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Make production gate concurrency commit-scoped
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/testagram-production-release.yml')
+          s = p.read_text()
+          old = "concurrency:\n  group: testagram-production-release\n  cancel-in-progress: true"
+          new = "concurrency:\n  group: testagram-production-release-${{ github.sha }}\n  cancel-in-progress: false"
+          if old not in s:
+              raise SystemExit('expected production gate concurrency block not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/testagram-production-release.yml
+          if git diff --cached --quiet; then
+            echo 'Production gate concurrency is already repaired.'
+          else
+            git commit -m 'Make production release gate concurrency commit-scoped'
+            git push origin HEAD:main
+          fi
+
+      - name: Dispatch repaired production release gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "/repos/$REPO/actions/workflows/testagram-production-release.yml/dispatches" \
+            -f ref=main
+
+      - name: Remove one-time repair workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/repair-production-release-gate.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/repair-production-release-gate.yml
+          git commit -m 'Remove one-time production gate repair workflow'
+          git push origin HEAD:main
