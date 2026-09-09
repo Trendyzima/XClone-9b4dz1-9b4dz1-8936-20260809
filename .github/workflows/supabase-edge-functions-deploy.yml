@@ -57,3 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           supabase functions deploy media-upload --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy federation-discovery Edge Function
+        run: |
+          set -euo pipefail
+          supabase functions deploy federation-discovery --project-ref "$SUPABASE_PROJECT_REF"
