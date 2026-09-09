@@ -209,22 +209,65 @@ async function actorGet(e: Env, username: string) {
   });
 }
 
+async function persistInbound(e: Env, activity: any, remoteActorUri: string) {
+  try {
+    await db(e, 'federation_inbox', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        activity_id: String(activity.id),
+        activity_type: String(activity.type || 'Unknown'),
+        actor_url: remoteActorUri,
+        payload: activity,
+        processing_status: 'received',
+        received_at: new Date().toISOString(),
+      }),
+    });
+    return false;
+  } catch (error) {
+    if (String(error).includes('db 409')) return true;
+    throw error;
+  }
+}
+
+async function markInbound(e: Env, activityId: string, status: 'processed' | 'rejected' | 'failed', error?: string) {
+  await db(e, `federation_inbox?activity_id=eq.${enc(activityId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      processing_status: status,
+      ...(status === 'processed' ? { processed_at: new Date().toISOString(), error: null } : {}),
+      ...(error ? { error: error.slice(0, 1000) } : {}),
+    }),
+  });
+}
+
 async function inbox(e: Env, req: Request, username: string) {
   if (req.method !== 'POST') return ap({ error: 'ActivityPub inbox requires POST' }, 405);
   const local = await actor(e, username);
   if (!local) return ap({ error: 'actor not found' }, 404);
 
   const body = await req.text();
+  let activity: any;
+  let activityId = '';
   try {
     const { remoteActorUri, remoteActor } = await verifySignature(e, req, body, local);
-    const activity = JSON.parse(body);
-    if (!activity.id) return ap({ error: 'activity id required' }, 400);
+    activity = JSON.parse(body);
+    activityId = String(activity.id || '');
+    if (!activityId) return ap({ error: 'activity id required' }, 400);
+
+    const duplicate = await persistInbound(e, activity, remoteActorUri);
+    if (duplicate) return ap({ ok: true, duplicate: true }, 202);
 
     if (activity.type === 'Follow') {
       const target = typeof activity.object === 'string' ? activity.object : activity.object?.id;
-      if (target !== local.actor_url) return ap({ error: 'Follow target mismatch' }, 400);
-      if (remoteActor.id !== remoteActorUri) return ap({ error: 'Follow actor mismatch' }, 401);
-      if (activity.actor !== remoteActorUri) return ap({ error: 'Follow signer does not match actor' }, 401);
+      if (target !== local.actor_url) {
+        await markInbound(e, activityId, 'rejected', 'Follow target mismatch');
+        return ap({ error: 'Follow target mismatch' }, 400);
+      }
+      if (remoteActor.id !== remoteActorUri || activity.actor !== remoteActorUri) {
+        await markInbound(e, activityId, 'rejected', 'Follow actor/signature mismatch');
+        return ap({ error: 'Follow actor/signature mismatch' }, 401);
+      }
 
       const existing = await db(e, `federation_relationships?local_user_id=eq.${enc(local.user_id)}&remote_actor_uri=eq.${enc(remoteActorUri)}&relationship=eq.follower&select=id&limit=1`).then(r => r.json() as Promise<any[]>);
       await db(e, 'federation_relationships?on_conflict=local_user_id,remote_actor_uri,relationship', {
@@ -240,12 +283,47 @@ async function inbox(e: Env, req: Request, username: string) {
       });
 
       const delivery = await deliverAccept(local, activity, remoteActor);
+      await markInbound(e, activityId, 'processed');
       return ap({ ok: true, accepted: true, duplicate: existing.length > 0, delivery }, 202);
     }
 
+    if (activity.type === 'Accept' || activity.type === 'Reject') {
+      const followId = typeof activity.object === 'string' ? activity.object : activity.object?.id;
+      if (!followId) {
+        await markInbound(e, activityId, 'rejected', 'Accept/Reject object id required');
+        return ap({ error: 'Accept/Reject object id required' }, 400);
+      }
+      const rows = await db(e, `federation_relationships?activity_id=eq.${enc(followId)}&select=user_id,remote_actor_url,local_user_id,remote_actor_uri`).then(r => r.json() as Promise<any[]>);
+      if (!rows[0]) {
+        await markInbound(e, activityId, 'failed', 'No outbound relationship matched inbound Accept/Reject');
+        return ap({ ok: true, received: true, relationshipMatched: false }, 202);
+      }
+      const row = rows[0];
+      const uid = row.user_id || row.local_user_id;
+      const remoteUrl = row.remote_actor_url || row.remote_actor_uri;
+      const patch = {
+        relationship: activity.type === 'Accept' ? 'accepted' : 'rejected',
+        state: activity.type === 'Accept' ? 'accepted' : 'rejected',
+        updated_at: new Date().toISOString(),
+        last_error: null,
+      };
+      if (row.user_id && row.remote_actor_url) {
+        await db(e, `federation_relationships?user_id=eq.${enc(uid)}&remote_actor_url=eq.${enc(remoteUrl)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      }
+      if (row.local_user_id && row.remote_actor_uri) {
+        await db(e, `federation_relationships?local_user_id=eq.${enc(uid)}&remote_actor_uri=eq.${enc(remoteUrl)}`, { method: 'PATCH', body: JSON.stringify({ relationship: patch.relationship, state: patch.state, updated_at: patch.updated_at }) });
+      }
+      await markInbound(e, activityId, 'processed');
+      return ap({ ok: true, received: true, relationshipMatched: true }, 202);
+    }
+
+    await markInbound(e, activityId, 'processed');
     return ap({ ok: true, received: true }, 202);
   } catch (error) {
     console.error('ActivityPub inbox error', error);
+    if (activityId) {
+      try { await markInbound(e, activityId, 'failed', error instanceof Error ? error.message : 'Inbox processing failed'); } catch (_) { /* preserve original failure */ }
+    }
     return ap({ error: error instanceof Error ? error.message : 'Inbox processing failed' }, 401);
   }
 }
