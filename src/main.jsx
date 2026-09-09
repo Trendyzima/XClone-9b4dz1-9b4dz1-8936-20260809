@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import { AppBootBoundary } from './components/layout/AppBootBoundary';
+import './lib/platformReels';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('Testagram root element is missing');
