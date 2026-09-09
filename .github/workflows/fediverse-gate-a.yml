@@ -100,7 +100,8 @@ jobs:
           echo 'Waiting for Mastodon Accept to reach the local ActivityPub inbox...'
           ACCEPT_FOUND=0
           for i in $(seq 1 18); do
-            curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_inbox?activity_type=eq.Accept&order=received_at.desc&limit=50&select=activity_id,activity_type,actor_url,payload,received_at,processing_status" -H "apikey: $SUPABASE_SECRET_KEY" >/tmp/accepts.json
+            inbox_status="$(curl -sS -o /tmp/accepts.json -w '%{http_code}' "$SUPABASE_URL/rest/v1/federation_inbox?activity_type=eq.Accept&order=received_at.desc&limit=50&select=activity_id,activity_type,actor_url,payload,received_at,processing_status" -H "apikey: $SUPABASE_SECRET_KEY" || true)"
+            if [ "$inbox_status" != "200" ]; then echo "federation_inbox query failed with HTTP $inbox_status"; cat /tmp/accepts.json || true; exit 1; fi
             if jq -e --arg fid "$ACTIVITY_ID" --arg remote "$REMOTE_ACTOR" 'any(.[]; .activity_type == "Accept" and .actor_url == $remote and ((.payload.object.id? // .payload.object?) == $fid) and (.payload.actor? == $remote))' /tmp/accepts.json >/dev/null; then ACCEPT_FOUND=1; break; fi
             sleep 5
           done
