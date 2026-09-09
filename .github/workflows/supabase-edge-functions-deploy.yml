@@ -48,6 +48,12 @@ jobs:
       - name: Install Supabase CLI
         run: npm install --global supabase@latest
 
+      - name: Deploy gateway-relay Edge Function
+        run: |
+          set -euo pipefail
+          test -s supabase/functions/gateway-relay/index.ts
+          supabase functions deploy gateway-relay --project-ref "$SUPABASE_PROJECT_REF"
+
       - name: Deploy feed-fast Edge Function
         run: |
           set -euo pipefail
