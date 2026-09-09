@@ -152,3 +152,5 @@ jobs:
           cat /tmp/federation-health.json || true
           echo 'API or federation host is still challenge-blocked or unhealthy.'
           exit 1
+
+# Force a fresh security run after the Cloudflare API token permission update; no runtime behavior change.
