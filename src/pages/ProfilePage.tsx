@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
 import { ProductionEditProfileDialog } from '@/components/features/ProductionEditProfileDialog';
 import { WalletCard } from '@/components/features/WalletCard';
+import { WalletCard } from '@/components/features/WalletCard';
 import { ProfileEnhancements } from '@/components/features/ProfileEnhancements';
 import { toast } from 'sonner';
 
@@ -336,6 +337,8 @@ export default function ProfilePage() {
           {Object.values(profile.social_links ?? {}).some(Boolean) && <div className="flex gap-3 mt-3 text-sm"><span className="text-muted-foreground">Social:</span>{profile.social_links.twitter && <a href={`https://x.com/${profile.social_links.twitter.replace(/^@/, '')}`} target="_blank" rel="noreferrer" className="text-primary">X</a>}{profile.social_links.instagram && <a href={`https://instagram.com/${profile.social_links.instagram.replace(/^@/, '')}`} target="_blank" rel="noreferrer" className="text-primary">Instagram</a>}{profile.social_links.linkedin && <a href={profile.social_links.linkedin} target="_blank" rel="noreferrer" className="text-primary">LinkedIn</a>}</div>}
         </div>
       </div>
+
+      {isOwn && <WalletCard username={profile.username} />}
 
       {isOwn && <WalletCard username={profile.username} />}
 
