@@ -1,7 +1,7 @@
-import CreatorMonetizationCenter from '@/pages/CreatorMonetizationCenter';
+import CreatorGrowthHub from '@/pages/CreatorGrowthHub';
 
 export function MonetizationDashboard() {
-  return <CreatorMonetizationCenter />;
+  return <CreatorGrowthHub />;
 }
 
 export default MonetizationDashboard;
