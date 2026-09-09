@@ -13,11 +13,24 @@ concurrency:
   group: testagram-production-release-${{ github.sha }}
   cancel-in-progress: false
 
+env:
+  RELEASE_SHA: ${{ github.sha }}
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Verify release identity
+        run: |
+          set -euo pipefail
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$RELEASE_SHA"
+          echo "Release commit=$actual"
 
       - uses: actions/setup-node@v5
         with:
@@ -35,6 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           START=$(date -u +%s)
@@ -43,28 +57,31 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "/repos/$REPO/actions/workflows/supabase-production-migrate.yml/dispatches" \
-            -f ref=main
+            -f ref="$TARGET_SHA"
 
       - name: Wait for Supabase production migration gate
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           START: ${{ steps.migration_dispatch.outputs.started_at }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           run_id=''
           for attempt in $(seq 1 30); do
             run_id=$(gh api "/repos/$REPO/actions/workflows/supabase-production-migrate.yml/runs?branch=main&event=workflow_dispatch&per_page=20" \
-              --jq '.workflow_runs | map(select((.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
+              --jq '.workflow_runs | map(select(.head_sha == "'"$TARGET_SHA"'" and (.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
             if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
             sleep 5
           done
           test -n "$run_id" && test "$run_id" != null
-          echo "Supabase migration run=$run_id"
+          echo "Supabase migration run=$run_id sha=$TARGET_SHA"
           for attempt in $(seq 1 90); do
             state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
             conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
-            echo "attempt=$attempt status=$state conclusion=$conclusion"
+            head_sha=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.head_sha')
+            echo "attempt=$attempt status=$state conclusion=$conclusion head_sha=$head_sha"
+            test "$head_sha" = "$TARGET_SHA"
             if [ "$state" = completed ]; then
               test "$conclusion" = success
               exit 0
@@ -79,6 +96,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           START=$(date -u +%s)
@@ -87,28 +105,31 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "/repos/$REPO/actions/workflows/supabase-social-e2e.yml/dispatches" \
-            -f ref=main
+            -f ref="$TARGET_SHA"
 
       - name: Wait for Supabase E2E gate
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           START: ${{ steps.e2e_dispatch.outputs.started_at }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           run_id=''
           for attempt in $(seq 1 30); do
             run_id=$(gh api "/repos/$REPO/actions/workflows/supabase-social-e2e.yml/runs?branch=main&event=workflow_dispatch&per_page=20" \
-              --jq '.workflow_runs | map(select((.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
+              --jq '.workflow_runs | map(select(.head_sha == "'"$TARGET_SHA"'" and (.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
             if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
             sleep 5
           done
           test -n "$run_id" && test "$run_id" != null
-          echo "Supabase E2E run=$run_id"
+          echo "Supabase E2E run=$run_id sha=$TARGET_SHA"
           for attempt in $(seq 1 60); do
             state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
             conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
-            echo "attempt=$attempt status=$state conclusion=$conclusion"
+            head_sha=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.head_sha')
+            echo "attempt=$attempt status=$state conclusion=$conclusion head_sha=$head_sha"
+            test "$head_sha" = "$TARGET_SHA"
             if [ "$state" = completed ]; then
               test "$conclusion" = success
               exit 0
@@ -137,6 +158,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           START=$(date -u +%s)
@@ -145,28 +167,31 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "/repos/$REPO/actions/workflows/vercel-production-deploy.yml/dispatches" \
-            -f ref=main
+            -f ref="$TARGET_SHA"
 
       - name: Wait for Vercel production deployment
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           START: ${{ steps.vercel_dispatch.outputs.started_at }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           run_id=''
           for attempt in $(seq 1 30); do
             run_id=$(gh api "/repos/$REPO/actions/workflows/vercel-production-deploy.yml/runs?branch=main&event=workflow_dispatch&per_page=20" \
-              --jq '.workflow_runs | map(select((.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
+              --jq '.workflow_runs | map(select(.head_sha == "'"$TARGET_SHA"'" and (.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
             if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
             sleep 5
           done
           test -n "$run_id" && test "$run_id" != null
-          echo "Vercel deployment run=$run_id"
+          echo "Vercel deployment run=$run_id sha=$TARGET_SHA"
           for attempt in $(seq 1 90); do
             state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
             conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
-            echo "attempt=$attempt status=$state conclusion=$conclusion"
+            head_sha=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.head_sha')
+            echo "attempt=$attempt status=$state conclusion=$conclusion head_sha=$head_sha"
+            test "$head_sha" = "$TARGET_SHA"
             if [ "$state" = completed ]; then
               test "$conclusion" = success
               exit 0
