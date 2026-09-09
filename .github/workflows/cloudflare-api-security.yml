@@ -128,7 +128,21 @@ jobs:
             echo 'Scoped API/federation edge exception already exists; no mutation required.'
             exit 0
           fi
-          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm","http_request_firewall_managed","http_ratelimit"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API and ActivityPub federation traffic to reach the Worker without SBFM, managed-WAF, rate-limit, security-level, or browser-integrity challenge interference"}')"
+
+          # The zone custom phase is already at Cloudflare's five-rule limit. Reuse
+          # the existing federation rule instead of attempting to create a sixth.
+          federation_rule_id="$(echo "$rules" | jq -r '.result.rules[]? | select(.action == "skip" and ((.expression // "") | test("federation\\.testagram\\.site|fedi\\.testagram\\.site"))) | .id' | head -n 1)"
+          if [ -n "$federation_rule_id" ] && [ "$federation_rule_id" != "null" ]; then
+            echo "Updating existing federation rule ${federation_rule_id} in place to the canonical scoped exception."
+            payload="$(jq -nc --arg id "$federation_rule_id" --arg expr "$expression" '{id:$id,action:"skip",action_parameters:{phases:["http_request_sbfm","http_request_firewall_managed","http_ratelimit"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API and ActivityPub federation traffic to reach the Worker without SBFM, managed-WAF, rate-limit, security-level, or browser-integrity challenge interference",enabled:true,logging:{enabled:true}}')"
+            status="$(curl -sS -o /tmp/update-rule.json -w '%{http_code}' --max-time 20 -X PATCH "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules/${federation_rule_id}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data "$payload")"
+            cat /tmp/update-rule.json || true
+            test "$status" = "200"
+            jq -e '.success == true' /tmp/update-rule.json >/dev/null
+            exit 0
+          fi
+
+          payload="$(jq -nc --arg expr "$expression" '{action:"skip",action_parameters:{phases:["http_request_sbfm","http_request_firewall_managed","http_ratelimit"],products:["securityLevel","bic"]},expression:$expr,description:"Allow Testagram API and ActivityPub federation traffic to reach the Worker without SBFM, managed-WAF, rate-limit, security-level, or browser-integrity challenge interference",enabled:true,logging:{enabled:true}}')"
           status="$(curl -sS -o /tmp/add-rule.json -w '%{http_code}' --max-time 20 -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/rulesets/${RULESET_ID}/rules" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data "$payload")"
           cat /tmp/add-rule.json || true
           test "$status" = "200"
