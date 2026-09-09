@@ -8,7 +8,7 @@ def patch(path: str, replacements: list[tuple[str, str]]) -> bool:
     text = p.read_text()
     original = text
     for old, new in replacements:
-        if old in text:
+        if old in text and new not in text:
             text = text.replace(old, new, 1)
     if text != original:
         p.write_text(text)
