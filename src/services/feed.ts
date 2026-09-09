@@ -78,7 +78,7 @@ export async function getMergedHomeTimeline({ limit = 20, before }: { limit?: nu
     console.warn('[feed] failed to fetch local posts', err);
   }
 
-  let fedRes: any[] = [];
+  let fedRes: any = [];
   try {
     fedRes = await federation.getHomeTimeline({ limit, before });
   } catch (err) {
