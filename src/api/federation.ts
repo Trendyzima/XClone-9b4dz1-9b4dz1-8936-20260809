@@ -43,7 +43,7 @@ export async function unboost(postId: string): Promise<any> { return relay('/unb
 export async function favorite(postId: string): Promise<any> { return relay('/favorite', 'POST', { post_id: await canonicalPostId(postId) }); }
 export async function unfavorite(postId: string): Promise<any> { return relay('/unfavorite', 'POST', { post_id: await canonicalPostId(postId) }); }
 export async function reply(payload: { postId: string; content: string }): Promise<any> { return relay('/reply', 'POST', { post_id: await canonicalPostId(payload.postId), content: payload.content }); }
-export async function getNotifications(params: TimelineParams = {}): Promise<any[]> { return relay('/notifications', 'GET', undefined, params as any); }
+export async function getNotifications(params: TimelineParams = {}): Promise<any> { return relay(`/notifications`, 'GET', undefined, params as any); }
 export async function clearNotifications(): Promise<void> { return relay('/notifications', 'DELETE'); }
 
 export type SearchKind = 'all' | 'users' | 'posts' | 'hashtags' | 'instances' | 'communities' | 'products' | 'fediverse_users' | 'fediverse_posts';
@@ -51,6 +51,12 @@ export async function search(q: string, type: SearchKind = 'all', limit = 40): P
   const token = await getToken();
   const { data, error } = await supabase.functions.invoke('search-everything', { body: { q, type, limit }, headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Search error'}`; } catch {} } throw new GatewayError(0, msg, '/search'); }
+  return Array.isArray(data) ? data : [];
+}
+export async function getUnifiedHashtagFeed(tag: string, limit = 40): Promise<any[]> {
+  const token = await getToken();
+  const { data, error } = await supabase.functions.invoke('search-everything', { body: { operation: 'hashtag_feed', tag, limit }, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Hashtag feed error'}`; } catch {} } throw new GatewayError(0, msg, '/hashtag-feed'); }
   return Array.isArray(data) ? data : [];
 }
 export async function getFollowers(acct: string, params: TimelineParams = {}): Promise<any> { return relay(`/users/${encodeURIComponent(acct)}/followers`, 'GET', undefined, params as any); }
