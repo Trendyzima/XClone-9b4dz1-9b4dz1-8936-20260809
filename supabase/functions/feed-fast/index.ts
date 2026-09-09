@@ -1,8 +1,9 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import "jsr:@supabase/functions-js/supabase-functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SECRET_KEY')!;
+const admin = createClient(URL, SERVICE, {auth:{persistSession:false,autoRefreshToken:false}});
 const CORS = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization,apikey,content-type','Access-Control-Allow-Methods':'GET,POST,OPTIONS'};
 const json = (v:unknown,s=200) => new Response(JSON.stringify(v), {status:s, headers:{...CORS,'Content-Type':'application/json','Cache-Control':'public, max-age=5, s-maxage=10, stale-while-revalidate=30'}});
 
@@ -63,7 +64,7 @@ Deno.serve(async req => {
     const seen = new Set<string>();
     const items = candidates
       .filter(p=>{
-        const id=p.source==='fediverse' ? (p.object_url||p.uri||p.id) : p.id;
+        const id=p.source==='fediverse' ? (p.uri||p.id) : p.id;
         if(!id||seen.has(id)) return false;
         seen.add(id);
         return true;
