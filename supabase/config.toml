@@ -1,2 +1,5 @@
 [functions.media-upload]
 verify_jwt = true
+
+[functions.feed-fast]
+verify_jwt = true
