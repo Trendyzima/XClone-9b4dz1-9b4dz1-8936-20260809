@@ -94,9 +94,9 @@ jobs:
           REMOTE_ACTOR="$(jq -r '.activity.object' /tmp/follow.json)"
           LOCAL_ACTOR="$(jq -r '.activity.actor' /tmp/follow.json)"
           test "$LOCAL_ACTOR" = "$ACTOR"
-          curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_outbox?activity_id=eq.$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$ACTIVITY_ID")&select=activity_type,status,attempts,http_status" -H "apikey: $SUPABASE_SECRET_KEY" >/tmp/outbox.json
+          curl -sS --fail-with-body "$SUPABASE_URL/rest/v1/federation_outbox?activity_type=eq.Follow&order=created_at.desc&limit=1&select=activity_id,activity_type,status,attempts,http_status" -H "apikey: $SUPABASE_SECRET_KEY" >/tmp/outbox.json
           cat /tmp/outbox.json
-          jq -e 'length == 1 and .[0].activity_type == "Follow" and .[0].attempts == 1 and (.[0].status == "delivered" or .[0].status == "pending")' /tmp/outbox.json
+          jq -e 'length == 1 and .[0].activity_type == "Follow" and .[0].activity_id == $fid and .[0].attempts == 1 and (.[0].status == "delivered" or .[0].status == "pending")' --arg fid "$ACTIVITY_ID" /tmp/outbox.json
           echo 'Waiting for Mastodon Accept to reach the local ActivityPub inbox...'
           ACCEPT_FOUND=0
           for i in $(seq 1 18); do
