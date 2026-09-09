@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useSEO } from '@/hooks/useSEO';
 import { ProductionEditProfileDialog } from '@/components/features/ProductionEditProfileDialog';
 import { WalletCard } from '@/components/features/WalletCard';
+import { ProfileEnhancements } from '@/components/features/ProfileEnhancements';
 import { toast } from 'sonner';
 
 interface ProfileRow {
@@ -325,6 +326,7 @@ export default function ProfilePage() {
           <div className="flex items-center gap-2"><h1 className="text-xl font-extrabold">{profile.display_name || profile.username}</h1>{profile.verified_tier && profile.verified_tier !== 'none' && <BadgeCheck className="w-5 h-5 text-primary" />}</div>
           <p className="text-sm text-muted-foreground">@{profile.username}</p>
           {profile.bio && <p className="mt-3 whitespace-pre-wrap leading-6">{profile.bio}</p>}
+          <ProfileEnhancements profile={profile} />
           <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm text-muted-foreground">
             {profile.location && <span className="inline-flex items-center gap-1"><MapPin className="w-4 h-4" />{profile.location}</span>}
             {profile.website && <a href={profile.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><LinkIcon className="w-4 h-4" />Website</a>}

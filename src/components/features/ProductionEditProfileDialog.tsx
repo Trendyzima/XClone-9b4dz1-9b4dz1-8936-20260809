@@ -34,6 +34,12 @@ export function ProductionEditProfileDialog({ open, onOpenChange, profile, onSuc
   const [twitter, setTwitter] = useState('');
   const [instagram, setInstagram] = useState('');
   const [linkedin, setLinkedin] = useState('');
+  const [pronouns, setPronouns] = useState('');
+  const [profession, setProfession] = useState('');
+  const [education, setEducation] = useState('');
+  const [languages, setLanguages] = useState('');
+  const [interests, setInterests] = useState('');
+  const [featuredLink, setFeaturedLink] = useState('');
   const [avatar, setAvatar] = useState<File | null>(null);
   const [cover, setCover] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -51,6 +57,12 @@ export function ProductionEditProfileDialog({ open, onOpenChange, profile, onSuc
     setTwitter(links.twitter ?? links.x ?? '');
     setInstagram(links.instagram ?? '');
     setLinkedin(links.linkedin ?? '');
+    setPronouns(links.pronouns ?? '');
+    setProfession(links.profession ?? '');
+    setEducation(links.education ?? '');
+    setLanguages(links.languages ?? '');
+    setInterests(links.interests ?? '');
+    setFeaturedLink(links.featured_link ?? '');
     setAvatar(null);
     setCover(null);
     setAvatarPreview(profile.avatar_url ?? null);
@@ -106,6 +118,12 @@ export function ProductionEditProfileDialog({ open, onOpenChange, profile, onSuc
         twitter: twitter.trim().replace(/^@/, ''),
         instagram: instagram.trim().replace(/^@/, ''),
         linkedin: linkedin.trim(),
+        pronouns: pronouns.trim(),
+        profession: profession.trim(),
+        education: education.trim(),
+        languages: languages.trim(),
+        interests: interests.trim(),
+        featured_link: featuredLink.trim(),
       };
 
       const { error } = await supabase.from('profiles').update({
@@ -171,6 +189,12 @@ export function ProductionEditProfileDialog({ open, onOpenChange, profile, onSuc
             <div><Label>Twitter / X</Label><Input value={twitter} onChange={e => setTwitter(e.target.value)} disabled={saving} placeholder="@handle" /></div>
             <div><Label>Instagram</Label><Input value={instagram} onChange={e => setInstagram(e.target.value)} disabled={saving} placeholder="@handle" /></div>
             <div><Label>LinkedIn</Label><Input value={linkedin} onChange={e => setLinkedin(e.target.value)} disabled={saving} placeholder="https://linkedin.com/in/..." /></div>
+            <div><Label>Pronouns</Label><Input value={pronouns} onChange={e => setPronouns(e.target.value)} disabled={saving} placeholder="they/them" /></div>
+            <div><Label>Profession</Label><Input value={profession} onChange={e => setProfession(e.target.value)} disabled={saving} placeholder="Designer at Testagram" /></div>
+            <div><Label>Education</Label><Input value={education} onChange={e => setEducation(e.target.value)} disabled={saving} placeholder="University / school" /></div>
+            <div><Label>Languages</Label><Input value={languages} onChange={e => setLanguages(e.target.value)} disabled={saving} placeholder="English, Swahili" /></div>
+            <div className="md:col-span-2"><Label>Interests</Label><Input value={interests} onChange={e => setInterests(e.target.value)} disabled={saving} placeholder="Technology, music, football" /></div>
+            <div className="md:col-span-2"><Label>Featured link</Label><Input type="url" value={featuredLink} onChange={e => setFeaturedLink(e.target.value)} disabled={saving} placeholder="https://..." /></div>
           </div>
           <div className="flex gap-3">
             <Button type="button" variant="outline" className="flex-1" disabled={saving} onClick={() => onOpenChange(false)}>Cancel</Button>
