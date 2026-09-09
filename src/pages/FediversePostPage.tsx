@@ -10,7 +10,29 @@ function normalizePost(value: any) {
   if (!value) return null;
   const actor = value.actor ?? value.account ?? value.remote_accounts ?? {};
   const raw = value.raw_object ?? {};
-  return { ...raw, ...value, actor: value.actor ?? raw.actor ?? value.account ?? { ...actor, preferredUsername: actor.preferredUsername ?? actor.username, name: actor.name ?? actor.display_name, url: actor.url ?? value.actor_url, icon: actor.icon ?? (actor.avatar_url ? { url: actor.avatar_url } : undefined), acct: actor.acct ?? (actor.username && actor.domain ? `${actor.username}@${actor.domain}` : actor.username) }, id: value.id ?? raw.id ?? value.object_url ?? value.uri ?? value.url, url: value.url ?? value.object_url ?? value.uri ?? raw.url ?? raw.uri ?? raw.id, uri: value.uri ?? value.object_url ?? raw.uri ?? raw.id, content: value.content ?? raw.content ?? value.text ?? raw.text ?? '', created_at: value.created_at ?? value.published_at ?? raw.created_at ?? raw.published ?? '', media_attachments: value.media_attachments ?? raw.media_attachments ?? value.media_urls ?? [] };
+  const canonicalObjectUrl = value.object_url ?? raw.object_url ?? value.uri ?? raw.uri ?? value.url ?? raw.url ?? raw.id ?? value.id ?? '';
+  return {
+    ...raw,
+    ...value,
+    actor: value.actor ?? raw.actor ?? value.account ?? {
+      ...actor,
+      preferredUsername: actor.preferredUsername ?? actor.username,
+      name: actor.name ?? actor.display_name,
+      url: actor.url ?? value.actor_url,
+      icon: actor.icon ?? (actor.avatar_url ? { url: actor.avatar_url } : undefined),
+      acct: actor.acct ?? (actor.username && actor.domain ? `${actor.username}@${actor.domain}` : actor.username),
+    },
+    // ActivityPub interactions must always use the canonical remote object URL.
+    // A remote_posts UUID is only a local cache key and must never become the
+    // identity sent to the federation gateway.
+    id: canonicalObjectUrl,
+    object_url: canonicalObjectUrl,
+    url: value.url ?? value.object_url ?? value.uri ?? raw.url ?? raw.uri ?? canonicalObjectUrl,
+    uri: value.uri ?? value.object_url ?? raw.uri ?? canonicalObjectUrl,
+    content: value.content ?? raw.content ?? value.text ?? raw.text ?? '',
+    created_at: value.created_at ?? value.published_at ?? raw.created_at ?? raw.published ?? '',
+    media_attachments: value.media_attachments ?? raw.media_attachments ?? value.media_urls ?? [],
+  };
 }
 
 export default function FediversePostPage() {
