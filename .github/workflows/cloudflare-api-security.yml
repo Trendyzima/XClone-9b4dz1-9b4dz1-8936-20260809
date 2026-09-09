@@ -1,12 +1,11 @@
 name: Testagram Cloudflare API Security
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'cloudflare/**'
-      - '.github/workflows/cloudflare-api-security.yml'
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Testagram Canonical Cloudflare Worker
+    types: [completed]
 
 permissions:
   contents: read
@@ -19,6 +18,7 @@ env:
 
 jobs:
   provision-api-exception:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -121,14 +121,14 @@ jobs:
             api_status="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' --max-time 20 'https://api.testagram.site/api/health' || true)"
             federation_status="$(curl -sS -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 'https://federation.testagram.site/api/health' || true)"
             echo "Attempt ${attempt}: API=${api_status} FEDERATION=${federation_status}"
+            echo '--- API health ---'; cat /tmp/api-health.json || true; echo
+            echo '--- Federation health ---'; cat /tmp/federation-health.json || true; echo
             if [ "$api_status" = 200 ] && [ "$federation_status" = 200 ]; then
-              jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/api-health.json >/dev/null
-              jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site" and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/federation-health.json >/dev/null
+              jq -e '.ok == true and .service == "testagram-api" and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/api-health.json >/dev/null || { echo 'API health assertion failed.'; exit 1; }
+              jq -e '.ok == true and .service == "testagram-federation" and .federation == true and .federationDomain == "federation.testagram.site" and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/federation-health.json >/dev/null || { echo 'Federation health assertion failed.'; exit 1; }
               echo 'API and federation health gates are green.'
               exit 0
             fi
             sleep 5
           done
-          cat /tmp/api-health.json || true
-          cat /tmp/federation-health.json || true
           exit 1
