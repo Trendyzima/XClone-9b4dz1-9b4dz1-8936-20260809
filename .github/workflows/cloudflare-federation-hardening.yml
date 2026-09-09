@@ -32,7 +32,7 @@ jobs:
       - name: Validate canonical federation origin
         run: |
           set -euo pipefail
-          grep -Fq "const DOMAIN='federation.testagram.site'" cloudflare/worker/federation-entrypoint.ts
+          grep -Fq "const DOMAIN = 'federation.testagram.site'" cloudflare/worker/federation-entrypoint.ts
           grep -Fq 'federation.testagram.site' cloudflare/wrangler-federation.jsonc
           if grep -Fq 'testagram-api.nahashonnyaga794.workers.dev' cloudflare/worker/federation-entrypoint.ts; then
             echo 'workers.dev federation origin is forbidden in canonical federation source'
