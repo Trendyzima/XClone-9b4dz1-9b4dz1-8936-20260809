@@ -48,38 +48,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          START=$(date -u +%s)
-          echo "started_at=$START" >> "$GITHUB_OUTPUT"
-          gh api --method POST \
+          response=$(gh api --method POST \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "/repos/$REPO/actions/workflows/supabase-production-migrate.yml/dispatches" \
-            -f ref=main
+            -f ref=main)
+          run_id=$(printf '%s' "$response" | jq -r '.workflow_run_id // empty')
+          test -n "$run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Supabase migration dispatched run=$run_id"
 
       - name: Wait for Supabase production migration gate
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          START: ${{ steps.migration_dispatch.outputs.started_at }}
+          RUN_ID: ${{ steps.migration_dispatch.outputs.run_id }}
           TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          run_id=''
-          for attempt in $(seq 1 30); do
-            run_id=$(gh api "/repos/$REPO/actions/workflows/supabase-production-migrate.yml/runs?branch=main&event=workflow_dispatch&per_page=20" \
-              --jq '.workflow_runs | map(select(.head_sha == "'"$TARGET_SHA"'" and (.created_at | fromdateiso8601) >= ('"$START"')) | .id) | first' || true)
-            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then break; fi
-            sleep 5
-          done
-          test -n "$run_id" && test "$run_id" != null
-          echo "Supabase migration run=$run_id sha=$TARGET_SHA"
+          test -n "$RUN_ID"
+          echo "Supabase migration run=$RUN_ID target_sha=$TARGET_SHA"
           for attempt in $(seq 1 90); do
-            state=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.status')
-            conclusion=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.conclusion // ""')
-            head_sha=$(gh api "/repos/$REPO/actions/runs/$run_id" --jq '.head_sha')
+            payload=$(gh api "/repos/$REPO/actions/runs/$RUN_ID")
+            state=$(printf '%s' "$payload" | jq -r '.status')
+            conclusion=$(printf '%s' "$payload" | jq -r '.conclusion // ""')
+            head_sha=$(printf '%s' "$payload" | jq -r '.head_sha')
             echo "attempt=$attempt status=$state conclusion=$conclusion head_sha=$head_sha"
             test "$head_sha" = "$TARGET_SHA"
             if [ "$state" = completed ]; then
