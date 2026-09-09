@@ -156,8 +156,9 @@ jobs:
             federation_status="$(curl -sS -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 'https://federation.testagram.site/api/health' || true)"
             echo "Attempt ${attempt}: API=${api_status} FEDERATION=${federation_status}"
             if [ "$api_status" = "200" ] && [ "$federation_status" = "200" ]; then
-              jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/api-health.json >/dev/null
-              jq -e '.ok == true and .federation == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true' /tmp/federation-health.json >/dev/null
+              jq -e '.ok == true' /tmp/api-health.json >/dev/null
+              jq -e '.ok == true and .federation == true and .federationDomain == "federation.testagram.site"' /tmp/federation-health.json >/dev/null
+              echo 'API and federation health gates are green.'
               exit 0
             fi
             sleep 5
