@@ -57,7 +57,7 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "/repos/$REPO/actions/workflows/supabase-production-migrate.yml/dispatches" \
-            -f ref="$TARGET_SHA"
+            -f ref=main
 
       - name: Wait for Supabase production migration gate
         env:
@@ -105,7 +105,7 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "/repos/$REPO/actions/workflows/supabase-social-e2e.yml/dispatches" \
-            -f ref="$TARGET_SHA"
+            -f ref=main
 
       - name: Wait for Supabase E2E gate
         env:
@@ -167,7 +167,7 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2026-03-10' \
             "/repos/$REPO/actions/workflows/vercel-production-deploy.yml/dispatches" \
-            -f ref="$TARGET_SHA"
+            -f ref=main
 
       - name: Wait for Vercel production deployment
         env:
