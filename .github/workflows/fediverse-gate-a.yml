@@ -124,9 +124,9 @@ jobs:
           cat /tmp/outbox.json
           if [ "$OUTBOX_STATUS" != "200" ]; then echo 'FAIL: federation_outbox REST query failed'; exit 1; fi
           jq -e --arg fid "$ACTIVITY_ID" 'any(.[]; .activity_type == "Follow" and .activity_id == $fid and .attempts == 1 and (.status == "delivered" or .status == "pending"))' /tmp/outbox.json
-          echo 'Waiting for Mastodon Accept to reach the local ActivityPub inbox...'
+          echo 'Waiting up to 10 minutes for Mastodon to asynchronously process the remote actor and emit Accept...'
           ACCEPT_FOUND=0
-          for i in $(seq 1 18); do
+          for i in $(seq 1 120); do
             inbox_status="$(curl -sS -o /tmp/accepts.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/federation_inbox?limit=100&select=activity_id,activity_type,actor_url,payload,received_at,processing_status" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY" || true)"
             if [ "$inbox_status" != "200" ]; then echo "federation_inbox query failed with HTTP $inbox_status"; cat /tmp/accepts.json || true; exit 1; fi
             if jq -e --arg fid "$ACTIVITY_ID" --arg remote "$REMOTE_ACTOR" 'any(.[]; .activity_type == "Accept" and .actor_url == $remote and ((.payload.object.id? // .payload.object?) == $fid) and (.payload.actor? == $remote))' /tmp/accepts.json >/dev/null; then ACCEPT_FOUND=1; break; fi
