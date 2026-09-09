@@ -19,8 +19,6 @@ $$;
 revoke all on function public.creator_follower_count(uuid) from public;
 grant execute on function public.creator_follower_count(uuid) to authenticated;
 
-auto_comment_missing := null;
-
 create or replace function public.is_creator_monetization_eligible(p_user_id uuid default auth.uid())
 returns boolean
 language sql
@@ -34,7 +32,6 @@ $$;
 revoke all on function public.is_creator_monetization_eligible(uuid) from public;
 grant execute on function public.is_creator_monetization_eligible(uuid) to authenticated, service_role;
 
--- Keep the eligibility contract visible to clients without trusting client state.
 alter table public.creator_programs
   add column if not exists follower_requirement integer not null default 400,
   add column if not exists eligible boolean not null default false,
@@ -126,11 +123,7 @@ begin
   if (select current_user) <> 'service_role' then raise exception 'server_only'; end if;
   if p_creator_id is null or p_gross_cents <= 0 then raise exception 'invalid earning'; end if;
   if p_entry_type not in ('tip','subscription','super_follow','paid_content','ad_revenue','sponsorship','digital_product','live_event','live_gift','community','affiliate','creator_earning') then raise exception 'invalid earning type'; end if;
-
-  -- Schema is fixed to public here so the security-definer function cannot be
-  -- redirected through a caller-controlled search_path.
   perform public.assert_creator_revenue_eligibility(p_creator_id, p_entry_type);
-
   select * into s from public.monetization_settings where id=true;
   share_bps:=coalesce(p_creator_share_bps,s.creator_share_bps);
   if share_bps < 0 or share_bps > 10000 then raise exception 'invalid creator share'; end if;
@@ -149,7 +142,6 @@ $$;
 revoke all on function public.record_creator_earning(uuid,text,bigint,text,text,text,text,text,text,jsonb,integer) from public;
 grant execute on function public.record_creator_earning(uuid,text,bigint,text,text,text,text,text,text,jsonb,integer) to service_role;
 
--- Existing creator rows get their current eligibility stamped immediately.
 update public.creator_programs cp
 set follower_requirement = 400,
     eligible = (select count(*) from public.follows f where f.following_id = cp.user_id) >= 400,
