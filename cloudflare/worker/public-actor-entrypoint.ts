@@ -33,17 +33,20 @@ async function localActor(env: any, userId: string) {
 }
 
 async function actor(env: any, username: string) {
-  const response = await db(env, `federation_actors?username=eq.${encodeURIComponent(username)}&select=*`);
+  const canonicalUrl = `${ORIGIN}/users/${encodeURIComponent(username)}`;
+  const query = `or=(username.eq.${encodeURIComponent(username)},actor_url.eq.${encodeURIComponent(canonicalUrl)})&select=*`;
+  const response = await db(env, `federation_actors?${query}`);
   const rows = await response.json() as any[];
   const row = rows[0];
   if (!row) return new Response(JSON.stringify({ error: 'actor not found' }), { status: 404, headers: { 'Content-Type': AP } });
-  const id = `${ORIGIN}/users/${encodeURIComponent(row.username)}`;
+  const actorName = String(row.username || row.preferred_username || username);
+  const id = `${ORIGIN}/users/${encodeURIComponent(actorName)}`;
   return new Response(JSON.stringify({
     '@context': CTX,
     id,
     type: 'Person',
-    preferredUsername: row.username,
-    name: row.username,
+    preferredUsername: actorName,
+    name: actorName,
     url: id,
     inbox: `${id}/inbox`,
     outbox: `${id}/outbox`,
@@ -160,7 +163,7 @@ async function discovery(request: Request) {
   const url = new URL(request.url), target = `${DISCOVERY}${url.pathname}${url.search}`;
   const response = await fetch(target, { headers: { Accept: AP, 'User-Agent': 'Testagram-Federation/3.0' } });
   return new Response(response.body, { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') || 'application/activity+json; charset=utf-8', 'Cache-Control': response.headers.get('Cache-Control') || 'public, max-age=30, s-maxage=60', Vary: 'Accept' } });
-}
+  }
 
 export default { async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url), actorMatch = url.pathname.match(/^\/users\/([^/]+)$/), inboxMatch = url.pathname.match(/^\/users\/([^/]+)\/inbox$/);
