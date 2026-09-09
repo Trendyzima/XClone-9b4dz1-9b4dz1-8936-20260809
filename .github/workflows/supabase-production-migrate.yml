@@ -77,26 +77,25 @@ jobs:
           set -euo pipefail
           supabase migration list --linked
 
-      - name: Reconcile irrecoverable remote-only migration history
+      - name: Reconcile remote-only migration history only when source is absent
         run: |
           set -euo pipefail
           history="$(supabase migration list --linked)"
-          # These five versions are present in production history but their original
-          # migration source is not recoverable from repository history. Do not create
-          # synthetic migrations with the same timestamps: Supabase will treat them as
-          # pending and attempt to insert duplicate schema_migrations rows. The schema
-          # changes are already present in production, so repair only the history rows.
+          # Repair history only when a remote version has no local source file.
+          # Never revert a version whose original migration is present locally.
           for version in \
             20260909202200 \
             20260909202315 \
             20260909202538 \
             20260909212257 \
             20260909215557; do
-            if printf '%s\n' "$history" | grep -q "$version"; then
-              echo "Repairing remote-only migration history: $version => reverted"
+            if find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print -quit | grep -q .; then
+              echo "Local migration source exists for $version; preserving remote history."
+            elif printf '%s\n' "$history" | grep -q "$version"; then
+              echo "Remote-only migration $version has no recoverable local source; repairing history as reverted."
               supabase migration repair "$version" --status reverted
             else
-              echo "Remote-only migration $version is not present; nothing to repair."
+              echo "Migration $version is absent from both local source and remote history."
             fi
           done
 
