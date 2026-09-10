@@ -26,7 +26,74 @@ export class GatewayError extends Error { constructor(public status: number, pub
 export function isGatewayAvailable(): boolean { return true; }
 export function getGatewayUrl(): string { return 'supabase://gateway-relay'; }
 export interface TimelineParams { limit?: number; before?: string; after?: string; }
-export async function getHomeTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/home', 'GET', undefined, params as any); }
+
+/**
+ * Canonical inbound federation feed. federation_objects are projected into
+ * federated_objects by the database trigger, so the homepage reads the same
+ * authoritative objects that power federated interactions instead of relying
+ * solely on a live gateway response.
+ */
+async function getCanonicalFederatedTimeline(params: TimelineParams = {}): Promise<any[]> {
+  const limit = Math.min(Math.max(Number(params.limit ?? 30), 1), 50);
+  let query = supabase
+    .from('federated_objects')
+    .select('id,uri,object_type,actor_uri,url,content,summary,published_at,updated_at,sensitive,in_reply_to_uri,quote_uri,attachments,tags,raw_object,like_count,announce_count,reply_count,quote_count,view_count')
+    .eq('object_type', 'Note')
+    .is('deleted_at', null)
+    .order('published_at', { ascending: false })
+    .limit(limit);
+
+  if (params.before) query = query.lt('published_at', params.before);
+  if (params.after) query = query.gt('published_at', params.after);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return (data ?? []).map((row: any) => {
+    const raw = row.raw_object && typeof row.raw_object === 'object' ? row.raw_object : {};
+    const actor = raw.attributedTo && typeof raw.attributedTo === 'object'
+      ? raw.attributedTo
+      : { id: row.actor_uri ?? '', url: row.actor_uri ?? '' };
+    const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+    return {
+      ...raw,
+      id: row.uri,
+      uri: row.uri,
+      url: row.url ?? row.uri,
+      object_type: row.object_type,
+      content: row.content ?? '',
+      summary: row.summary,
+      spoiler_text: row.summary,
+      published: row.published_at,
+      published_at: row.published_at,
+      updated: row.updated_at,
+      created_at: row.published_at,
+      sensitive: !!row.sensitive,
+      inReplyTo: row.in_reply_to_uri,
+      quoteUri: row.quote_uri,
+      actor,
+      media_attachments: attachments,
+      likes_count: row.like_count ?? 0,
+      favourites_count: row.like_count ?? 0,
+      boosts_count: row.announce_count ?? 0,
+      reblogs_count: row.announce_count ?? 0,
+      replies_count: row.reply_count ?? 0,
+      quotes_count: row.quote_count ?? 0,
+      views_count: row.view_count ?? 0,
+      _canonical_federated_object_id: row.id,
+    };
+  });
+}
+
+export async function getHomeTimeline(params: TimelineParams = {}): Promise<any[]> {
+  try {
+    const canonical = await getCanonicalFederatedTimeline(params);
+    if (canonical.length > 0) return canonical;
+  } catch (err) {
+    console.warn('[federation] canonical home timeline unavailable:', err);
+  }
+  return relay('/timeline/home', 'GET', undefined, params as any);
+}
 export async function getGlobalTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/global', 'GET', undefined, params as any); }
 export async function getLocalTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/local', 'GET', undefined, params as any); }
 export async function getFederatedTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/federated', 'GET', undefined, params as any); }
@@ -64,7 +131,7 @@ export async function search(q: string, type: SearchKind = 'all', limit = 40): P
 export async function getUnifiedHashtagFeed(tag: string, limit = 40): Promise<any[]> {
   const token = await getToken();
   const { data, error } = await supabase.functions.invoke('search-everything', { body: { operation: 'hashtag_feed', tag, limit }, headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Hashtag feed error'}`; } catch {} } throw new GatewayError(0, msg, '/hashtag-feed'); }
+  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Hashtag feed error'`; } catch {} } throw new GatewayError(0, msg, '/hashtag-feed'); }
   return Array.isArray(data) ? data : [];
 }
 export async function getFollowers(acct: string, params: TimelineParams = {}): Promise<any> { return relay(`/users/${encodeURIComponent(acct)}/followers`, 'GET', undefined, params as any); }
