@@ -150,3 +150,5 @@ export async function getFollowingTimeline({ limit = 20, before }: { limit?: num
 export async function getExploreTimeline({ limit = 20, before }: { limit?: number; before?: string } = {}) {
   return getUnifiedFeed({ mode: 'explore', limit, before });
 }
+
+// Thread-aware normalization intentionally remains centralized here so Home, Following, and Explore share one feed contract.
