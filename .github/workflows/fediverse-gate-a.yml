@@ -127,24 +127,28 @@ jobs:
           REMOTE_ACTOR="$(jq -r '.activity.object' /tmp/follow.json)"
           LOCAL_ACTOR="$(jq -r '.activity.actor' /tmp/follow.json)"
           test "$LOCAL_ACTOR" = "$ACTOR"
-          echo 'Querying outbox with the minimum stable columns only; all correlation is performed locally to avoid PostgREST URL/filter issues.'
-          OUTBOX_STATUS="$(curl -sS -o /tmp/outbox.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/federation_outbox?limit=100&select=activity_id,activity_type,status,attempts,http_status" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY")"
+
+          echo 'Correlating the exact Follow in federation_outbox by URL-encoded activity_id (the activity ID contains #, which must never be sent as a raw URL fragment).'
+          OUTBOX_ACTIVITY_ID="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ACTIVITY_ID")"
+          OUTBOX_STATUS="$(curl -sS -o /tmp/outbox.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/federation_outbox?activity_id=eq.$OUTBOX_ACTIVITY_ID&select=activity_id,activity_type,status,attempts,http_status" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY")"
           echo "Outbox HTTP status: $OUTBOX_STATUS"
           cat /tmp/outbox.json
-          if [ "$OUTBOX_STATUS" != "200" ]; then echo 'FAIL: federation_outbox REST query failed'; exit 1; fi
-          jq -e --arg fid "$ACTIVITY_ID" 'any(.[]; .activity_type == "Follow" and .activity_id == $fid and .attempts == 1 and (.status == "delivered" or .status == "pending"))' /tmp/outbox.json
+          if [ "$OUTBOX_STATUS" != "200" ]; then echo 'FAIL: federation_outbox exact activity query failed'; exit 1; fi
+          jq -e --arg fid "$ACTIVITY_ID" 'length == 1 and .[0].activity_type == "Follow" and .[0].activity_id == $fid and .[0].attempts == 1 and (. [0].status == "delivered" or .[0].status == "pending")' /tmp/outbox.json
+
           echo 'Waiting up to 10 minutes for Mastodon to asynchronously process the remote actor and emit Accept...'
           ACCEPT_FOUND=0
+          REMOTE_ACTOR_Q="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$REMOTE_ACTOR")"
           for i in $(seq 1 120); do
-            inbox_status="$(curl -sS -o /tmp/accepts.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/federation_inbox?limit=100&select=activity_id,activity_type,actor_url,payload,received_at,processing_status" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY" || true)"
-            if [ "$inbox_status" != "200" ]; then echo "federation_inbox query failed with HTTP $inbox_status"; cat /tmp/accepts.json || true; exit 1; fi
+            inbox_status="$(curl -sS -o /tmp/accepts.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/federation_inbox?activity_type=eq.Accept&actor_url=eq.$REMOTE_ACTOR_Q&order=received_at.desc&limit=20&select=activity_id,activity_type,actor_url,payload,received_at,processing_status" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY" || true)"
+            if [ "$inbox_status" != "200" ]; then echo "federation_inbox Accept query failed with HTTP $inbox_status"; cat /tmp/accepts.json || true; exit 1; fi
             if jq -e --arg fid "$ACTIVITY_ID" --arg remote "$REMOTE_ACTOR" 'any(.[]; .activity_type == "Accept" and .actor_url == $remote and ((.payload.object.id? // .payload.object?) == $fid) and (.payload.actor? == $remote))' /tmp/accepts.json >/dev/null; then ACCEPT_FOUND=1; break; fi
             sleep 5
           done
           test "$ACCEPT_FOUND" = 1
-          REL_STATUS="$(curl -sS -o /tmp/relationship.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/federation_relationships?limit=100&select=user_id,remote_actor_url,relationship,activity_id,updated_at,last_error" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY")"
+          REL_STATUS="$(curl -sS -o /tmp/relationship.json -w '%{http_code}' --max-time 20 "$SUPABASE_URL/rest/v1/federation_relationships?user_id=eq.$USER_ID&activity_id=eq.$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ACTIVITY_ID")&select=user_id,remote_actor_url,relationship,activity_id,updated_at,last_error" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY")"
           echo "Relationship HTTP status: $REL_STATUS"
           cat /tmp/relationship.json
           test "$REL_STATUS" = 200
-          jq -e --arg uid "$USER_ID" --arg fid "$ACTIVITY_ID" 'any(.[]; .user_id == $uid and .relationship == "accepted" and .activity_id == $fid)' /tmp/relationship.json
+          jq -e --arg uid "$USER_ID" --arg fid "$ACTIVITY_ID" 'length == 1 and .[0].user_id == $uid and .[0].relationship == "accepted" and .[0].activity_id == $fid' /tmp/relationship.json
           echo 'PASS: Gate A XClone auth -> custom-domain WebFinger -> actor -> public key -> signed Follow -> Mastodon delivery -> durable outbox -> inbound Accept -> accepted relationship.'
