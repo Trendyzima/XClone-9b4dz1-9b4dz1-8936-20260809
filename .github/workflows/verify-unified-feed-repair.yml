@@ -1,0 +1,105 @@
+name: One-shot unified feed verification
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair-verify-commit:
+    if: contains(github.event.head_commit.message, '[unified-feed-repair]') == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply surgical unified-feed wiring
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          home = Path('src/pages/HomePage.tsx')
+          s = home.read_text()
+          if "import { getUnifiedFeed } from '@/services/feed';" not in s:
+              s = s.replace("import { buildFollowingFeed } from '@/services/recommendations';\n", "import { buildFollowingFeed } from '@/services/recommendations';\nimport { getUnifiedFeed } from '@/services/feed';\n", 1)
+
+          s = s.replace("if (!skipCache && activeTab !== 'federated') {", "if (!skipCache && activeTab !== 'federated' && activeTab !== 'foryou' && activeTab !== 'following') {", 1)
+
+          start = s.index("  // Unified For You feed: XClone-native and Fediverse posts share one ranking pool.")
+          end = s.index("  const fetchInitialFeed = async", start)
+          replacement = '''  // Canonical unified feed adapter: edge owns membership, ranking and native/Fediverse mixing.\n  const fetchUnifiedFeedItems = async (mode: 'home' | 'following'): Promise<FeedItem[]> => {\n    try {\n      const result = await getUnifiedFeed({ mode, limit: PAGE_SIZE, before: feedCursor ?? undefined });\n      return result.posts.map((post: any) => ({\n        type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,\n        data: post.origin === 'federated' ? post : { ...post, user_profiles: post.user_profiles ?? post.author },\n      }));\n    } catch (err) {\n      console.error(`[feed] unified ${mode} failed:`, err);\n      return [];\n    }\n  };\n\n'''
+          s = s[:start] + replacement + s[end:]
+
+          start = s.index("    } else if (activeTab === 'following' && user) {")
+          end = s.index("    } else {", start)
+          replacement = '''    } else if (activeTab === 'following' && user) {\n      const items = await fetchUnifiedFeedItems('following');\n      const filtered = items.filter((item: any) => {\n        const uid = item.data?.user_id ?? item.data?.user_profiles?.id ?? item.data?.author?.id;\n        return !uid || !blockedUserIds.includes(uid);\n      });\n      setFeedItems(filtered);\n      const lastPost = filtered.filter((i: any) => i.type === 'post' || i.type === 'fedpost').slice(-1)[0];\n      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? (lastPost.data as any).published_at ?? null);\n      setFeedHasMore(filtered.length >= PAGE_SIZE);\n'''
+          s = s[:start] + replacement + s[end:]
+
+          old = """      const items = activeTab === 'foryou'\n        ? await fetchUnifiedForYouFeed()\n        : await fetchFeed(0);"""
+          new = """      const items = activeTab === 'foryou'\n        ? await fetchUnifiedFeedItems('home')\n        : await fetchFeed(0);"""
+          if old not in s:
+              raise SystemExit('Home for-you call anchor not found')
+          s = s.replace(old, new, 1)
+
+          # Do not cache personalized unified feeds in the module-level browser cache.
+          s = s.replace("if (items.length > 0) setCachedFeed(activeTab, items);", "if (items.length > 0 && activeTab !== 'foryou' && activeTab !== 'following') setCachedFeed(activeTab, items);", 1)
+          home.write_text(s)
+
+          explore = Path('src/pages/ExplorePage.tsx')
+          e = explore.read_text()
+          if "import { UnifiedExploreFeed } from '@/components/features/UnifiedExploreFeed';" not in e:
+              e = e.replace("import { supabase } from '@/lib/supabase';\n", "import { supabase } from '@/lib/supabase';\nimport { UnifiedExploreFeed } from '@/components/features/UnifiedExploreFeed';\n", 1)
+          anchor = "      {activeTab === 'Explore' && !inlineSearchResults && (\n        <div>\n"
+          if anchor not in e:
+              raise SystemExit('Explore anchor not found')
+          insert = anchor + "          <UnifiedExploreFeed />\n"
+          e = e.replace(anchor, insert, 1)
+          explore.write_text(e)
+
+          edge = Path('supabase/functions/feed-fast/index.ts')
+          f = edge.read_text()
+          old_header = "'Cache-Control': 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'"
+          if old_header not in f:
+              raise SystemExit('feed-fast cache header anchor not found')
+          f = f.replace(old_header, "'Cache-Control': 'private, no-store'", 1)
+          edge.write_text(f)
+          PY
+
+      - name: Assert surgical wiring
+        run: |
+          grep -F "getUnifiedFeed({ mode, limit: PAGE_SIZE" src/pages/HomePage.tsx
+          grep -F "fetchUnifiedFeedItems('home')" src/pages/HomePage.tsx
+          grep -F "fetchUnifiedFeedItems('following')" src/pages/HomePage.tsx
+          grep -F "<UnifiedExploreFeed />" src/pages/ExplorePage.tsx
+          grep -F "'Cache-Control': 'private, no-store'" supabase/functions/feed-fast/index.ts
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified repair and remove one-shot gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/HomePage.tsx src/pages/ExplorePage.tsx supabase/functions/feed-fast/index.ts .github/workflows/verify-unified-feed-repair.yml
+          git rm .github/workflows/verify-unified-feed-repair.yml
+          git commit -m "fix: verify unified feeds and isolate personalized cache [unified-feed-repair]"
+          git push origin HEAD:main
