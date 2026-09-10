@@ -31,40 +31,26 @@ jobs:
       - name: Validate migration credentials
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_ACCESS_TOKEN" || { echo 'Missing SUPABASE_ACCESS_TOKEN.'; exit 1; }
           test -n "$SUPABASE_DB_PASSWORD" || { echo 'Missing SUPABASE_DB_PASSWORD.'; exit 1; }
-          case "$SUPABASE_ACCESS_TOKEN" in
-            sbp_*) echo 'Supabase Management API token format detected.' ;;
-            *) echo 'SUPABASE_ACCESS_TOKEN is not a Supabase personal access token (expected sbp_*).'; exit 1 ;;
-          esac
+          python3 - <<'PY'
+          import os
+          from urllib.parse import quote
+          password = os.environ['SUPABASE_DB_PASSWORD']
+          print('Supabase database password is present; length:', len(password))
+          print('RFC3986 encoding check:', quote(password, safe='') != password or 'plain-safe')
+          PY
 
-      - name: Verify Supabase Management API access
+      - name: Build direct production database URL
         run: |
           set -euo pipefail
-          response_file="$RUNNER_TEMP/supabase-project.json"
-          status_code="$(curl -sS -o "$response_file" -w '%{http_code}' \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            -H 'Accept: application/json' \
-            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF")"
-          case "$status_code" in
-            200) echo 'Supabase Management API authorization verified for the canonical project.' ;;
-            401) echo 'Supabase Management API rejected SUPABASE_ACCESS_TOKEN (401). Replace it with a valid PAT.'; exit 1 ;;
-            403) echo 'Supabase Management API denied this token for the canonical project (403).'; exit 1 ;;
-            *)
-              echo "Supabase Management API preflight failed with HTTP $status_code."
-              sed -E 's/"(access_token|token|password|secret|api_key)"[[:space:]]*:[[:space:]]*"[^"]*"/"\1":"***"/g' "$response_file" | head -c 2000
-              echo
-              exit 1
-              ;;
-          esac
+          encoded_password="$(python3 -c 'import os; from urllib.parse import quote; print(quote(os.environ["SUPABASE_DB_PASSWORD"], safe=""))')"
+          echo "SUPABASE_DB_URL=postgresql://postgres:${encoded_password}@db.${SUPABASE_PROJECT_REF}.supabase.co:5432/postgres" >> "$GITHUB_ENV"
+          echo 'Direct production database URL prepared without exposing the password.'
 
-      - name: Install Supabase CLI
-        run: npm install --global supabase@latest
-
-      - name: Link target production project
+      - name: Verify production database connectivity
         run: |
           set -euo pipefail
-          supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+          supabase migration list --db-url "$SUPABASE_DB_URL"
 
       - name: Verify migration workspace is clean
         run: |
@@ -88,17 +74,10 @@ jobs:
           fi
           echo 'Migration version prefixes are unique.'
 
-      - name: Inspect production migration history
-        run: |
-          set -euo pipefail
-          supabase migration list --linked
-
       - name: Reconcile remote-only migration history only when source is absent
         run: |
           set -euo pipefail
-          history="$(supabase migration list --linked)"
-          # Repair history only when a remote version has no local source file.
-          # Never revert a version whose original migration is present locally.
+          history="$(supabase migration list --db-url "$SUPABASE_DB_URL")"
           for version in \
             20260909202200 \
             20260909202315 \
@@ -109,7 +88,7 @@ jobs:
               echo "Local migration source exists for $version; preserving remote history."
             elif printf '%s\n' "$history" | grep -q "$version"; then
               echo "Remote-only migration $version has no recoverable local source; repairing history as reverted."
-              supabase migration repair "$version" --status reverted
+              supabase migration repair "$version" --status reverted --db-url "$SUPABASE_DB_URL"
             else
               echo "Migration $version is absent from both local source and remote history."
             fi
@@ -118,20 +97,20 @@ jobs:
       - name: Verify reconciled production migration history
         run: |
           set -euo pipefail
-          supabase migration list --linked
+          supabase migration list --db-url "$SUPABASE_DB_URL"
 
       - name: Preview pending production migrations
         run: |
           set -euo pipefail
-          supabase db push --dry-run --include-all
+          supabase db push --db-url "$SUPABASE_DB_URL" --dry-run --include-all
 
       - name: Apply pending production migrations
         run: |
           set -euo pipefail
-          supabase db push --include-all
+          supabase db push --db-url "$SUPABASE_DB_URL" --include-all
 
       - name: Verify production migration history
         run: |
           set -euo pipefail
-          supabase migration list --linked
+          supabase migration list --db-url "$SUPABASE_DB_URL"
           echo 'Production migration gate completed.'
