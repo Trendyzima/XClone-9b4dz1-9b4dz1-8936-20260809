@@ -73,20 +73,13 @@ function cloudflarePostsBucket() {
   return {
     ...fallback,
     upload: async (path: string, file: File) => {
-      try {
-        const mediaType = file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'image';
-        const asset = await uploadMedia(file, mediaType);
-        postMediaPublicUrls.set(path, asset.url);
-        return {
-          data: { path: asset.id, id: asset.id, fullPath: asset.url },
-          error: null,
-        };
-      } catch (error: any) {
-        return {
-          data: null,
-          error: { message: error?.message || 'Cloudflare media upload failed' },
-        };
-      }
+      const mediaType = file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'image';
+      const asset = await uploadMedia(file, mediaType);
+      postMediaPublicUrls.set(path, asset.url);
+      return {
+        data: { path: asset.id, id: asset.id, fullPath: asset.url },
+        error: null,
+      };
     },
     getPublicUrl: (path: string) => {
       const knownUrl = postMediaPublicUrls.get(path);
