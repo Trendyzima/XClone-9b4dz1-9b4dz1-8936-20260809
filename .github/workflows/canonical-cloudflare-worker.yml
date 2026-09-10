@@ -18,6 +18,7 @@ on:
       - 'cloudflare/worker/index.ts'
       - 'cloudflare/wrangler.jsonc'
       - 'cloudflare/wrangler-federation.jsonc'
+      - 'src/api/federation.ts'
       - '.github/workflows/canonical-cloudflare-worker.yml'
       - '.github/workflows/paypal-wallet-e2e.yml'
 permissions:
@@ -28,6 +29,7 @@ env:
   PAYPAL_CONFIG_URL: 'https://testagram-api.nahashonnyaga794.workers.dev/api/paypal/config'
   FEDERATION_URL: 'https://federation.testagram.site'
   FEDERATION_HOST: 'federation.testagram.site'
+  GATEWAY_URL: 'https://api.testagram.site'
 jobs:
   deploy:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
@@ -43,6 +45,8 @@ jobs:
           for f in cloudflare/worker/production-entrypoint.ts cloudflare/worker/paypal.ts cloudflare/worker/public-actor-entrypoint.ts cloudflare/worker/federation-entrypoint.ts cloudflare/worker/federation-interop-entrypoint.ts cloudflare/worker/index.ts; do test -s "$f"; done
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler.jsonc
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler-federation.jsonc
+          grep -Fq "GATEWAY_FUNCTION = 'gateway-relay'" cloudflare/worker/production-entrypoint.ts
+          grep -Fq "https://api.testagram.site/api/gateway" cloudflare/worker/production-entrypoint.ts
       - name: Validate Cloudflare deployment credentials
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -100,11 +104,34 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 12); do
             status="$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$WORKER_DIRECT_URL/api/health" || true)"
-            if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/health.json >/dev/null 2>&1; then exit 0; fi
+            if [ "$status" = 200 ] && jq -e '.ok == true and .databaseReachable == true and .jwksReachable == true and .r2Binding == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby" and .gateway == true' /tmp/health.json >/dev/null 2>&1; then exit 0; fi
             sleep 5
           done
           cat /tmp/health.json || true
           exit 1
+      - name: Verify API gateway health and readiness
+        run: |
+          set -euo pipefail
+          health_status="$(curl -sS -o /tmp/gateway-health.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL/api/health" || true)"
+          ready_status="$(curl -sS -o /tmp/gateway-ready.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL/api/ready" || true)"
+          echo "Gateway health HTTP status: $health_status"
+          cat /tmp/gateway-health.json || true
+          echo "Gateway ready HTTP status: $ready_status"
+          cat /tmp/gateway-ready.json || true
+          test "$health_status" = 200
+          test "$ready_status" = 200
+          jq -e '.ok == true and .gateway == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/gateway-health.json >/dev/null
+          jq -e '.ready == true and .gateway == true' /tmp/gateway-ready.json >/dev/null
+      - name: Verify gateway authentication boundary
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /tmp/gateway-auth.json -w '%{http_code}' --max-time 20 \
+            -H 'Content-Type: application/json' \
+            --data '{"path":"/timeline/home","method":"GET"}' \
+            "$GATEWAY_URL/api/gateway" || true)"
+          echo "Unauthenticated gateway HTTP status: $status"
+          cat /tmp/gateway-auth.json || true
+          test "$status" = 401
       - name: Verify federation custom domain health
         run: |
           set -euo pipefail
@@ -130,5 +157,3 @@ jobs:
           done
           echo "PayPal configuration verification failed after 12 attempts; last HTTP status: $last_status"
           exit 1
-
-# Forensic verification trigger: rerun the canonical deployment gate after production migration repair.
