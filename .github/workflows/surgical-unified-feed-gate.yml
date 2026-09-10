@@ -1,4 +1,4 @@
-# one-shot gate: source edits are committed only after typecheck + production build pass
+# re-armed one-shot gate: source edits are committed only after typecheck + production build pass
 name: Surgical unified feed gate
 
 on:
