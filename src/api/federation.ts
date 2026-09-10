@@ -27,12 +27,6 @@ export function isGatewayAvailable(): boolean { return true; }
 export function getGatewayUrl(): string { return 'supabase://gateway-relay'; }
 export interface TimelineParams { limit?: number; before?: string; after?: string; }
 
-/**
- * Canonical inbound federation feed. federation_objects are projected into
- * federated_objects by the database trigger, so the homepage reads the same
- * authoritative objects that power federated interactions instead of relying
- * solely on a live gateway response.
- */
 async function getCanonicalFederatedTimeline(params: TimelineParams = {}): Promise<any[]> {
   const limit = Math.min(Math.max(Number(params.limit ?? 30), 1), 50);
   let query = supabase
@@ -42,10 +36,8 @@ async function getCanonicalFederatedTimeline(params: TimelineParams = {}): Promi
     .is('deleted_at', null)
     .order('published_at', { ascending: false })
     .limit(limit);
-
   if (params.before) query = query.lt('published_at', params.before);
   if (params.after) query = query.gt('published_at', params.after);
-
   const { data, error } = await query;
   if (error) throw error;
 
@@ -120,7 +112,7 @@ export async function unbookmark(postId: string): Promise<any> { return remoteIn
 export async function reply(payload: { postId: string; content: string }): Promise<any> { return remoteInteract('reply', await canonicalPostId(payload.postId), true, payload.content); }
 export async function quote(payload: { postId: string; content: string }): Promise<any> { return remoteInteract('quote', await canonicalPostId(payload.postId), true, payload.content); }
 export async function getNotifications(params: TimelineParams = {}): Promise<any> { return relay(`/notifications`, 'GET', undefined, params as any); }
-export async function clearNotifications(): Promise<void> { return relay('/notifications', 'DELETE'); }
+export async function clearNotifications(): Promise<void> { return relay(`/notifications`, 'DELETE'); }
 export type SearchKind = 'all' | 'users' | 'posts' | 'hashtags' | 'instances' | 'communities' | 'products' | 'fediverse_users' | 'fediverse_posts';
 export async function search(q: string, type: SearchKind = 'all', limit = 40): Promise<any[]> {
   const token = await getToken();
