@@ -8,14 +8,18 @@ const ANON = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISH
 const PAYPAL_CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID");
 const PAYPAL_CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET");
 const PAYPAL_ENV = (Deno.env.get("PAYPAL_ENV") || "sandbox").toLowerCase();
-const PAYPAL_BASE = PAYPAL_ENV === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
-const CORS = { ...supabaseCorsHeaders, "Access-Control-Allow-Methods": "POST,OPTIONS" };
+const PAYPAL_BASE = PAYPAL_ENV === "live"
+  ? "https://api-m.paypal.com"
+  : "https://api-m.sandbox.paypal.com";
+const CORS = {
+  ...supabaseCorsHeaders,
+  "Access-Control-Allow-Methods": "POST,OPTIONS",
+};
 
-const json = (value: unknown, status = 200) =>
-  new Response(JSON.stringify(value), {
-    status,
-    headers: { ...CORS, "Content-Type": "application/json" },
-  });
+const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
+  status,
+  headers: { ...CORS, "Content-Type": "application/json" },
+});
 
 const admin = createClient(SUPABASE_URL, SERVICE, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -78,7 +82,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const orderId = body?.orderId;
-    if (!orderId || typeof orderId !== "string") {
+    if (!orderId || typeof orderId !== "string" || orderId.length > 64) {
       return json({ error: "orderId is required" }, 400);
     }
 
@@ -111,60 +115,64 @@ Deno.serve(async (req) => {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-          "PayPal-Request-Id": crypto.randomUUID(),
+          "PayPal-Request-Id": `testagram-capture-${orderId}`,
+          Prefer: "return=representation",
         },
+        body: "{}",
       },
     );
 
-    const raw = await response.json();
+    const raw = await response.json().catch(() => ({}));
     if (!response.ok) {
-      return json(
-        {
-          error: "PayPal capture failed",
-          detail: raw?.message || raw?.name,
-        },
-        502,
-      );
+      console.error("PayPal capture rejected", response.status, raw?.name, raw?.message);
+      return json({
+        error: "PayPal capture failed",
+        detail: raw?.message || raw?.name || "PayPal rejected the capture",
+      }, 502);
     }
 
     const capture = raw?.purchase_units?.[0]?.payments?.captures?.[0];
     if (!capture?.id || capture.status !== "COMPLETED") {
-      return json(
-        {
-          error: "Payment not completed",
-          status: capture?.status || raw?.status,
-        },
-        409,
-      );
+      return json({
+        error: "Payment not completed",
+        status: capture?.status || raw?.status || "UNKNOWN",
+      }, 409);
     }
 
     const paidAmount = Number(capture.amount?.value);
     const paidCurrency = String(capture.amount?.currency_code || "").toUpperCase();
-    const expectedAmount = Number(
-      order.amount ?? Number(order.amount_cents) / 100,
-    );
+    const expectedAmount = Number(order.amount ?? Number(order.amount_cents) / 100);
     const expectedCurrency = String(order.currency || "").toUpperCase();
 
     if (
+      !Number.isFinite(paidAmount) ||
       paidAmount !== expectedAmount ||
       paidCurrency !== expectedCurrency
     ) {
+      console.error("PayPal captured amount mismatch", {
+        orderId,
+        paidAmount,
+        paidCurrency,
+        expectedAmount,
+        expectedCurrency,
+      });
       return json({ error: "Captured amount mismatch" }, 409);
     }
 
-    const {
-      data: finalized,
-      error: finalizeError,
-    } = await admin.rpc("finalize_paypal_topup", {
-      p_order_id: orderId,
-      p_capture_id: capture.id,
-    });
+    const { data: finalized, error: finalizeError } = await admin.rpc(
+      "finalize_paypal_topup",
+      {
+        p_order_id: orderId,
+        p_capture_id: capture.id,
+      },
+    );
 
     if (finalizeError) {
-      return json(
-        { error: "Wallet credit failed", detail: finalizeError.message },
-        500,
-      );
+      console.error("PayPal wallet finalization failed", finalizeError.message);
+      return json({
+        error: "Wallet credit failed",
+        detail: finalizeError.message,
+      }, 500);
     }
 
     return json({
@@ -174,13 +182,9 @@ Deno.serve(async (req) => {
       wallet: finalized,
     });
   } catch (error) {
-    console.error(error);
-    return json(
-      {
-        error:
-          error instanceof Error ? error.message : "PayPal capture failed",
-      },
-      500,
-    );
+    console.error("PayPal capture-order error", error);
+    return json({
+      error: error instanceof Error ? error.message : "PayPal capture failed",
+    }, 500);
   }
 });
