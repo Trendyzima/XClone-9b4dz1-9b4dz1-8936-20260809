@@ -1,7 +1,11 @@
 name: Patch Fediverse remote interactions
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-fediverse-interactions.yml'
+      - 'cloudflare/worker/federation-entrypoint.ts'
 
 permissions:
   contents: write
@@ -33,15 +37,7 @@ jobs:
       await db(e, 'federation_objects?on_conflict=object_url', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify({
-          object_url: objectUrl,
-          actor_url: attributed,
-          object_type: object?.type || 'Object',
-          object: object || { id: objectUrl },
-          published_at: object?.published ? new Date(object.published).toISOString() : null,
-          fetched_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }),
+        body: JSON.stringify({ object_url: objectUrl, actor_url: attributed, object_type: object?.type || 'Object', object: object || { id: objectUrl }, published_at: object?.published ? new Date(object.published).toISOString() : null, fetched_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
       });
       await markInbound(e, activityId, 'processed');
       return ap({ ok: true, received: true, storedObject: objectUrl }, 202);
@@ -56,17 +52,7 @@ jobs:
       await db(e, 'federation_remote_engagements', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify({
-          activity_uri: activityId,
-          object_url: objectUrl,
-          remote_actor_url: remoteActorUri,
-          interaction_type: activity.type === 'Like' ? 'like' : 'repost',
-          payload: activity,
-          status: 'active',
-          received_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
-        }),
+        body: JSON.stringify({ activity_uri: activityId, object_url: objectUrl, remote_actor_url: remoteActorUri, interaction_type: activity.type === 'Like' ? 'like' : 'repost', payload: activity, status: 'active', received_at: new Date().toISOString(), updated_at: new Date().toISOString(), expires_at: new Date(Date.now() + 30 * 86400000).toISOString() }),
       });
       await markInbound(e, activityId, 'processed');
       return ap({ ok: true, received: true, engagementStored: true }, 202);
@@ -74,12 +60,7 @@ jobs:
 
     if (activity.type === 'Undo') {
       const targetActivity = typeof activity.object === 'string' ? activity.object : activity.object?.id;
-      if (targetActivity) {
-        await db(e, `federation_remote_engagements?activity_uri=eq.${enc(targetActivity)}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: 'undone', updated_at: new Date().toISOString() }),
-        });
-      }
+      if (targetActivity) await db(e, `federation_remote_engagements?activity_uri=eq.${enc(targetActivity)}`, { method: 'PATCH', body: JSON.stringify({ status: 'undone', updated_at: new Date().toISOString() }) });
       await markInbound(e, activityId, 'processed');
       return ap({ ok: true, received: true, undone: Boolean(targetActivity) }, 202);
     }
