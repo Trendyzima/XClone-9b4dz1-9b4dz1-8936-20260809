@@ -119,6 +119,14 @@ jobs:
       - name: Verify PayPal configuration
         run: |
           set -euo pipefail
-          status="$(curl -sS -o /tmp/paypal-config.json -w '%{http_code}' --max-time 20 "$PAYPAL_CONFIG_URL" || true)"
-          test "$status" = 200
-          jq -e '.ok == true and .provider == "paypal" and .configured == true and (.environment == "sandbox" or .environment == "live")' /tmp/paypal-config.json >/dev/null
+          last_status=""
+          for attempt in $(seq 1 12); do
+            status="$(curl -sS -o /tmp/paypal-config.json -w '%{http_code}' --max-time 20 "$PAYPAL_CONFIG_URL" || true)"
+            last_status="$status"
+            echo "PayPal config HTTP status: $status"
+            cat /tmp/paypal-config.json || true
+            if [ "$status" = 200 ] && jq -e '.ok == true and .provider == "paypal" and .configured == true and (.environment == "sandbox" or .environment == "live")' /tmp/paypal-config.json >/dev/null 2>&1; then exit 0; fi
+            sleep 5
+          done
+          echo "PayPal configuration verification failed after 12 attempts; last HTTP status: $last_status"
+          exit 1
