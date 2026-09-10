@@ -1,0 +1,106 @@
+name: Surgical Fediverse Interaction Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/surgical-fediverse-interactions.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.event.head_commit.message != 'fix: wire fediverse interactions through canonical federation client' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Patch exact handlers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('src/pages/FediversePage.tsx')
+          s = p.read_text()
+          pattern = re.compile(r"  const handleFedLike = async \(post: any\) => \{.*?\n  const handleFollow = async \(account: any\) => \{", re.S)
+          replacement = '''  const handleFedLike = async (post: any) => {
+    if (!user) { navigate('/auth'); return; }
+    const key = post.object_url ?? post.uri ?? post.url ?? post.id;
+    if (!key) return;
+    const wasLiked = !!postStates[key]?.liked;
+    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], liked: !wasLiked, sending: true } }));
+    try {
+      if (wasLiked) await federation.unfavorite(key);
+      else await federation.favorite(key);
+      toast.success(wasLiked ? 'Like removed' : 'Liked on the Fediverse');
+    } catch (err: any) {
+      setPostStates(prev => ({ ...prev, [key]: { ...prev[key], liked: wasLiked } }));
+      toast.error(`Like failed: ${err?.message ?? 'Federation request failed'}`);
+    } finally {
+      setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: false } }));
+    }
+  };
+
+  const handleFedBoost = async (post: any) => {
+    if (!user) { navigate('/auth'); return; }
+    const key = post.object_url ?? post.uri ?? post.url ?? post.id;
+    if (!key) return;
+    const wasBoosted = !!postStates[key]?.boosted;
+    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], boosted: !wasBoosted, sending: true } }));
+    try {
+      if (wasBoosted) await federation.unboost(key);
+      else await federation.boost(key);
+      toast.success(wasBoosted ? 'Repost removed' : 'Reposted on the Fediverse');
+    } catch (err: any) {
+      setPostStates(prev => ({ ...prev, [key]: { ...prev[key], boosted: wasBoosted } }));
+      toast.error(`Repost failed: ${err?.message ?? 'Federation request failed'}`);
+    } finally {
+      setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: false } }));
+    }
+  };
+
+  const handleFedReply = async (post: any) => {
+    if (!user) { navigate('/auth'); return; }
+    const key = post.object_url ?? post.uri ?? post.url ?? post.id;
+    if (!key) return;
+    const text = postStates[key]?.replyText?.trim();
+    if (!text) return;
+    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: true } }));
+    try {
+      await federation.reply({ postId: key, content: text });
+      toast.success('Reply sent to the Fediverse!');
+      setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyText: '', replyOpen: false } }));
+    } catch (err: any) {
+      toast.error(`Reply failed: ${err?.message ?? 'Federation request failed'}`);
+    } finally {
+      setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: false } }));
+    }
+  };
+
+  const handleFollow = async (account: any) => {'''
+          ns, count = pattern.subn(replacement, s, count=1)
+          if count != 1:
+              raise SystemExit('Expected Fediverse interaction handler block not found; refusing to modify.')
+          p.write_text(ns)
+          PY
+      - name: Verify source
+        run: |
+          set -euo pipefail
+          grep -Fq 'await federation.favorite(key)' src/pages/FediversePage.tsx
+          grep -Fq 'await federation.boost(key)' src/pages/FediversePage.tsx
+          grep -Fq 'await federation.reply({ postId: key, content: text })' src/pages/FediversePage.tsx
+          ! grep -Fq 'functions/v1/activitypub-federation' src/pages/FediversePage.tsx
+      - name: Typecheck
+        run: |
+          npm ci
+          npm run typecheck
+      - name: Commit and remove temporary workflow
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/pages/FediversePage.tsx
+          git rm .github/workflows/surgical-fediverse-interactions.yml
+          git diff --cached --check
+          git commit -m 'fix: wire fediverse interactions through canonical federation client'
+          git push origin main
