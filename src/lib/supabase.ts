@@ -85,6 +85,7 @@ function cloudflarePostsBucket() {
   };
 }
 
+// Keep the Supabase client compatible with existing feature code while routing only the post-media bucket through R2.
 export const supabase: any = new Proxy(baseClient, {
   get(target, property, receiver) {
     if (property === 'storage') return { ...target.storage, from(bucket: string) { return bucket === 'posts' ? cloudflarePostsBucket() : target.storage.from(bucket); } };
