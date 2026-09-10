@@ -20,6 +20,7 @@ permissions:
 env:
   WRANGLER_VERSION: '4.126.0'
   FEDERATION_ORIGIN: 'https://federation.testagram.site'
+  SUPABASE_URL: 'https://aepbqfrmheihfsauzcby.supabase.co'
 
 jobs:
   deploy-and-harden:
@@ -60,9 +61,6 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$SUPABASE_PUBLISHABLE_KEY"
           test -n "$SUPABASE_SECRET_KEY"
-          secrets_file="$(mktemp)"
-          trap 'rm -f "$secrets_file"' EXIT
-          printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" > "$secrets_file"
           npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler-federation.jsonc --dry-run
       - name: Deploy canonical federation Worker
         env:
@@ -77,9 +75,6 @@ jobs:
           printf 'SUPABASE_ANON_KEY=%s\nSUPABASE_SECRET_KEY=%s\n' "$SUPABASE_PUBLISHABLE_KEY" "$SUPABASE_SECRET_KEY" > "$secrets_file"
           npx --yes wrangler@${WRANGLER_VERSION} deploy --config cloudflare/wrangler-federation.jsonc --secrets-file "$secrets_file"
       - name: Verify canonical federation edge
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: |
           set -euo pipefail
           base="$FEDERATION_ORIGIN"
@@ -99,11 +94,9 @@ jobs:
           echo 'PASS: canonical federation Worker deployed and edge health/discovery endpoints are reachable'
       - name: Verify WebFinger and actor resolution
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_URL"
           test -n "$SUPABASE_SECRET_KEY"
           actors="$(curl -sS --fail-with-body --max-time 20 "$SUPABASE_URL/rest/v1/federation_actors?select=username&limit=1" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY")"
           username="$(printf '%s' "$actors" | jq -r '.[0].username // empty')"
@@ -120,10 +113,10 @@ jobs:
           echo 'PASS: WebFinger, actor resolution, and inbox network reachability'
       - name: Verify canonical Note object route
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: |
           set -euo pipefail
+          test -n "$SUPABASE_SECRET_KEY"
           posts="$(curl -sS --fail-with-body --max-time 20 "$SUPABASE_URL/rest/v1/posts?select=id,author_id,visibility&visibility=eq.public&order=created_at.desc&limit=1" -H "apikey: $SUPABASE_SECRET_KEY" -H "Authorization: Bearer $SUPABASE_SECRET_KEY")"
           post_id="$(printf '%s' "$posts" | jq -r '.[0].id // empty')"
           author_id="$(printf '%s' "$posts" | jq -r '.[0].author_id // empty')"
