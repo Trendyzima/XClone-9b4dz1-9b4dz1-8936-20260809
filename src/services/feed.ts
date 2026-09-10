@@ -8,6 +8,7 @@ export type Post = {
   created_at: string;
   author: any;
   origin: 'local' | 'federated';
+  content_type?: 'post' | 'thread';
   federation_id?: string;
   visibility?: string;
   [k: string]: any;
@@ -16,13 +17,12 @@ export type Post = {
 function normalizeLocal(row: any): Post {
   return {
     ...row,
-    // Native database UUIDs must remain unchanged. PostThreadPage, reactions,
-    // replies and every direct posts-table query use this exact identifier.
     id: String(row.id),
     content: row.body ?? row.content ?? '',
     created_at: row.created_at,
     author: row.author ?? row.user_profiles ?? row.profiles ?? null,
     origin: 'local',
+    content_type: row.content_type === 'thread' || row.source === 'thread' ? 'thread' : 'post',
   };
 }
 
@@ -31,13 +31,13 @@ function normalizeFederated(item: any): Post {
   const remoteId = item.id ?? item.uri ?? item.federation_id;
   return {
     ...item,
-    // Remote IDs are URLs/URIs and are kept distinct from native UUIDs.
     id: `fed:${remoteId}`,
     content: item.content ?? item.html ?? '',
     created_at: item.created_at ?? item.published ?? item.published_at ?? new Date().toISOString(),
     author: actor,
     origin: 'federated',
     federation_id: item.uri ?? item.id ?? item.federation_id,
+    content_type: 'post',
   };
 }
 
@@ -70,7 +70,7 @@ async function nativePublicFallback(mode: FeedMode, limit: number, before?: stri
       authorIds = [uid, ...((follows ?? []).map((f: any) => String(f.following_id)).filter(Boolean))];
     }
 
-    let query = supabase
+    let postQuery = supabase
       .from('posts')
       .select('*, user_profiles:profiles!posts_author_id_fkey(*)')
       .eq('visibility', 'public')
@@ -78,12 +78,32 @@ async function nativePublicFallback(mode: FeedMode, limit: number, before?: stri
       .order('created_at', { ascending: false })
       .limit(limit);
 
-    if (authorIds?.length) query = query.in('author_id', [...new Set(authorIds)]);
-    if (before) query = query.lt('created_at', before);
+    let threadQuery = supabase
+      .from('threads')
+      .select('*, user_profiles(id, username, avatar_url, verified)')
+      .eq('is_published', true)
+      .order('created_at', { ascending: false })
+      .limit(Math.max(5, Math.ceil(limit / 4)));
 
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data ?? []).map(normalizeLocal);
+    if (authorIds?.length) {
+      const ids = [...new Set(authorIds)];
+      postQuery = postQuery.in('author_id', ids);
+      threadQuery = threadQuery.in('user_id', ids);
+    }
+    if (before) {
+      postQuery = postQuery.lt('created_at', before);
+      threadQuery = threadQuery.lt('created_at', before);
+    }
+
+    const [{ data: posts, error: postError }, { data: threads, error: threadError }] = await Promise.all([postQuery, threadQuery]);
+    if (postError) throw postError;
+
+    const combined = [
+      ...(posts ?? []).map((row: any) => normalizeLocal({ ...row, content_type: 'post' })),
+      ...(!threadError ? (threads ?? []).map((row: any) => normalizeLocal({ ...row, content_type: 'thread', source: 'thread' })) : []),
+    ];
+    combined.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    return combined.slice(0, limit);
   } catch (error) {
     console.error('[feed] native public fallback failed:', error);
     return [];
