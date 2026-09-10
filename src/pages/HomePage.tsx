@@ -428,7 +428,7 @@ export default function HomePage() {
       if (followIds.length === 0) return;
       const { data: products } = await supabase
         .from('products')
-        .select('*, user_profiles(id, username, avatar_url, verified)')
+        .select('*, user_profiles:profiles!posts_author_id_fkey(id, username, avatar_url, verified)')
         .in('user_id', followIds)
         .eq('is_active', true)
         .order('created_at', { ascending: false })
