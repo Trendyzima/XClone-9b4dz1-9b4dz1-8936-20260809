@@ -16,11 +16,7 @@ async function db(env: any, path: string, init: RequestInit = {}) {
   if (!response.ok) throw new Error(`db ${response.status}: ${(await response.text()).slice(0, 500)}`);
   return response.json();
 }
-
-function actorName(row: any, fallback: string) {
-  return String(row.username || row.preferred_username || fallback || '').trim();
-}
-
+function actorName(row: any, fallback: string) { return String(row.username || row.preferred_username || fallback || '').trim(); }
 async function actor(env: any, username: string) {
   const encodedUsername = encodeURIComponent(username);
   const canonicalActorUrl = `${ORIGIN}/users/${encodedUsername}`;
@@ -29,18 +25,7 @@ async function actor(env: any, username: string) {
   const byUsername = await db(env, `federation_actors?username=eq.${encodedUsername}&select=*`) as any[];
   return byUsername[0] || null;
 }
-
-function apResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/activity+json; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
-}
-
+function apResponse(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/activity+json; charset=utf-8', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } }); }
 async function webfinger(env: any, request: Request) {
   const resource = new URL(request.url).searchParams.get('resource') || '';
   const value = resource.replace(/^acct:/, '').replace(/^@/, '');
@@ -51,14 +36,12 @@ async function webfinger(env: any, request: Request) {
   const name = actorName(row, username), id = `${ORIGIN}/users/${encodeURIComponent(name)}`;
   return new Response(JSON.stringify({ subject: `acct:${name}@${DOMAIN}`, aliases: [id], links: [{ rel: 'self', type: 'application/activity+json', href: id }] }), { status: 200, headers: { 'Content-Type': 'application/jrd+json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
-
 async function actorGet(env: any, username: string) {
   const row = await actor(env, username);
   if (!row) return apResponse({ error: 'actor not found' }, 404);
   const name = actorName(row, username), id = `${ORIGIN}/users/${encodeURIComponent(name)}`;
   return apResponse({ '@context': CTX, id, type: 'Person', preferredUsername: name, webfinger: `acct:${name}@${DOMAIN}`, name, url: id, inbox: `${id}/inbox`, outbox: `${id}/outbox`, followers: `${id}/followers`, following: `${id}/following`, manuallyApprovesFollowers: false, discoverable: true, indexable: true, publicKey: { id: `${id}#main-key`, owner: id, publicKeyPem: row.public_key_pem } });
 }
-
 async function remoteInteractionObject(env: any, request: Request, username: string, interactionId: string) {
   if (request.method !== 'GET') return null;
   const local = await actor(env, username);
@@ -71,12 +54,8 @@ async function remoteInteractionObject(env: any, request: Request, username: str
   if (!object || typeof object.id !== 'string') return apResponse({ error: 'object not found' }, 404);
   const expectedId = `${ORIGIN}/users/${encodeURIComponent(actorName(local, username))}/remote-interactions/${interactionId}`;
   if (object.id !== expectedId) return apResponse({ error: 'object identity mismatch' }, 409);
-  return apResponse({
-    '@context': Array.isArray(payload['@context']) ? payload['@context'] : CTX,
-    ...object,
-  });
+  return apResponse({ '@context': Array.isArray(payload['@context']) ? payload['@context'] : CTX, ...object });
 }
-
 export default {
   async fetch(request: Request, env: any, ctx: ExecutionContext) {
     const url = new URL(request.url);
@@ -86,10 +65,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/.well-known/webfinger') return webfinger(env, request);
     if (request.method === 'GET' && actorMatch) return actorGet(env, decodeURIComponent(actorMatch[1]));
     if (request.method === 'GET' && interactionObjectMatch) return remoteInteractionObject(env, request, decodeURIComponent(interactionObjectMatch[1]), interactionObjectMatch[2]);
-    if (request.method === 'POST' && inboxMatch) {
-      const handled = await handleFederationInteraction(request, env, decodeURIComponent(inboxMatch[1]));
-      if (handled) return handled;
-    }
+    if (request.method === 'POST' && inboxMatch) { const handled = await handleFederationInteraction(request, env, decodeURIComponent(inboxMatch[1])); if (handled) return handled; }
     return federation.fetch(request, env, ctx);
   },
 };
@@ -97,3 +73,4 @@ export default {
 // Public federation surface is intentionally handled before authenticated API routing.
 // Remote Create/Like/Announce/Undo activities are persisted by the isolated interaction handler.
 // Reply/quote objects emitted by Testagram are also dereferenceable at their canonical IDs.
+// Interaction hardening is intentionally bundled here so the canonical Worker deploy path includes the inbox verifier.
