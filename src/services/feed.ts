@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase';
-import * as federation from '@/api/federation';
 
 export type FeedMode = 'home' | 'following' | 'explore';
 
@@ -17,7 +16,9 @@ export type Post = {
 function normalizeLocal(row: any): Post {
   return {
     ...row,
-    id: `local:${row.id}`,
+    // Native database UUIDs must remain unchanged. PostThreadPage, reactions,
+    // replies and every direct posts-table query use this exact identifier.
+    id: String(row.id),
     content: row.body ?? row.content ?? '',
     created_at: row.created_at,
     author: row.author ?? row.user_profiles ?? row.profiles ?? null,
@@ -27,9 +28,11 @@ function normalizeLocal(row: any): Post {
 
 function normalizeFederated(item: any): Post {
   const actor = item.actor ?? item.attributedTo ?? item.author ?? null;
+  const remoteId = item.id ?? item.uri ?? item.federation_id;
   return {
     ...item,
-    id: `fed:${item.id ?? item.uri ?? item.federation_id}`,
+    // Remote IDs are URLs/URIs and are kept distinct from native UUIDs.
+    id: `fed:${remoteId}`,
     content: item.content ?? item.html ?? '',
     created_at: item.created_at ?? item.published ?? item.published_at ?? new Date().toISOString(),
     author: actor,
@@ -87,12 +90,6 @@ async function nativePublicFallback(mode: FeedMode, limit: number, before?: stri
   }
 }
 
-/**
- * Single client entry point for the unified native + Fediverse graph.
- * feed-fast owns graph membership, ranking and mixing when healthy.
- * The native-public fallback prevents a transient edge/ranking failure from
- * turning a populated public timeline into an empty Home screen.
- */
 export async function getUnifiedFeed({ mode = 'home', limit = 20, before }: { mode?: FeedMode; limit?: number; before?: string } = {}) {
   const safeLimit = Math.min(100, Math.max(10, Number(limit) || 20));
   const { data, error } = await supabase.functions.invoke('feed-fast', {
@@ -115,12 +112,7 @@ export async function getUnifiedFeed({ mode = 'home', limit = 20, before }: { mo
     return {
       posts: fallback,
       next_cursor: fallback.at(-1)?.created_at ?? null,
-      meta: {
-        mode,
-        count: fallback.length,
-        ranking: 'native-public-fallback',
-        degraded: true,
-      },
+      meta: { mode, count: fallback.length, ranking: 'native-public-fallback', degraded: true },
     };
   }
 
