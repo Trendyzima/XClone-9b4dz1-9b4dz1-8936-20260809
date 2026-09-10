@@ -2,27 +2,26 @@
 name: Surgical unified feed gate
 
 on:
-  push:
+  pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/surgical-unified-feed-gate.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: surgical-unified-feed-gate
+  group: surgical-unified-feed-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   repair-verify-commit:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - name: Checkout main
+      - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 1
 
       - name: Setup Node
@@ -42,7 +41,6 @@ jobs:
 
           home = Path('src/pages/HomePage.tsx')
           text = home.read_text()
-
           old_import = "import { buildFollowingFeed } from '@/services/recommendations';"
           new_import = "import { getUnifiedFeed } from '@/services/feed';"
           assert old_import in text, 'HomePage: expected recommendations import not found'
@@ -61,8 +59,7 @@ jobs:
             }
           };"""
           pattern = r"  const fetchUnifiedForYouFeed = async \(\): Promise<FeedItem\[\]> => \{.*?\n\n  const fetchInitialFeed"
-          replacement = unified + "\n\n  const fetchInitialFeed"
-          text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+          text, count = re.subn(pattern, unified + "\n\n  const fetchInitialFeed", text, count=1, flags=re.S)
           assert count == 1, 'HomePage: unified For You function replacement failed'
 
           following = """    } else if (activeTab === 'following' && user) {
@@ -96,10 +93,8 @@ jobs:
           feed = Path('supabase/functions/feed-fast/index.ts')
           text = feed.read_text()
           old_cache = "'Cache-Control': 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'"
-          new_cache = "'Cache-Control': 'private, no-store'"
           assert old_cache in text, 'feed-fast: public cache header not found'
-          text = text.replace(old_cache, new_cache, 1)
-          feed.write_text(text)
+          feed.write_text(text.replace(old_cache, "'Cache-Control': 'private, no-store'", 1))
 
           explore = Path('src/pages/ExplorePage.tsx')
           text = explore.read_text()
@@ -109,7 +104,7 @@ jobs:
           text = text.replace(marker, marker + "\nimport { UnifiedExploreFeed } from '@/components/features/UnifiedExploreFeed';", 1)
           topbar = '<TopBar title="Explore" showProfile={false} />'
           assert topbar in text, 'ExplorePage: TopBar marker not found'
-          text = text.replace(topbar, topbar + '\n\n      {activeTab === \'Explore\' && <UnifiedExploreFeed />}', 1)
+          text = text.replace(topbar, topbar + "\n\n      {activeTab === 'Explore' && <UnifiedExploreFeed />}", 1)
           explore.write_text(text)
 
           print('Surgical source edits applied.')
@@ -139,4 +134,4 @@ jobs:
           git diff --cached --check
           git diff --cached --quiet && { echo 'No changes to commit'; exit 0; }
           git commit -m 'feat: wire unified native and federated feeds'
-          git push origin main
+          git push origin HEAD:${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}
