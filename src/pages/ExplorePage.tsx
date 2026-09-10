@@ -8,6 +8,7 @@ import { Search, TrendingUp, Globe, BadgeCheck, Settings, X, Check, Trophy, Gift
 import { TrendingVideosSection } from '@/components/features/TrendingVideosSection';
 import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/lib/supabase';
+import { UnifiedExploreFeed } from '@/components/features/UnifiedExploreFeed';
 import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -1164,6 +1165,7 @@ export default function ExplorePage() {
 
       {activeTab === 'Explore' && !inlineSearchResults && (
         <div>
+          <UnifiedExploreFeed />
           {(storiesLoading || exploreStories.length > 0) && (
             <section className="border-b border-border">
               <div className="px-4 pt-4 pb-2 flex items-center justify-between">

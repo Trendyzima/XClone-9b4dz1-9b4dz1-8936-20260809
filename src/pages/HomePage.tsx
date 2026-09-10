@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { buildFollowingFeed } from '@/services/recommendations';
+import { getUnifiedFeed } from '@/services/feed';
 import { useNavigate } from 'react-router-dom';
 import { ComposePost } from '@/components/features/ComposePost';
 import { PostCard } from '@/components/features/PostCard';
@@ -735,52 +736,23 @@ export default function HomePage() {
     }
   };
 
-  // Unified For You feed: XClone-native and Fediverse posts share one ranking pool.
-  const fetchUnifiedForYouFeed = async (): Promise<FeedItem[]> => {
-    const [localResult, fedResult] = await Promise.allSettled([
-      fetchFeed(0),
-      fetchFederatedPosts(),
-    ]);
-
-    const localItems: FeedItem[] = localResult.status === 'fulfilled' ? localResult.value : [];
-    const fedPosts = fedResult.status === 'fulfilled' ? fedResult.value : [];
-    const fedItems: FeedItem[] = fedPosts.map((post: any) => ({
-      type: 'fedpost' as const,
-      data: { ...post, _unified_origin: 'fediverse' },
-    }));
-
-    const score = (item: FeedItem): number => {
-      const p: any = item.data ?? {};
-      const created = new Date(p.created_at ?? p.published ?? p.published_at ?? 0).getTime();
-      const ageHours = Number.isFinite(created) ? Math.max(0, (Date.now() - created) / 3_600_000) : 999;
-      const freshness = Math.exp(-ageHours / 18) * 40;
-
-      if (item.type === 'fedpost') {
-        const remoteRank = Number(p.platform_rank_score ?? 0);
-        const likes = Number(p.favourites_count ?? p.likes_count ?? 0);
-        const boosts = Number(p.reblogs_count ?? p.boosts_count ?? 0);
-        const replies = Number(p.replies_count ?? 0);
-        return freshness + Math.log1p(likes) * 4 + Math.log1p(boosts) * 5 + Math.log1p(replies) * 3 + remoteRank * 1.35 + 2;
-      }
-
-      return freshness +
-        Math.log1p(Number(p.likes_count ?? 0)) * 5 +
-        Math.log1p(Number(p.reposts_count ?? 0)) * 7 +
-        Math.log1p(Number(p.replies_count ?? 0)) * 4 +
-        Math.log1p(Number(p.views_count ?? 0)) * 1.5 +
-        (p.is_video ? 6 : (p.image_url || p.media_urls?.length) ? 3 : 0) +
-        (p.user_profiles?.verified ? 3 : 0);
-    };
-
-    return [...localItems, ...fedItems]
-      .filter((item) => item.type === 'post' || item.type === 'fedpost')
-      .sort((a, b) => score(b) - score(a))
-      .slice(0, PAGE_SIZE);
+  // Canonical unified feed adapter: edge owns membership, ranking and native/Fediverse mixing.
+  const fetchUnifiedFeedItems = async (mode: 'home' | 'following'): Promise<FeedItem[]> => {
+    try {
+      const result = await getUnifiedFeed({ mode, limit: PAGE_SIZE, before: feedCursor ?? undefined });
+      return result.posts.map((post: any) => ({
+        type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,
+        data: post.origin === 'federated' ? post : { ...post, user_profiles: post.user_profiles ?? post.author },
+      }));
+    } catch (err) {
+      console.error(`[feed] unified ${mode} failed:`, err);
+      return [];
+    }
   };
 
   const fetchInitialFeed = async (skipCache = false) => {
     // ── Serve from prefetch cache when available (tab switch) ──────────────
-    if (!skipCache && activeTab !== 'federated') {
+    if (!skipCache && activeTab !== 'federated' && activeTab !== 'foryou' && activeTab !== 'following') {
       const cached = getCachedFeed(activeTab);
       if (cached && cached.length > 0) {
         setFeedItems(cached);
@@ -814,52 +786,25 @@ export default function HomePage() {
       const fedPosts = await fetchFederatedPosts();
       setFeedItems(fedPosts.map(p => ({ type: 'fedpost' as const, data: p })));
     } else if (activeTab === 'following' && user) {
-      // ── Twitter-style Following Feed: 80% following + 20% 2nd-degree viral ──
-      const { data: followingData } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', user.id);
-      const followIds = (followingData ?? []).map((f: any) => f.following_id);
-
-      const [scoredResult, gatewayResult] = await Promise.allSettled([
-        buildFollowingFeed(user.id, followIds, 0, PAGE_SIZE),
-        fetchFederatedPosts(),
-      ]);
-
-      const localScored = scoredResult.status === 'fulfilled' ? scoredResult.value : [];
-      const local: FeedItem[] = localScored.map((s: any) => (
-        s.source === 'viral'
-          ? { type: 'recommended' as const, data: { ...s.post, _reason: s.reason } }
-          : { type: 'post' as const, data: s.post }
-      ));
-
-      const gateway =
-        gatewayResult.status === 'fulfilled'
-          ? gatewayResult.value.map((p: any) => ({ type: 'fedpost' as const, data: p }))
-          : [];
-      const merged: FeedItem[] = [...local];
-      gateway.slice(0, 4).forEach((item: FeedItem, i: number) => {
-        const insertAt = Math.min(merged.length, (i + 1) * 5);
-        merged.splice(insertAt, 0, item);
-      });
-      const filtered = merged.filter((item: any) => {
-        const uid = item.data?.user_id ?? item.data?.user_profiles?.id;
+      const items = await fetchUnifiedFeedItems('following');
+      const filtered = items.filter((item: any) => {
+        const uid = item.data?.user_id ?? item.data?.user_profiles?.id ?? item.data?.author?.id;
         return !uid || !blockedUserIds.includes(uid);
       });
       setFeedItems(filtered);
-      // Set cursor from last local post
-      const lastPost = filtered.filter((i: any) => i.type === 'post').slice(-1)[0];
-      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);
+      const lastPost = filtered.filter((i: any) => i.type === 'post' || i.type === 'fedpost').slice(-1)[0];
+      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? (lastPost.data as any).published_at ?? null);
+      setFeedHasMore(filtered.length >= PAGE_SIZE);
     } else {
       const items = activeTab === 'foryou'
-        ? await fetchUnifiedForYouFeed()
+        ? await fetchUnifiedFeedItems('home')
         : await fetchFeed(0);
       setFeedItems(items);
       const lastPost = items.filter((i: any) => i.type === 'post').slice(-1)[0];
       if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);
       setFeedHasMore(items.filter((i: any) => i.type === 'post').length >= PAGE_SIZE);
       // Populate prefetch cache for instant tab-switch on next visit
-      if (items.length > 0) setCachedFeed(activeTab, items);
+      if (items.length > 0 && activeTab !== 'foryou' && activeTab !== 'following') setCachedFeed(activeTab, items);
     }
     setLoading(false);
   };
