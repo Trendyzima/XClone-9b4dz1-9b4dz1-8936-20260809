@@ -4,7 +4,7 @@ import { handleFederationInteraction } from './federation-interaction-entrypoint
 const DOMAIN = 'federation.testagram.site';
 const ORIGIN = `https://${DOMAIN}`;
 const AP = 'application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json';
-const CTX = ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1', 'https://purl.archive.org/socialweb/webfinger'];
+const CTX = ['https://www.w3.org/ns/activitystreams', 'https://w3id.org/security/v1'];
 
 async function db(env: any, path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
