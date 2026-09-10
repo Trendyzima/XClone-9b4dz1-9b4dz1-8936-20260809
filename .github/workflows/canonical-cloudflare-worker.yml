@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
-      - name: Validate PayPal sandbox credential set
+      - name: Validate PayPal credential set
         env:
           PAYPAL_CLIENT_ID_PRIMARY: ${{ secrets.PAYPAL_CLIENT_ID }}
           PAYPAL_CLIENT_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
@@ -121,4 +121,4 @@ jobs:
           set -euo pipefail
           status="$(curl -sS -o /tmp/paypal-config.json -w '%{http_code}' --max-time 20 "$PAYPAL_CONFIG_URL" || true)"
           test "$status" = 200
-          jq -e '.ok == true and .provider == "paypal" and .environment == "sandbox" and .configured == true' /tmp/paypal-config.json >/dev/null
+          jq -e '.ok == true and .provider == "paypal" and .configured == true and (.environment == "sandbox" or .environment == "live")' /tmp/paypal-config.json >/dev/null
