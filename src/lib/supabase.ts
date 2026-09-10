@@ -14,23 +14,17 @@ if (!supabaseUrl || !supabasePublishableKey) {
   throw new Error('Testagram backend is not configured: VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) are required.');
 }
 
-// The schema is intentionally dynamic across the social feature set. The
-// runtime Supabase client remains unchanged; this compatibility type prevents
-// stale generated database typings from rejecting valid PostgREST thenables.
-export const supabase: any = createClient(supabaseUrl, supabasePublishableKey, {
+const DIRECT_CLOUDFLARE_API = 'https://testagram-api.nahashonnyaga794.workers.dev/api';
+export const cloudflareApiUrl = (import.meta.env.VITE_CLOUDFLARE_API_URL || DIRECT_CLOUDFLARE_API).replace(/\/$/, '');
+export const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
+
+const baseClient: any = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
   },
 });
-
-// The Testagram custom-domain /api route is currently being repaired at the
-// DNS/Cloudflare edge. Keep the deployed Worker as the deterministic fallback
-// so production clients never fall back to localhost or an unavailable origin.
-const DIRECT_CLOUDFLARE_API = 'https://testagram-api.nahashonnyaga794.workers.dev/api';
-export const cloudflareApiUrl = (import.meta.env.VITE_CLOUDFLARE_API_URL || DIRECT_CLOUDFLARE_API).replace(/\/$/, '');
-export const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 
 export async function cloudflareHealth() {
   const response = await fetch(`${cloudflareApiUrl}/health`, { headers: { Accept: 'application/json' } });
@@ -42,7 +36,7 @@ export async function uploadMedia(file: File, mediaType: 'image' | 'video' | 'au
   if (file.size <= 0) throw new Error('The selected media file is empty.');
   if (file.size > MAX_MEDIA_BYTES) throw new Error('Media exceeds the 20 MiB limit.');
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await baseClient.auth.getSession();
   if (!session?.access_token) throw new Error('You must be signed in to upload media.');
 
   const response = await fetch(`${cloudflareApiUrl}/media`, {
@@ -68,3 +62,53 @@ export async function uploadMedia(file: File, mediaType: 'image' | 'video' | 'au
     mimeType: string;
   };
 }
+
+// Post media is canonicalized through Cloudflare R2. Keep every other Supabase
+// Storage bucket untouched. The composer historically calls
+// supabase.storage.from('posts').upload(), so intercept only that bucket.
+const postMediaPublicUrls = new Map<string, string>();
+
+function cloudflarePostsBucket() {
+  const fallback = baseClient.storage.from('posts');
+  return {
+    ...fallback,
+    upload: async (path: string, file: File) => {
+      try {
+        const mediaType = file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'image';
+        const asset = await uploadMedia(file, mediaType);
+        postMediaPublicUrls.set(path, asset.url);
+        return {
+          data: { path: asset.id, id: asset.id, fullPath: asset.url },
+          error: null,
+        };
+      } catch (error: any) {
+        return {
+          data: null,
+          error: { message: error?.message || 'Cloudflare media upload failed' },
+        };
+      }
+    },
+    getPublicUrl: (path: string) => {
+      const knownUrl = postMediaPublicUrls.get(path);
+      if (knownUrl) return { data: { publicUrl: knownUrl } };
+      if (/^[0-9a-f-]{36}$/i.test(path)) {
+        return { data: { publicUrl: `${cloudflareApiUrl}/media/${path}` } };
+      }
+      return fallback.getPublicUrl(path);
+    },
+  };
+}
+
+export const supabase: any = new Proxy(baseClient, {
+  get(target, property, receiver) {
+    if (property === 'storage') {
+      return {
+        ...target.storage,
+        from(bucket: string) {
+          return bucket === 'posts' ? cloudflarePostsBucket() : target.storage.from(bucket);
+        },
+      };
+    }
+    return Reflect.get(target, property, receiver);
+  },
+});
