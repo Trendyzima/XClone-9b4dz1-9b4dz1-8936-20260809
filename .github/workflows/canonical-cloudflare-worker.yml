@@ -47,6 +47,7 @@ jobs:
           grep -Fq '"main": "./worker/production-entrypoint.ts"' cloudflare/wrangler-federation.jsonc
           grep -Fq "GATEWAY_FUNCTION = 'gateway-relay'" cloudflare/worker/production-entrypoint.ts
           grep -Fq "https://api.testagram.site/api/gateway" cloudflare/worker/production-entrypoint.ts
+          grep -Fq '"pattern": "api.testagram.site", "custom_domain": true' cloudflare/wrangler.jsonc
       - name: Validate Cloudflare deployment credentials
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -92,9 +93,9 @@ jobs:
           PAYPAL_WEBHOOK_ID_SANDBOX: ${{ secrets.PAYPAL_SANDBOX_WEBHOOK_ID }}
         run: |
           set -euo pipefail
-          client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
-          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
-          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
+          client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_SANDBOX_CLIENT_ID:-}}"
+          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_SANDBOX_CLIENT_SECRET:-}}"
+          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_SANDBOX_WEBHOOK_ID:-}}"
           put_secret() { local name="$1" value="$2"; for attempt in $(seq 1 6); do if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then return 0; fi; sleep $((attempt * 5)); done; return 1; }
           put_secret PAYPAL_CLIENT_ID "$client_id"
           put_secret PAYPAL_CLIENT_SECRET "$client_secret"
@@ -109,19 +110,28 @@ jobs:
           done
           cat /tmp/health.json || true
           exit 1
-      - name: Verify API gateway health and readiness
+      - name: Verify API custom-domain DNS and gateway health
         run: |
           set -euo pipefail
-          health_status="$(curl -sS -o /tmp/gateway-health.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL/api/health" || true)"
-          ready_status="$(curl -sS -o /tmp/gateway-ready.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL/api/ready" || true)"
-          echo "Gateway health HTTP status: $health_status"
-          cat /tmp/gateway-health.json || true
-          echo "Gateway ready HTTP status: $ready_status"
-          cat /tmp/gateway-ready.json || true
-          test "$health_status" = 200
-          test "$ready_status" = 200
-          jq -e '.ok == true and .gateway == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/gateway-health.json >/dev/null
-          jq -e '.ready == true and .gateway == true' /tmp/gateway-ready.json >/dev/null
+          echo 'Checking authoritative resolver visibility for api.testagram.site...'
+          getent hosts api.testagram.site || true
+          for attempt in $(seq 1 12); do
+            dns_ok=0
+            if getent hosts api.testagram.site >/dev/null 2>&1; then dns_ok=1; fi
+            health_status="$(curl -sS -o /tmp/gateway-health.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL/api/health" || true)"
+            ready_status="$(curl -sS -o /tmp/gateway-ready.json -w '%{http_code}' --max-time 20 "$GATEWAY_URL/api/ready" || true)"
+            echo "attempt=$attempt dns_ok=$dns_ok health=$health_status ready=$ready_status"
+            cat /tmp/gateway-health.json || true
+            cat /tmp/gateway-ready.json || true
+            if [ "$dns_ok" = 1 ] && [ "$health_status" = 200 ] && [ "$ready_status" = 200 ] && jq -e '.ok == true and .gateway == true and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/gateway-health.json >/dev/null 2>&1 && jq -e '.ready == true and .gateway == true' /tmp/gateway-ready.json >/dev/null 2>&1; then
+              echo 'PASS: api.testagram.site is resolving and the gateway is healthy/ready.'
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'FAIL: canonical Worker deployed, but api.testagram.site did not become a healthy/ready gateway endpoint.'
+          echo 'This is a Cloudflare custom-domain/DNS provisioning or permission failure, not a frontend failure.'
+          exit 1
       - name: Verify gateway authentication boundary
         run: |
           set -euo pipefail
