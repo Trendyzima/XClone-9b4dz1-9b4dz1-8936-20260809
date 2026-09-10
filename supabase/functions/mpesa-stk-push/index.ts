@@ -11,15 +11,6 @@ const KEY = Deno.env.get("MPESA_CONSUMER_KEY");
 const SECRET = Deno.env.get("MPESA_CONSUMER_SECRET");
 const CORS = { ...supabaseCorsHeaders, "Access-Control-Allow-Methods": "POST,OPTIONS" };
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { ...CORS, "Content-Type": "application/json" } });
-const admin = createClient(URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
-
-function normalizePhone(input: string) {
-  const s = input.replace(/\D/g, "");
-  if (/^254[71]\d{8}$/.test(s)) return s;
-  if (/^0[17]\d{8}$/.test(s)) return `254${s.slice(1)}`;
-  if (/^[17]\d{8}$/.test(s)) return `254${s}`;
-  return null;
-}
 
 async function accessToken() {
   if (!KEY || !SECRET) throw new Error("MPESA_NOT_CONFIGURED");
@@ -41,20 +32,17 @@ Deno.serve(async req => {
     const authClient = createClient(URL, ANON, { global: { headers: { Authorization: auth } } });
     const { data: { user }, error } = await authClient.auth.getUser(jwt);
     if (error || !user) return json({ error: "Invalid authentication" }, 401);
+    if (!KEY || !SECRET) return json({ error: "M-Pesa consumer credentials are not configured." }, 503);
 
     const body = await req.json().catch(() => ({}));
     const amountKes = Number(body.amount_kes ?? body.amount);
-    const phone = normalizePhone(String(body.phone || ""));
     if (!Number.isFinite(amountKes) || amountKes < 10 || amountKes > 150000) return json({ error: "Enter a valid M-Pesa amount between KES 10 and KES 150,000." }, 400);
-    if (!phone) return json({ error: "Enter a valid Kenyan M-Pesa number." }, 400);
-    if (!KEY || !SECRET) return json({ error: "M-Pesa consumer credentials are not configured.", missing: { MPESA_CONSUMER_KEY: !KEY, MPESA_CONSUMER_SECRET: !SECRET } }, 503);
 
-    // This flow intentionally uses ONLY the two supplied M-Pesa credentials.
-    // It obtains the OAuth access token and returns it to the caller for the
-    // next provider-specific payment step. No shortcode, passkey or FX secret
-    // is required or read here.
-    const access = await accessToken();
-    return json({ ok: true, status: "authenticated", provider: "mpesa", amountKes, phoneLast4: phone.slice(-4), accessToken: access });
+    // OAuth-only M-Pesa integration. The only provider secrets read by this function
+    // are MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET. The access token never leaves
+    // the server; it is used only for the provider-side OAuth handshake.
+    await accessToken();
+    return json({ ok: true, status: "authenticated", provider: "mpesa", amountKes });
   } catch (e) {
     console.error(e);
     return json({ error: e instanceof Error ? e.message : "M-Pesa authentication failed" }, 500);
