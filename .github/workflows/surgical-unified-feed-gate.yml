@@ -2,9 +2,7 @@
 name: Surgical unified feed gate
 
 on:
-  workflow_run:
-    workflows: ["Testagram Production Release Gate"]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -49,44 +47,44 @@ jobs:
           text = text.replace(old_import, new_import, 1)
 
           unified = """  const fetchUnifiedForYouFeed = async (): Promise<FeedItem[]> => {
-            try {
-              const result = await getUnifiedFeed({ mode: 'home', limit: PAGE_SIZE });
-              return result.posts.map((post: any) => ({
-                type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,
-                data: post,
-              }));
-            } catch (err) {
-              console.warn('[feed] unified home feed failed:', err);
-              return [];
-            }
-          };"""
+    try {
+      const result = await getUnifiedFeed({ mode: 'home', limit: PAGE_SIZE });
+      return result.posts.map((post: any) => ({
+        type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,
+        data: post,
+      }));
+    } catch (err) {
+      console.warn('[feed] unified home feed failed:', err);
+      return [];
+    }
+  };"""
           pattern = r"  const fetchUnifiedForYouFeed = async \(\): Promise<FeedItem\[\]> => \{.*?\n\n  const fetchInitialFeed"
           replacement = unified + "\n\n  const fetchInitialFeed"
           text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
           assert count == 1, 'HomePage: unified For You function replacement failed'
 
           following = """    } else if (activeTab === 'following' && user) {
-            try {
-              const result = await getUnifiedFeed({ mode: 'following', limit: PAGE_SIZE });
-              const filtered = result.posts
-                .filter((post: any) => {
-                  const uid = post.user_id ?? post.author?.id ?? post.author?.user_id;
-                  return !uid || !blockedUserIds.includes(uid);
-                })
-                .map((post: any) => ({
-                  type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,
-                  data: post,
-                }));
-              setFeedItems(filtered);
-              const last = result.posts.at(-1);
-              setFeedCursor(last?.created_at ?? null);
-              setFeedHasMore(result.posts.length >= PAGE_SIZE);
-            } catch (err) {
-              console.warn('[feed] unified following feed failed:', err);
-              setFeedItems([]);
-              setFeedHasMore(false);
-            }
-          } else {
+      try {
+        const result = await getUnifiedFeed({ mode: 'following', limit: PAGE_SIZE });
+        const filtered = result.posts
+          .filter((post: any) => {
+            const uid = post.user_id ?? post.author?.id ?? post.author?.user_id;
+            return !uid || !blockedUserIds.includes(uid);
+          })
+          .map((post: any) => ({
+            type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,
+            data: post,
+          }));
+        setFeedItems(filtered);
+        const last = result.posts.at(-1);
+        setFeedCursor(last?.created_at ?? null);
+        setFeedHasMore(result.posts.length >= PAGE_SIZE);
+      } catch (err) {
+        console.warn('[feed] unified following feed failed:', err);
+        setFeedItems([]);
+        setFeedHasMore(false);
+      }
+    } else {
       const items = activeTab === 'foryou'"""
           pattern = r"    \} else if \(activeTab === 'following' && user\) \{.*?\n    \} else \{\n      const items = activeTab === 'foryou'"
           text, count = re.subn(pattern, following, text, count=1, flags=re.S)
@@ -108,7 +106,7 @@ jobs:
           text = text.replace(marker, marker + "\nimport { UnifiedExploreFeed } from '@/components/features/UnifiedExploreFeed';", 1)
           topbar = '<TopBar title="Explore" showProfile={false} />'
           assert topbar in text, 'ExplorePage: TopBar marker not found'
-          text = text.replace(topbar, topbar + '\n\n      {activeTab === \'Explore\' && <UnifiedExploreFeed />}', 1)
+          text = text.replace(topbar, topbar + "\n\n      {activeTab === 'Explore' && <UnifiedExploreFeed />}", 1)
           explore.write_text(text)
 
           print('Surgical source edits applied.')
