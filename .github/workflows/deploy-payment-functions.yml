@@ -72,13 +72,13 @@ jobs:
             MPESA_CALLBACK_URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/mpesa-callback"
 
       - name: Deploy PayPal create-order
-        run: supabase functions deploy paypal-create-order --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt=false
+        run: supabase functions deploy paypal-create-order --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Deploy PayPal capture-order
-        run: supabase functions deploy paypal-capture-order --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt=false
+        run: supabase functions deploy paypal-capture-order --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Deploy M-Pesa STK push
-        run: supabase functions deploy mpesa-stk-push --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt=false
+        run: supabase functions deploy mpesa-stk-push --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Deploy M-Pesa callback
         run: supabase functions deploy mpesa-callback --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
