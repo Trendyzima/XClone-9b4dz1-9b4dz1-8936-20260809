@@ -57,55 +57,10 @@ async function getCanonicalFederatedTimeline(params: TimelineParams = {}): Promi
   });
 }
 
-function timelineDate(item: any): number {
-  const value = item?.published_at ?? item?.published ?? item?.created_at ?? item?.timestamp;
-  const parsed = value ? Date.parse(String(value)) : NaN;
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function timelineEngagement(item: any): number {
-  const values = [item?.likes_count, item?.favourites_count, item?.like_count, item?.boosts_count, item?.reblogs_count, item?.repost_count, item?.reposts_count, item?.replies_count, item?.reply_count, item?.quotes_count, item?.quote_count, item?.views_count, item?.view_count];
-  return values.reduce((sum, value) => sum + (Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0), 0);
-}
-
-/**
- * Home/For You is a unified feed: local Testagram posts and canonical inbound
- * ActivityPub Notes enter one ranking pool. The gateway remains authoritative
- * for local timeline retrieval; federated_objects supplies durable remote Notes.
- */
-function rankUnifiedHomeTimeline(local: any[], federated: any[], limit: number): any[] {
-  const byIdentity = new Map<string, any>();
-  for (const item of [...local, ...federated]) {
-    const identity = String(item?.id ?? item?.uri ?? item?.url ?? `${timelineDate(item)}:${item?.content ?? ''}`);
-    if (!byIdentity.has(identity)) byIdentity.set(identity, item);
-  }
-  const now = Date.now();
-  return [...byIdentity.values()]
-    .map((item, index) => {
-      const ageHours = Math.max(0, (now - timelineDate(item)) / 3600000);
-      const freshness = Math.exp(-ageHours / 30);
-      const engagement = Math.log1p(timelineEngagement(item));
-      const diversity = item?._is_federated ? 0.04 : 0;
-      return { item, score: freshness + engagement * 0.08 + diversity, index };
-    })
-    .sort((a, b) => b.score - a.score || timelineDate(b.item) - timelineDate(a.item) || a.index - b.index)
-    .slice(0, limit)
-    .map(({ item }) => item);
-}
-
-export async function getHomeTimeline(params: TimelineParams = {}): Promise<any[]> {
-  const limit = Math.min(Math.max(Number(params.limit ?? 30), 1), 50);
-  const [localResult, federatedResult] = await Promise.allSettled([
-    relay('/timeline/home', 'GET', undefined, { ...params, limit } as any),
-    getCanonicalFederatedTimeline({ ...params, limit }),
-  ]);
-  const local = localResult.status === 'fulfilled' && Array.isArray(localResult.value) ? localResult.value : [];
-  const federated = federatedResult.status === 'fulfilled' ? federatedResult.value : [];
-  if (federatedResult.status === 'rejected') console.warn('[federation] canonical home feed unavailable:', federatedResult.reason);
-  if (local.length || federated.length) return rankUnifiedHomeTimeline(local, federated, limit);
-  if (localResult.status === 'rejected') throw localResult.reason;
-  return [];
-}
+function timelineDate(item: any): number { const value = item?.published_at ?? item?.published ?? item?.created_at ?? item?.timestamp; const parsed = value ? Date.parse(String(value)) : NaN; return Number.isFinite(parsed) ? parsed : 0; }
+function timelineEngagement(item: any): number { const values = [item?.likes_count, item?.favourites_count, item?.like_count, item?.boosts_count, item?.reblogs_count, item?.repost_count, item?.reposts_count, item?.replies_count, item?.reply_count, item?.quotes_count, item?.quote_count, item?.views_count, item?.view_count]; return values.reduce((sum, value) => sum + (Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0), 0); }
+function rankUnifiedHomeTimeline(local: any[], federated: any[], limit: number): any[] { const byIdentity = new Map<string, any>(); for (const item of [...local, ...federated]) { const identity = String(item?.id ?? item?.uri ?? item?.url ?? `${timelineDate(item)}:${item?.content ?? ''}`); if (!byIdentity.has(identity)) byIdentity.set(identity, item); } const now = Date.now(); return [...byIdentity.values()].map((item, index) => { const ageHours = Math.max(0, (now - timelineDate(item)) / 3600000); const freshness = Math.exp(-ageHours / 30); const engagement = Math.log1p(timelineEngagement(item)); const diversity = item?._is_federated ? 0.04 : 0; return { item, score: freshness + engagement * 0.08 + diversity, index }; }).sort((a, b) => b.score - a.score || timelineDate(b.item) - timelineDate(a.item) || a.index - b.index).slice(0, limit).map(({ item }) => item); }
+export async function getHomeTimeline(params: TimelineParams = {}): Promise<any[]> { const limit = Math.min(Math.max(Number(params.limit ?? 30), 1), 50); const [localResult, federatedResult] = await Promise.allSettled([relay('/timeline/home', 'GET', undefined, { ...params, limit } as any), getCanonicalFederatedTimeline({ ...params, limit })]); const local = localResult.status === 'fulfilled' && Array.isArray(localResult.value) ? localResult.value : []; const federated = federatedResult.status === 'fulfilled' ? federatedResult.value : []; if (federatedResult.status === 'rejected') console.warn('[federation] canonical home feed unavailable:', federatedResult.reason); if (local.length || federated.length) return rankUnifiedHomeTimeline(local, federated, limit); if (localResult.status === 'rejected') throw localResult.reason; return []; }
 export async function getGlobalTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/global', 'GET', undefined, params as any); }
 export async function getLocalTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/local', 'GET', undefined, params as any); }
 export async function getFederatedTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/federated', 'GET', undefined, params as any); }
@@ -118,9 +73,12 @@ export async function follow(target: string): Promise<any> { return relay('/foll
 export async function unfollow(target: string): Promise<any> { return relay('/unfollow', 'POST', { target }); }
 async function canonicalPostId(postId: string): Promise<string> { const value = String(postId ?? '').trim(); if (!value) throw new Error('Fediverse post identity is required'); if (/^https?:\/\//i.test(value)) return value; const { data, error } = await supabase.from('remote_posts').select('object_url').eq('id', value).maybeSingle(); if (error) throw error; if (!data?.object_url) throw new Error('Fediverse post has no canonical object URL'); return data.object_url; }
 async function remoteInteract(interaction: 'like'|'repost'|'reply'|'quote'|'bookmark', objectUrl: string, enabled = true, content?: string): Promise<any> {
-  const { data, error } = await supabase.functions.invoke('federation-interact', { body: { interaction, objectUrl, enabled, ...(content !== undefined ? { content } : {}) } });
-  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Fediverse interaction error'}`; } catch {} } throw new GatewayError(0, msg, `/federation-interact/${interaction}`); }
-  if (data?.error) throw new GatewayError(0, String(data.error), `/federation-interact/${interaction}`);
+  const token = await getToken();
+  if (!token) throw new GatewayError(401, 'You must be signed in to interact with Fediverse content.', `/federation-interact/${interaction}`);
+  const { data, error } = await supabase.functions.invoke('federation-interact', { body: { interaction, objectUrl, enabled, ...(content !== undefined ? { content } : {}) }, headers: { Authorization: `Bearer ${token}` } });
+  if (error) { let msg = error.message; let status = 500; if (error instanceof FunctionsHttpError) { try { status = error.context?.status ?? 500; const text = await error.context?.text(); msg = text || error.message || 'Fediverse interaction error'; try { const parsed = JSON.parse(text || ''); if (parsed?.error) msg = parsed.error; } catch {} } catch {} } throw new GatewayError(status, msg, `/federation-interact/${interaction}`); }
+  if (data?.error) throw new GatewayError(Number(data.status) || 502, String(data.error), `/federation-interact/${interaction}`);
+  if (!data?.ok) throw new GatewayError(502, `Fediverse ${interaction} was not accepted by the federation service.`, `/federation-interact/${interaction}`);
   return data;
 }
 export async function boost(postId: string): Promise<any> { return remoteInteract('repost', await canonicalPostId(postId)); }
@@ -134,18 +92,8 @@ export async function quote(payload: { postId: string; content: string }): Promi
 export async function getNotifications(params: TimelineParams = {}): Promise<any> { return relay(`/notifications`, 'GET', undefined, params as any); }
 export async function clearNotifications(): Promise<void> { return relay(`/notifications`, 'DELETE'); }
 export type SearchKind = 'all' | 'users' | 'posts' | 'hashtags' | 'instances' | 'communities' | 'products' | 'fediverse_users' | 'fediverse_posts';
-export async function search(q: string, type: SearchKind = 'all', limit = 40): Promise<any[]> {
-  const token = await getToken();
-  const { data, error } = await supabase.functions.invoke('search-everything', { body: { q, type, limit }, headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Search error'}`; } catch {} } throw new GatewayError(0, msg, '/search'); }
-  return Array.isArray(data) ? data : [];
-}
-export async function getUnifiedHashtagFeed(tag: string, limit = 40): Promise<any[]> {
-  const token = await getToken();
-  const { data, error } = await supabase.functions.invoke('search-everything', { body: { operation: 'hashtag_feed', tag, limit }, headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Hashtag feed error'}]`; } catch {} } throw new GatewayError(0, msg, '/hashtag-feed'); }
-  return Array.isArray(data) ? data : [];
-}
+export async function search(q: string, type: SearchKind = 'all', limit = 40): Promise<any[]> { const token = await getToken(); const { data, error } = await supabase.functions.invoke('search-everything', { body: { q, type, limit }, headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Search error'}`; } catch {} } throw new GatewayError(0, msg, '/search'); } return Array.isArray(data) ? data : []; }
+export async function getUnifiedHashtagFeed(tag: string, limit = 40): Promise<any[]> { const token = await getToken(); const { data, error } = await supabase.functions.invoke('search-everything', { body: { operation: 'hashtag_feed', tag, limit }, headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Hashtag feed error']`; } catch {} } throw new GatewayError(0, msg, '/hashtag-feed'); } return Array.isArray(data) ? data : []; }
 export async function getFollowers(acct: string, params: TimelineParams = {}): Promise<any> { return relay(`/users/${encodeURIComponent(acct)}/followers`, 'GET', undefined, params as any); }
 export async function getFollowing(acct: string, params: TimelineParams = {}): Promise<any> { return relay(`/users/${encodeURIComponent(acct)}/following`, 'GET', undefined, params as any); }
 export async function getInstance(): Promise<any> { return relay('/health'); }
