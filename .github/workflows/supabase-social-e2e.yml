@@ -2,6 +2,11 @@ name: Testagram Supabase Social E2E
 
 on:
   workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Immutable release commit to test'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -13,8 +18,19 @@ jobs:
       SUPABASE_URL: https://aepbqfrmheihfsauzcby.supabase.co
       SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify E2E release identity
+        run: |
+          set -euo pipefail
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$RELEASE_SHA"
+          echo "E2E release commit=$actual"
 
       - name: Validate required secrets
         run: |
