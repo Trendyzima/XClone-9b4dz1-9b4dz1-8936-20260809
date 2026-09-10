@@ -35,7 +35,6 @@ function normalizeFederated(item: any): Post {
     origin: 'federated',
     federation_id: item.uri ?? item.id ?? item.federation_id,
     ...item,
-    author: actor,
   };
 }
 
