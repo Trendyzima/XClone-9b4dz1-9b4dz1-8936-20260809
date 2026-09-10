@@ -119,22 +119,33 @@ Deno.serve(async req => {
     const interestTags = new Set<string>();
 
     if (uid) {
-      // Use only relations that actually exist in the current schema. The previous
-      // ranking revision queried non-existent mutes/user_blocks tables and used the
-      // old interest_score/hashtag_id shape, which caused authenticated feeds to 500.
-      const [localFollows, remoteFollows, interests] = await Promise.all([
+      // Home/For You is a public recommendation graph. Following is relationship-only.
+      // Keep the relationship graph available as a ranking signal without using it to
+      // accidentally exclude the public posts that Home is supposed to distribute.
+      const [localFollows, remoteFollows, interests, blocksByUser, blocksAgainstUser] = await Promise.all([
         admin.from('follows').select('following_id').eq('follower_id', uid).limit(500),
         admin.from('federation_relationships').select('remote_actor_url').eq('local_user_id', uid).eq('relationship', 'accepted').eq('state', 'accepted').limit(500),
         admin.from('user_interests').select('topic,weight').eq('user_id', uid).order('weight', { ascending: false }).limit(50),
+        admin.from('blocks').select('blocked_id').eq('blocker_id', uid).limit(500),
+        admin.from('blocks').select('blocker_id').eq('blocked_id', uid).limit(500),
       ]);
       if (localFollows.error) throw new Error(`native follows: ${localFollows.error.message}`);
       if (remoteFollows.error) throw new Error(`federated follows: ${remoteFollows.error.message}`);
       if (interests.error) throw new Error(`interests: ${interests.error.message}`);
+      if (blocksByUser.error) throw new Error(`blocks: ${blocksByUser.error.message}`);
+      if (blocksAgainstUser.error) throw new Error(`blocked-by: ${blocksAgainstUser.error.message}`);
 
-      nativeAuthorIds = [uid, ...(localFollows.data || []).map((x: any) => String(x.following_id)).filter(Boolean)];
-      nativeAuthorIds.forEach((id) => followingIds.add(id));
-      remoteActorUrls = (remoteFollows.data || []).map((x: any) => String(x.remote_actor_url)).filter(Boolean);
-      remoteActorUrls.forEach((actor) => followingRemoteActors.add(actor));
+      const followedLocalIds = (localFollows.data || []).map((x: any) => String(x.following_id)).filter(Boolean);
+      nativeAuthorIds = mode === 'following' ? [uid, ...followedLocalIds] : null;
+      followedLocalIds.forEach((id) => followingIds.add(id));
+      followingIds.add(uid);
+
+      const followedRemoteActors = (remoteFollows.data || []).map((x: any) => String(x.remote_actor_url)).filter(Boolean);
+      remoteActorUrls = mode === 'following' ? followedRemoteActors : null;
+      followedRemoteActors.forEach((actor) => followingRemoteActors.add(actor));
+
+      (blocksByUser.data || []).forEach((x: any) => { if (x.blocked_id) hiddenAuthors.add(String(x.blocked_id)); });
+      (blocksAgainstUser.data || []).forEach((x: any) => { if (x.blocker_id) hiddenAuthors.add(String(x.blocker_id)); });
       (interests.data || []).forEach((x: any) => {
         const topic = String(x.topic || '').trim().toLowerCase().replace(/^#/, '');
         if (topic && num(x.weight) > 0) interestTags.add(topic);
@@ -146,12 +157,16 @@ Deno.serve(async req => {
       .select('*,author:profiles!posts_author_id_fkey(*),post_analytics(likes,replies,reposts,views)')
       .is('deleted_at', null).eq('visibility', 'public')
       .order('created_at', { ascending: false }).limit(candidateLimit);
+    // Critical distinction: Home/For You receives the public graph; Following is
+    // constrained to the user's local following graph (plus the user's own posts).
     if (nativeAuthorIds) nativeQuery.in('author_id', nativeAuthorIds);
 
     const fedQuery = admin.from('federated_objects')
       .select('*').is('deleted_at', null)
       .in('object_type', ['Note', 'Article', 'Question', 'Video'])
       .order('published_at', { ascending: false }).limit(candidateLimit);
+    // Home/For You receives public federated discovery. Following is limited to
+    // remote actors the user explicitly follows.
     if (remoteActorUrls) {
       if (remoteActorUrls.length) fedQuery.in('actor_uri', remoteActorUrls);
       else fedQuery.eq('actor_uri', '__no_followed_remote_actor__');
@@ -166,7 +181,7 @@ Deno.serve(async req => {
 
     const candidates = [
       ...(native.data || []).filter((p: any) => !hiddenAuthors.has(String(p.author_id))).map((p: any) => ({ ...p, source: 'xclone', origin: 'local' })),
-      ...(fed.data || []).filter((p: any) => !p.sensitive).map((p: any) => ({ ...p, source: 'fediverse', origin: 'federated', fediv: true })),
+      ...(fed.data || []).filter((p: any) => !p.sensitive && !hiddenAuthors.has(String(p.actor_uri || ''))).map((p: any) => ({ ...p, source: 'fediverse', origin: 'federated', fediv: true })),
     ];
 
     const seen = new Set<string>();
@@ -208,7 +223,7 @@ Deno.serve(async req => {
       rankedAt: new Date().toISOString(),
       ranking: 'unified-v2',
       rankingSignals: ['recency_decay', 'log_engagement', 'relationship', 'interest', 'media', 'verified', 'author_diversity', 'source_balance', 'stable_tiebreak'],
-      graph: mode === 'explore' ? 'public' : 'following+federated-following',
+      graph: mode === 'explore' ? 'public' : mode === 'following' ? 'following+federated-following' : 'public+personalized',
     } });
   } catch (e) {
     console.error(e);
