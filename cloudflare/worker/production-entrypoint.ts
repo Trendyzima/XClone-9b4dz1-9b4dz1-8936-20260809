@@ -2,12 +2,14 @@ import publicActor from './public-actor-entrypoint';
 import federation from './federation-entrypoint';
 import federationInterop from './federation-interop-entrypoint';
 import { handlePayPal, PayPalEnv } from './paypal';
+import { uploadMedia, getMedia, deleteMedia } from './index';
 
 interface Env extends PayPalEnv {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
   SUPABASE_PROJECT_REF: string;
   SUPABASE_JWKS_URL: string;
+  SUPABASE_ANON_KEY: string;
   APP_ORIGIN: string;
   MEDIA: R2Bucket;
 }
@@ -24,11 +26,11 @@ function responseOrigin(env: Env, request?: Request): string {
   return 'https://www.testagram.site';
 }
 
-function cors(env: Env, methods = 'GET,POST,OPTIONS', request?: Request) {
+function cors(env: Env, methods = 'GET,POST,PATCH,PUT,DELETE,OPTIONS', request?: Request) {
   return {
     'Access-Control-Allow-Origin': responseOrigin(env, request),
     'Access-Control-Allow-Methods': methods,
-    'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-request-id',
+    'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, range, x-media-type, x-file-name, x-request-id',
     'Access-Control-Expose-Headers': 'x-request-id, retry-after',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin'
@@ -36,7 +38,7 @@ function cors(env: Env, methods = 'GET,POST,OPTIONS', request?: Request) {
 }
 function requestId(request: Request) { return request.headers.get('x-request-id') || crypto.randomUUID(); }
 function json(env: Env, payload: unknown, status = 200, id?: string, request?: Request) {
-  const headers = new Headers({ ...cors(env, 'GET,POST,OPTIONS', request), 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  const headers = new Headers({ ...cors(env, 'GET,POST,PATCH,PUT,DELETE,OPTIONS', request), 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   if (id) headers.set('x-request-id', id);
   return new Response(JSON.stringify(payload), { status, headers });
 }
@@ -83,4 +85,17 @@ async function gateway(request: Request, env: Env): Promise<Response> {
   return json(env, { ok: false, error: lastError, code: 'GATEWAY_UPSTREAM_UNAVAILABLE', requestId: id, retryable: innerMethod === 'GET' }, 503, id, request);
 }
 
-export default { async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> { const url = new URL(request.url), id = requestId(request); if (url.hostname === 'federation.testagram.site') return federationInterop.fetch(request, env, ctx); if (url.pathname === '/api/health') { if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors(env, 'GET,POST,OPTIONS', request), 'x-request-id': id } }); return health(env, id, request); } if (url.pathname === '/api/ready') { if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors(env, 'GET,POST,OPTIONS', request), 'x-request-id': id } }); return ready(env, id, request); } if (url.pathname === '/api/gateway' || url.pathname === '/api/gateway/') return gateway(request, env); if (url.pathname.startsWith('/api/paypal/')) return handlePayPal(request, env); return publicActor.fetch(request, env, ctx); } };
+export default { async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url), id = requestId(request);
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors(env, 'GET,POST,PATCH,PUT,DELETE,OPTIONS', request), 'x-request-id': id } });
+  if (url.hostname === 'federation.testagram.site') return federationInterop.fetch(request, env, ctx);
+  if (url.pathname === '/api/health') return health(env, id, request);
+  if (url.pathname === '/api/ready') return ready(env, id, request);
+  if (url.pathname === '/api/media' && request.method === 'POST') return uploadMedia(request, env as any);
+  const mediaMatch = url.pathname.match(/^\/api\/media\/([0-9a-f-]{36})$/i);
+  if (mediaMatch && request.method === 'GET') return getMedia(request, env as any, mediaMatch[1]);
+  if (mediaMatch && request.method === 'DELETE') return deleteMedia(request, env as any, mediaMatch[1]);
+  if (url.pathname === '/api/gateway' || url.pathname === '/api/gateway/') return gateway(request, env);
+  if (url.pathname.startsWith('/api/paypal/')) return handlePayPal(request, env);
+  return publicActor.fetch(request, env, ctx);
+} };
