@@ -72,6 +72,22 @@ jobs:
           test -z "$(git status --porcelain -- supabase/migrations)"
           echo 'Checked-out migration files are the pending source of truth; remote synchronization will not overwrite them.'
 
+      - name: Reject duplicate migration version sources
+        run: |
+          set -euo pipefail
+          versions="$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sed -E 's/^([0-9]{8,14})_.*/\1/' | sort)"
+          duplicates="$(printf '%s\n' "$versions" | uniq -d)"
+          if [ -n "$duplicates" ]; then
+            echo 'Duplicate Supabase migration version prefixes detected. Each version must have exactly one local source file.'
+            while IFS= read -r version; do
+              [ -n "$version" ] || continue
+              echo "Version $version:"
+              find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print | sort
+            done <<< "$duplicates"
+            exit 1
+          fi
+          echo 'Migration version prefixes are unique.'
+
       - name: Inspect production migration history
         run: |
           set -euo pipefail
