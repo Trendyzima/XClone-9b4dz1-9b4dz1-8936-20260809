@@ -65,20 +65,34 @@ function authorOf(item: any) {
 }
 
 function tagsOf(item: any): string[] {
-  const raw = item._hashtag_tags || item.hashtags || [];
-  return Array.isArray(raw) ? raw.map((x: any) => String(x?.tag ?? x).toLowerCase()).filter(Boolean) : [];
+  const raw = item._hashtag_tags || item.hashtags || item.tag || [];
+  const values = Array.isArray(raw) ? raw : [raw];
+  const tags = values
+    .map((x: any) => typeof x === 'string' ? x : String(x?.tag ?? x?.name ?? ''))
+    .map((x: string) => x.trim().toLowerCase().replace(/^#/, ''))
+    .filter(Boolean);
+  if (tags.length) return tags;
+  const text = String(item.content ?? item.summary ?? '');
+  return [...text.matchAll(/#([\p{L}\p{N}_-]{2,64})/gu)].map((m) => m[1].toLowerCase());
 }
 
-function rankCandidate(item: any, signals: { followingIds: Set<string>; hiddenAuthors: Set<string>; interestTags: Set<string>; activities: any[] }) {
+function rankCandidate(item: any, signals: {
+  followingIds: Set<string>;
+  followingRemoteActors: Set<string>;
+  interestTags: Set<string>;
+  activities: any[];
+}) {
   const ageHours = Math.max(0, (Date.now() - dateOf(item)) / 3_600_000);
   const decay = Math.pow(0.5, ageHours / HALF_LIFE_HOURS);
-  const engagement = item.source === 'fediverse' ? fedEngagement(String(item.uri || ''), signals.activities) : nativeEngagement(item);
+  const engagement = item.source === 'fediverse'
+    ? fedEngagement(String(item.uri || ''), signals.activities)
+    : nativeEngagement(item);
   const normalizedEngagement = Math.log1p(engagement) * 10;
   const author = authorOf(item);
-  const following = signals.followingIds.has(author) ? 20 : 0;
+  const following = signals.followingIds.has(author) || signals.followingRemoteActors.has(author) ? 20 : 0;
   const interest = tagsOf(item).some((tag) => signals.interestTags.has(tag)) ? 15 : 0;
   const verified = item.author?.verified_tier && item.author.verified_tier !== 'none' ? 5 : 0;
-  const media = item.media_type === 'video' || item.video_url ? 8 : item.media_url ? 4 : 0;
+  const media = item.media_type === 'video' || item.video_url || item.media_urls?.length ? 8 : item.media_url ? 4 : 0;
   const sourceBalance = item.source === 'fediverse' ? 1 : 0;
   const score = normalizedEngagement * decay + following + interest + verified + media + sourceBalance;
   return { ...item, _rank_score: Number(score.toFixed(6)), _rank_time: dateOf(item), _rank_author: author };
@@ -100,32 +114,31 @@ Deno.serve(async req => {
     let nativeAuthorIds: string[] | null = null;
     let remoteActorUrls: string[] | null = null;
     const followingIds = new Set<string>();
+    const followingRemoteActors = new Set<string>();
     const hiddenAuthors = new Set<string>();
     const interestTags = new Set<string>();
 
     if (uid) {
-      const [localFollows, remoteFollows, mutes, blocks, interests] = await Promise.all([
+      // Use only relations that actually exist in the current schema. The previous
+      // ranking revision queried non-existent mutes/user_blocks tables and used the
+      // old interest_score/hashtag_id shape, which caused authenticated feeds to 500.
+      const [localFollows, remoteFollows, interests] = await Promise.all([
         admin.from('follows').select('following_id').eq('follower_id', uid).limit(500),
         admin.from('federation_relationships').select('remote_actor_url').eq('local_user_id', uid).eq('relationship', 'accepted').eq('state', 'accepted').limit(500),
-        admin.from('mutes').select('muted_id').eq('muter_id', uid).limit(200),
-        admin.from('user_blocks').select('blocked_id').eq('blocker_id', uid).limit(200),
-        admin.from('user_interests').select('interest_score,hashtags:hashtag_id(tag)').eq('user_id', uid).order('interest_score', { ascending: false }).limit(50),
+        admin.from('user_interests').select('topic,weight').eq('user_id', uid).order('weight', { ascending: false }).limit(50),
       ]);
       if (localFollows.error) throw new Error(`native follows: ${localFollows.error.message}`);
       if (remoteFollows.error) throw new Error(`federated follows: ${remoteFollows.error.message}`);
-      if (mutes.error) throw new Error(`mutes: ${mutes.error.message}`);
-      if (blocks.error) throw new Error(`blocks: ${blocks.error.message}`);
       if (interests.error) throw new Error(`interests: ${interests.error.message}`);
 
       nativeAuthorIds = [uid, ...(localFollows.data || []).map((x: any) => String(x.following_id)).filter(Boolean)];
       nativeAuthorIds.forEach((id) => followingIds.add(id));
-      (mutes.data || []).forEach((x: any) => hiddenAuthors.add(String(x.muted_id)));
-      (blocks.data || []).forEach((x: any) => hiddenAuthors.add(String(x.blocked_id)));
-      (interests.data || []).forEach((x: any) => {
-        const tag = x.hashtags?.tag;
-        if (tag && num(x.interest_score) > 0) interestTags.add(String(tag).toLowerCase());
-      });
       remoteActorUrls = (remoteFollows.data || []).map((x: any) => String(x.remote_actor_url)).filter(Boolean);
+      remoteActorUrls.forEach((actor) => followingRemoteActors.add(actor));
+      (interests.data || []).forEach((x: any) => {
+        const topic = String(x.topic || '').trim().toLowerCase().replace(/^#/, '');
+        if (topic && num(x.weight) > 0) interestTags.add(topic);
+      });
     }
 
     const candidateLimit = Math.min(100, Math.max(limit * 5, 50));
@@ -164,7 +177,7 @@ Deno.serve(async req => {
         seen.add(id);
         return true;
       })
-      .map((p: any) => rankCandidate(p, { followingIds, hiddenAuthors, interestTags, activities: activities.data || [] }))
+      .map((p: any) => rankCandidate(p, { followingIds, followingRemoteActors, interestTags, activities: activities.data || [] }))
       .sort(compare);
 
     const items: any[] = [];
