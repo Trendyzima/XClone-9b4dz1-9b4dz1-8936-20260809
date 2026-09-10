@@ -1,69 +1,67 @@
 import { supabase } from '@/lib/supabase';
 
-const PART_CONCURRENCY = 4;
+const MAX_DIRECT_UPLOAD_BYTES = 20 * 1024 * 1024;
+const DEFAULT_API_BASE = 'https://api.testagram.site/api';
 
 type MediaType = 'image' | 'video' | 'audio' | 'document';
-type Session = { assetId: string; key: string; uploadId: string; partSize: number; partCount: number };
 
-async function invoke(body: Record<string, unknown>) {
-  const { data, error } = await supabase.functions.invoke('media-upload', { body });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  return data;
+type UploadResponse = {
+  id: string;
+  storage: 'cloudflare-r2';
+  storageKey: string;
+  url: string;
+  byteSize: number;
+  mediaType: MediaType;
+  mimeType: string;
+};
+
+function apiBase() {
+  return (import.meta.env.VITE_CLOUDFLARE_API_URL || DEFAULT_API_BASE).replace(/\/$/, '');
 }
 
-async function mapConcurrent<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>) {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-  const worker = async () => {
-    while (true) {
-      const index = cursor++;
-      if (index >= items.length) return;
-      results[index] = await fn(items[index]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
+function absoluteMediaUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  const origin = apiBase().replace(/\/api\/?$/, '');
+  return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-export async function uploadMediaToR2(file: File, mediaType: MediaType) {
-  const session = await invoke({
-    action: 'create',
-    filename: file.name,
-    contentType: file.type || 'application/octet-stream',
-    size: file.size,
-    mediaType,
-  }) as Session;
-
-  const partNumbers = Array.from({ length: session.partCount }, (_, i) => i + 1);
-  try {
-    const uploaded = await mapConcurrent(partNumbers, PART_CONCURRENCY, async (partNumber) => {
-      const signed = await invoke({ action: 'sign-part', key: session.key, uploadId: session.uploadId, partNumber }) as { url: string; partNumber: number };
-      const start = (partNumber - 1) * session.partSize;
-      const end = Math.min(start + session.partSize, file.size);
-      const response = await fetch(signed.url, {
-        method: 'PUT',
-        body: file.slice(start, end),
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      });
-      if (!response.ok) throw new Error(`R2 part ${partNumber} failed (${response.status})`);
-      const etag = response.headers.get('ETag');
-      if (!etag) throw new Error(`R2 part ${partNumber} did not return an ETag`);
-      return { PartNumber: partNumber, ETag: etag };
-    });
-
-    return await invoke({
-      action: 'complete',
-      key: session.key,
-      uploadId: session.uploadId,
-      parts: uploaded,
-      filename: file.name,
-      contentType: file.type || 'application/octet-stream',
-      size: file.size,
-      mediaType,
-    });
-  } catch (error) {
-    await invoke({ action: 'abort', key: session.key, uploadId: session.uploadId }).catch(() => undefined);
-    throw error;
+export async function uploadMediaToR2(file: File, mediaType: MediaType): Promise<UploadResponse> {
+  if (!file || file.size <= 0) throw new Error('The selected file is empty.');
+  if (file.size > MAX_DIRECT_UPLOAD_BYTES) {
+    throw new Error('This media file is larger than the 20 MiB production upload limit.');
   }
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Your session has expired. Please sign in again.');
+
+  const response = await fetch(`${apiBase()}/media`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': file.type || 'application/octet-stream',
+      'X-Media-Type': mediaType,
+      'X-File-Name': file.name,
+    },
+    body: file,
+  });
+
+  let payload: any = null;
+  try { payload = await response.json(); } catch { /* preserve the HTTP failure below */ }
+
+  if (!response.ok) {
+    throw new Error(payload?.error || `Media upload failed (${response.status})`);
+  }
+  if (!payload?.id || !payload?.url) {
+    throw new Error('Media upload completed without a usable asset URL.');
+  }
+
+  return {
+    id: payload.id,
+    storage: 'cloudflare-r2',
+    storageKey: payload.storageKey || payload.storage_key || '',
+    url: absoluteMediaUrl(payload.url),
+    byteSize: Number(payload.byteSize || file.size),
+    mediaType: payload.mediaType || mediaType,
+    mimeType: payload.mimeType || file.type || 'application/octet-stream',
+  };
 }
