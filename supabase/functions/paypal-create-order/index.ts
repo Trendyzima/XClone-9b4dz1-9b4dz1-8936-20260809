@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, corsHeaders } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SECRET_KEY")!;
@@ -8,7 +8,7 @@ const PAYPAL_CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID");
 const PAYPAL_CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET");
 const PAYPAL_ENV = (Deno.env.get("PAYPAL_ENV") || "sandbox").toLowerCase();
 const PAYPAL_BASE = PAYPAL_ENV === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
-const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,apikey,content-type", "Access-Control-Allow-Methods": "POST,OPTIONS" };
+const CORS = { ...corsHeaders, "Access-Control-Allow-Methods": "POST,OPTIONS" };
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const admin = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -57,47 +57,11 @@ Deno.serve(async req => {
     const approvalUrl = raw.links?.find((l: any) => l.rel === "approve")?.href || null;
     if (!approvalUrl || !raw.id) return json({ error: "PayPal approval URL was not returned" }, 502);
 
-    const { data: tx, error: txError } = await admin.from("wallet_transactions").insert({
-      user_id: user.id,
-      wallet_id: wallet.id,
-      kind: "topup",
-      type: "deposit",
-      amount: amount,
-      amount_cents: amountCents,
-      currency,
-      direction: "credit",
-      status: "pending",
-      provider: "paypal",
-      provider_order_id: raw.id,
-      provider_status: raw.status || "CREATED",
-      payment_method: "paypal",
-      description: "PayPal wallet top-up",
-      metadata: { paypal_order_id: raw.id }
-    }).select("id").single();
+    const { data: tx, error: txError } = await admin.from("wallet_transactions").insert({ user_id: user.id, wallet_id: wallet.id, kind: "topup", type: "deposit", amount: amount, amount_cents: amountCents, currency, direction: "credit", status: "pending", provider: "paypal", provider_order_id: raw.id, provider_status: raw.status || "CREATED", payment_method: "paypal", description: "PayPal wallet top-up", metadata: { paypal_order_id: raw.id } }).select("id").single();
     if (txError || !tx?.id) return json({ error: "Wallet transaction persistence failed" }, 500);
 
-    const { error: insertError } = await admin.from("paypal_orders").insert({
-      user_id: user.id,
-      wallet_id: wallet.id,
-      wallet_transaction_id: tx.id,
-      transaction_id: null,
-      paypal_order_id: raw.id,
-      order_id: raw.id,
-      amount_cents: amountCents,
-      amount,
-      currency,
-      status: "created",
-      approval_url: approvalUrl,
-      metadata: { paypal_create_response: raw },
-      updated_at: new Date().toISOString()
-    });
-    if (insertError) {
-      await admin.from("wallet_transactions").delete().eq("id", tx.id);
-      return json({ error: "Order persistence failed" }, 500);
-    }
+    const { error: insertError } = await admin.from("paypal_orders").insert({ user_id: user.id, wallet_id: wallet.id, wallet_transaction_id: tx.id, transaction_id: null, paypal_order_id: raw.id, order_id: raw.id, amount_cents: amountCents, amount, currency, status: "created", approval_url: approvalUrl, metadata: { paypal_create_response: raw }, updated_at: new Date().toISOString() });
+    if (insertError) { await admin.from("wallet_transactions").delete().eq("id", tx.id); return json({ error: "Order persistence failed" }, 500); }
     return json({ ok: true, orderId: raw.id, status: raw.status, approvalUrl, currency, amount });
-  } catch (e) {
-    console.error(e);
-    return json({ error: e instanceof Error ? e.message : "PayPal order creation failed" }, 500);
-  }
+  } catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : "PayPal order creation failed" }, 500); }
 });
