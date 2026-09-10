@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, Globe, Heart, Languages, Loader2, MessageCircle, Quote, Repeat2, Send, Share2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Globe, Heart, Languages, Loader2, MessageCircle, Quote, Repeat2, Send, Share2, Bookmark } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -21,15 +21,13 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
   const avatarUrl = actor.icon?.url ?? actor.avatar ?? actor.avatar_url;
   const displayName = actor.name ?? actor.display_name ?? username;
   const actorTarget = actor.url ?? actor.id ?? handle;
-  // A remote object's canonical ActivityPub identity is its object_url. Local
-  // cache UUIDs are implementation details and must never be sent as remote IDs.
   const canonicalObjectUrl = post.object_url ?? post.uri ?? post.url ?? post.raw_object?.id ?? post.raw_object?.url ?? '';
-  const postUrl = canonicalObjectUrl;
   const createdAt = post.created_at ?? post.published ?? post.published_at ?? '';
   const rawText = stripHtml(post.content ?? post.text ?? '');
   const media = useMemo(() => Array.isArray(post.media_attachments) ? post.media_attachments : [], [post.media_attachments]);
   const [liked, setLiked] = useState(Boolean(post.favourited ?? post.liked));
   const [reposted, setReposted] = useState(Boolean(post.reblogged ?? post.boosted));
+  const [bookmarked, setBookmarked] = useState(Boolean(post.bookmarked));
   const [following, setFollowing] = useState(Boolean(actor.following ?? post.following));
   const [likes, setLikes] = useState(Number(post.favourites_count ?? post.likes_count ?? 0));
   const [reposts, setReposts] = useState(Number(post.reblogs_count ?? post.boosts_count ?? 0));
@@ -47,72 +45,16 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
     try { await fn(); } catch (error) { console.error(`[fediverse:${key}]`, error); }
     finally { setBusy(''); }
   };
-
-  const toggleLike = () => run('like', async () => {
-    if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL');
-    if (liked) { await federation.unfavorite(canonicalObjectUrl); setLiked(false); setLikes(v => Math.max(0, v - 1)); }
-    else { await federation.favorite(canonicalObjectUrl); setLiked(true); setLikes(v => v + 1); }
-  });
-
-  const toggleRepost = () => run('repost', async () => {
-    if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL');
-    if (reposted) { await federation.unboost(canonicalObjectUrl); setReposted(false); setReposts(v => Math.max(0, v - 1)); }
-    else { await federation.boost(canonicalObjectUrl); setReposted(true); setReposts(v => v + 1); }
-  });
-
-  const toggleFollow = () => run('follow', async () => {
-    if (following) { await federation.unfollow(actorTarget); setFollowing(false); }
-    else { await federation.follow(actorTarget); setFollowing(true); }
-  });
-
-  const submitReply = () => run('reply', async () => {
-    const content = replyText.trim();
-    if (!content) return;
-    if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL');
-    await federation.reply({ postId: canonicalObjectUrl, content });
-    setReplyText(''); setReplyOpen(false); setReplies(v => v + 1);
-  });
-
-  const share = async () => {
-    const url = canonicalObjectUrl || actorTarget;
-    if (!url) return;
-    if (navigator.share) {
-      try { await navigator.share({ title: displayName, text: rawText.slice(0, 180), url: `${window.location.origin}/fediverse/post?url=${encodeURIComponent(url)}` }); return; } catch {}
-    }
-    try { await navigator.clipboard.writeText(`${window.location.origin}/fediverse/post?url=${encodeURIComponent(url)}`); } catch {}
-  };
-
-  const quote = () => run('quote', async () => {
-    const text = window.prompt('Add a comment to your quote (optional):', '');
-    if (text === null) return;
-    const comment = text.trim();
-    await federation.postStatus({ content: `${comment}${comment ? '\n\n' : ''}${canonicalObjectUrl || 'Fediverse post'}` });
-  });
-
-  const translate = async () => {
-    if (translation) { setTranslation(null); return; }
-    if (!rawText) return;
-    setTranslating(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('ai-chat', { body: { messages: [{ role: 'user', content: `Translate this Fediverse post to English. Return only the translation:\n\n${rawText}` }], model: 'gemini-2.0-flash' } });
-      if (error) throw error;
-      setTranslation(String(data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? data?.response ?? '').trim());
-    } catch { setTranslation('Translation failed.'); }
-    finally { setTranslating(false); }
-  };
-
-  // The remote URL is data used to resolve/render the object. Never navigate
-  // the browser to that URL; all post navigation stays inside Testagram.
-  const openDetail = () => {
-    if (disableNavigation) return;
-    if (!canonicalObjectUrl) return;
-    navigate(`/fediverse/post?url=${encodeURIComponent(canonicalObjectUrl)}`, { state: { post } });
-  };
-
-  const handleDetailKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (disableNavigation) return;
-    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDetail(); }
-  };
+  const toggleLike = () => run('like', async () => { if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL'); if (liked) { await federation.unfavorite(canonicalObjectUrl); setLiked(false); setLikes(v => Math.max(0, v - 1)); } else { await federation.favorite(canonicalObjectUrl); setLiked(true); setLikes(v => v + 1); } });
+  const toggleRepost = () => run('repost', async () => { if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL'); if (reposted) { await federation.unboost(canonicalObjectUrl); setReposted(false); setReposts(v => Math.max(0, v - 1)); } else { await federation.boost(canonicalObjectUrl); setReposted(true); setReposts(v => v + 1); } });
+  const toggleBookmark = () => run('bookmark', async () => { if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL'); if (bookmarked) { await federation.unbookmark(canonicalObjectUrl); setBookmarked(false); } else { await federation.bookmark(canonicalObjectUrl); setBookmarked(true); } });
+  const toggleFollow = () => run('follow', async () => { if (following) { await federation.unfollow(actorTarget); setFollowing(false); } else { await federation.follow(actorTarget); setFollowing(true); } });
+  const submitReply = () => run('reply', async () => { const content = replyText.trim(); if (!content) return; if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL'); await federation.reply({ postId: canonicalObjectUrl, content }); setReplyText(''); setReplyOpen(false); setReplies(v => v + 1); });
+  const share = async () => { const url = canonicalObjectUrl || actorTarget; if (!url) return; if (navigator.share) { try { await navigator.share({ title: displayName, text: rawText.slice(0, 180), url: `${window.location.origin}/fediverse/post?url=${encodeURIComponent(url)}` }); return; } catch {} } try { await navigator.clipboard.writeText(`${window.location.origin}/fediverse/post?url=${encodeURIComponent(url)}`); } catch {} };
+  const quote = () => run('quote', async () => { if (!canonicalObjectUrl) throw new Error('Fediverse post has no canonical object URL'); const text = window.prompt('Add a comment to your quote (optional):', ''); if (text === null) return; await federation.quote({ postId: canonicalObjectUrl, content: text.trim() }); });
+  const translate = async () => { if (translation) { setTranslation(null); return; } if (!rawText) return; setTranslating(true); try { const { data, error } = await supabase.functions.invoke('ai-chat', { body: { messages: [{ role: 'user', content: `Translate this Fediverse post to English. Return only the translation:\n\n${rawText}` }], model: 'gemini-2.0-flash' } }); if (error) throw error; setTranslation(String(data?.choices?.[0]?.message?.content ?? data?.content ?? data?.text ?? data?.response ?? '').trim()); } catch { setTranslation('Translation failed.'); } finally { setTranslating(false); } };
+  const openDetail = () => { if (disableNavigation || !canonicalObjectUrl) return; navigate(`/fediverse/post?url=${encodeURIComponent(canonicalObjectUrl)}`, { state: { post } }); };
+  const handleDetailKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => { if (disableNavigation) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDetail(); } };
 
   return <article className="border-b border-border p-4 hover:bg-muted/5 transition-colors">
     <div className="flex gap-3">
@@ -120,15 +62,8 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
         {avatarUrl ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" /> : <span className="w-full h-full flex items-center justify-center font-bold">{username[0]?.toUpperCase()}</span>}
       </button>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm truncate">{displayName}</span>
-          {domain && <span className="text-xs text-purple-500 flex items-center gap-1"><Globe className="w-3 h-3" />{domain}</span>}
-          {createdAt && <span className="text-xs text-muted-foreground">· {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}</span>}
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-xs text-muted-foreground truncate">@{handle}</span>
-          {user && <button onClick={toggleFollow} disabled={busy === 'follow'} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${following ? 'border-border text-muted-foreground' : 'border-primary text-primary'}`}>{busy === 'follow' ? '…' : following ? 'Following' : 'Follow'}</button>}
-        </div>
+        <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold text-sm truncate">{displayName}</span>{domain && <span className="text-xs text-purple-500 flex items-center gap-1"><Globe className="w-3 h-3" />{domain}</span>}{createdAt && <span className="text-xs text-muted-foreground">· {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}</span>}</div>
+        <div className="flex items-center gap-2 mt-0.5"><span className="text-xs text-muted-foreground truncate">@{handle}</span>{user && <button onClick={toggleFollow} disabled={busy === 'follow'} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${following ? 'border-border text-muted-foreground' : 'border-primary text-primary'}`}>{busy === 'follow' ? '…' : following ? 'Following' : 'Follow'}</button>}</div>
         <div role="button" tabIndex={disableNavigation ? -1 : 0} onClick={openDetail} onKeyDown={handleDetailKeyDown} className={`${disableNavigation ? '' : 'cursor-pointer'} rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30`} aria-label={disableNavigation ? undefined : 'Open Fediverse post in Testagram'}>
           <div className={`text-sm leading-relaxed mt-2 whitespace-pre-wrap break-words ${showMore ? '' : 'line-clamp-12'}`}>{rawText}</div>
           {rawText.length > 800 && <button onClick={e => { e.stopPropagation(); setShowMore(v => !v); }} className="text-xs text-primary mt-1 flex items-center gap-1">{showMore ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}{showMore ? 'Show less' : 'Show more'}</button>}
@@ -140,6 +75,7 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
           <button onClick={toggleRepost} disabled={busy === 'repost'} className={`flex items-center gap-1.5 hover:text-green-500 ${reposted ? 'text-green-500' : ''}`}><Repeat2 className="w-4 h-4" /><span>{formatNumber(reposts)}</span></button>
           <button onClick={toggleLike} disabled={busy === 'like'} className={`flex items-center gap-1.5 hover:text-pink-500 ${liked ? 'text-pink-500' : ''}`}><Heart className="w-4 h-4" fill={liked ? 'currentColor' : 'none'} /><span>{formatNumber(likes)}</span></button>
           <button onClick={quote} disabled={busy === 'quote'} title="Quote" className="hover:text-blue-500"><Quote className="w-4 h-4" /></button>
+          <button onClick={toggleBookmark} disabled={busy === 'bookmark'} title={bookmarked ? 'Remove bookmark' : 'Bookmark'} className={`hover:text-primary ${bookmarked ? 'text-primary' : ''}`}><Bookmark className="w-4 h-4" fill={bookmarked ? 'currentColor' : 'none'} /></button>
           <button onClick={share} title="Share" className="hover:text-primary"><Share2 className="w-4 h-4" /></button>
           <button onClick={translate} disabled={translating} title="Translate" className="hover:text-blue-500">{translating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Languages className="w-4 h-4" />}</button>
         </div>
