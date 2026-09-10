@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, corsHeaders } from "npm:@supabase/supabase-js@2";
 
 const URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SECRET_KEY")!;
@@ -8,7 +8,7 @@ const CLIENT = Deno.env.get("PAYPAL_CLIENT_ID");
 const SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET");
 const ENV = (Deno.env.get("PAYPAL_ENV") || "sandbox").toLowerCase();
 const BASE = ENV === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
-const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,apikey,content-type", "Access-Control-Allow-Methods": "POST,OPTIONS" };
+const CORS = { ...corsHeaders, "Access-Control-Allow-Methods": "POST,OPTIONS" };
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const admin = createClient(URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -51,8 +51,5 @@ Deno.serve(async req => {
     const { data: finalized, error: finalizeError } = await admin.rpc("finalize_paypal_topup", { p_order_id: orderId, p_capture_id: capture.id });
     if (finalizeError) return json({ error: "Wallet credit failed", detail: finalizeError.message }, 500);
     return json({ ok: true, orderId, captureId: capture.id, wallet: finalized });
-  } catch (e) {
-    console.error(e);
-    return json({ error: e instanceof Error ? e.message : "PayPal capture failed" }, 500);
-  }
+  } catch (e) { console.error(e); return json({ error: e instanceof Error ? e.message : "PayPal capture failed" }, 500); }
 });
