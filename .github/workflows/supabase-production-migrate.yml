@@ -2,6 +2,11 @@ name: Testagram Supabase Production Migrations
 
 on:
   workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Immutable release commit to migrate and verify'
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -13,13 +18,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: testagram-supabase-production-migrations-${{ github.sha }}
+  group: testagram-supabase-production-migrations-${{ inputs.release_sha || github.sha }}
   cancel-in-progress: false
 
 env:
   SUPABASE_PROJECT_REF: aepbqfrmheihfsauzcby
   SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
   SUPABASE_POOLER_HOST: aws-0-eu-central-1.pooler.supabase.com
+  RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
 
 jobs:
   migrate-production:
@@ -28,6 +34,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify migration release identity
+        run: |
+          set -euo pipefail
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$RELEASE_SHA"
+          echo "Migration release commit=$actual"
 
       - name: Install Supabase CLI
         run: |
