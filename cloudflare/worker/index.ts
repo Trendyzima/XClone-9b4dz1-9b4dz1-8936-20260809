@@ -138,7 +138,7 @@ async function proxyDatabase(request: Request, env: Env, table: string) {
   return new Response(upstream.body, { status: upstream.status, headers });
 }
 
-async function uploadMedia(request: Request, env: Env): Promise<Response> {
+export async function uploadMedia(request: Request, env: Env): Promise<Response> {
   const authError = requireAuth(request, env);
   if (authError) return authError;
 
@@ -241,7 +241,7 @@ async function canReadPublishedMedia(request: Request, env: Env, id: string): Pr
   return visiblePosts.length > 0;
 }
 
-async function getMedia(request: Request, env: Env, id: string): Promise<Response> {
+export async function getMedia(request: Request, env: Env, id: string): Promise<Response> {
   const authError = requireAuth(request, env);
   if (authError) return authError;
 
@@ -272,7 +272,7 @@ async function getMedia(request: Request, env: Env, id: string): Promise<Respons
   return new Response(object.body, { status: 200, headers });
 }
 
-async function deleteMedia(request: Request, env: Env, id: string): Promise<Response> {
+export async function deleteMedia(request: Request, env: Env, id: string): Promise<Response> {
   const authError = requireAuth(request, env);
   if (authError) return authError;
   const userId = await currentUserId(request, env);
