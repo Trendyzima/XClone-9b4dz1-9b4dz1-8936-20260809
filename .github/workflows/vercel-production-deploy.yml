@@ -2,6 +2,11 @@ name: Testagram Vercel Production Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Immutable release commit to deploy'
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
@@ -17,8 +22,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: testagram-vercel-production
-  cancel-in-progress: true
+  group: testagram-vercel-production-${{ inputs.release_sha || github.sha }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
 
 jobs:
   deploy:
@@ -26,6 +34,16 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Verify deployment release identity
+        run: |
+          set -euo pipefail
+          actual=$(git rev-parse HEAD)
+          test "$actual" = "$RELEASE_SHA"
+          echo "Vercel deployment release commit=$actual"
 
       - uses: actions/setup-node@v5
         with:
