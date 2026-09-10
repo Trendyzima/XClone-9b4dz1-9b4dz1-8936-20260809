@@ -1,0 +1,4 @@
+-- Production reconciliation placeholder.
+-- Migration 20260910071733 is already recorded in the canonical production database.
+-- Its schema effects are present in production; keep this source file so Supabase CLI
+-- migration validation does not attempt to revert an applied production version.
