@@ -47,6 +47,8 @@ jobs:
         run: supabase functions deploy search-everything --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy feed-fast Edge Function
         run: supabase functions deploy feed-fast --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Deploy post-create Edge Function
+        run: supabase functions deploy post-create --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy media-upload Edge Function
         run: supabase functions deploy media-upload --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy federation-discovery Edge Function
