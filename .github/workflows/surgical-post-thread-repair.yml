@@ -1,0 +1,89 @@
+name: Surgical Post Thread Repair
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: contains(github.event.head_commit.message, 'surgical post thread loader repair')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Repair PostThreadPage secondary query failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/pages/PostThreadPage.tsx')
+          s = p.read_text()
+          old = '''      const { data: repliesData, error: repliesError } = await supabase
+        .from('replies')
+        .select('*, user_profiles (*)')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true });
+      if (repliesError) throw repliesError;
+      setReplies(repliesData || []);
+      if (repliesData?.length) fetchReplyLikes(repliesData.map((r: Reply) => r.id));'''
+          new = '''      // Replies are intentionally loaded independently from the post.
+      // `replies` has no FK relationship to the `user_profiles` view, so
+      // PostgREST cannot embed `user_profiles (*)` here. A reply-load failure
+      // must never invalidate an otherwise valid public post.
+      const { data: repliesData, error: repliesError } = await supabase
+        .from('replies')
+        .select('*')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true });
+
+      if (repliesError) {
+        console.error('Error fetching replies; keeping post loaded:', repliesError);
+        setReplies([]);
+      } else {
+        const baseReplies = (repliesData || []) as Omit<Reply, 'user_profiles'>[];
+        const userIds = [...new Set(baseReplies.map(reply => reply.user_id).filter(Boolean))];
+        let profilesById: Record<string, Reply['user_profiles']> = {};
+
+        if (userIds.length) {
+          const { data: profiles, error: profilesError } = await supabase
+            .from('user_profiles')
+            .select('id, username, avatar_url, verified')
+            .in('id', userIds);
+          if (profilesError) {
+            console.error('Error fetching reply profiles; using safe defaults:', profilesError);
+          } else {
+            profilesById = Object.fromEntries(
+              (profiles || []).map(profile => [profile.id, profile as Reply['user_profiles']])
+            );
+          }
+        }
+
+        const hydratedReplies = baseReplies.map(reply => ({
+          ...reply,
+          user_profiles: profilesById[reply.user_id] || {
+            id: reply.user_id,
+            username: 'User',
+            avatar_url: undefined,
+            verified: false,
+          },
+        })) as Reply[];
+
+        setReplies(hydratedReplies);
+        if (hydratedReplies.length) fetchReplyLikes(hydratedReplies.map(reply => reply.id));
+      }'''
+          if old not in s:
+              raise SystemExit('Expected reply-loading block was not found; refusing unsafe edit')
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+          rm -f .github/workflows/surgical-post-thread-repair.yml
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/pages/PostThreadPage.tsx .github/workflows/surgical-post-thread-repair.yml
+          git commit -m 'fix: isolate post thread reply loading' -m '[skip ci]'
+          git push origin HEAD:main
