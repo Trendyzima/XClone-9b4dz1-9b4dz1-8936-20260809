@@ -40,51 +40,71 @@ async function getCanonicalFederatedTimeline(params: TimelineParams = {}): Promi
   if (params.after) query = query.gt('published_at', params.after);
   const { data, error } = await query;
   if (error) throw error;
-
   return (data ?? []).map((row: any) => {
     const raw = row.raw_object && typeof row.raw_object === 'object' ? row.raw_object : {};
-    const actor = raw.attributedTo && typeof raw.attributedTo === 'object'
-      ? raw.attributedTo
-      : { id: row.actor_uri ?? '', url: row.actor_uri ?? '' };
+    const actor = raw.attributedTo && typeof raw.attributedTo === 'object' ? raw.attributedTo : { id: row.actor_uri ?? '', url: row.actor_uri ?? '' };
     const attachments = Array.isArray(row.attachments) ? row.attachments : [];
     return {
-      ...raw,
-      id: row.uri,
-      uri: row.uri,
-      url: row.url ?? row.uri,
-      object_type: row.object_type,
-      content: row.content ?? '',
-      summary: row.summary,
-      spoiler_text: row.summary,
-      published: row.published_at,
-      published_at: row.published_at,
-      updated: row.updated_at,
-      created_at: row.published_at,
-      sensitive: !!row.sensitive,
-      inReplyTo: row.in_reply_to_uri,
-      quoteUri: row.quote_uri,
-      actor,
-      media_attachments: attachments,
-      likes_count: row.like_count ?? 0,
-      favourites_count: row.like_count ?? 0,
-      boosts_count: row.announce_count ?? 0,
-      reblogs_count: row.announce_count ?? 0,
-      replies_count: row.reply_count ?? 0,
-      quotes_count: row.quote_count ?? 0,
-      views_count: row.view_count ?? 0,
-      _canonical_federated_object_id: row.id,
+      ...raw, id: row.uri, uri: row.uri, url: row.url ?? row.uri, object_type: row.object_type,
+      content: row.content ?? '', summary: row.summary, spoiler_text: row.summary,
+      published: row.published_at, published_at: row.published_at, updated: row.updated_at, created_at: row.published_at,
+      sensitive: !!row.sensitive, inReplyTo: row.in_reply_to_uri, quoteUri: row.quote_uri, actor,
+      media_attachments: attachments, likes_count: row.like_count ?? 0, favourites_count: row.like_count ?? 0,
+      boosts_count: row.announce_count ?? 0, reblogs_count: row.announce_count ?? 0, replies_count: row.reply_count ?? 0,
+      quotes_count: row.quote_count ?? 0, views_count: row.view_count ?? 0, _canonical_federated_object_id: row.id,
+      _is_federated: true,
     };
   });
 }
 
-export async function getHomeTimeline(params: TimelineParams = {}): Promise<any[]> {
-  try {
-    const canonical = await getCanonicalFederatedTimeline(params);
-    if (canonical.length > 0) return canonical;
-  } catch (err) {
-    console.warn('[federation] canonical home timeline unavailable:', err);
+function timelineDate(item: any): number {
+  const value = item?.published_at ?? item?.published ?? item?.created_at ?? item?.timestamp;
+  const parsed = value ? Date.parse(String(value)) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function timelineEngagement(item: any): number {
+  const values = [item?.likes_count, item?.favourites_count, item?.like_count, item?.boosts_count, item?.reblogs_count, item?.repost_count, item?.reposts_count, item?.replies_count, item?.reply_count, item?.quotes_count, item?.quote_count, item?.views_count, item?.view_count];
+  return values.reduce((sum, value) => sum + (Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0), 0);
+}
+
+/**
+ * Home/For You is a unified feed: local Testagram posts and canonical inbound
+ * ActivityPub Notes enter one ranking pool. The gateway remains authoritative
+ * for local timeline retrieval; federated_objects supplies durable remote Notes.
+ */
+function rankUnifiedHomeTimeline(local: any[], federated: any[], limit: number): any[] {
+  const byIdentity = new Map<string, any>();
+  for (const item of [...local, ...federated]) {
+    const identity = String(item?.id ?? item?.uri ?? item?.url ?? `${timelineDate(item)}:${item?.content ?? ''}`);
+    if (!byIdentity.has(identity)) byIdentity.set(identity, item);
   }
-  return relay('/timeline/home', 'GET', undefined, params as any);
+  const now = Date.now();
+  return [...byIdentity.values()]
+    .map((item, index) => {
+      const ageHours = Math.max(0, (now - timelineDate(item)) / 3600000);
+      const freshness = Math.exp(-ageHours / 30);
+      const engagement = Math.log1p(timelineEngagement(item));
+      const diversity = item?._is_federated ? 0.04 : 0;
+      return { item, score: freshness + engagement * 0.08 + diversity, index };
+    })
+    .sort((a, b) => b.score - a.score || timelineDate(b.item) - timelineDate(a.item) || a.index - b.index)
+    .slice(0, limit)
+    .map(({ item }) => item);
+}
+
+export async function getHomeTimeline(params: TimelineParams = {}): Promise<any[]> {
+  const limit = Math.min(Math.max(Number(params.limit ?? 30), 1), 50);
+  const [localResult, federatedResult] = await Promise.allSettled([
+    relay('/timeline/home', 'GET', undefined, { ...params, limit } as any),
+    getCanonicalFederatedTimeline({ ...params, limit }),
+  ]);
+  const local = localResult.status === 'fulfilled' && Array.isArray(localResult.value) ? localResult.value : [];
+  const federated = federatedResult.status === 'fulfilled' ? federatedResult.value : [];
+  if (federatedResult.status === 'rejected') console.warn('[federation] canonical home feed unavailable:', federatedResult.reason);
+  if (local.length || federated.length) return rankUnifiedHomeTimeline(local, federated, limit);
+  if (localResult.status === 'rejected') throw localResult.reason;
+  return [];
 }
 export async function getGlobalTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/global', 'GET', undefined, params as any); }
 export async function getLocalTimeline(params: TimelineParams = {}): Promise<any[]> { return relay('/timeline/local', 'GET', undefined, params as any); }
