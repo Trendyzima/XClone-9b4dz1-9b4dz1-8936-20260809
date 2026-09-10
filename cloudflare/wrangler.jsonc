@@ -19,3 +19,4 @@
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "testagram-media" }]
 }
 // PayPal sandbox runtime verification is performed by the canonical Worker workflow.
+// Federation Gate A also exercises the deployed custom-domain ActivityPub inbox and relationship state.
