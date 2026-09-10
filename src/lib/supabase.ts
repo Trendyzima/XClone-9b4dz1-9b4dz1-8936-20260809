@@ -1,15 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 
 const PRODUCTION_SUPABASE_URL = 'https://aepbqfrmheihfsauzcby.supabase.co';
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || PRODUCTION_SUPABASE_URL;
+const configuredSupabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
+const isHttpUrl = (value: string) => /^https?:\/\//i.test(value);
+// Never allow a relative Vite value such as `/` or `/rest/...` to reach supabase-js.
+const supabaseUrl = isHttpUrl(configuredSupabaseUrl) ? configuredSupabaseUrl.replace(/\/$/, '') : PRODUCTION_SUPABASE_URL;
 const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabasePublishableKey) {
-  throw new Error('Testagram backend is not configured: VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) are required.');
+if (!supabasePublishableKey) {
+  throw new Error('Testagram backend is not configured: VITE_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) is required.');
 }
 
 const DIRECT_CLOUDFLARE_API = 'https://testagram-api.nahashonnyaga794.workers.dev/api';
-export const cloudflareApiUrl = (import.meta.env.VITE_CLOUDFLARE_API_URL || DIRECT_CLOUDFLARE_API).replace(/\/$/, '');
+const configuredCloudflareApi = String(import.meta.env.VITE_CLOUDFLARE_API_URL || '').trim().replace(/\/$/, '');
+export const cloudflareApiUrl = isHttpUrl(configuredCloudflareApi) ? configuredCloudflareApi : DIRECT_CLOUDFLARE_API;
 export const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 
 const baseClient: any = createClient(supabaseUrl, supabasePublishableKey, {
@@ -22,7 +26,7 @@ export async function cloudflareHealth() {
   return response.json();
 }
 
-/** Browser -> canonical Cloudflare Worker -> R2 -> media_assets. */
+/** Browser/native WebView -> canonical Cloudflare Worker -> R2 -> media_assets. */
 export async function uploadMedia(file: File, mediaType: 'image' | 'video' | 'audio' | 'document') {
   if (file.size <= 0) throw new Error('The selected media file is empty.');
   if (file.size > MAX_MEDIA_BYTES) throw new Error('Media exceeds the 20 MiB limit.');
@@ -46,9 +50,9 @@ export async function uploadMedia(file: File, mediaType: 'image' | 'video' | 'au
   if (!response.ok) throw new Error(payload?.error || `Media upload failed (${response.status})`);
   if (!payload?.id || !payload?.url) throw new Error('Media upload completed without a usable asset URL.');
 
-  const url = /^https?:\/\//i.test(payload.url)
-    ? payload.url
-    : `${cloudflareApiUrl.replace(/\/api\/?$/, '')}${payload.url.startsWith('/') ? payload.url : `/${payload.url}`}`;
+  const url = isHttpUrl(String(payload.url))
+    ? String(payload.url)
+    : `${cloudflareApiUrl.replace(/\/api\/?$/, '')}${String(payload.url).startsWith('/') ? payload.url : `/${payload.url}`}`;
 
   return {
     id: payload.id,
@@ -81,7 +85,7 @@ function cloudflarePostsBucket() {
   };
 }
 
-// Keep existing feature code compatible while ensuring the post-media bucket never invokes the legacy Supabase media-upload function.
+// Preserve existing feature APIs while ensuring the post-media bucket never invokes legacy Supabase media-upload.
 export const supabase: any = new Proxy(baseClient, {
   get(target, property, receiver) {
     if (property === 'storage') return { ...target.storage, from(bucket: string) { return bucket === 'posts' ? cloudflarePostsBucket() : target.storage.from(bucket); } };
