@@ -16,25 +16,25 @@ export type Post = {
 
 function normalizeLocal(row: any): Post {
   return {
+    ...row,
     id: `local:${row.id}`,
     content: row.body ?? row.content ?? '',
     created_at: row.created_at,
-    author: row.author ?? row.profiles ?? null,
+    author: row.author ?? row.user_profiles ?? row.profiles ?? null,
     origin: 'local',
-    ...row,
   };
 }
 
 function normalizeFederated(item: any): Post {
   const actor = item.actor ?? item.attributedTo ?? item.author ?? null;
   return {
+    ...item,
     id: `fed:${item.id ?? item.uri ?? item.federation_id}`,
     content: item.content ?? item.html ?? '',
     created_at: item.created_at ?? item.published ?? item.published_at ?? new Date().toISOString(),
     author: actor,
     origin: 'federated',
     federation_id: item.uri ?? item.id ?? item.federation_id,
-    ...item,
   };
 }
 
@@ -52,25 +52,79 @@ function normalizeEdgeItem(item: any): Post {
   return normalizeLocal(item);
 }
 
+async function nativePublicFallback(mode: FeedMode, limit: number, before?: string): Promise<Post[]> {
+  try {
+    let authorIds: string[] | null = null;
+    if (mode === 'following') {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id;
+      if (!uid) return [];
+      const { data: follows } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', uid)
+        .limit(500);
+      authorIds = [uid, ...((follows ?? []).map((f: any) => String(f.following_id)).filter(Boolean))];
+    }
+
+    let query = supabase
+      .from('posts')
+      .select('*, user_profiles:profiles!posts_author_id_fkey(*)')
+      .eq('visibility', 'public')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (authorIds?.length) query = query.in('author_id', [...new Set(authorIds)]);
+    if (before) query = query.lt('created_at', before);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []).map(normalizeLocal);
+  } catch (error) {
+    console.error('[feed] native public fallback failed:', error);
+    return [];
+  }
+}
+
 /**
  * Single client entry point for the unified native + Fediverse graph.
- * feed-fast owns graph membership, filtering and ranking at the edge.
+ * feed-fast owns graph membership, ranking and mixing when healthy.
+ * The native-public fallback prevents a transient edge/ranking failure from
+ * turning a populated public timeline into an empty Home screen.
  */
 export async function getUnifiedFeed({ mode = 'home', limit = 20, before }: { mode?: FeedMode; limit?: number; before?: string } = {}) {
   const safeLimit = Math.min(100, Math.max(10, Number(limit) || 20));
   const { data, error } = await supabase.functions.invoke('feed-fast', {
     body: { mode, limit: safeLimit, before: before || undefined },
   });
-  if (error) throw error;
-  if (!data?.ok || !Array.isArray(data.items)) {
-    throw new Error(data?.error || `Unified ${mode} feed returned an invalid response`);
+
+  if (!error && data?.ok && Array.isArray(data.items)) {
+    const posts = data.items.map(normalizeEdgeItem);
+    if (posts.length > 0 || mode === 'explore') {
+      return {
+        posts,
+        next_cursor: data.meta?.next_cursor ?? posts.at(-1)?.created_at ?? null,
+        meta: data.meta ?? { mode, count: posts.length },
+      };
+    }
   }
-  const posts = data.items.map(normalizeEdgeItem);
-  return {
-    posts,
-    next_cursor: data.meta?.next_cursor ?? posts.at(-1)?.created_at ?? null,
-    meta: data.meta ?? { mode, count: posts.length },
-  };
+
+  const fallback = await nativePublicFallback(mode, safeLimit, before);
+  if (fallback.length > 0 || mode !== 'explore') {
+    return {
+      posts: fallback,
+      next_cursor: fallback.at(-1)?.created_at ?? null,
+      meta: {
+        mode,
+        count: fallback.length,
+        ranking: 'native-public-fallback',
+        degraded: true,
+      },
+    };
+  }
+
+  throw error ?? new Error(data?.error || `Unified ${mode} feed returned an invalid response`);
 }
 
 export async function getMergedHomeTimeline({ limit = 20, before }: { limit?: number; before?: string } = {}) {
