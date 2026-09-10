@@ -18,7 +18,6 @@ concurrency:
 
 env:
   SUPABASE_PROJECT_REF: aepbqfrmheihfsauzcby
-  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
   SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
 jobs:
@@ -28,6 +27,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+
+      - name: Install Supabase CLI
+        run: |
+          set -euo pipefail
+          CLI_VERSION="$(curl -fsSL https://api.github.com/repos/supabase/cli/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')"
+          curl -fsSL "https://github.com/supabase/cli/releases/download/${CLI_VERSION}/supabase_linux_amd64.tar.gz" -o /tmp/supabase.tar.gz
+          tar -xzf /tmp/supabase.tar.gz -C /tmp
+          install -m 0755 /tmp/supabase /usr/local/bin/supabase
+          supabase --version
 
       - name: Validate migration credentials
         run: |
