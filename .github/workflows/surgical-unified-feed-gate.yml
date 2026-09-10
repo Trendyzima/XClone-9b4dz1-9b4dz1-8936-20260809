@@ -2,10 +2,10 @@
 name: Surgical unified feed gate
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Testagram Production Release Gate"]
+    types: [completed]
     branches: [main]
-    paths:
-      - '.github/workflows/surgical-unified-feed-gate.yml'
   workflow_dispatch:
 
 permissions:
@@ -98,8 +98,7 @@ jobs:
           old_cache = "'Cache-Control': 'public, max-age=5, s-maxage=10, stale-while-revalidate=30'"
           new_cache = "'Cache-Control': 'private, no-store'"
           assert old_cache in text, 'feed-fast: public cache header not found'
-          text = text.replace(old_cache, new_cache, 1)
-          feed.write_text(text)
+          feed.write_text(text.replace(old_cache, new_cache, 1))
 
           explore = Path('src/pages/ExplorePage.tsx')
           text = explore.read_text()
