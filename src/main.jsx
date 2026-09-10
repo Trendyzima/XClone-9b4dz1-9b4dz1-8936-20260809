@@ -7,6 +7,30 @@ const container = document.getElementById('root');
 if (!container) throw new Error('Testagram root element is missing');
 const root = createRoot(container);
 
+// Federated object URLs are data identities, not navigation destinations.
+// Some legacy/remote-fed cards still render an "Open on origin" anchor. Keep
+// those clicks inside Testagram so the canonical Fediverse detail page can
+// render the post and expose the existing ActivityPub interaction controls.
+document.addEventListener('click', event => {
+  const target = event.target instanceof Element ? event.target.closest('a[href]') : null;
+  if (!target) return;
+  const href = target.getAttribute('href');
+  if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+  let url;
+  try { url = new URL(href, window.location.href); } catch { return; }
+  if (url.origin === window.location.origin) return;
+
+  const label = (target.textContent || target.getAttribute('aria-label') || '').trim().toLowerCase();
+  const inFediverseArea = window.location.pathname.startsWith('/fediverse');
+  const looksLikeOriginAction = label.includes('open on origin') || label.includes('view on origin');
+  if (!inFediverseArea && !looksLikeOriginAction) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  const internal = `/fediverse/post?url=${encodeURIComponent(url.toString())}`;
+  window.location.assign(internal);
+}, true);
+
 function renderBootError(error) {
   console.error('[Testagram boot] Module load failure', error);
   const message = error instanceof Error ? error.message : String(error);
