@@ -23,7 +23,6 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           home = Path('src/pages/HomePage.tsx')
           s = home.read_text()
           if "import { getUnifiedFeed } from '@/services/feed';" not in s:
@@ -69,7 +68,7 @@ jobs:
           grep -F "<UnifiedExploreFeed />" src/pages/ExplorePage.tsx
           grep -F "'Cache-Control': 'private, no-store'" supabase/functions/feed-fast/index.ts
       - name: Install
-        run: npm ci
+        run: npm install --no-audit --no-fund
       - name: Typecheck
         run: npm run typecheck
       - name: Production build
