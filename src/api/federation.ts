@@ -38,14 +38,22 @@ export async function deletePost(postId: string): Promise<void> { return relay(`
 export async function follow(target: string): Promise<any> { return relay('/follow', 'POST', { target }); }
 export async function unfollow(target: string): Promise<any> { return relay('/unfollow', 'POST', { target }); }
 async function canonicalPostId(postId: string): Promise<string> { const value = String(postId ?? '').trim(); if (!value) throw new Error('Fediverse post identity is required'); if (/^https?:\/\//i.test(value)) return value; const { data, error } = await supabase.from('remote_posts').select('object_url').eq('id', value).maybeSingle(); if (error) throw error; if (!data?.object_url) throw new Error('Fediverse post has no canonical object URL'); return data.object_url; }
-export async function boost(postId: string): Promise<any> { return relay('/boost', 'POST', { post_id: await canonicalPostId(postId) }); }
-export async function unboost(postId: string): Promise<any> { return relay('/unboost', 'POST', { post_id: await canonicalPostId(postId) }); }
-export async function favorite(postId: string): Promise<any> { return relay('/favorite', 'POST', { post_id: await canonicalPostId(postId) }); }
-export async function unfavorite(postId: string): Promise<any> { return relay('/unfavorite', 'POST', { post_id: await canonicalPostId(postId) }); }
-export async function reply(payload: { postId: string; content: string }): Promise<any> { return relay('/reply', 'POST', { post_id: await canonicalPostId(payload.postId), content: payload.content }); }
+async function remoteInteract(interaction: 'like'|'repost'|'reply'|'quote'|'bookmark', objectUrl: string, enabled = true, content?: string): Promise<any> {
+  const { data, error } = await supabase.functions.invoke('federation-interact', { body: { interaction, objectUrl, enabled, ...(content !== undefined ? { content } : {}) } });
+  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Fediverse interaction error'}`; } catch {} } throw new GatewayError(0, msg, `/federation-interact/${interaction}`); }
+  if (data?.error) throw new GatewayError(0, String(data.error), `/federation-interact/${interaction}`);
+  return data;
+}
+export async function boost(postId: string): Promise<any> { return remoteInteract('repost', await canonicalPostId(postId)); }
+export async function unboost(postId: string): Promise<any> { return remoteInteract('repost', await canonicalPostId(postId), false); }
+export async function favorite(postId: string): Promise<any> { return remoteInteract('like', await canonicalPostId(postId)); }
+export async function unfavorite(postId: string): Promise<any> { return remoteInteract('like', await canonicalPostId(postId), false); }
+export async function bookmark(postId: string): Promise<any> { return remoteInteract('bookmark', await canonicalPostId(postId)); }
+export async function unbookmark(postId: string): Promise<any> { return remoteInteract('bookmark', await canonicalPostId(postId), false); }
+export async function reply(payload: { postId: string; content: string }): Promise<any> { return remoteInteract('reply', await canonicalPostId(payload.postId), true, payload.content); }
+export async function quote(payload: { postId: string; content: string }): Promise<any> { return remoteInteract('quote', await canonicalPostId(payload.postId), true, payload.content); }
 export async function getNotifications(params: TimelineParams = {}): Promise<any> { return relay(`/notifications`, 'GET', undefined, params as any); }
 export async function clearNotifications(): Promise<void> { return relay('/notifications', 'DELETE'); }
-
 export type SearchKind = 'all' | 'users' | 'posts' | 'hashtags' | 'instances' | 'communities' | 'products' | 'fediverse_users' | 'fediverse_posts';
 export async function search(q: string, type: SearchKind = 'all', limit = 40): Promise<any[]> {
   const token = await getToken();
