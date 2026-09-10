@@ -1,3 +1,4 @@
+# one-shot gate: source edits are committed only after typecheck + production build pass
 name: Surgical unified feed gate
 
 on:
@@ -112,7 +113,7 @@ jobs:
           explore.write_text(text)
 
           print('Surgical source edits applied.')
-      
+
       - name: Typecheck
         run: npm run typecheck
 
