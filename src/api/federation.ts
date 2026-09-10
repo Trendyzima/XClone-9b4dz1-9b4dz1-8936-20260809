@@ -123,7 +123,7 @@ export async function search(q: string, type: SearchKind = 'all', limit = 40): P
 export async function getUnifiedHashtagFeed(tag: string, limit = 40): Promise<any[]> {
   const token = await getToken();
   const { data, error } = await supabase.functions.invoke('search-everything', { body: { operation: 'hashtag_feed', tag, limit }, headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Hashtag feed error'`; } catch {} } throw new GatewayError(0, msg, '/hashtag-feed'); }
+  if (error) { let msg = error.message; if (error instanceof FunctionsHttpError) { try { const status = error.context?.status ?? 500; const text = await error.context?.text(); msg = `[${status}] ${text || error.message || 'Hashtag feed error'}]`; } catch {} } throw new GatewayError(0, msg, '/hashtag-feed'); }
   return Array.isArray(data) ? data : [];
 }
 export async function getFollowers(acct: string, params: TimelineParams = {}): Promise<any> { return relay(`/users/${encodeURIComponent(acct)}/followers`, 'GET', undefined, params as any); }
