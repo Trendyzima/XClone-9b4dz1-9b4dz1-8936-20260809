@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
           client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
-          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
+          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_SANDBOX_WEBHOOK_ID:-}}"
           put_secret() { local name="$1" value="$2"; for attempt in $(seq 1 6); do if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then return 0; fi; sleep $((attempt * 5)); done; return 1; }
           put_secret PAYPAL_CLIENT_ID "$client_id"
           put_secret PAYPAL_CLIENT_SECRET "$client_secret"
@@ -130,3 +130,5 @@ jobs:
           done
           echo "PayPal configuration verification failed after 12 attempts; last HTTP status: $last_status"
           exit 1
+
+# Forensic verification trigger: rerun the canonical deployment gate after production migration repair.
