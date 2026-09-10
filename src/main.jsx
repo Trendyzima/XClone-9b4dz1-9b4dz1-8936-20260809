@@ -5,6 +5,19 @@ import './lib/platformReels';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('Testagram root element is missing');
+
+// Older unified-feed builds encoded native post UUIDs as `local:<uuid>`.
+// Native PostThreadPage expects the database UUID, so canonicalize those URLs
+// before React routing. This also repairs bookmarks/notifications created by
+// older builds instead of leaving users on a false "Post not found" page.
+function canonicalizeLegacyLocalPostUrl() {
+  const match = window.location.pathname.match(/^\/post\/local:([^/]+)$/);
+  if (!match) return;
+  const canonical = `/post/${match[1]}${window.location.search}${window.location.hash}`;
+  window.history.replaceState(window.history.state, '', canonical);
+}
+canonicalizeLegacyLocalPostUrl();
+
 const root = createRoot(container);
 
 // Federated object URLs are data identities, not navigation destinations.
@@ -18,7 +31,17 @@ document.addEventListener('click', event => {
   if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
   let url;
   try { url = new URL(href, window.location.href); } catch { return; }
-  if (url.origin === window.location.origin) return;
+
+  if (url.origin === window.location.origin) {
+    const legacy = url.pathname.match(/^\/post\/local:([^/]+)$/);
+    if (legacy) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.history.pushState(window.history.state, '', `/post/${legacy[1]}${url.search}${url.hash}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+    return;
+  }
 
   const label = (target.textContent || target.getAttribute('aria-label') || '').trim().toLowerCase();
   const inFediverseArea = window.location.pathname.startsWith('/fediverse');
