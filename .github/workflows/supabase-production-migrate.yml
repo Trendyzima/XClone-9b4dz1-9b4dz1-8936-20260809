@@ -19,6 +19,7 @@ concurrency:
 env:
   SUPABASE_PROJECT_REF: aepbqfrmheihfsauzcby
   SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+  SUPABASE_POOLER_HOST: aws-0-eu-central-1.pooler.supabase.com
 
 jobs:
   migrate-production:
@@ -49,12 +50,12 @@ jobs:
           print('RFC3986 encoding check:', quote(password, safe='') != password or 'plain-safe')
           PY
 
-      - name: Build direct production database URL
+      - name: Build production session-pooler database URL
         run: |
           set -euo pipefail
           encoded_password="$(python3 -c 'import os; from urllib.parse import quote; print(quote(os.environ["SUPABASE_DB_PASSWORD"], safe=""))')"
-          echo "SUPABASE_DB_URL=postgresql://postgres:${encoded_password}@db.${SUPABASE_PROJECT_REF}.supabase.co:5432/postgres" >> "$GITHUB_ENV"
-          echo 'Direct production database URL prepared without exposing the password.'
+          echo "SUPABASE_DB_URL=postgresql://postgres.${SUPABASE_PROJECT_REF}:${encoded_password}@${SUPABASE_POOLER_HOST}:5432/postgres" >> "$GITHUB_ENV"
+          echo 'Supabase session-pooler database URL prepared without exposing the password.'
 
       - name: Verify production database connectivity
         run: |
