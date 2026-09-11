@@ -37,23 +37,17 @@ jobs:
               i = text.find(anchor)
               if i < 0:
                   raise SystemExit('Create Thread anchor not found')
-              close = text.find('</div>', i)
+              close = text.find('      )}', i)
               if close < 0:
-                  raise SystemExit('CTA closing div not found')
-              close += len('</div>')
-              injection = "\n      <MixedThreadsSocialFeed activeTab={activeTab as 'For You' | 'Following' | 'Trending' | 'Reading List'} searchQuery={searchQuery} />"
+                  raise SystemExit('Create Thread conditional closing not found')
+              close += len('      )}')
+              injection = "\n\n      <MixedThreadsSocialFeed activeTab={activeTab as 'For You' | 'Following' | 'Trending' | 'Reading List'} searchQuery={searchQuery} />"
               text = text[:close] + injection + text[close:]
 
           if text == original:
               raise SystemExit('no ThreadsPage changes made')
           path.write_text(text)
-          print('--- ThreadsPage render area ---')
-          lines = text.splitlines()
-          for n, line in enumerate(lines, 1):
-              if 'Create Thread' in line or '{loading ? (' in line:
-                  for j in range(max(1, n-8), min(len(lines), n+80)+1):
-                      print(f'{j:04d}: {lines[j-1]}')
-                  print('---')
+          print('patched ThreadsPage.tsx')
           PY
 
           npm install --ignore-scripts --no-package-lock
