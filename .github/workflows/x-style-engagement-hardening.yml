@@ -21,17 +21,15 @@ jobs:
           from pathlib import Path
           p=Path('src/components/features/ComposePost.tsx')
           s=p.read_text()
-          # Shared client-side byte guard for all composer media.
           marker='const MAX_MEDIA_BYTES = 20 * 1024 * 1024;'
           if marker not in s:
               anchor='export function ComposePost({ onSuccess, communityId }: ComposePostProps) {'
               s=s.replace(anchor, anchor+'\n  '+marker)
-          # Guard image and video handlers without replacing their implementations.
           if 'Each media file must be smaller than 20 MB' not in s:
               s=s.replace('const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {', "const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {\n    const incoming = Array.from(e.target.files ?? []);\n    const oversized = incoming.find(file => file.size >= MAX_MEDIA_BYTES);\n    if (oversized) { toast({ title: 'Media too large', description: 'Each media file must be smaller than 20 MB', variant: 'destructive' }); e.target.value = ''; return; }")
               s=s.replace('const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {', "const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {\n    const file = e.target.files?.[0];\n    if (file && file.size >= MAX_MEDIA_BYTES) { toast({ title: 'Video too large', description: 'Each media file must be smaller than 20 MB', variant: 'destructive' }); e.target.value = ''; return; }")
           if 'quoted_post_id: quotedPostId || null' not in s:
-              s=s.replace("const postPayload: any = { user_id: user!.id, content: content.trim() || '',", "const postPayload: any = { user_id: user!.id, quoted_post_id: quotedPostId || null, content: content.trim() || ',")
+              s=s.replace("const postPayload: any = { user_id: user!.id, content: content.trim() || '',", "const postPayload: any = { user_id: user!.id, quoted_post_id: quotedPostId || null, content: content.trim() || '',")
           p.write_text(s)
           PY
       - name: Validate
