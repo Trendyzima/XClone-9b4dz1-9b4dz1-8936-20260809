@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Quote, Loader2 } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { ComposePost } from '@/components/features/ComposePost';
@@ -10,6 +10,7 @@ export default function QuotePage() {
   const { postId } = useParams<{ postId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,6 +33,12 @@ export default function QuotePage() {
     return () => { active = false; };
   }, [postId]);
 
+  useEffect(() => {
+    if (postId && !searchParams.get('quote_post_id')) {
+      navigate(`/quote/${postId}?quote_post_id=${encodeURIComponent(postId)}&quote_preview=${encodeURIComponent((post?.content ?? '').slice(0, 100))}`, { replace: true });
+    }
+  }, [postId, post, searchParams, navigate]);
+
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>;
   if (!post) return <div className="p-6 text-center"><p className="text-muted-foreground">The post to quote could not be found.</p><button className="mt-4 text-primary" onClick={() => navigate(-1)}>Go back</button></div>;
 
@@ -43,14 +50,8 @@ export default function QuotePage() {
         <h1 className="font-bold text-lg">Quote post</h1>
       </header>
       <main className="mx-auto max-w-2xl p-4 space-y-4">
-        <section className="rounded-2xl border border-border bg-card p-2">
-          <PostCard post={post} />
-        </section>
-        {user ? (
-          <ComposePost />
-        ) : (
-          <button onClick={() => navigate('/auth')} className="w-full rounded-xl bg-primary px-4 py-3 text-primary-foreground font-semibold">Sign in to quote this post</button>
-        )}
+        <section className="rounded-2xl border border-border bg-card p-2"><PostCard post={post} /></section>
+        {user ? <ComposePost /> : <button onClick={() => navigate('/auth')} className="w-full rounded-xl bg-primary px-4 py-3 text-primary-foreground font-semibold">Sign in to quote this post</button>}
       </main>
     </div>
   );
