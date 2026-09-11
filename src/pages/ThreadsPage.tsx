@@ -11,6 +11,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { formatNumber } from '@/lib/utils';
 import { useSEO } from '@/hooks/useSEO';
 import { toast } from 'sonner';
+import { MixedThreadsSocialFeed } from '@/components/features/MixedThreadsSocialFeed';
 
 interface Thread {
   id: string;
@@ -355,6 +356,8 @@ export default function ThreadsPage() {
           </Button>
         </div>
       )}
+
+      <MixedThreadsSocialFeed activeTab={activeTab as 'For You' | 'Following' | 'Trending' | 'Reading List'} searchQuery={searchQuery} />
 
       {/* Loading */}
       {loading ? (
