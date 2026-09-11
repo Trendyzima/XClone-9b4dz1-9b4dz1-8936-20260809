@@ -15,9 +15,17 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path('src/pages/FediversePage.tsx')
           s = p.read_text()
+
+          def replace_block(text, start_marker, next_marker, replacement):
+              start = text.find(start_marker)
+              if start < 0:
+                  return text
+              end = text.find(next_marker, start)
+              if end < 0:
+                  raise SystemExit(f'missing marker: {next_marker}')
+              return text[:start] + replacement + text[end:]
 
           like = '''  const handleFedLike = async (post: any) => {
             if (!user) { navigate('/auth'); return; }
@@ -59,30 +67,13 @@ jobs:
           };
 
 '''
-          def replace_handler(text, name, replacement, next_name):
-              pattern = rf'  const {name} = async \\(post: any\\) => \\{{.*?\\n  \\}};\\n\\n(?=  const {next_name})'
-              out, n = re.subn(pattern, replacement, text, count=1, flags=re.S)
-              if n == 0:
-                  # Already finalized is acceptable; do not fail the repair.
-                  return text
-              return out
-
-          s = replace_handler(s, 'handleFedLike', like, 'handleFedBoost')
-          s = replace_handler(s, 'handleFedBoost', boost, 'handleFedReply')
-          s = replace_handler(s, 'handleFedReply', reply, 'handleFollow')
+          s = replace_block(s, '  const handleFedLike = async (post: any) => {', '  const handleFedBoost =', like)
+          s = replace_block(s, '  const handleFedBoost = async (post: any) => {', '  const handleFedReply', boost)
+          s = replace_block(s, '  const handleFedReply = async (post: any) => {', '  const handleFollow', reply)
           p.write_text(s)
-
-          # The obsolete self-mutating workflow used brittle index matching and
-          # repeatedly failed after the handlers were already repaired.
-          obsolete = Path('.github/workflows/fediverse-interaction-patch.yml')
-          if obsolete.exists(): obsolete.unlink()
           PY
-          if git diff --quiet; then
-            echo 'No finalization changes required'
-            exit 0
-          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/pages/FediversePage.tsx .github/workflows/fediverse-interaction-patch.yml
-          git commit -m 'fix(fediverse): use canonical signed interactions everywhere'
-          git push
+          git add src/pages/FediversePage.tsx
+          git commit -m 'fix(fediverse): route feed interactions through federation-interact' || true
+          git push || true
