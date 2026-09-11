@@ -65,8 +65,9 @@ async function applyEvent(event: Record<string, unknown>) {
 
   if (type === "delete") {
     if (!objectUri) return "ignored";
+    const now = new Date().toISOString();
     const { error } = await admin.from("federation_objects")
-      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({ deleted_at: now, updated_at: now })
       .eq("object_url", objectUri);
     if (error) throw error;
     return "object_deleted";
@@ -159,12 +160,17 @@ Deno.serve(async (request) => {
       }
     }
 
+    const { data: state } = await admin.from("federation_appview_state")
+      .select("processed_count,failed_count")
+      .eq("id", true)
+      .maybeSingle();
+
     const { error: stateError } = await admin.from("federation_appview_state")
       .update({
         cursor: nextCursor,
         lease_until: null,
-        processed_count: (await admin.from("federation_appview_state").select("processed_count").eq("id", true).maybeSingle()).data?.processed_count ?? 0 + processed,
-        failed_count: failed,
+        processed_count: Number(state?.processed_count ?? 0) + processed,
+        failed_count: Number(state?.failed_count ?? 0) + failed,
         last_error: lastError,
         updated_at: new Date().toISOString(),
       })
