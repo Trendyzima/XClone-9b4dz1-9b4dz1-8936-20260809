@@ -16,8 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 2
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -28,22 +26,10 @@ jobs:
           p = Path('src/pages/HomePage.tsx')
           s = p.read_text()
           replacements = [
-            (
-              """      return result.posts.map((post: any) => ({\n        type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,\n        data: post.origin === 'federated' ? post : { ...post, user_profiles: post.user_profiles ?? post.author },\n      }));""",
-              """      return result.posts.map((post: any) => ({\n        type: post.origin === 'federated'\n          ? 'fedpost' as const\n          : post.content_type === 'thread' || post.source === 'thread'\n            ? 'thread' as const\n            : 'post' as const,\n        data: post.origin === 'federated' ? post : { ...post, user_profiles: post.user_profiles ?? post.author },\n      }));"""
-            ),
-            (
-              """      let threadsQuery = supabase\n        .from('threads')\n        .select('*, user_profiles:profiles!posts_author_id_fkey(*)')""",
-              """      let threadsQuery = supabase\n        .from('threads')\n        .select('*, user_profiles(id, username, avatar_url, verified)')"""
-            ),
-            (
-              """      const lastPost = items.filter((i: any) => i.type === 'post').slice(-1)[0];\n      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);\n      setFeedHasMore(items.filter((i: any) => i.type === 'post').length >= PAGE_SIZE);""",
-              """      const lastContent = items.filter((i: any) => i.type === 'post' || i.type === 'thread').slice(-1)[0];\n      if (lastContent) setFeedCursor((lastContent.data as any).created_at ?? (lastContent.data as any).published_at ?? null);\n      setFeedHasMore(items.filter((i: any) => i.type === 'post' || i.type === 'thread').length >= PAGE_SIZE);"""
-            ),
-            (
-              """    const newPosts = newItems.filter((i: any) => i.type === 'post');\n    if (newPosts.length > 0) {\n      setFeedItems(prev => {\n        // Deduplicate by post id\n        const existingIds = new Set(prev.filter((i: any) => i.type === 'post').map((i: any) => (i.data as any).id));\n        const deduped = newItems.filter((i: any) => i.type !== 'post' || !existingIds.has((i.data as any).id));\n        return [...prev, ...deduped];\n      });\n      setPage(nextPage);\n      const lastPost = newPosts.slice(-1)[0];\n      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);\n      const hasMore = newPosts.length >= PAGE_SIZE;""",
-              """    const newContent = newItems.filter((i: any) => i.type === 'post' || i.type === 'thread');\n    if (newContent.length > 0) {\n      setFeedItems(prev => {\n        const existingIds = new Set(prev.filter((i: any) => i.type === 'post' || i.type === 'thread').map((i: any) => `${i.type}:${(i.data as any).id}`));\n        const deduped = newItems.filter((i: any) => (i.type !== 'post' && i.type !== 'thread') || !existingIds.has(`${i.type}:${(i.data as any).id}`));\n        return [...prev, ...deduped];\n      });\n      setPage(nextPage);\n      const lastContent = newContent.slice(-1)[0];\n      if (lastContent) setFeedCursor((lastContent.data as any).created_at ?? (lastContent.data as any).published_at ?? null);\n      const hasMore = newContent.length >= PAGE_SIZE;"""
-            ),
+            ("""      return result.posts.map((post: any) => ({\n        type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,\n        data: post.origin === 'federated' ? post : { ...post, user_profiles: post.user_profiles ?? post.author },\n      }));""", """      return result.posts.map((post: any) => ({\n        type: post.origin === 'federated'\n          ? 'fedpost' as const\n          : post.content_type === 'thread' || post.source === 'thread'\n            ? 'thread' as const\n            : 'post' as const,\n        data: post.origin === 'federated' ? post : { ...post, user_profiles: post.user_profiles ?? post.author },\n      }));"""),
+            ("""      let threadsQuery = supabase\n        .from('threads')\n        .select('*, user_profiles:profiles!posts_author_id_fkey(*)')""", """      let threadsQuery = supabase\n        .from('threads')\n        .select('*, user_profiles(id, username, avatar_url, verified)')"""),
+            ("""      const lastPost = items.filter((i: any) => i.type === 'post').slice(-1)[0];\n      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);\n      setFeedHasMore(items.filter((i: any) => i.type === 'post').length >= PAGE_SIZE);""", """      const lastContent = items.filter((i: any) => i.type === 'post' || i.type === 'thread').slice(-1)[0];\n      if (lastContent) setFeedCursor((lastContent.data as any).created_at ?? (lastContent.data as any).published_at ?? null);\n      setFeedHasMore(items.filter((i: any) => i.type === 'post' || i.type === 'thread').length >= PAGE_SIZE);"""),
+            ("""    const newPosts = newItems.filter((i: any) => i.type === 'post');\n    if (newPosts.length > 0) {\n      setFeedItems(prev => {\n        // Deduplicate by post id\n        const existingIds = new Set(prev.filter((i: any) => i.type === 'post').map((i: any) => (i.data as any).id));\n        const deduped = newItems.filter((i: any) => i.type !== 'post' || !existingIds.has((i.data as any).id));\n        return [...prev, ...deduped];\n      });\n      setPage(nextPage);\n      const lastPost = newPosts.slice(-1)[0];\n      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);\n      const hasMore = newPosts.length >= PAGE_SIZE;""", """    const newContent = newItems.filter((i: any) => i.type === 'post' || i.type === 'thread');\n    if (newContent.length > 0) {\n      setFeedItems(prev => {\n        const existingIds = new Set(prev.filter((i: any) => i.type === 'post' || i.type === 'thread').map((i: any) => `${i.type}:${(i.data as any).id}`));\n        const deduped = newItems.filter((i: any) => (i.type !== 'post' && i.type !== 'thread') || !existingIds.has(`${i.type}:${(i.data as any).id}`));\n        return [...prev, ...deduped];\n      });\n      setPage(nextPage);\n      const lastContent = newContent.slice(-1)[0];\n      if (lastContent) setFeedCursor((lastContent.data as any).created_at ?? (lastContent.data as any).published_at ?? null);\n      const hasMore = newContent.length >= PAGE_SIZE;"""),
           ]
           for old, new in replacements:
               if old not in s:
@@ -56,8 +42,8 @@ jobs:
           grep -Fq "post.content_type === 'thread' || post.source === 'thread'" src/pages/HomePage.tsx
           grep -Fq "user_profiles(id, username, avatar_url, verified)" src/pages/HomePage.tsx
           grep -Fq "i.type === 'post' || i.type === 'thread'" src/pages/HomePage.tsx
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
+      - name: Install dependencies without requiring a lockfile
+        run: npm install --ignore-scripts --no-package-lock
       - name: Typecheck
         run: npm run typecheck --if-present
       - name: Production build
