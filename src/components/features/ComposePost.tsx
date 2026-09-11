@@ -322,7 +322,7 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
 
   // ── Post handler ──────────────────────────────────────────────────────────
   const handlePost = async () => {
-    if (!content.trim() && images.length === 0 && !video && !gifUrl && !pollData) return;
+    if (!content.trim() && images.length === 0 && !video && !gifUrl && !pollData && !quotedPostId) return;
     // Real-time violation check before posting
     if (content.trim() && !violationCheckedRef.current) {
       const canPost = await checkContentViolation(content);
