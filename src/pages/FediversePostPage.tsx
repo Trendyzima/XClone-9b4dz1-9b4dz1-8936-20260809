@@ -8,9 +8,9 @@ import { useSEO } from '@/hooks/useSEO';
 
 function normalizePost(value: any) {
   if (!value) return null;
+  const raw = value.raw_object ?? value.object ?? {};
   const actor = value.actor ?? value.account ?? value.remote_accounts ?? {};
-  const raw = value.raw_object ?? {};
-  const canonicalObjectUrl = value.object_url ?? raw.object_url ?? value.uri ?? raw.uri ?? value.url ?? raw.url ?? raw.id ?? value.id ?? '';
+  const canonicalObjectUrl = value.object_url ?? value.uri ?? value.url ?? raw.id ?? raw.url ?? value.id ?? '';
   return {
     ...raw,
     ...value,
@@ -22,16 +22,13 @@ function normalizePost(value: any) {
       icon: actor.icon ?? (actor.avatar_url ? { url: actor.avatar_url } : undefined),
       acct: actor.acct ?? (actor.username && actor.domain ? `${actor.username}@${actor.domain}` : actor.username),
     },
-    // ActivityPub interactions must always use the canonical remote object URL.
-    // A remote_posts UUID is only a local cache key and must never become the
-    // identity sent to the federation gateway.
     id: canonicalObjectUrl,
     object_url: canonicalObjectUrl,
-    url: value.url ?? value.object_url ?? value.uri ?? raw.url ?? raw.uri ?? canonicalObjectUrl,
-    uri: value.uri ?? value.object_url ?? raw.uri ?? canonicalObjectUrl,
+    url: value.url ?? value.object_url ?? value.uri ?? raw.url ?? raw.id ?? canonicalObjectUrl,
+    uri: value.uri ?? value.object_url ?? raw.id ?? canonicalObjectUrl,
     content: value.content ?? raw.content ?? value.text ?? raw.text ?? '',
     created_at: value.created_at ?? value.published_at ?? raw.created_at ?? raw.published ?? '',
-    media_attachments: value.media_attachments ?? raw.media_attachments ?? value.media_urls ?? [],
+    media_attachments: value.media_attachments ?? raw.media_attachments ?? value.media_urls ?? value.attachments ?? [],
   };
 }
 
@@ -50,12 +47,20 @@ export default function FediversePostPage() {
     let cancelled = false;
     const load = async () => {
       try {
-        const { data } = await supabase.from('remote_posts').select('*, remote_accounts(*)').eq('object_url', objectUrl).maybeSingle();
-        if (data) { if (!cancelled) setPost(normalizePost(data)); return; }
+        // Resolve both legacy remote_posts and the canonical federated_objects store.
+        const [legacy, canonical] = await Promise.all([
+          supabase.from('remote_posts').select('*, remote_accounts(*)').eq('object_url', objectUrl).maybeSingle(),
+          supabase.from('federated_objects').select('*').or(`uri.eq.${objectUrl},url.eq.${objectUrl}`).maybeSingle(),
+        ]);
+        const cached = legacy.data ?? canonical.data;
+        if (cached) { if (!cancelled) setPost(normalizePost(cached)); return; }
+
+        // Last local fallback: the federated timeline may contain the object under
+        // uri, object_url, url, or raw ActivityPub id.
         const timeline: any = await federation.getFederatedTimeline({ limit: 100 });
         const items: any[] = Array.isArray(timeline) ? timeline : ((timeline as any)?.posts ?? (timeline as any)?.data ?? []);
-        const match = items.find((item: any) => [item.object_url, item.url, item.uri, item.id].includes(objectUrl));
-        if (!match) throw new Error('This Fediverse post is not available in Testagram cache.');
+        const match = items.find((item: any) => [item.object_url, item.uri, item.url, item.id, item.raw_object?.id].filter(Boolean).includes(objectUrl));
+        if (!match) throw new Error('This Fediverse post could not be resolved from the canonical remote object.');
         if (!cancelled) setPost(normalizePost(match));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Unable to load this Fediverse post.');
