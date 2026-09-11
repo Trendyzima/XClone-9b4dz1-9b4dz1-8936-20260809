@@ -145,9 +145,9 @@ jobs:
           jq -e --arg id "$COMMUNITY_ID" --arg uid "$USER_A" 'length == 1 and .[0].id == $id and .[0].created_by == $uid and .[0].is_private == true' /tmp/community.json
 
           echo '4. Owner membership is created and User B cannot edit the community...'
-          curl -sS --fail-with-body -X POST "$BASE/rest/v1/community_members" \
-            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" -H 'Content-Type: application/json' \
-            -d "$(jq -nc --arg c "$COMMUNITY_ID" --arg u "$USER_A" '{community_id:$c,user_id:$u,role:"admin",status:"active"}')" >/tmp/member-a.json
+          curl -sS --fail-with-body "$BASE/rest/v1/community_members?community_id=eq.$COMMUNITY_ID&user_id=eq.$USER_A&select=community_id,user_id,role,status" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" >/tmp/member-a.json
+          jq -e --arg c "$COMMUNITY_ID" --arg u "$USER_A" 'length == 1 and .[0].community_id == $c and .[0].user_id == $u and .[0].role == "owner" and .[0].status == "active"' /tmp/member-a.json
 
           COMMUNITY_FORBIDDEN="$(curl -sS -o /tmp/community-forbidden.json -w '%{http_code}' -X PATCH "$BASE/rest/v1/communities?id=eq.$COMMUNITY_ID" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" -H 'Content-Type: application/json' \
@@ -155,15 +155,37 @@ jobs:
           test "$COMMUNITY_FORBIDDEN" = 200
           jq -e 'length == 0' /tmp/community-forbidden.json
 
-          echo '5. User B joins and can see the private community...'
-          curl -sS --fail-with-body -X POST "$BASE/rest/v1/community_members" \
+          echo '5. User B requests access; private membership stays pending until an owner approves...'
+          curl -sS --fail-with-body -X POST "$BASE/rest/v1/rpc/join_community" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" -H 'Content-Type: application/json' \
-            -d "$(jq -nc --arg c "$COMMUNITY_ID" --arg u "$USER_B" '{community_id:$c,user_id:$u,role:"member",status:"active"}')" >/tmp/member-b.json
+            -d "$(jq -nc --arg c "$COMMUNITY_ID" '{p_community_id:$c}')" >/tmp/join-community.json
+          curl -sS --fail-with-body "$BASE/rest/v1/community_members?community_id=eq.$COMMUNITY_ID&user_id=eq.$USER_B&select=community_id,user_id,role,status" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" >/tmp/member-b-pending.json
+          jq -e --arg c "$COMMUNITY_ID" --arg u "$USER_B" 'length == 1 and .[0].community_id == $c and .[0].user_id == $u and .[0].role == "member" and .[0].status == "pending"' /tmp/member-b-pending.json
+          curl -sS --fail-with-body "$BASE/rest/v1/communities?id=eq.$COMMUNITY_ID&select=id,name,is_private" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" >/tmp/community-b-pending.json
+          jq -e 'length == 0' /tmp/community-b-pending.json
+
+          echo '6. Owner approves User B; private community becomes visible to the approved member...'
+          curl -sS --fail-with-body -X POST "$BASE/rest/v1/rpc/approve_community_member" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" -H 'Content-Type: application/json' \
+            -d "$(jq -nc --arg c "$COMMUNITY_ID" --arg u "$USER_B" '{p_community_id:$c,p_user_id:$u}')" >/tmp/approve-community-member.json
+          curl -sS --fail-with-body "$BASE/rest/v1/community_members?community_id=eq.$COMMUNITY_ID&user_id=eq.$USER_B&select=community_id,user_id,role,status" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" >/tmp/member-b-active.json
+          jq -e --arg c "$COMMUNITY_ID" --arg u "$USER_B" 'length == 1 and .[0].community_id == $c and .[0].user_id == $u and .[0].role == "member" and .[0].status == "active"' /tmp/member-b-active.json
           curl -sS --fail-with-body "$BASE/rest/v1/communities?id=eq.$COMMUNITY_ID&select=id,name,is_private" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" >/tmp/community-b.json
           jq -e --arg id "$COMMUNITY_ID" 'length == 1 and .[0].id == $id and .[0].is_private == true' /tmp/community-b.json
 
-          echo '6. User A starts an Audio Space...'
+          echo '7. User B leaves the private community...'
+          curl -sS --fail-with-body -X POST "$BASE/rest/v1/rpc/leave_community" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" -H 'Content-Type: application/json' \
+            -d "$(jq -nc --arg c "$COMMUNITY_ID" '{p_community_id:$c}')" >/tmp/leave-community.json
+          curl -sS --fail-with-body "$BASE/rest/v1/community_members?community_id=eq.$COMMUNITY_ID&user_id=eq.$USER_B&select=community_id,user_id,role,status" \
+            -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" >/tmp/member-b-left.json
+          jq -e 'length == 0' /tmp/member-b-left.json
+
+          echo '8. User A starts an Audio Space...'
           SPACE_STATUS="$(curl -sS -o /tmp/space.json -w '%{http_code}' -X POST "$BASE/rest/v1/spaces" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" -H 'Content-Type: application/json' \
             -H 'Prefer: return=representation' -d "$(jq -nc --arg uid "$USER_A" '{host_id:$uid,title:"E2E Audio Space",description:"isolated audio space",is_live:true,listener_count:0,has_video:false,category:"technology"}')")"
@@ -171,7 +193,7 @@ jobs:
           SPACE_ID="$(jq -r '.[0].id' /tmp/space.json)"
           test -n "$SPACE_ID"
 
-          echo '7. User B joins the Space; listener count is database-derived...'
+          echo '9. User B joins the Space; listener count is database-derived...'
           curl -sS --fail-with-body -X POST "$BASE/rest/v1/space_participants" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" -H 'Content-Type: application/json' \
             -d "$(jq -nc --arg s "$SPACE_ID" --arg u "$USER_B" '{space_id:$s,user_id:$u,role:"listener"}')" >/tmp/participant-b.json
@@ -179,18 +201,18 @@ jobs:
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" >/tmp/space-b.json
           jq -e --arg id "$SPACE_ID" --arg host "$USER_A" 'length == 1 and .[0].id == $id and .[0].host_id == $host and .[0].listener_count == 1' /tmp/space-b.json
 
-          echo '8. User B cannot mutate the host-owned Space...'
+          echo '10. User B cannot mutate the host-owned Space...'
           SPACE_FORBIDDEN="$(curl -sS -o /tmp/space-forbidden.json -w '%{http_code}' -X PATCH "$BASE/rest/v1/spaces?id=eq.$SPACE_ID" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_B")" -H 'Content-Type: application/json' \
             -H 'Prefer: return=representation' -d '{"title":"HACKED SPACE"}')"
           test "$SPACE_FORBIDDEN" = 200
           jq -e 'length == 0' /tmp/space-forbidden.json
 
-          echo '9. User A can manage the Space...'
+          echo '11. User A can manage the Space...'
           SPACE_UPDATE="$(curl -sS -o /tmp/space-update.json -w '%{http_code}' -X PATCH "$BASE/rest/v1/spaces?id=eq.$SPACE_ID" \
             -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "$(auth_header "$TOKEN_A")" -H 'Content-Type: application/json' \
             -H 'Prefer: return=representation' -d '{"title":"E2E Audio Space Updated"}')"
           test "$SPACE_UPDATE" = 200
           jq -e '. | length == 1 and .[0].title == "E2E Audio Space Updated"' /tmp/space-update.json
 
-          echo 'PASS: profiles + communities + audio spaces authenticated E2E security contract.'
+          echo 'PASS: profiles + private communities + community approval/leave + audio spaces authenticated E2E security contract.'
