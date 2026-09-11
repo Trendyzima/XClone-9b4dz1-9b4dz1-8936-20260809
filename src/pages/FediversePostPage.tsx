@@ -12,18 +12,9 @@ function normalizePost(value: any) {
   const actor = value.actor ?? value.account ?? value.remote_accounts ?? {};
   const canonicalObjectUrl = value.object_url ?? value.uri ?? value.url ?? raw.id ?? raw.url ?? value.id ?? '';
   return {
-    ...raw,
-    ...value,
-    actor: value.actor ?? raw.actor ?? value.account ?? {
-      ...actor,
-      preferredUsername: actor.preferredUsername ?? actor.username,
-      name: actor.name ?? actor.display_name,
-      url: actor.url ?? value.actor_url,
-      icon: actor.icon ?? (actor.avatar_url ? { url: actor.avatar_url } : undefined),
-      acct: actor.acct ?? (actor.username && actor.domain ? `${actor.username}@${actor.domain}` : actor.username),
-    },
-    id: canonicalObjectUrl,
-    object_url: canonicalObjectUrl,
+    ...raw, ...value,
+    actor: value.actor ?? raw.actor ?? value.account ?? { ...actor, preferredUsername: actor.preferredUsername ?? actor.username, name: actor.name ?? actor.display_name, url: actor.url ?? value.actor_url, icon: actor.icon ?? (actor.avatar_url ? { url: actor.avatar_url } : undefined), acct: actor.acct ?? (actor.username && actor.domain ? `${actor.username}@${actor.domain}` : actor.username) },
+    id: canonicalObjectUrl, object_url: canonicalObjectUrl,
     url: value.url ?? value.object_url ?? value.uri ?? raw.url ?? raw.id ?? canonicalObjectUrl,
     uri: value.uri ?? value.object_url ?? raw.id ?? canonicalObjectUrl,
     content: value.content ?? raw.content ?? value.text ?? raw.text ?? '',
@@ -32,14 +23,15 @@ function normalizePost(value: any) {
   };
 }
 
-export default function FediversePostPage() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [post, setPost] = useState<any>(() => normalizePost(location.state?.post));
-  const [loading, setLoading] = useState(!post);
-  const [error, setError] = useState('');
-  const objectUrl = useMemo(() => new URLSearchParams(location.search).get('url') || post?.object_url || post?.url || post?.uri || post?.id || '', [location.search, post]);
+function uniqueCandidates(...values: unknown[]): string[] {
+  return [...new Set(values.flatMap(value => typeof value === 'string' && value.trim() ? [value.trim()] : []))];
+}
 
+export default function FediversePostPage() {
+  const location = useLocation(); const navigate = useNavigate();
+  const [post, setPost] = useState<any>(() => normalizePost(location.state?.post));
+  const [loading, setLoading] = useState(!post); const [error, setError] = useState('');
+  const objectUrl = useMemo(() => new URLSearchParams(location.search).get('url') || post?.object_url || post?.url || post?.uri || post?.id || '', [location.search, post]);
   useSEO({ title: post ? `${post.actor?.name ?? post.actor?.preferredUsername ?? 'Fediverse post'} on Testagram` : 'Fediverse post — Testagram', description: post ? String(post.content ?? '').replace(/<[^>]*>/g, '').slice(0, 155) : 'View a Fediverse post inside Testagram.', url: `/fediverse/post?url=${encodeURIComponent(objectUrl)}`, type: 'article' });
 
   useEffect(() => {
@@ -47,33 +39,28 @@ export default function FediversePostPage() {
     let cancelled = false;
     const load = async () => {
       try {
-        // Resolve both legacy remote_posts and the canonical federated_objects store.
-        const [legacy, canonical] = await Promise.all([
-          supabase.from('remote_posts').select('*, remote_accounts(*)').eq('object_url', objectUrl).maybeSingle(),
-          supabase.from('federated_objects').select('*').or(`uri.eq.${objectUrl},url.eq.${objectUrl}`).maybeSingle(),
-        ]);
-        const cached = legacy.data ?? canonical.data;
+        const candidates = uniqueCandidates(objectUrl, decodeURIComponent(objectUrl)); let cached: any = null;
+        for (const candidate of candidates) {
+          const [legacyResult, uriResult, urlResult] = await Promise.all([
+            supabase.from('remote_posts').select('*, remote_accounts(*)').eq('object_url', candidate).maybeSingle(),
+            supabase.from('federated_objects').select('*').eq('uri', candidate).maybeSingle(),
+            supabase.from('federated_objects').select('*').eq('url', candidate).maybeSingle(),
+          ]);
+          cached = legacyResult.data ?? uriResult.data ?? urlResult.data; if (cached) break;
+        }
         if (cached) { if (!cancelled) setPost(normalizePost(cached)); return; }
-
-        // Last local fallback: the federated timeline may contain the object under
-        // uri, object_url, url, or raw ActivityPub id.
         const timeline: any = await federation.getFederatedTimeline({ limit: 100 });
-        const items: any[] = Array.isArray(timeline) ? timeline : ((timeline as any)?.posts ?? (timeline as any)?.data ?? []);
-        const match = items.find((item: any) => [item.object_url, item.uri, item.url, item.id, item.raw_object?.id].filter(Boolean).includes(objectUrl));
+        const items: any[] = Array.isArray(timeline) ? timeline : (timeline?.posts ?? timeline?.data ?? []);
+        const match = items.find(item => candidates.some(candidate => uniqueCandidates(item.object_url, item.uri, item.url, item.id, item.raw_object?.id, item.raw_object?.url).includes(candidate)));
         if (!match) throw new Error('This Fediverse post could not be resolved from the canonical remote object.');
         if (!cancelled) setPost(normalizePost(match));
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Unable to load this Fediverse post.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : 'Unable to load this Fediverse post.'); }
+      finally { if (!cancelled) setLoading(false); }
     };
-    void load();
-    return () => { cancelled = true; };
+    void load(); return () => { cancelled = true; };
   }, [objectUrl, post]);
 
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (!post) return <div className="min-h-screen bg-background"><div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border p-3 flex items-center gap-3"><button onClick={() => navigate(-1)} className="p-2 rounded-full hover:bg-muted" aria-label="Go back"><ArrowLeft className="w-5 h-5" /></button><h1 className="font-bold">Fediverse post</h1></div><div className="p-8 text-center text-muted-foreground"><Globe className="w-12 h-12 mx-auto mb-3 opacity-30" /><p className="font-semibold">Unable to open this post in Testagram</p><p className="text-sm mt-1">{error || 'The remote post could not be resolved.'}</p><button onClick={() => navigate('/fediverse')} className="mt-5 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold">Back to Fediverse</button></div></div>;
-
   return <div className="min-h-screen bg-background pb-20 md:pb-0"><div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border p-3 flex items-center gap-3"><button onClick={() => navigate(-1)} className="p-2 rounded-full hover:bg-muted" aria-label="Go back"><ArrowLeft className="w-5 h-5" /></button><div><h1 className="font-bold">Post</h1><p className="text-[11px] text-muted-foreground flex items-center gap-1"><Globe className="w-3 h-3" />Fediverse · viewed in Testagram</p></div></div><FederatedPostCard post={post} disableNavigation /><div className="px-4 py-3 text-center text-xs text-muted-foreground border-t border-border">This remote post is rendered inside Testagram. Your interactions are sent through the federation gateway.</div></div>;
 }
