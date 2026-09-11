@@ -1,58 +1,71 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Quote, Loader2 } from 'lucide-react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
-import { ComposePost } from '@/components/features/ComposePost';
-import { PostCard } from '@/components/features/PostCard';
 
+/**
+ * Quote-post handoff page.
+ * Resolve the source post, then hand the quote context to the canonical
+ * composer on Home. Keeping one composer prevents quote posts from being
+ * created through a separate/incomplete compose surface.
+ */
 export default function QuotePage() {
   const { postId } = useParams<{ postId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const [searchParams] = useSearchParams();
-  const [post, setPost] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let active = true;
+
     (async () => {
-      if (!postId) return;
-      setLoading(true);
-      const { data, error } = await supabase
+      if (!postId) {
+        setError(true);
+        return;
+      }
+
+      const { data, error: fetchError } = await supabase
         .from('posts')
-        .select('*, profiles:user_id(id, username, display_name, avatar_url, verified)')
+        .select('id, content')
         .eq('id', postId)
         .maybeSingle();
-      if (active) {
-        if (error) console.error('[quote-page]', error);
-        setPost(data ?? null);
-        setLoading(false);
+
+      if (!active) return;
+
+      if (fetchError || !data) {
+        console.error('[quote-page] source post lookup failed', fetchError);
+        setError(true);
+        return;
       }
+
+      const params = new URLSearchParams({
+        quote_post_id: data.id,
+        quote_preview: (data.content ?? '').slice(0, 280),
+      });
+
+      navigate(`/?${params.toString()}`, { replace: true });
     })();
-    return () => { active = false; };
-  }, [postId]);
 
-  useEffect(() => {
-    if (postId && !searchParams.get('quote_post_id')) {
-      navigate(`/quote/${postId}?quote_post_id=${encodeURIComponent(postId)}&quote_preview=${encodeURIComponent((post?.content ?? '').slice(0, 100))}`, { replace: true });
-    }
-  }, [postId, post, searchParams, navigate]);
+    return () => {
+      active = false;
+    };
+  }, [postId, navigate]);
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>;
-  if (!post) return <div className="p-6 text-center"><p className="text-muted-foreground">The post to quote could not be found.</p><button className="mt-4 text-primary" onClick={() => navigate(-1)}>Go back</button></div>;
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-center">
+        <div>
+          <p className="text-muted-foreground">The post to quote could not be found.</p>
+          <button className="mt-4 text-primary" onClick={() => navigate(-1)}>
+            Go back
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-background/95 backdrop-blur px-4 py-3">
-        <button onClick={() => navigate(-1)} className="rounded-full p-2 hover:bg-muted" aria-label="Back"><ArrowLeft className="w-5 h-5" /></button>
-        <Quote className="w-5 h-5 text-primary" />
-        <h1 className="font-bold text-lg">Quote post</h1>
-      </header>
-      <main className="mx-auto max-w-2xl p-4 space-y-4">
-        <section className="rounded-2xl border border-border bg-card p-2"><PostCard post={post} /></section>
-        {user ? <ComposePost /> : <button onClick={() => navigate('/auth')} className="w-full rounded-xl bg-primary px-4 py-3 text-primary-foreground font-semibold">Sign in to quote this post</button>}
-      </main>
+    <div className="min-h-screen flex items-center justify-center">
+      <Loader2 className="w-7 h-7 animate-spin text-primary" aria-label="Opening post composer" />
     </div>
   );
 }
