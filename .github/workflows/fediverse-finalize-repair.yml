@@ -1,0 +1,88 @@
+name: Finalize Fediverse interaction transport
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace legacy Fediverse handlers safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('src/pages/FediversePage.tsx')
+          s = p.read_text()
+
+          like = '''  const handleFedLike = async (post: any) => {
+            if (!user) { navigate('/auth'); return; }
+            const key = post.object_url ?? post.uri ?? post.url ?? post.id;
+            if (!key) return;
+            const enabled = !postStates[key]?.liked;
+            setPostStates(prev => ({ ...prev, [key]: { ...prev[key], liked: enabled } }));
+            try { enabled ? await federation.favorite(key) : await federation.unfavorite(key); }
+            catch (err: any) { setPostStates(prev => ({ ...prev, [key]: { ...prev[key], liked: !enabled } })); toast.error(err?.message ?? 'Like failed'); }
+          };
+
+'''
+          boost = '''  const handleFedBoost = async (post: any) => {
+            if (!user) { navigate('/auth'); return; }
+            const key = post.object_url ?? post.uri ?? post.url ?? post.id;
+            if (!key) return;
+            const enabled = !postStates[key]?.boosted;
+            setPostStates(prev => ({ ...prev, [key]: { ...prev[key], boosted: enabled } }));
+            try { enabled ? await federation.boost(key) : await federation.unboost(key); }
+            catch (err: any) { setPostStates(prev => ({ ...prev, [key]: { ...prev[key], boosted: !enabled } })); toast.error(err?.message ?? 'Repost failed'); }
+          };
+
+'''
+          reply = '''  const handleFedReply = async (post: any) => {
+            if (!user) { navigate('/auth'); return; }
+            const key = post.object_url ?? post.uri ?? post.url ?? post.id;
+            if (!key) return;
+            const text = postStates[key]?.replyText?.trim();
+            if (!text) return;
+            setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: true } }));
+            try {
+              await federation.reply({ postId: key, content: text });
+              toast.success('Reply sent to the Fediverse!');
+              setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyText: '', replyOpen: false, sending: false } }));
+            } catch (err: any) {
+              toast.error(`Reply failed: ${err.message ?? ''}`);
+              setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: false } }));
+            }
+          };
+
+'''
+          def replace_handler(text, name, replacement, next_name):
+              pattern = rf'  const {name} = async \\(post: any\\) => \\{{.*?\\n  \\}};\\n\\n(?=  const {next_name})'
+              out, n = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if n == 0:
+                  # Already finalized is acceptable; do not fail the repair.
+                  return text
+              return out
+
+          s = replace_handler(s, 'handleFedLike', like, 'handleFedBoost')
+          s = replace_handler(s, 'handleFedBoost', boost, 'handleFedReply')
+          s = replace_handler(s, 'handleFedReply', reply, 'handleFollow')
+          p.write_text(s)
+
+          # The obsolete self-mutating workflow used brittle index matching and
+          # repeatedly failed after the handlers were already repaired.
+          obsolete = Path('.github/workflows/fediverse-interaction-patch.yml')
+          if obsolete.exists(): obsolete.unlink()
+          PY
+          if git diff --quiet; then
+            echo 'No finalization changes required'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/pages/FediversePage.tsx .github/workflows/fediverse-interaction-patch.yml
+          git commit -m 'fix(fediverse): use canonical signed interactions everywhere'
+          git push
