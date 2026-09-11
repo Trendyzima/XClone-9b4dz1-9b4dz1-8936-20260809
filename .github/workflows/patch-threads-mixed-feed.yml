@@ -22,8 +22,6 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
-
           path = Path('src/pages/ThreadsPage.tsx')
           text = path.read_text()
           original = text
@@ -46,35 +44,16 @@ jobs:
               injection = "\n      <MixedThreadsSocialFeed activeTab={activeTab as 'For You' | 'Following' | 'Trending' | 'Reading List'} searchQuery={searchQuery} />"
               text = text[:close] + injection + text[close:]
 
-          # The legacy thread-only result surface should remain for Reading List,
-          # while For You/Following/Trending are now the unified mixed stream.
-          if 'data-mixed-threads-legacy' not in text:
-              start = text.find('{loading ? (')
-              if start < 0:
-                  raise SystemExit('legacy loading conditional not found')
-              line_start = text.rfind('\n', 0, start) + 1
-              lines = text[:line_start].splitlines()
-              parent_idx = None
-              for idx in range(len(lines) - 1, max(-1, len(lines) - 80), -1):
-                  if re.match(r'^\s*<div[^>]*className=', lines[idx]):
-                      parent_idx = idx
-                      break
-              if parent_idx is None:
-                  raise SystemExit('legacy feed parent div not found')
-              # Convert the parent className to a conditional class while preserving its existing classes.
-              line = lines[parent_idx]
-              m = re.search(r'className="([^"]*)"', line)
-              if not m:
-                  raise SystemExit('legacy feed parent className literal not found')
-              classes = m.group(1)
-              replacement = 'className={activeTab === \'Reading List\' ? \'' + classes + ' data-mixed-threads-legacy\' : \'hidden\'}'
-              lines[parent_idx] = line[:m.start()] + replacement + line[m.end():]
-              text = '\n'.join(lines) + text[line_start:]
-
           if text == original:
               raise SystemExit('no ThreadsPage changes made')
           path.write_text(text)
-          print('patched ThreadsPage.tsx')
+          print('--- ThreadsPage render area ---')
+          lines = text.splitlines()
+          for n, line in enumerate(lines, 1):
+              if 'Create Thread' in line or '{loading ? (' in line:
+                  for j in range(max(1, n-8), min(len(lines), n+80)+1):
+                      print(f'{j:04d}: {lines[j-1]}')
+                  print('---')
           PY
 
           npm install --ignore-scripts --no-package-lock
