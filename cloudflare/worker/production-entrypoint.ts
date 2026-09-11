@@ -66,13 +66,15 @@ async function ready(env: Env, id?: string, request?: Request): Promise<Response
 async function gateway(request: Request, env: Env): Promise<Response> {
   const id = requestId(request);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors(env, 'GET,POST,OPTIONS', request), 'x-request-id': id } });
+  const authorization = request.headers.get('Authorization');
+  if (!authorization) return json(env, { ok: false, error: 'Authentication required', code: 'AUTH_REQUIRED', requestId: id }, 401, id, request);
   const raw = await request.text(); let input: any;
   try { input = raw ? JSON.parse(raw) : {}; } catch { return json(env, { ok: false, error: 'Invalid JSON gateway request', code: 'INVALID_JSON', requestId: id }, 400, id, request); }
   const innerMethod = String(input?.method || 'GET').toUpperCase(), path = String(input?.path || '/');
   if (!path.startsWith('/')) return json(env, { ok: false, error: 'Gateway path must start with /', code: 'INVALID_PATH', requestId: id }, 400, id, request);
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(innerMethod)) return json(env, { ok: false, error: 'Unsupported gateway method', code: 'INVALID_METHOD', requestId: id }, 400, id, request);
   const target = `${env.SUPABASE_URL}/functions/v1/${GATEWAY_FUNCTION}`, headers = new Headers({ 'Content-Type': 'application/json', Accept: 'application/json', 'x-request-id': id });
-  const authorization = request.headers.get('Authorization'), apikey = request.headers.get('apikey'); if (authorization) headers.set('Authorization', authorization); if (apikey) headers.set('apikey', apikey);
+  const apikey = request.headers.get('apikey'); headers.set('Authorization', authorization); if (apikey) headers.set('apikey', apikey);
   const upstreamBody = JSON.stringify({ ...input, path, method: innerMethod, requestId: id }), attempts = innerMethod === 'GET' ? GATEWAY_GET_ATTEMPTS : 1; let lastError = 'Gateway upstream unavailable';
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
