@@ -3,6 +3,3 @@ verify_jwt = true
 
 [functions.feed-fast]
 verify_jwt = true
-
-[functions.federation-maintenance]
-verify_jwt = false
