@@ -1,1 +1,0 @@
--- Atomic delivery claim migration intentionally staged after gateway source patch.
