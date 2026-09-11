@@ -23,6 +23,7 @@ interface ComposePostProps {
 }
 
 export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
+  const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -254,6 +255,9 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
 
   // ── File handlers ─────────────────────────────────────────────────────────
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const incoming = Array.from(e.target.files ?? []);
+    const oversized = incoming.find(file => file.size >= MAX_MEDIA_BYTES);
+    if (oversized) { toast({ title: 'Media too large', description: 'Each media file must be smaller than 20 MB', variant: 'destructive' }); e.target.value = ''; return; }
     if (!e.target.files) return;
     const files = Array.from(e.target.files);
     if (images.length + files.length > 4) { sonnerToast.error('Maximum 4 images per post'); return; }
@@ -371,7 +375,7 @@ export function ComposePost({ onSuccess, communityId }: ComposePostProps) {
         return;
       }
 
-      const postPayload: any = { user_id: user!.id, content: content.trim() || '', community_id: communityId || null, media_urls: [], media_count: 0, is_video: false };
+      const postPayload: any = { user_id: user!.id, quoted_post_id: quotedPostId || null, content: content.trim() || '', community_id: communityId || null, media_urls: [], media_count: 0, is_video: false };
 
       if (videoUrl && video) {
         postPayload.video_url = videoUrl; postPayload.is_video = true; postPayload.image_url = null;
