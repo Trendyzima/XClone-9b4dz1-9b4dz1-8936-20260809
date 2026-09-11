@@ -1,0 +1,92 @@
+name: polish communities and spaces
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove overlapping global upgrade surface
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/App.tsx')
+          s = p.read_text()
+          before = s
+          s = s.replace("import { CommunitySpacesUpgrades } from '@/components/features/CommunitySpacesUpgrades';\n", '')
+          s = s.replace('<CommunitySpacesUpgrades />', '')
+          if s == before:
+              raise SystemExit('App did not contain the overlapping CommunitySpacesUpgrades surface')
+          p.write_text(s)
+          q = Path('src/components/features/CommunitySpacesUpgrades.tsx')
+          if q.exists():
+              q.unlink()
+          PY
+      - name: Add shared hub navigation
+        shell: bash
+        run: |
+          cat > src/components/features/CommunitySpacesHubNav.tsx <<'EOF'
+          import { Users, Radio } from 'lucide-react';
+          import { useLocation, useNavigate } from 'react-router-dom';
+
+          export function CommunitySpacesHubNav() {
+            const location = useLocation();
+            const navigate = useNavigate();
+            const communities = location.pathname.startsWith('/communities') || location.pathname.startsWith('/c/');
+            return (
+              <div className="px-4 pt-3 pb-2 border-b border-border bg-background">
+                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-muted/50 p-1">
+                  <button onClick={() => navigate('/communities')} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition-colors ${communities ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`} aria-current={communities ? 'page' : undefined}>
+                    <Users className="h-4 w-4" /> Communities
+                  </button>
+                  <button onClick={() => navigate('/spaces')} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition-colors ${!communities ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`} aria-current={!communities ? 'page' : undefined}>
+                    <Radio className="h-4 w-4" /> Spaces
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          EOF
+          python - <<'PY'
+          from pathlib import Path
+          for name in ['src/pages/CommunitiesPage.tsx','src/pages/SpacesPage.tsx']:
+              p=Path(name); s=p.read_text()
+              if 'CommunitySpacesHubNav' not in s:
+                  marker = "import { TopBar } from '@/components/layout/TopBar';"
+                  if marker not in s: raise SystemExit(f'{name}: TopBar import missing')
+                  s=s.replace(marker, marker+"\nimport { CommunitySpacesHubNav } from '@/components/features/CommunitySpacesHubNav';",1)
+              # Insert directly after TopBar in the page markup, preserving each page's own creation controls.
+              if '<CommunitySpacesHubNav />' not in s:
+                  anchor='<TopBar />'
+                  if anchor not in s: raise SystemExit(f'{name}: TopBar JSX missing')
+                  s=s.replace(anchor, anchor+'\n      <CommunitySpacesHubNav />',1)
+              p.write_text(s)
+          PY
+      - name: Verify source and build
+        run: |
+          test ! -e src/components/features/CommunitySpacesUpgrades.tsx
+          ! grep -R "CommunitySpacesUpgrades" -n src --exclude-dir=node_modules
+          npm install --ignore-scripts --no-package-lock
+          npx tsc --noEmit
+          npm run build
+          git diff --check
+      - name: Commit and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx src/pages/CommunitiesPage.tsx src/pages/SpacesPage.tsx src/components/features/CommunitySpacesHubNav.tsx src/components/features/CommunitySpacesUpgrades.tsx .github/workflows/polish-communities-spaces.yml
+          git commit -m "polish: unify community and space access surfaces"
+          git rm .github/workflows/polish-communities-spaces.yml
+          git commit -m "chore: remove temporary communities spaces polish workflow"
+          git push origin main
