@@ -3,6 +3,7 @@ import federation from './federation-entrypoint';
 import federationInterop from './federation-interop-entrypoint';
 import { handlePayPal, PayPalEnv } from './paypal';
 import { uploadMedia, getMedia, deleteMedia } from './index';
+import { getPublicMedia } from './public-media';
 
 // Public post media is served through the R2 media handler; browser media requests must not require a bearer token.
 interface Env extends PayPalEnv {
@@ -94,7 +95,7 @@ export default { async fetch(request: Request, env: Env, ctx: ExecutionContext):
   if (url.pathname === '/api/ready') return ready(env, id, request);
   if (url.pathname === '/api/media' && request.method === 'POST') return uploadMedia(request, env as any);
   const mediaMatch = url.pathname.match(/^\/api\/media\/([0-9a-f-]{36})$/i);
-  if (mediaMatch && request.method === 'GET') return getMedia(request, env as any, mediaMatch[1]);
+  if (mediaMatch && request.method === 'GET') return getPublicMedia(request, env as any, mediaMatch[1]);
   if (mediaMatch && request.method === 'DELETE') return deleteMedia(request, env as any, mediaMatch[1]);
   if (url.pathname === '/api/gateway' || url.pathname === '/api/gateway/') return gateway(request, env);
   if (url.pathname.startsWith('/api/paypal/')) return handlePayPal(request, env);
