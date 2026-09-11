@@ -1,0 +1,70 @@
+name: Repair Fediverse profile routing and interactions
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified Fediverse wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Register the actual remote profile route. Without this, the generated
+          # /fediverse/profile links fall through to the 404 page.
+          app = Path('src/App.tsx')
+          s = app.read_text()
+          if "@/pages/FediverseProfilePage" not in s:
+              s = s.replace(
+                  "const FediversePostPage = lazy(() => import('@/pages/FediversePostPage'));",
+                  "const FediversePostPage = lazy(() => import('@/pages/FediversePostPage'));\nconst FediverseProfilePage = lazy(() => import('@/pages/FediverseProfilePage'));"
+              )
+          if 'path="/fediverse/profile"' not in s:
+              s = s.replace(
+                  '<Route path="/fediverse/post" element={<FediversePostPage />} />',
+                  '<Route path="/fediverse/post" element={<FediversePostPage />} /><Route path="/fediverse/profile" element={<FediverseProfilePage />} />'
+              )
+          app.write_text(s)
+
+          # Make the shared federated card open the in-app remote profile,
+          # not the Fediverse landing page with an inert query string.
+          card = Path('src/components/features/FederatedPostCard.tsx')
+          c = card.read_text()
+          c = c.replace(
+              'const actorTarget = actor.url ?? actor.id ?? (handle !== \'unknown\' ? handle : \'\');',
+              'const actorTarget = actor.url ?? actor.id ?? (handle !== \'unknown\' ? handle : \'\');\n  const profileHref = actorTarget ? `/fediverse/profile?actor=${encodeURIComponent(actorTarget)}` : \'\';'
+          )
+          c = c.replace(
+              '<button onClick={() => navigate(`/fediverse?acct=${encodeURIComponent(handle)}`)} className="w-10 h-10 rounded-full bg-muted overflow-hidden flex-shrink-0" aria-label={`Open ${handle}`}>',
+              '<a href={profileHref || \'#\'} onClick={e => { if (!profileHref) e.preventDefault(); }} className="w-10 h-10 rounded-full bg-muted overflow-hidden flex-shrink-0" aria-label={`Open ${handle}`}> '
+          )
+          c = c.replace(
+              '</button>\n      <div className="flex-1 min-w-0">',
+              '</a>\n      <div className="flex-1 min-w-0">', 1
+          )
+          c = c.replace(
+              '<span className="font-semibold text-sm truncate">{displayName}</span>',
+              '<a href={profileHref || \'#\'} onClick={e => { if (!profileHref) e.preventDefault(); }} className="font-semibold text-sm truncate hover:underline">{displayName}</a>'
+          )
+          c = c.replace(
+              '<span className="text-xs text-muted-foreground truncate">@{handle}</span>',
+              '<a href={profileHref || \'#\'} onClick={e => { if (!profileHref) e.preventDefault(); }} className="text-xs text-muted-foreground truncate hover:underline">@{handle}</a>'
+          )
+          card.write_text(c)
+          PY
+          if git diff --quiet; then
+            echo 'No changes required'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/App.tsx src/components/features/FederatedPostCard.tsx
+          git commit -m 'fix(fediverse): register remote profiles and make actor cards clickable'
+          git push
