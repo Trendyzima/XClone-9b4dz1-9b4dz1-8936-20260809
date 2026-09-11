@@ -29,8 +29,8 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
   const displayName = actor.name ?? actor.display_name ?? username;
   const actorTarget = actor.url ?? actor.id ?? (handle !== 'unknown' ? handle : '');
   const profileHref = actorTarget ? `/fediverse/profile?actor=${encodeURIComponent(actorTarget)}` : '';
-  const profileHref = actorTarget ? `/fediverse/profile?actor=${encodeURIComponent(actorTarget)}` : '';
-  const profileHref = actorTarget ? `/fediverse/profile?actor=${encodeURIComponent(actorTarget)}` : '';
+
+
   const canonicalObjectUrl = post.object_url ?? post.uri ?? post.url ?? post.raw_object?.id ?? post.raw_object?.url ?? '';
   const createdAt = post.created_at ?? post.published ?? post.published_at ?? '';
   const rawText = stripHtml(post.content ?? post.text ?? '');
