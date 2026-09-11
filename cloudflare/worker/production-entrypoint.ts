@@ -4,6 +4,7 @@ import federationInterop from './federation-interop-entrypoint';
 import { handlePayPal, PayPalEnv } from './paypal';
 import { uploadMedia, getMedia, deleteMedia } from './index';
 
+// Public post media is served through the R2 media handler; browser media requests must not require a bearer token.
 interface Env extends PayPalEnv {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
