@@ -1,15 +1,12 @@
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import { AppBootBoundary } from './components/layout/AppBootBoundary';
+import { AuthProvider } from './components/layout/AuthProvider';
 import './lib/platformReels';
 
 const container = document.getElementById('root');
 if (!container) throw new Error('Testagram root element is missing');
 
-// Older unified-feed builds encoded native post UUIDs as `local:<uuid>`.
-// Native PostThreadPage expects the database UUID, so canonicalize those URLs
-// before React routing. This also repairs bookmarks/notifications created by
-// older builds instead of leaving users on a false "Post not found" page.
 function canonicalizeLegacyLocalPostUrl() {
   const match = window.location.pathname.match(/^\/post\/local:([^/]+)$/);
   if (!match) return;
@@ -20,10 +17,6 @@ canonicalizeLegacyLocalPostUrl();
 
 const root = createRoot(container);
 
-// Federated object URLs are data identities, not navigation destinations.
-// Some legacy/remote-fed cards still render an "Open on origin" anchor. Keep
-// those clicks inside Testagram so the canonical Fediverse detail page can
-// render the post and expose the existing ActivityPub interaction controls.
 document.addEventListener('click', event => {
   const target = event.target instanceof Element ? event.target.closest('a[href]') : null;
   if (!target) return;
@@ -48,6 +41,10 @@ document.addEventListener('click', event => {
   const looksLikeOriginAction = label.includes('open on origin') || label.includes('view on origin');
   if (!inFediverseArea && !looksLikeOriginAction) return;
 
+  // Do not hijack remote actor/profile links. They must be allowed to open the
+  // canonical profile or the new in-app /fediverse/profile route.
+  if (target.getAttribute('data-fediverse-profile') === 'true' || url.pathname.startsWith('/fediverse/profile')) return;
+
   event.preventDefault();
   event.stopPropagation();
   const internal = `/fediverse/post?url=${encodeURIComponent(url.toString())}`;
@@ -61,10 +58,14 @@ function renderBootError(error) {
   container.innerHTML = `<main class="min-h-screen bg-background text-foreground flex items-center justify-center p-6"><section class="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-xl"><div class="text-3xl mb-3">⚠️</div><h1 class="text-xl font-black">Testagram could not load</h1><p class="mt-2 text-sm text-muted-foreground">A production JavaScript module failed before React could start.</p><pre class="mt-4 max-h-40 overflow-auto rounded-xl bg-muted p-3 text-xs whitespace-pre-wrap break-words">${safe}</pre><button onclick="location.reload()" class="mt-5 w-full rounded-xl bg-primary px-4 py-3 font-bold text-primary-foreground">Reload Testagram</button></section></main>`;
 }
 
-// The social app is the critical path. Optional wallet UI is loaded only after
-// React is alive, so a wallet integration/config error can never produce a blank app.
 import('./App')
-  .then(({ default: App }) => {
+  .then(async ({ default: App }) => {
+    const isRemoteProfile = window.location.pathname === '/fediverse/profile';
+    if (isRemoteProfile) {
+      const { default: FediverseProfilePage } = await import('./pages/FediverseProfilePage');
+      root.render(<AppBootBoundary><AuthProvider><FediverseProfilePage /></AuthProvider></AppBootBoundary>);
+      return;
+    }
     root.render(<AppBootBoundary><App /></AppBootBoundary>);
     import('./components/features/WalletPayPalOverlay')
       .then(({ default: WalletPayPalOverlay }) => {
