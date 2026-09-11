@@ -3,3 +3,6 @@ verify_jwt = true
 
 [functions.feed-fast]
 verify_jwt = true
+
+[functions.federation-relay]
+verify_jwt = false
