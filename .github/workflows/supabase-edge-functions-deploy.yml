@@ -47,8 +47,8 @@ jobs:
         run: supabase functions deploy federation-interact --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy activitypub-federation Edge Function
         run: supabase functions deploy activitypub-federation --project-ref "$SUPABASE_PROJECT_REF"
-      - name: Deploy federation-maintenance Edge Function
-        run: supabase functions deploy federation-maintenance --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Deploy federation-delivery-worker Edge Function
+        run: supabase functions deploy federation-delivery-worker --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy search-everything Edge Function
         run: supabase functions deploy search-everything --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy feed-fast Edge Function
