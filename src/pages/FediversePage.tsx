@@ -470,51 +470,33 @@ export default function FediversePage() {
 
   const handleFedLike = async (post: any) => {
     if (!user) { navigate('/auth'); return; }
-    const key = post.object_url ?? post.id;
+    const key = post.object_url ?? post.uri ?? post.url ?? post.id;
     if (!key) return;
-    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], liked: !prev[key]?.liked } }));
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/activitypub-federation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'like', object_url: key, user_id: user.id }),
-      });
-    } catch {}
+    const enabled = !postStates[key]?.liked;
+    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], liked: enabled } }));
+    try { enabled ? await federation.favorite(key) : await federation.unfavorite(key); }
+    catch (err: any) { setPostStates(prev => ({ ...prev, [key]: { ...prev[key], liked: !enabled } })); toast.error(err?.message ?? 'Like failed'); }
   };
 
   const handleFedBoost = async (post: any) => {
     if (!user) { navigate('/auth'); return; }
-    const key = post.object_url ?? post.id;
+    const key = post.object_url ?? post.uri ?? post.url ?? post.id;
     if (!key) return;
-    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], boosted: !prev[key]?.boosted } }));
-    try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/activitypub-federation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'boost', object_url: key, user_id: user.id }),
-      });
-    } catch {}
+    const enabled = !postStates[key]?.boosted;
+    setPostStates(prev => ({ ...prev, [key]: { ...prev[key], boosted: enabled } }));
+    try { enabled ? await federation.boost(key) : await federation.unboost(key); }
+    catch (err: any) { setPostStates(prev => ({ ...prev, [key]: { ...prev[key], boosted: !enabled } })); toast.error(err?.message ?? 'Repost failed'); }
   };
 
   const handleFedReply = async (post: any) => {
     if (!user) { navigate('/auth'); return; }
-    const key = post.object_url ?? post.id;
+    const key = post.object_url ?? post.uri ?? post.url ?? post.id;
     if (!key) return;
     const text = postStates[key]?.replyText?.trim();
     if (!text) return;
     setPostStates(prev => ({ ...prev, [key]: { ...prev[key], sending: true } }));
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/activitypub-federation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'reply', object_url: key, content: text, user_id: user.id }),
-      });
+      await federation.reply({ postId: key, content: text });
       toast.success('Reply sent to the Fediverse!');
       setPostStates(prev => ({ ...prev, [key]: { ...prev[key], replyText: '', replyOpen: false, sending: false } }));
     } catch (err: any) {
