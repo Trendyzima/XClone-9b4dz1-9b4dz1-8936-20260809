@@ -17,8 +17,10 @@ on:
 permissions:
   contents: read
 
+# Production migration runs must serialize globally. Keying this by release SHA
+# allowed different releases to migrate the same database concurrently.
 concurrency:
-  group: testagram-supabase-production-migrations-${{ inputs.release_sha || github.sha }}
+  group: testagram-supabase-production-migrations-production
   cancel-in-progress: false
 
 env:
@@ -62,8 +64,8 @@ jobs:
           import os
           from urllib.parse import quote
           password = os.environ['SUPABASE_DB_PASSWORD']
-          print('Supabase database password is present; length:', len(password))
-          print('RFC3986 encoding check:', quote(password, safe='') != password or 'plain-safe')
+          print('Supabase database password is present.')
+          print('Password requires RFC3986 encoding:', quote(password, safe='') != password)
           PY
 
       - name: Build production session-pooler database URL
@@ -100,31 +102,42 @@ jobs:
           fi
           echo 'Migration version prefixes are unique.'
 
-      - name: Reconcile remote-only migration history only when source is absent
+      - name: Reconcile stale remote-only migration history
         run: |
           set -euo pipefail
           history="$(supabase migration list --db-url "$SUPABASE_DB_URL")"
-          for version in \
-            20260909202200 \
-            20260909202315 \
-            20260909202538 \
-            20260909212257 \
-            20260909215557 \
-            20260910090706 \
-            20260910090950 \
-            20260910141500 \
-            20260910220627 \
-            20260910220716 \
-            20260911000500; do
+
+          # A remote migration missing from this immutable release is safe to
+          # reconcile only when it is older than the newest local migration.
+          # A remote version newer than the release is not stale drift; it means
+          # this release is behind production and must fail closed.
+          local_versions="$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | sed -nE 's/^([0-9]{8,14})_.*/\1/p' | sort -n)"
+          latest_local="$(printf '%s\n' "$local_versions" | tail -n 1)"
+          test -n "$latest_local" || { echo 'No local Supabase migrations found.'; exit 1; }
+
+          remote_versions="$(printf '%s\n' "$history" | sed -nE 's/.*`([0-9]{8,14})`[[:space:]]*\|.*/\1/p' | sort -nu)"
+          remote_only=""
+          while IFS= read -r version; do
+            [ -n "$version" ] || continue
             if find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print -quit | grep -q .; then
-              echo "Local migration source exists for $version; preserving remote history."
-            elif printf '%s\n' "$history" | grep -q "$version"; then
-              echo "Remote-only migration $version has no local source; repairing history as reverted."
-              supabase migration repair "$version" --status reverted --db-url "$SUPABASE_DB_URL"
-            else
-              echo "Migration $version is absent from both local source and remote history."
+              continue
             fi
-          done
+
+            if [ "$version" -gt "$latest_local" ]; then
+              remote_only="${remote_only}${remote_only:+$'\n'}$version"
+              continue
+            fi
+
+            echo "Stale remote-only migration $version detected; repairing history as reverted."
+            supabase migration repair "$version" --status reverted --db-url "$SUPABASE_DB_URL"
+          done <<< "$remote_versions"
+
+          if [ -n "$remote_only" ]; then
+            echo 'Production contains migration versions newer than this release; refusing to rewrite their history.'
+            echo 'Remote-newer versions:'
+            printf '%s\n' "$remote_only"
+            exit 1
+          fi
 
       - name: Verify reconciled production migration history
         run: |
