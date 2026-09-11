@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Heart, Loader2, MessageCircle, Quote, Repeat2, Users } from 'lucide-react';
+import { Heart, Loader2, MessageCircle, Quote, Repeat2, Users } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { PostCard } from '@/components/features/PostCard';
 import { TopBar } from '@/components/layout/TopBar';
@@ -28,7 +28,8 @@ export default function PostEngagementPage() {
     let active = true;
     const load = async () => {
       if (!postId) return;
-      setLoading(true); setError(null);
+      setLoading(true);
+      setError(null);
       try {
         const { data: source, error: sourceError } = await supabase.from('posts').select('*').eq('id', postId).maybeSingle();
         if (sourceError) throw sourceError;
@@ -36,22 +37,27 @@ export default function PostEngagementPage() {
         let rows: any[] = [];
         if (selected === 'quotes') {
           const result = await supabase.from('posts').select('*').eq('quoted_post_id', postId).order('created_at', { ascending: false }).limit(50);
-          if (result.error) throw result.error; rows = result.data ?? [];
+          if (result.error) throw result.error;
+          rows = result.data ?? [];
         } else if (selected === 'replies') {
           const result = await supabase.from('replies').select('*, user_profiles (*)').eq('post_id', postId).order('created_at', { ascending: true }).limit(100);
-          if (result.error) throw result.error; rows = result.data ?? [];
+          if (result.error) throw result.error;
+          rows = result.data ?? [];
         } else if (selected === 'reposts') {
-          const result = await supabase.from('post_reposts').select('*, user_profiles (*)').eq('post_id', postId).order('created_at', { ascending: false }).limit(100);
-          if (result.error) throw result.error; rows = result.data ?? [];
+          const result = await supabase.from('reposts').select('*, user_profiles (*)').eq('post_id', postId).order('created_at', { ascending: false }).limit(100);
+          if (result.error) throw result.error;
+          rows = result.data ?? [];
         } else {
           const result = await supabase.from('likes').select('*, user_profiles (*)').eq('post_id', postId).order('created_at', { ascending: false }).limit(100);
-          if (result.error) throw result.error; rows = result.data ?? [];
+          if (result.error) throw result.error;
+          rows = result.data ?? [];
         }
-        if (!active) return;
-        setPost(source); setItems(rows);
+        if (active) { setPost(source); setItems(rows); }
       } catch (err: any) {
         if (active) setError(err?.message ?? `Unable to load ${title.toLowerCase()}`);
-      } finally { if (active) setLoading(false); }
+      } finally {
+        if (active) setLoading(false);
+      }
     };
     load();
     return () => { active = false; };
