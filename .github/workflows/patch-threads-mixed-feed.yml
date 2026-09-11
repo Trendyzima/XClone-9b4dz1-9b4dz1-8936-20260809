@@ -1,0 +1,94 @@
+name: patch threads mixed feed
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch ThreadsPage and verify
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/pages/ThreadsPage.tsx')
+          text = path.read_text()
+          original = text
+
+          if "MixedThreadsSocialFeed" not in text:
+              marker = "import { toast } from 'sonner';"
+              if marker not in text:
+                  raise SystemExit('ThreadsPage import marker not found')
+              text = text.replace(marker, marker + "\nimport { MixedThreadsSocialFeed } from '@/components/features/MixedThreadsSocialFeed';", 1)
+
+          if '<MixedThreadsSocialFeed ' not in text:
+              anchor = 'Create Thread'
+              i = text.find(anchor)
+              if i < 0:
+                  raise SystemExit('Create Thread anchor not found')
+              close = text.find('</div>', i)
+              if close < 0:
+                  raise SystemExit('CTA closing div not found')
+              close += len('</div>')
+              injection = "\n      <MixedThreadsSocialFeed activeTab={activeTab as 'For You' | 'Following' | 'Trending' | 'Reading List'} searchQuery={searchQuery} />"
+              text = text[:close] + injection + text[close:]
+
+          # The legacy thread-only result surface should remain for Reading List,
+          # while For You/Following/Trending are now the unified mixed stream.
+          if 'data-mixed-threads-legacy' not in text:
+              start = text.find('{loading ? (')
+              if start < 0:
+                  raise SystemExit('legacy loading conditional not found')
+              line_start = text.rfind('\n', 0, start) + 1
+              lines = text[:line_start].splitlines()
+              parent_idx = None
+              for idx in range(len(lines) - 1, max(-1, len(lines) - 80), -1):
+                  if re.match(r'^\s*<div[^>]*className=', lines[idx]):
+                      parent_idx = idx
+                      break
+              if parent_idx is None:
+                  raise SystemExit('legacy feed parent div not found')
+              # Convert the parent className to a conditional class while preserving its existing classes.
+              line = lines[parent_idx]
+              m = re.search(r'className="([^"]*)"', line)
+              if not m:
+                  raise SystemExit('legacy feed parent className literal not found')
+              classes = m.group(1)
+              replacement = 'className={activeTab === \'Reading List\' ? \'' + classes + ' data-mixed-threads-legacy\' : \'hidden\'}'
+              lines[parent_idx] = line[:m.start()] + replacement + line[m.end():]
+              text = '\n'.join(lines) + text[line_start:]
+
+          if text == original:
+              raise SystemExit('no ThreadsPage changes made')
+          path.write_text(text)
+          print('patched ThreadsPage.tsx')
+          PY
+
+          npm install --ignore-scripts --no-package-lock
+          npx tsc --noEmit
+          npm run build
+          git diff --check
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/ThreadsPage.tsx .github/workflows/patch-threads-mixed-feed.yml
+          git commit -m "feat: mix posts and fediverse into threads feed"
+          git rm .github/workflows/patch-threads-mixed-feed.yml
+          git commit -m "chore: remove temporary threads patch workflow"
+          git push origin main
