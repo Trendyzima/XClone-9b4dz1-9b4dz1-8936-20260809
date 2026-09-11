@@ -9,18 +9,16 @@ async function triggerKeygenForUser(userId: string) {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData?.session?.access_token;
-    if (!token) return;
-    const { data: existing } = await supabase.from('activitypub_keys').select('id').eq('user_id', userId).maybeSingle();
-    if (existing) return;
     const backendUrl = import.meta.env.VITE_SUPABASE_URL;
-    if (!backendUrl) return;
-    await fetch(`${backendUrl}/functions/v1/activitypub-keygen`, {
+    if (!token || !backendUrl) return;
+    const response = await fetch(`${backendUrl}/functions/v1/federation-provision-actor`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ user_id: userId }),
     });
+    if (!response.ok) throw new Error(`Federation actor provisioning returned ${response.status}`);
   } catch (err) {
-    console.warn('[ActivityPub] Keygen failed (non-fatal):', err);
+    console.warn('[ActivityPub] Actor provisioning failed (non-fatal):', err);
   }
 }
 
