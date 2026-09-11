@@ -190,6 +190,122 @@ $$;
 revoke all on function public.leave_space(uuid) from public;
 grant execute on function public.leave_space(uuid) to authenticated;
 
+-- Repair direct web-composer inserts without trusting client-supplied ownership.
+create or replace function public.normalize_community_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_slug text;
+begin
+  if v_user is null or new.created_by is distinct from v_user then
+    raise exception 'Authentication required';
+  end if;
+  if new.owner_id is null then new.owner_id := v_user; end if;
+  if new.slug is null or trim(new.slug) = '' then
+    v_slug := lower(regexp_replace(trim(new.name), '[^a-zA-Z0-9]+', '-', 'g'));
+    v_slug := trim(both '-' from v_slug);
+    if v_slug = '' then raise exception 'Invalid community name'; end if;
+    new.slug := v_slug;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.normalize_community_insert() from public;
+drop trigger if exists trg_normalize_community_insert on public.communities;
+create trigger trg_normalize_community_insert
+before insert on public.communities
+for each row execute function public.normalize_community_insert();
+
+create or replace function public.ensure_community_owner_membership()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.community_members(community_id,user_id,role,status)
+  values(new.id,new.owner_id,'owner','active')
+  on conflict (community_id,user_id) do update set role='owner', status='active';
+  return new;
+end;
+$$;
+revoke all on function public.ensure_community_owner_membership() from public;
+drop trigger if exists trg_ensure_community_owner_membership on public.communities;
+create trigger trg_ensure_community_owner_membership
+after insert on public.communities
+for each row execute function public.ensure_community_owner_membership();
+
+create or replace function public.normalize_community_membership()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_private boolean;
+begin
+  if new.role = 'owner' then new.status := 'active'; return new; end if;
+  select c.is_private into v_private from public.communities c where c.id = new.community_id;
+  if coalesce(v_private,false) then new.status := 'pending'; else new.status := 'active'; end if;
+  return new;
+end;
+$$;
+revoke all on function public.normalize_community_membership() from public;
+drop trigger if exists trg_normalize_community_membership on public.community_members;
+create trigger trg_normalize_community_membership
+before insert or update on public.community_members
+for each row execute function public.normalize_community_membership();
+
+-- The web join dialog historically performs a second update to listener_count.
+-- Permit that non-host transition, then server-derive the count so the client
+-- can never forge it or modify other Space fields.
+drop policy if exists spaces_host_update on public.spaces;
+create policy spaces_host_update on public.spaces
+  for update to authenticated
+  using (host_id = (select auth.uid()) or public.is_space_participant(id))
+  with check (host_id = (select auth.uid()) or public.is_space_participant(id));
+
+create or replace function public.protect_nonhost_space_update()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_host uuid;
+begin
+  select s.host_id into v_host from public.spaces s where s.id = old.id;
+  if auth.uid() is distinct from v_host then
+    new.host_id := old.host_id;
+    new.title := old.title;
+    new.description := old.description;
+    new.is_live := old.is_live;
+    new.has_video := old.has_video;
+    new.category := old.category;
+    new.artwork_url := old.artwork_url;
+    new.episode_number := old.episode_number;
+    new.chapters := old.chapters;
+    new.tags := old.tags;
+    new.subscriber_only := old.subscriber_only;
+    new.scheduled_for := old.scheduled_for;
+    new.ended_at := old.ended_at;
+    new.is_archived := old.is_archived;
+    new.archived_at := old.archived_at;
+    new.started_at := old.started_at;
+    new.is_recording := old.is_recording;
+    new.updated_at := now();
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.protect_nonhost_space_update() from public;
+drop trigger if exists trg_protect_nonhost_space_update on public.spaces;
+create trigger trg_protect_nonhost_space_update
+before update on public.spaces
+for each row execute function public.protect_nonhost_space_update();
+
 drop policy if exists community_events_read on public.community_events;
 create policy community_events_read on public.community_events
   for select to anon, authenticated
