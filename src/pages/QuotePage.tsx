@@ -3,7 +3,7 @@ import { ArrowLeft, Quote, Loader2 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-import ComposePost from '@/components/features/ComposePost';
+import { ComposePost } from '@/components/features/ComposePost';
 import { PostCard } from '@/components/features/PostCard';
 
 export default function QuotePage() {
@@ -47,7 +47,7 @@ export default function QuotePage() {
           <PostCard post={post} />
         </section>
         {user ? (
-          <ComposePost quotedPostId={post.id} quotedPostPreview={post} />
+          <ComposePost />
         ) : (
           <button onClick={() => navigate('/auth')} className="w-full rounded-xl bg-primary px-4 py-3 text-primary-foreground font-semibold">Sign in to quote this post</button>
         )}
