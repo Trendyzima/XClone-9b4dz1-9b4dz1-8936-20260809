@@ -1,0 +1,82 @@
+name: patch threads mixed feed
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make mixed stream the primary non-reading-list surface
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/pages/ThreadsPage.tsx')
+          text = path.read_text()
+          marker = '{loading ? ('
+          if marker not in text:
+              raise SystemExit('legacy loading conditional not found')
+          if "activeTab === 'Reading List' && (loading ? (" in text:
+              raise SystemExit('legacy conditional already patched')
+
+          start = text.find(marker)
+          depth = 0
+          state = None
+          escape = False
+          end = None
+          i = start
+          while i < len(text):
+              c = text[i]
+              if state:
+                  if escape:
+                      escape = False
+                  elif c == '\\':
+                      escape = True
+                  elif c == state:
+                      state = None
+              else:
+                  if c in "'\"`":
+                      state = c
+                  elif c == '{':
+                      depth += 1
+                  elif c == '}':
+                      depth -= 1
+                      if depth == 0:
+                          end = i
+                          break
+              i += 1
+          if end is None:
+              raise SystemExit('could not find end of legacy JSX conditional')
+
+          wrapped = "{activeTab === 'Reading List' && (" + text[start + 1:end] + ")}" 
+          text = text[:start] + wrapped + text[end + 1:]
+          path.write_text(text)
+          print('legacy thread-only surface retained only for Reading List')
+          PY
+
+          npm install --ignore-scripts --no-package-lock
+          npx tsc --noEmit
+          npm run build
+          git diff --check
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/ThreadsPage.tsx .github/workflows/patch-threads-mixed-feed.yml
+          git commit -m "fix: make mixed social stream primary on threads page"
+          git rm .github/workflows/patch-threads-mixed-feed.yml
+          git commit -m "chore: remove temporary threads patch workflow"
+          git push origin main
