@@ -27,7 +27,7 @@ jobs:
           marker = '{loading ? ('
           if marker not in text:
               raise SystemExit('legacy loading conditional not found')
-          if "activeTab === 'Reading List' && (loading ? (" in text:
+          if "String(activeTab) === 'Reading List' && (loading ? (" in text:
               raise SystemExit('legacy conditional already patched')
 
           start = text.find(marker)
@@ -59,7 +59,7 @@ jobs:
           if end is None:
               raise SystemExit('could not find end of legacy JSX conditional')
 
-          wrapped = "{activeTab === 'Reading List' && (" + text[start + 1:end] + ")}" 
+          wrapped = "{String(activeTab) === 'Reading List' && (" + text[start + 1:end] + ")}" 
           text = text[:start] + wrapped + text[end + 1:]
           path.write_text(text)
           print('legacy thread-only surface retained only for Reading List')
