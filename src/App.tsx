@@ -28,6 +28,7 @@ const AdminPanel = lazy(() => import('@/pages/AdminPanel'));
 const PostThreadPage = lazy(() => import('@/pages/PostThreadPage'));
 const PostEngagementPage = lazy(() => import('@/pages/PostEngagementPage'));
 const FediversePostPage = lazy(() => import('@/pages/FediversePostPage'));
+const FediverseProfilePage = lazy(() => import('@/pages/FediverseProfilePage'));
 const CommunitiesPage = lazy(() => import('@/pages/CommunitiesPage'));
 const CommunityPage = lazy(() => import('@/pages/CommunityPage'));
 const HashtagPage = lazy(() => import('@/pages/HashtagPage'));
@@ -176,7 +177,7 @@ function AppInner() {
               <Route path="/" element={<HomePage />} /><Route path="/auth" element={<AuthPage />} /><Route path="/videos" element={<VideosPage />} />
               <Route path="/explore" element={<ExplorePage />} /><Route path="/notifications" element={<NotificationsPage />} /><Route path="/messages" element={<MessagesPage />} /><Route path="/spaces" element={<SpacesPage />} />
               <Route path="/profile/:username" element={<ProfilePage />} /><Route path="/search" element={<SearchPage />} /><Route path="/ai" element={<AIPage />} /><Route path="/analytics" element={<AnalyticsDashboard />} /><Route path="/admin" element={<AdminPanel />} />
-              <Route path="/post/:postId" element={<PostThreadPage />} /><Route path="/post/:postId/:kind" element={<PostEngagementPage />} /><Route path="/fediverse/post" element={<FediversePostPage />} /><Route path="/communities" element={<CommunitiesPage />} /><Route path="/c/:name" element={<CommunityPage />} /><Route path="/hashtag/:tag" element={<HashtagPage />} />
+              <Route path="/post/:postId" element={<PostThreadPage />} /><Route path="/post/:postId/:kind" element={<PostEngagementPage />} /><Route path="/fediverse/post" element={<FediversePostPage />} /><Route path="/fediverse/profile" element={<FediverseProfilePage />} /><Route path="/communities" element={<CommunitiesPage />} /><Route path="/c/:name" element={<CommunityPage />} /><Route path="/hashtag/:tag" element={<HashtagPage />} />
               <Route path="/ai-bot-setup" element={<AIBotSetup />} /><Route path="/bookmarks" element={<BookmarksPage />} /><Route path="/lists" element={<ListsPage />} /><Route path="/monetization" element={<MonetizationDashboard />} /><Route path="/products" element={<ProductsPage />} />
               <Route path="/scheduled" element={<ScheduledPostsPage />} /><Route path="/creator-studio" element={<CreatorStudio />} /><Route path="/premium" element={<PremiumPage />} /><Route path="/stream/:streamId" element={<LiveStreamPage />} /><Route path="/start-stream" element={<StartStreamPage />} /><Route path="/settings" element={<SettingsPage />} />
               <Route path="/threads" element={<ThreadsPage />} /><Route path="/threads/create" element={<CreateThreadPage />} /><Route path="/thread/:id" element={<ThreadDetailPage />} /><Route path="/history" element={<HistoryPage />} /><Route path="/help" element={<HelpPage />} /><Route path="/wallet" element={<WalletPage />} />

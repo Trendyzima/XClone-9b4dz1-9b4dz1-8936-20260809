@@ -28,6 +28,7 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
   const avatarUrl = actor.icon?.url ?? actor.avatar ?? actor.avatar_url;
   const displayName = actor.name ?? actor.display_name ?? username;
   const actorTarget = actor.url ?? actor.id ?? (handle !== 'unknown' ? handle : '');
+  const profileHref = actorTarget ? `/fediverse/profile?actor=${encodeURIComponent(actorTarget)}` : '';
   const canonicalObjectUrl = post.object_url ?? post.uri ?? post.url ?? post.raw_object?.id ?? post.raw_object?.url ?? '';
   const createdAt = post.created_at ?? post.published ?? post.published_at ?? '';
   const rawText = stripHtml(post.content ?? post.text ?? '');
@@ -79,12 +80,12 @@ export function FederatedPostCard({ post, disableNavigation = false }: Props) {
 
   return <article className="border-b border-border p-4 hover:bg-muted/5 transition-colors">
     <div className="flex gap-3">
-      <button onClick={() => navigate(`/fediverse?acct=${encodeURIComponent(handle)}`)} className="w-10 h-10 rounded-full bg-muted overflow-hidden flex-shrink-0" aria-label={`Open ${handle}`}>
+      <a href={profileHref || '#'} onClick={e => { if (!profileHref) e.preventDefault(); }} className="w-10 h-10 rounded-full bg-muted overflow-hidden flex-shrink-0" aria-label={`Open ${handle}`}> 
         {avatarUrl ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" /> : <span className="w-full h-full flex items-center justify-center font-bold">{username[0]?.toUpperCase()}</span>}
-      </button>
+      </a>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold text-sm truncate">{displayName}</span>{domain && <span className="text-xs text-purple-500 flex items-center gap-1"><Globe className="w-3 h-3" />{domain}</span>}{createdAt && <span className="text-xs text-muted-foreground">· {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}</span>}</div>
-        <div className="flex items-center gap-2 mt-0.5"><span className="text-xs text-muted-foreground truncate">@{handle}</span>{user && <button onClick={toggleFollow} disabled={Boolean(busy)} aria-pressed={following} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${following ? 'border-border text-muted-foreground' : 'border-primary text-primary'}`}>{busy === 'follow' ? '…' : following ? 'Following' : 'Follow'}</button>}</div>
+        <div className="flex items-center gap-2 flex-wrap"><a href={profileHref || '#'} onClick={e => { if (!profileHref) e.preventDefault(); }} className="font-semibold text-sm truncate hover:underline">{displayName}</a>{domain && <span className="text-xs text-purple-500 flex items-center gap-1"><Globe className="w-3 h-3" />{domain}</span>}{createdAt && <span className="text-xs text-muted-foreground">· {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}</span>}</div>
+        <div className="flex items-center gap-2 mt-0.5"><a href={profileHref || '#'} onClick={e => { if (!profileHref) e.preventDefault(); }} className="text-xs text-muted-foreground truncate hover:underline">@{handle}</a>{user && <button onClick={toggleFollow} disabled={Boolean(busy)} aria-pressed={following} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${following ? 'border-border text-muted-foreground' : 'border-primary text-primary'}`}>{busy === 'follow' ? '…' : following ? 'Following' : 'Follow'}</button>}</div>
         <div role="button" tabIndex={disableNavigation ? -1 : 0} onClick={openDetail} onKeyDown={handleDetailKeyDown} className={`${disableNavigation ? '' : 'cursor-pointer'} rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30`} aria-label={disableNavigation ? undefined : 'Open Fediverse post in Testagram'}>
           <div className={`text-sm leading-relaxed mt-2 whitespace-pre-wrap break-words ${showMore ? '' : 'line-clamp-12'}`}>{rawText}</div>
           {rawText.length > 800 && <button onClick={e => { e.stopPropagation(); setShowMore(v => !v); }} className="text-xs text-primary mt-1 flex items-center gap-1">{showMore ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}{showMore ? 'Show less' : 'Show more'}</button>}
