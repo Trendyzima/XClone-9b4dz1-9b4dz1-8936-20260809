@@ -233,6 +233,7 @@ async function canReadPublishedMedia(request: Request, env: Env, id: string): Pr
   const postsTarget = new URL(`${env.SUPABASE_URL}/rest/v1/posts`);
   postsTarget.searchParams.set('select', 'id');
   postsTarget.searchParams.set('id', `in.(${postIds.join(',')})`);
+  postsTarget.searchParams.set('visibility', 'eq.public');
   postsTarget.searchParams.set('deleted_at', 'is.null');
   postsTarget.searchParams.set('limit', '1');
   const postsResponse = await fetch(postsTarget, { headers: supabaseHeaders(request, env) });
@@ -242,9 +243,6 @@ async function canReadPublishedMedia(request: Request, env: Env, id: string): Pr
 }
 
 export async function getMedia(request: Request, env: Env, id: string): Promise<Response> {
-  const authError = requireAuth(request, env);
-  if (authError) return authError;
-
   const target = new URL(`${env.SUPABASE_URL}/rest/v1/media_assets`);
   target.searchParams.set('select', 'storage_key,mime_type,owner_id,byte_size');
   target.searchParams.set('id', `eq.${id}`);
@@ -254,9 +252,13 @@ export async function getMedia(request: Request, env: Env, id: string): Promise<
   const rows = await metadataResponse.json() as Array<{ storage_key: string; mime_type?: string; owner_id: string; byte_size: number }>;
   if (!rows.length) return response(request, env, { error: 'Media not found' }, 404);
 
-  const userId = await currentUserId(request, env);
-  if (!userId) return response(request, env, { error: 'Invalid or expired session' }, 401);
-  const isOwner = rows[0].owner_id === userId;
+  const authorization = request.headers.get('Authorization');
+  let isOwner = false;
+  if (authorization) {
+    const userId = await currentUserId(request, env);
+    if (userId) isOwner = rows[0].owner_id === userId;
+  }
+
   if (!isOwner && !(await canReadPublishedMedia(request, env, id))) {
     return response(request, env, { error: 'Media access denied' }, 403);
   }
@@ -265,7 +267,7 @@ export async function getMedia(request: Request, env: Env, id: string): Promise<
   if (!object) return response(request, env, { error: 'Media object not found' }, 404);
 
   const headers = new Headers(cors(request, env));
-  headers.set('Cache-Control', 'private, max-age=300');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Content-Type', rows[0].mime_type || object.httpMetadata?.contentType || 'application/octet-stream');
   headers.set('Content-Length', String(rows[0].byte_size));
