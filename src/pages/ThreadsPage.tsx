@@ -360,7 +360,7 @@ export default function ThreadsPage() {
       <MixedThreadsSocialFeed activeTab={activeTab as 'For You' | 'Following' | 'Trending' | 'Reading List'} searchQuery={searchQuery} />
 
       {/* Loading */}
-      {loading ? (
+      {String(activeTab) === 'Reading List' && (loading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
@@ -510,7 +510,7 @@ export default function ThreadsPage() {
             </article>
           ))}
         </div>
-      )}
+      ))}
     </div>
   );
 }
