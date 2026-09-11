@@ -574,7 +574,7 @@ export default function HomePage() {
 
       let threadsQuery = supabase
         .from('threads')
-        .select('*, user_profiles:profiles!posts_author_id_fkey(*)')
+        .select('*, user_profiles(id, username, avatar_url, verified)')
         .eq('is_published', true)
         .order('created_at', { ascending: false })
         .range(pageNum * 5, (pageNum + 1) * 5 - 1);
@@ -741,7 +741,11 @@ export default function HomePage() {
     try {
       const result = await getUnifiedFeed({ mode, limit: PAGE_SIZE, before: feedCursor ?? undefined });
       return result.posts.map((post: any) => ({
-        type: post.origin === 'federated' ? 'fedpost' as const : 'post' as const,
+        type: post.origin === 'federated'
+          ? 'fedpost' as const
+          : post.content_type === 'thread' || post.source === 'thread'
+            ? 'thread' as const
+            : 'post' as const,
         data: post.origin === 'federated' ? post : { ...post, user_profiles: post.user_profiles ?? post.author },
       }));
     } catch (err) {
@@ -800,9 +804,9 @@ export default function HomePage() {
         ? await fetchUnifiedFeedItems('home')
         : await fetchFeed(0);
       setFeedItems(items);
-      const lastPost = items.filter((i: any) => i.type === 'post').slice(-1)[0];
-      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);
-      setFeedHasMore(items.filter((i: any) => i.type === 'post').length >= PAGE_SIZE);
+      const lastContent = items.filter((i: any) => i.type === 'post' || i.type === 'thread').slice(-1)[0];
+      if (lastContent) setFeedCursor((lastContent.data as any).created_at ?? (lastContent.data as any).published_at ?? null);
+      setFeedHasMore(items.filter((i: any) => i.type === 'post' || i.type === 'thread').length >= PAGE_SIZE);
       // Populate prefetch cache for instant tab-switch on next visit
       if (items.length > 0 && activeTab !== 'foryou' && activeTab !== 'following') setCachedFeed(activeTab, items);
     }
@@ -927,18 +931,17 @@ export default function HomePage() {
     if (activeTab === 'federated' || !feedHasMore) return false;
     const nextPage = page + 1;
     const newItems = await fetchFeed(nextPage);
-    const newPosts = newItems.filter((i: any) => i.type === 'post');
-    if (newPosts.length > 0) {
+    const newContent = newItems.filter((i: any) => i.type === 'post' || i.type === 'thread');
+    if (newContent.length > 0) {
       setFeedItems(prev => {
-        // Deduplicate by post id
-        const existingIds = new Set(prev.filter((i: any) => i.type === 'post').map((i: any) => (i.data as any).id));
-        const deduped = newItems.filter((i: any) => i.type !== 'post' || !existingIds.has((i.data as any).id));
+        const existingIds = new Set(prev.filter((i: any) => i.type === 'post' || i.type === 'thread').map((i: any) => `${i.type}:${(i.data as any).id}`));
+        const deduped = newItems.filter((i: any) => (i.type !== 'post' && i.type !== 'thread') || !existingIds.has(`${i.type}:${(i.data as any).id}`));
         return [...prev, ...deduped];
       });
       setPage(nextPage);
-      const lastPost = newPosts.slice(-1)[0];
-      if (lastPost) setFeedCursor((lastPost.data as any).created_at ?? null);
-      const hasMore = newPosts.length >= PAGE_SIZE;
+      const lastContent = newContent.slice(-1)[0];
+      if (lastContent) setFeedCursor((lastContent.data as any).created_at ?? (lastContent.data as any).published_at ?? null);
+      const hasMore = newContent.length >= PAGE_SIZE;
       setFeedHasMore(hasMore);
       return hasMore;
     }
