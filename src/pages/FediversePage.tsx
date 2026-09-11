@@ -616,6 +616,8 @@ export default function FediversePage() {
     const username = actor.preferredUsername ?? actor.username ?? actor.acct?.split('@')[0] ?? 'unknown';
     const domain = actor.domain ?? (() => { try { return new URL(p.actor_url ?? '').hostname; } catch { return ''; } })();
     const avatarUrl = actor.avatar_url ?? actor.icon?.url ?? actor.avatar;
+    const actorUrl = actor.id ?? actor.url ?? actor.actor_url ?? p.actor_url ?? p.account?.url ?? '';
+    const profileHref = actorUrl ? `/fediverse/profile?actor=${encodeURIComponent(actorUrl)}` : '';
     const content = p.content ?? p.text ?? '';
     const created = p.published_at ?? p.created_at ?? p.published ?? '';
     const key = p.object_url ?? p.uri ?? p.url ?? p.id ?? Math.random().toString();
@@ -624,14 +626,15 @@ export default function FediversePage() {
     return (
       <div className={`${compact ? 'p-3' : 'p-4'} hover:bg-muted/5 transition-colors`}>
         <div className="flex gap-3">
-          <div className={`${compact ? 'w-8 h-8' : 'w-10 h-10'} rounded-full bg-muted overflow-hidden shrink-0`}>
-            {avatarUrl ? <img src={avatarUrl} alt={username} className="w-full h-full object-cover" /> :
-              <div className="w-full h-full flex items-center justify-center font-bold text-xs">{username[0]?.toUpperCase()}</div>}
-          </div>
+          {profileHref ? <a href={profileHref} data-fediverse-profile="true" aria-label={`Open ${username} Fediverse profile`} className="shrink-0 rounded-full focus:outline-none focus:ring-2 focus:ring-primary">
+            <div className={`${compact ? 'w-8 h-8' : 'w-10 h-10'} rounded-full bg-muted overflow-hidden`}>
+              {avatarUrl ? <img src={avatarUrl} alt={username} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{username[0]?.toUpperCase()}</div>}
+            </div>
+          </a> : <div className={`${compact ? 'w-8 h-8' : 'w-10 h-10'} rounded-full bg-muted overflow-hidden shrink-0`}>{avatarUrl ? <img src={avatarUrl} alt={username} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{username[0]?.toUpperCase()}</div>}</div>}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-              <span className={`font-semibold ${compact ? 'text-xs' : 'text-sm'}`}>{actor.display_name ?? username}</span>
-              <span className="text-xs text-purple-500 flex items-center gap-0.5"><Globe className="w-3 h-3" />{domain}</span>
+              {profileHref ? <a href={profileHref} data-fediverse-profile="true" className={`font-semibold hover:underline ${compact ? 'text-xs' : 'text-sm'}`}>{actor.display_name ?? username}</a> : <span className={`font-semibold ${compact ? 'text-xs' : 'text-sm'}`}>{actor.display_name ?? username}</span>}
+              {profileHref ? <a href={profileHref} data-fediverse-profile="true" className="text-xs text-purple-500 flex items-center gap-0.5 hover:underline"><Globe className="w-3 h-3" />{domain}</a> : <span className="text-xs text-purple-500 flex items-center gap-0.5"><Globe className="w-3 h-3" />{domain}</span>}
               {created && <span className="text-xs text-muted-foreground">· {formatDistanceToNow(new Date(created), { addSuffix: true })}</span>}
             </div>
             <div className={`${compact ? 'text-xs' : 'text-sm'} leading-relaxed line-clamp-3`} dangerouslySetInnerHTML={{ __html: content }} />
