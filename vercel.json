@@ -9,6 +9,7 @@
     { "source": "/nodeinfo/2.1", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/nodeinfo/2.1" },
     { "source": "/users/:username/inbox", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/users/:username/inbox" },
     { "source": "/users/:username", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/users/:username" },
+    { "source": "/api/media/:id", "destination": "https://api.testagram.site/api/media/:id" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
