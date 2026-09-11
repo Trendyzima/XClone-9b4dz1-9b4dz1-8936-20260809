@@ -114,7 +114,8 @@ jobs:
             20260910090950 \
             20260910141500 \
             20260910220627 \
-            20260910220716; do
+            20260910220716 \
+            20260911000500; do
             if find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print -quit | grep -q .; then
               echo "Local migration source exists for $version; preserving remote history."
             elif printf '%s\n' "$history" | grep -q "$version"; then
