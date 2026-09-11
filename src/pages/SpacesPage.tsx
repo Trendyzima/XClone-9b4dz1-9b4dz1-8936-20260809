@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
+import { CommunitySpacesHubNav } from '@/components/features/CommunitySpacesHubNav';
 import { supabase } from '@/lib/supabase';
 import { Space } from '@/types/app-types';
 import {
@@ -378,6 +379,7 @@ export default function SpacesPage() {
   return (
     <div className="min-h-screen bg-background pb-16 md:pb-0">
       <TopBar />
+      <CommunitySpacesHubNav />
 
       {/* Floating live reactions */}
       <div className="pointer-events-none fixed inset-0 z-[100] overflow-hidden">
