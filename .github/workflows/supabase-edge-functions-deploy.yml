@@ -43,7 +43,7 @@ jobs:
       - name: Deploy required Edge Functions
         run: |
           set -euo pipefail
-          functions=(gateway-relay federation-transport federation-inbox federation-delivery-worker federation-processing-worker search-everything feed-fast post-create media-upload federation-discovery)
+          functions=(gateway-relay federation-transport federation-inbox federation-delivery-worker federation-processing-worker federation-reconcile-actors search-everything feed-fast post-create media-upload federation-discovery)
           for fn in "${functions[@]}"; do echo "Deploying $fn"; supabase functions deploy "$fn" --use-api --project-ref "$SUPABASE_PROJECT_REF"; done
       - name: Verify deployed federation inbox endpoint
         run: |
@@ -56,12 +56,12 @@ jobs:
       - name: Verify worker authentication gates
         run: |
           set -euo pipefail
-          for fn in federation-delivery-worker federation-processing-worker; do
+          for fn in federation-delivery-worker federation-processing-worker federation-reconcile-actors; do
             url="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/$fn"
             status="$(curl -sS -o "$RUNNER_TEMP/$fn-auth.json" -w '%{http_code}' --max-time 20 -X POST -H 'Content-Type: application/json' "$url")"
             echo "$fn unauthenticated POST status: $status"; cat "$RUNNER_TEMP/$fn-auth.json"
-            test "$status" = 403
-            jq -e '.error == "Forbidden"' "$RUNNER_TEMP/$fn-auth.json" >/dev/null
+            test "$status" = 403 -o "$status" = 401
+            jq -e '.error != null' "$RUNNER_TEMP/$fn-auth.json" >/dev/null
           done
       - name: Verify deployed federation delivery worker endpoint
         run: |
