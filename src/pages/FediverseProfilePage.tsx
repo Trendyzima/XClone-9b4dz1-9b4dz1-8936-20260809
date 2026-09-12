@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Globe, Heart, Loader2, MessageCircle, Repeat2, UserPlus, UserMinus } from 'lucide-react';
 import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/hooks/useAuth';
