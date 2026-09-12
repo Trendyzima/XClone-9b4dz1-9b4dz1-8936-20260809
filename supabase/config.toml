@@ -13,6 +13,12 @@ verify_jwt = false
 [functions.federation-inbox]
 verify_jwt = false
 
+[functions.federation-delivery-worker]
+verify_jwt = false
+
+[functions.federation-processing-worker]
+verify_jwt = false
+
 [functions.federation-provision-actor]
 verify_jwt = true
 
