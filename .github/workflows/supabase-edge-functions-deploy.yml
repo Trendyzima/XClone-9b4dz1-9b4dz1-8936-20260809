@@ -39,12 +39,18 @@ jobs:
           test "$status_code" = 200 || { echo "Supabase project access failed with HTTP $status_code."; exit 1; }
       - name: Install Supabase CLI
         run: npm install --global supabase@latest
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Apply database migrations
+        run: supabase db push
       - name: Deploy gateway-relay Edge Function
         run: supabase functions deploy gateway-relay --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy federation-transport Edge Function
         run: supabase functions deploy federation-transport --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy federation-inbox Edge Function
         run: supabase functions deploy federation-inbox --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Deploy federation-delivery-worker Edge Function
+        run: supabase functions deploy federation-delivery-worker --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy search-everything Edge Function
         run: supabase functions deploy search-everything --project-ref "$SUPABASE_PROJECT_REF"
       - name: Deploy feed-fast Edge Function
