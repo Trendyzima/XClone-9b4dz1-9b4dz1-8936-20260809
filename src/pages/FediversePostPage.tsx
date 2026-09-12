@@ -13,7 +13,7 @@ function normalizePost(value: any) {
   const canonicalObjectUrl = value.object_url ?? value.uri ?? value.url ?? raw.id ?? raw.url ?? value.id ?? '';
   return {
     ...raw, ...value,
-    actor: value.actor ?? raw.actor ?? value.account ?? { ...actor, preferredUsername: actor.preferredUsername ?? actor.username, name: actor.name ?? actor.display_name, url: actor.url ?? value.actor_url, icon: actor.icon ?? (actor.avatar_url ? { url: actor.avatar_url } : undefined), acct: actor.acct ?? (actor.username && actor.domain ? `${actor.username}@${actor.domain}` : actor.username) },
+    actor: value.actor ?? raw.actor ?? raw.attributedTo ?? value.account ?? { ...actor, preferredUsername: actor.preferredUsername ?? actor.username, name: actor.name ?? actor.display_name, url: actor.url ?? value.actor_url, icon: actor.icon ?? (actor.avatar_url ? { url: actor.avatar_url } : undefined), acct: actor.acct ?? (actor.username && actor.domain ? `${actor.username}@${actor.domain}` : actor.username) },
     id: canonicalObjectUrl, object_url: canonicalObjectUrl,
     url: value.url ?? value.object_url ?? value.uri ?? raw.url ?? raw.id ?? canonicalObjectUrl,
     uri: value.uri ?? value.object_url ?? raw.id ?? canonicalObjectUrl,
@@ -41,17 +41,23 @@ export default function FediversePostPage() {
       try {
         const candidates = uniqueCandidates(objectUrl, decodeURIComponent(objectUrl)); let cached: any = null;
         for (const candidate of candidates) {
-          const [legacyResult, uriResult, urlResult] = await Promise.all([
+          const [legacyResult, canonicalResult, federationResult, canonicalByUrlResult] = await Promise.all([
             supabase.from('remote_posts').select('*, remote_accounts(*)').eq('object_url', candidate).maybeSingle(),
             supabase.from('federated_objects').select('*').eq('uri', candidate).maybeSingle(),
+            supabase.from('federation_objects').select('*').eq('object_url', candidate).maybeSingle(),
             supabase.from('federated_objects').select('*').eq('url', candidate).maybeSingle(),
           ]);
-          cached = legacyResult.data ?? uriResult.data ?? urlResult.data; if (cached) break;
+          cached = legacyResult.data ?? canonicalResult.data ?? federationResult.data ?? canonicalByUrlResult.data;
+          if (cached) break;
         }
         if (cached) { if (!cancelled) setPost(normalizePost(cached)); return; }
         const timeline: any = await federation.getFederatedTimeline({ limit: 100 });
-        const items: any[] = Array.isArray(timeline) ? timeline : (timeline?.posts ?? timeline?.data ?? []);
-        const match = items.find(item => candidates.some(candidate => uniqueCandidates(item.object_url, item.uri, item.url, item.id, item.raw_object?.id, item.raw_object?.url).includes(candidate)));
+        const items: any[] = Array.isArray(timeline) ? timeline : (timeline?.posts ?? timeline?.data ?? timeline?.items ?? []);
+        const match = items.find(item => {
+          const nested = item.object ?? item.raw_object ?? {};
+          const itemCandidates = uniqueCandidates(item.object_url, item.uri, item.url, item.id, item.raw_object?.id, item.raw_object?.url, nested.id, nested.url);
+          return candidates.some(candidate => itemCandidates.includes(candidate));
+        });
         if (!match) throw new Error('This Fediverse post could not be resolved from the canonical remote object.');
         if (!cancelled) setPost(normalizePost(match));
       } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : 'Unable to load this Fediverse post.'); }
