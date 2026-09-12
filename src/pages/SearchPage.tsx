@@ -7,127 +7,21 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { unifiedSearch } from '@/api/social';
 import { PostCard } from '@/components/features/PostCard';
-import InteractiveFederatedPostCard from '@/components/features/InteractiveFederatedPostCard';
+import { InteractiveFederatedPostCard } from '@/components/features/InteractiveFederatedPostCard';
 import { useSEO } from '@/hooks/useSEO';
 
-const TABS = [
-  ['all', 'All'],
-  ['posts', 'Posts'],
-  ['users', 'People'],
-  ['hashtags', 'Hashtags'],
-  ['communities', 'Communities'],
-  ['fediverse_users', 'Fediverse'],
-] as const;
-
-function iconFor(type: string) {
-  if (type === 'user' || type === 'fediverse_user') return <Users className="w-4 h-4" />;
-  if (type === 'hashtag') return <Hash className="w-4 h-4" />;
-  if (type === 'community') return <Building2 className="w-4 h-4" />;
-  if (type === 'fediverse_post') return <Globe2 className="w-4 h-4" />;
-  return <MessageSquare className="w-4 h-4" />;
-}
+const TABS = [['all', 'All'], ['posts', 'Posts'], ['users', 'People'], ['hashtags', 'Hashtags'], ['communities', 'Communities'], ['fediverse_users', 'Fediverse']] as const;
+function iconFor(type: string) { if (type === 'user' || type === 'fediverse_user') return <Users className="w-4 h-4" />; if (type === 'hashtag') return <Hash className="w-4 h-4" />; if (type === 'community') return <Building2 className="w-4 h-4" />; if (type === 'fediverse_post') return <Globe2 className="w-4 h-4" />; return <MessageSquare className="w-4 h-4" />; }
 
 export default function SearchPage() {
-  const [params, setParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const [query, setQuery] = useState(params.get('q') || '');
-  const [tab, setTab] = useState<string>(params.get('type') || 'all');
-  const [results, setResults] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [recent, setRecent] = useState<string[]>([]);
-
-  useSEO({
-    title: query ? `Search: "${query}" — Testagram` : 'Search — Testagram',
-    description: 'Unified Testagram search across people, posts, hashtags, communities and the Fediverse.',
-    url: query ? `/search?q=${encodeURIComponent(query)}` : '/search',
-    type: 'website',
-  });
-
-  useEffect(() => {
-    try { setRecent(JSON.parse(localStorage.getItem('tsocial_recent_searches') || '[]').slice(0, 8)); } catch {}
-  }, []);
-
-  useEffect(() => {
-    const q = params.get('q')?.trim() || '';
-    const t = params.get('type') || 'all';
-    setQuery(q);
-    setTab(t);
-    if (!q) { setResults([]); return; }
-    let alive = true;
-    setLoading(true);
-    unifiedSearch(q, t, 60)
-      .then(data => { if (alive) setResults(data); })
-      .catch(error => { if (alive) { setResults([]); toast.error(error?.message || 'Search failed'); } })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [params]);
-
-  const submit = (value = query, nextTab = tab) => {
-    const q = value.trim();
-    if (!q) return;
-    const next = [q, ...recent.filter(x => x !== q)].slice(0, 8);
-    setRecent(next);
-    try { localStorage.setItem('tsocial_recent_searches', JSON.stringify(next)); } catch {}
-    setParams({ q, ...(nextTab !== 'all' ? { type: nextTab } : {}) });
-  };
-
-  const clear = () => { setQuery(''); setResults([]); setParams({}); };
-
-  const filtered = useMemo(() => {
-    if (tab === 'all') return results;
-    if (tab === 'fediverse_users') return results.filter(r => r.result_type === 'fediverse_user');
-    return results.filter(r => r.result_type === (tab === 'users' ? 'user' : tab === 'posts' ? 'post' : tab === 'hashtags' ? 'hashtag' : 'community'));
-  }, [results, tab]);
-
-  const openResult = (item: any) => {
-    if (item.result_type === 'user') navigate(item.url || `/profile/${item.username}`);
-    else if (item.result_type === 'hashtag') navigate(`/hashtag/${item.tag}`);
-    else if (item.result_type === 'community') navigate(item.url || `/c/${item.name}`);
-    else if (item.result_type === 'fediverse_user') navigate(`/fediverse/profile?actor=${encodeURIComponent(item.actor_url || item.id)}`);
-    else if (item.result_type === 'post') navigate(item.url || `/post/${item.id}`);
-    else if (item.result_type === 'fediverse_post') navigate(`/fediverse/post?url=${encodeURIComponent(item.url || item.uri || item.id)}`);
-  };
-
-  return (
-    <div className="min-h-screen bg-background pb-20">
-      <TopBar title="Search" showBack />
-      <div className="sticky top-14 z-20 bg-background/95 backdrop-blur border-b border-border p-3">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-          <Input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit(); }} placeholder="Search people, posts, #hashtags, communities or the Fediverse…" className="pl-12 pr-10 h-11 rounded-full bg-muted border-0" />
-          {query && <button onClick={clear} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground"><X className="w-4 h-4" /></button>}
-        </div>
-        {!query && recent.length > 0 && <div className="flex gap-2 mt-3 overflow-x-auto">{recent.map(q => <button key={q} onClick={() => submit(q)} className="px-3 py-1.5 rounded-full bg-muted text-xs whitespace-nowrap">{q}</button>)}</div>}
-      </div>
-
-      <div className="flex overflow-x-auto border-b border-border scrollbar-hide">
-        {TABS.map(([value, label]) => <button key={value} onClick={() => { setTab(value); if (query.trim()) submit(query, value); }} className={`px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 ${tab === value ? 'border-primary' : 'border-transparent text-muted-foreground'}`}>{label}</button>)}
-      </div>
-
-      {!user && query && <div className="m-4 p-3 rounded-xl border border-border text-sm text-muted-foreground">Sign in to use unified search across the live federation index.</div>}
-      {loading && <div className="py-16 flex justify-center"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>}
-      {!loading && query && filtered.length === 0 && <div className="py-16 text-center text-muted-foreground"><Search className="w-10 h-10 mx-auto mb-3 opacity-30" /><p>No results for “{query}”.</p></div>}
-
-      <div>
-        {!loading && filtered.map((item: any, index: number) => {
-          if (item.result_type === 'post') return <PostCard key={`post-${item.id}-${index}`} post={item} onUpdate={() => submit(query, tab)} />;
-          if (item.result_type === 'fediverse_post') return <InteractiveFederatedPostCard key={`fedpost-${item.uri || item.id}-${index}`} post={item} />;
-          if (item.result_type === 'user' || item.result_type === 'fediverse_user' || item.result_type === 'hashtag' || item.result_type === 'community') return (
-            <button key={`${item.result_type}-${item.id}-${index}`} onClick={() => openResult(item)} className="w-full flex items-center gap-3 px-4 py-3 border-b border-border text-left hover:bg-muted/40 transition-colors">
-              <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
-                {item.avatar_url ? <img src={item.avatar_url} alt="" className="w-full h-full object-cover" /> : iconFor(item.result_type)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold truncate">{item.result_type === 'hashtag' ? `#${item.tag}` : item.display_name || item.name || `@${item.username}`}</div>
-                <div className="text-sm text-muted-foreground truncate">{item.result_type === 'fediverse_user' ? `@${item.username}${item.domain ? `@${item.domain}` : ''}` : item.bio || item.description || (item.result_type === 'hashtag' ? `${item.usage_count ?? 0} posts` : `@${item.username || ''}`)}</div>
-              </div>
-              <span className="text-muted-foreground">{iconFor(item.result_type)}</span>
-            </button>
-          );
-          return null;
-        })}
-      </div>
-    </div>
-  );
+  const [params, setParams] = useSearchParams(); const navigate = useNavigate(); const { user } = useAuth();
+  const [query, setQuery] = useState(params.get('q') || ''); const [tab, setTab] = useState<string>(params.get('type') || 'all'); const [results, setResults] = useState<any[]>([]); const [loading, setLoading] = useState(false); const [recent, setRecent] = useState<string[]>([]);
+  useSEO({ title: query ? `Search: "${query}" — Testagram` : 'Search — Testagram', description: 'Unified Testagram search across people, posts, hashtags, communities and the Fediverse.', url: query ? `/search?q=${encodeURIComponent(query)}` : '/search', type: 'website' });
+  useEffect(() => { try { setRecent(JSON.parse(localStorage.getItem('tsocial_recent_searches') || '[]').slice(0, 8)); } catch {} }, []);
+  useEffect(() => { const q=params.get('q')?.trim()||''; const t=params.get('type')||'all'; setQuery(q); setTab(t); if(!q){setResults([]);return;} let alive=true; setLoading(true); unifiedSearch(q,t,60).then(data=>{if(alive)setResults(data);}).catch(error=>{if(alive){setResults([]);toast.error(error?.message||'Search failed');}}).finally(()=>{if(alive)setLoading(false);}); return()=>{alive=false;}; },[params]);
+  const submit=(value=query,nextTab=tab)=>{const q=value.trim();if(!q)return;const next=[q,...recent.filter(x=>x!==q)].slice(0,8);setRecent(next);try{localStorage.setItem('tsocial_recent_searches',JSON.stringify(next));}catch{}setParams({q,...(nextTab!=='all'?{type:nextTab}:{})});};
+  const clear=()=>{setQuery('');setResults([]);setParams({});};
+  const filtered=useMemo(()=>{if(tab==='all')return results;if(tab==='fediverse_users')return results.filter(r=>r.result_type==='fediverse_user');return results.filter(r=>r.result_type===(tab==='users'?'user':tab==='posts'?'post':tab==='hashtags'?'hashtag':'community'));},[results,tab]);
+  const openResult=(item:any)=>{if(item.result_type==='user')navigate(item.url||`/profile/${item.username}`);else if(item.result_type==='hashtag')navigate(`/hashtag/${item.tag}`);else if(item.result_type==='community')navigate(item.url||`/c/${item.name}`);else if(item.result_type==='fediverse_user')navigate(`/fediverse/profile?actor=${encodeURIComponent(item.actor_url||item.id)}`);else if(item.result_type==='post')navigate(item.url||`/post/${item.id}`);else if(item.result_type==='fediverse_post')navigate(`/fediverse/post?url=${encodeURIComponent(item.url||item.uri||item.id)}`);};
+  return <div className="min-h-screen bg-background pb-20"><TopBar title="Search" showBack /><div className="sticky top-14 z-20 bg-background/95 backdrop-blur border-b border-border p-3"><div className="relative"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" /><Input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')submit();}} placeholder="Search people, posts, #hashtags, communities or the Fediverse…" className="pl-12 pr-10 h-11 rounded-full bg-muted border-0" />{query&&<button onClick={clear} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground"><X className="w-4 h-4"/></button>}</div>{!query&&recent.length>0&&<div className="flex gap-2 mt-3 overflow-x-auto">{recent.map(q=><button key={q} onClick={()=>submit(q)} className="px-3 py-1.5 rounded-full bg-muted text-xs whitespace-nowrap">{q}</button>)}</div>}</div><div className="flex overflow-x-auto border-b border-border scrollbar-hide">{TABS.map(([value,label])=><button key={value} onClick={()=>{setTab(value);if(query.trim())submit(query,value);}} className={`px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 ${tab===value?'border-primary':'border-transparent text-muted-foreground'}`}>{label}</button>)}</div>{!user&&query&&<div className="m-4 p-3 rounded-xl border border-border text-sm text-muted-foreground">Sign in to use unified search across the live federation index.</div>}{loading&&<div className="py-16 flex justify-center"><Loader2 className="w-7 h-7 animate-spin text-primary"/></div>}{!loading&&query&&filtered.length===0&&<div className="py-16 text-center text-muted-foreground"><Search className="w-10 h-10 mx-auto mb-3 opacity-30"/><p>No results for “{query}”.</p></div>}<div>{!loading&&filtered.map((item:any,index:number)=>{if(item.result_type==='post')return <PostCard key={`post-${item.id}-${index}`} post={item} onUpdate={()=>submit(query,tab)}/>;if(item.result_type==='fediverse_post')return <InteractiveFederatedPostCard key={`fedpost-${item.uri||item.id}-${index}`} post={item}/>;if(item.result_type==='user'||item.result_type==='fediverse_user'||item.result_type==='hashtag'||item.result_type==='community')return <button key={`${item.result_type}-${item.id}-${index}`} onClick={()=>openResult(item)} className="w-full flex items-center gap-3 px-4 py-3 border-b border-border text-left hover:bg-muted/40 transition-colors"><div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">{item.avatar_url?<img src={item.avatar_url} alt="" className="w-full h-full object-cover"/>:iconFor(item.result_type)}</div><div className="min-w-0 flex-1"><div className="font-semibold truncate">{item.result_type==='hashtag'?`#${item.tag}`:item.display_name||item.name||`@${item.username}`}</div><div className="text-sm text-muted-foreground truncate">{item.result_type==='fediverse_user'?`@${item.username}${item.domain?`@${item.domain}`:''}`:item.bio||item.description||(item.result_type==='hashtag'?`${item.usage_count??0} posts`:`@${item.username||''}`)}</div></div><span className="text-muted-foreground">{iconFor(item.result_type)}</span></button>;return null;})}</div></div>;
 }
