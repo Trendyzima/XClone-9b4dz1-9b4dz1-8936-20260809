@@ -1,4 +1,4 @@
-name: Testagram Federation Delivery Worker
+name: Testagram Federation Workers
 
 on:
   workflow_dispatch:
@@ -9,14 +9,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: testagram-federation-delivery-worker
+  group: testagram-federation-workers
   cancel-in-progress: false
 
 env:
   SUPABASE_PROJECT_REF: aepbqfrmheihfsauzcby
 
 jobs:
-  deliver:
+  workers:
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -26,18 +26,23 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$FEDERATION_WORKER_KEY" || { echo 'Missing production secret FEDERATION_WORKER_KEY.'; exit 1; }
+      - name: Run federation processing queue
+        env:
+          FEDERATION_WORKER_KEY: ${{ secrets.FEDERATION_WORKER_KEY }}
+        run: |
+          set -euo pipefail
+          endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/federation-processing-worker?limit=50"
+          status="$(curl -sS -o "$RUNNER_TEMP/processing-result.json" -w '%{http_code}' --max-time 120 -X POST -H "x-federation-worker-key: $FEDERATION_WORKER_KEY" -H 'Content-Type: application/json' "$endpoint")"
+          echo "Processing worker HTTP status: $status"; cat "$RUNNER_TEMP/processing-result.json"
+          test "$status" = 200
+          jq -e '.ok == true and (.selected | type == "number") and (.processed | type == "number") and (.failed | type == "number") and (.dead | type == "number")' "$RUNNER_TEMP/processing-result.json" >/dev/null
       - name: Run federation delivery queue
         env:
           FEDERATION_WORKER_KEY: ${{ secrets.FEDERATION_WORKER_KEY }}
         run: |
           set -euo pipefail
           endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/federation-delivery-worker?limit=50"
-          status="$(curl -sS -o "$RUNNER_TEMP/delivery-result.json" -w '%{http_code}' --max-time 120 \
-            -X POST \
-            -H "x-federation-worker-key: $FEDERATION_WORKER_KEY" \
-            -H 'Content-Type: application/json' \
-            "$endpoint")"
-          echo "Delivery worker HTTP status: $status"
-          cat "$RUNNER_TEMP/delivery-result.json"
+          status="$(curl -sS -o "$RUNNER_TEMP/delivery-result.json" -w '%{http_code}' --max-time 120 -X POST -H "x-federation-worker-key: $FEDERATION_WORKER_KEY" -H 'Content-Type: application/json' "$endpoint")"
+          echo "Delivery worker HTTP status: $status"; cat "$RUNNER_TEMP/delivery-result.json"
           test "$status" = 200
           jq -e '.ok == true and (.processed | type == "number") and (.delivered | type == "number") and (.failed | type == "number")' "$RUNNER_TEMP/delivery-result.json" >/dev/null
