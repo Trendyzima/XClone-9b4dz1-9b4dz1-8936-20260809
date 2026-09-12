@@ -11,23 +11,24 @@ import { toast } from 'sonner';
 type Props = { post: any; disableNavigation?: boolean };
 function stripHtml(value: string): string { if (!value) return ''; return new DOMParser().parseFromString(value, 'text/html').body.textContent ?? ''; }
 function interactionError(error: unknown): string { if (error instanceof federation.GatewayError) return error.body || error.message; if (error instanceof Error) return error.message; return 'The Fediverse action could not be completed.'; }
+function firstHttp(...values: unknown[]): string { return values.find(value => typeof value === 'string' && /^https?:\/\//i.test(value)) as string || ''; }
 
 export function FederatedPostCard({ post, disableNavigation = false }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const actor = post.actor ?? post.account ?? {};
-  const username = actor.preferredUsername ?? actor.username ?? actor.acct ?? 'unknown';
+  const actor = post.actor ?? post.account ?? post.author ?? { url: post.actor_url ?? post.actor_uri, id: post.actor_uri ?? post.actor_url, preferredUsername: post.actor_username ?? post.username, name: post.actor_name ?? post.display_name, avatar: post.avatar_url };
+  const username = actor.preferredUsername ?? actor.username ?? actor.acct ?? post.actor_username ?? post.username ?? 'unknown';
   const domain = actor.url ? (() => { try { return new URL(actor.url).hostname; } catch { return actor.domain ?? ''; } })() : (actor.domain ?? post.fediverse_domain ?? '');
   const acct = actor.acct ?? actor.preferredUsername ?? username;
   const handle = acct.includes('@') || !domain ? acct : `${acct}@${domain}`;
-  const avatarUrl = actor.icon?.url ?? actor.avatar ?? actor.avatar_url;
-  const displayName = actor.name ?? actor.display_name ?? username;
-  const actorTarget = actor.url ?? actor.id ?? (handle !== 'unknown' ? handle : '');
+  const avatarUrl = actor.icon?.url ?? actor.avatar ?? actor.avatar_url ?? post.avatar_url;
+  const displayName = actor.name ?? actor.display_name ?? post.actor_name ?? username;
+  const actorTarget = firstHttp(actor.url, actor.id, post.actor_url, post.actor_uri) || actor.acct || (handle !== 'unknown' ? handle : '');
   const profileHref = actorTarget ? `/fediverse/profile?actor=${encodeURIComponent(actorTarget)}` : '';
-  const canonicalObjectUrl = post.object_url ?? post.uri ?? post.url ?? post.raw_object?.id ?? post.raw_object?.url ?? '';
-  const createdAt = post.created_at ?? post.published ?? post.published_at ?? '';
-  const rawText = stripHtml(post.content ?? post.text ?? '');
-  const media = useMemo(() => Array.isArray(post.media_attachments) ? post.media_attachments : [], [post.media_attachments]);
+  const canonicalObjectUrl = firstHttp(post.object_url, post.canonical_url, post.uri, post.url, post.object?.id, post.object?.url, post.raw_object?.id, post.raw_object?.url, post.id);
+  const createdAt = post.created_at ?? post.published ?? post.published_at ?? post.object?.published ?? '';
+  const rawText = stripHtml(post.content ?? post.text ?? post.object?.content ?? post.raw_object?.content ?? '');
+  const media = useMemo(() => Array.isArray(post.media_attachments) ? post.media_attachments : (Array.isArray(post.object?.attachment) ? post.object.attachment : []), [post.media_attachments, post.object?.attachment]);
   const [liked, setLiked] = useState(Boolean(post.favourited ?? post.liked));
   const [reposted, setReposted] = useState(Boolean(post.reblogged ?? post.boosted));
   const [bookmarked, setBookmarked] = useState(Boolean(post.bookmarked));
