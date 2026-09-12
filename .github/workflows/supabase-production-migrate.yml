@@ -1,24 +1,21 @@
 name: Testagram Supabase Production Migrations
 
 on:
+  # This workflow is intentionally dispatch-only. The production release gate
+  # dispatches exactly one immutable migration run for each release SHA.
+  # Keeping push triggers here as well created two migration runs for the same
+  # release and made the release gate observe a competing/cancelled run.
   workflow_dispatch:
     inputs:
       release_sha:
         description: 'Immutable release commit to migrate and verify'
         required: false
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - 'supabase/migrations/**'
-      - '.github/workflows/supabase-production-migrate.yml'
 
 permissions:
   contents: read
 
-# Production migration runs must serialize globally. Keying this by release SHA
-# allowed different releases to migrate the same database concurrently.
+# Production migration runs must serialize globally.
 concurrency:
   group: testagram-supabase-production-migrations-production
   cancel-in-progress: false
@@ -53,7 +50,7 @@ jobs:
           python3 - <<'PY'
           import json
           import urllib.request
-          
+
           api = 'https://api.github.com/repos/supabase/cli/releases/latest'
           request = urllib.request.Request(api, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'Testagram-CI'})
           with urllib.request.urlopen(request) as response:
