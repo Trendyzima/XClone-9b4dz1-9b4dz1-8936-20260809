@@ -45,4 +45,14 @@ jobs:
           status="$(curl -sS -o "$RUNNER_TEMP/delivery-result.json" -w '%{http_code}' --max-time 120 -X POST -H "x-federation-worker-key: $FEDERATION_WORKER_KEY" -H 'Content-Type: application/json' "$endpoint")"
           echo "Delivery worker HTTP status: $status"; cat "$RUNNER_TEMP/delivery-result.json"
           test "$status" = 200
-          jq -e '.ok == true and (.processed | type == "number") and (.delivered | type == "number") and (.failed | type == "number")' "$RUNNER_TEMP/delivery-result.json" >/dev/null
+          jq -e '.ok == true and (.processed | type == "number") and (.delivered | type == "number") and (.failed | type == "number") and (.deferred | type == "number") and .circuitBreaker == true' "$RUNNER_TEMP/delivery-result.json" >/dev/null
+      - name: Run remote actor refresh queue
+        env:
+          FEDERATION_WORKER_KEY: ${{ secrets.FEDERATION_WORKER_KEY }}
+        run: |
+          set -euo pipefail
+          endpoint="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/federation-actor-refresh?limit=25"
+          status="$(curl -sS -o "$RUNNER_TEMP/actor-refresh-result.json" -w '%{http_code}' --max-time 120 -X POST -H "x-federation-worker-key: $FEDERATION_WORKER_KEY" -H 'Content-Type: application/json' "$endpoint")"
+          echo "Actor refresh worker HTTP status: $status"; cat "$RUNNER_TEMP/actor-refresh-result.json"
+          test "$status" = 200
+          jq -e '.ok == true and (.selected | type == "number") and (.refreshed | type == "number") and (.failed | type == "number") and (.retired | type == "number")' "$RUNNER_TEMP/actor-refresh-result.json" >/dev/null
