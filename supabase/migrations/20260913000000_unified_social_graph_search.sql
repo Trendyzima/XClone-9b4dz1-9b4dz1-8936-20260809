@@ -30,21 +30,29 @@ create index if not exists hashtags_tag_prefix_idx on public.hashtags(tag text_p
 create index if not exists hashtags_usage_idx on public.hashtags(usage_count desc,last_used_at desc);
 
 create or replace function public.sync_post_hashtags() returns trigger language plpgsql security invoker set search_path=public as $$
-declare source_text text; m text[]; tag_value text; hid uuid;
+declare source_text text; m text[]; tag_value text; hid uuid; affected_ids uuid[] := '{}'::uuid[];
 begin
- if tg_op <> 'INSERT' then delete from public.post_hashtags where post_id=old.id; end if;
- source_text:=coalesce(to_jsonb(new)->>'body','')||' '||coalesce(to_jsonb(new)->>'content','');
- for m in select regexp_matches(source_text,'#([[:alnum:]_]{1,64})','g') loop
-  tag_value:=lower(m[1]); if tag_value='' then continue; end if;
-  insert into public.hashtags(tag,last_used_at) values(tag_value,now()) on conflict(tag) do update set last_used_at=excluded.last_used_at returning id into hid;
-  if hid is null then select id into hid from public.hashtags where tag=tag_value; end if;
-  insert into public.post_hashtags(post_id,hashtag_id,created_at) values(new.id,hid,now()) on conflict do nothing;
- end loop;
- update public.hashtags h set post_count=coalesce((select count(*) from public.post_hashtags ph where ph.hashtag_id=h.id),0),usage_count=coalesce((select count(*) from public.post_hashtags ph where ph.hashtag_id=h.id),0),follower_count=coalesce((select count(*) from public.hashtag_follows hf where hf.hashtag_id=h.id),0),last_used_at=coalesce((select max(ph.created_at) from public.post_hashtags ph where ph.hashtag_id=h.id),h.last_used_at) where h.id in (select hashtag_id from public.post_hashtags where post_id=new.id) or (tg_op<>'INSERT' and h.id in (select hashtag_id from public.post_hashtags ph where ph.post_id=old.id));
- return new;
+ if tg_op <> 'INSERT' then
+   affected_ids := coalesce((select array_agg(ph.hashtag_id) from public.post_hashtags ph where ph.post_id=old.id),'{}'::uuid[]);
+   delete from public.post_hashtags where post_id=old.id;
+ end if;
+ if tg_op <> 'DELETE' then
+   source_text:=coalesce(to_jsonb(new)->>'body','')||' '||coalesce(to_jsonb(new)->>'content','');
+   for m in select regexp_matches(source_text,'#([[:alnum:]_]{1,64})','g') loop
+    tag_value:=lower(m[1]); if tag_value='' then continue; end if;
+    insert into public.hashtags(tag,last_used_at) values(tag_value,now()) on conflict(tag) do update set last_used_at=excluded.last_used_at returning id into hid;
+    if hid is null then select id into hid from public.hashtags where tag=tag_value; end if;
+    insert into public.post_hashtags(post_id,hashtag_id,created_at) values(new.id,hid,now()) on conflict do nothing;
+    affected_ids:=array_append(affected_ids,hid);
+   end loop;
+ end if;
+ if cardinality(affected_ids)>0 then
+   update public.hashtags h set post_count=coalesce((select count(*) from public.post_hashtags ph where ph.hashtag_id=h.id),0),usage_count=coalesce((select count(*) from public.post_hashtags ph where ph.hashtag_id=h.id),0),follower_count=coalesce((select count(*) from public.hashtag_follows hf where hf.hashtag_id=h.id),0),last_used_at=coalesce((select max(ph.created_at) from public.post_hashtags ph where ph.hashtag_id=h.id),h.last_used_at) where h.id=any(affected_ids);
+ end if;
+ return coalesce(new,old);
 end; $$;
 drop trigger if exists posts_sync_hashtags on public.posts;
-create trigger posts_sync_hashtags after insert or update on public.posts for each row execute function public.sync_post_hashtags();
+create trigger posts_sync_hashtags after insert or update or delete on public.posts for each row execute function public.sync_post_hashtags();
 
 do $$
 declare p record; m text[]; tag_value text; hid uuid;
@@ -74,7 +82,6 @@ end $$;
 create or replace function public.get_follow_state(p_following_id uuid) returns jsonb language sql security invoker set search_path=public as $$
 select jsonb_build_object('following',coalesce((select f.status='accepted' from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),false),'requested',coalesce((select f.status='pending' from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),false),'followed_by',coalesce((select f.status='accepted' from public.follows f where f.follower_id=p_following_id and f.following_id=(select auth.uid())),false),'status',coalesce((select f.status from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),'none')); $$;
 
--- Enforce protected-account semantics even for older UI code that inserts into follows directly.
 create or replace function public.enforce_follow_protection() returns trigger language plpgsql security definer set search_path=public as $$
 begin
  if new.status='accepted' and coalesce((select protected_account from public.profiles where id=new.following_id),false) then new.status:='pending'; new.accepted_at:=null; end if;
@@ -83,17 +90,15 @@ end; $$;
 drop trigger if exists follows_enforce_protection on public.follows;
 create trigger follows_enforce_protection before insert or update on public.follows for each row execute function public.enforce_follow_protection();
 
--- Keep profile follower/following counters transactionally correct for accepted follows.
 create or replace function public.sync_follow_counters() returns trigger language plpgsql security definer set search_path=public as $$
 begin
- update public.profiles p set follower_count=coalesce((select count(*) from public.follows f where f.following_id=p.id and f.status='accepted'),0) where p.id in (coalesce(new.following_id,old.following_id));
- update public.profiles p set following_count=coalesce((select count(*) from public.follows f where f.follower_id=p.id and f.status='accepted'),0) where p.id in (coalesce(new.follower_id,old.follower_id));
+ update public.profiles p set follower_count=coalesce((select count(*) from public.follows f where f.following_id=p.id and f.status='accepted'),0) where p.id=coalesce(new.following_id,old.following_id);
+ update public.profiles p set following_count=coalesce((select count(*) from public.follows f where f.follower_id=p.id and f.status='accepted'),0) where p.id=coalesce(new.follower_id,old.follower_id);
  return coalesce(new,old);
 end; $$;
 drop trigger if exists follows_sync_profile_counters on public.follows;
 create trigger follows_sync_profile_counters after insert or update or delete on public.follows for each row execute function public.sync_follow_counters();
 
--- Keep hashtag follower counts transactionally correct.
 create or replace function public.sync_hashtag_follow_count() returns trigger language plpgsql security definer set search_path=public as $$
 begin
  update public.hashtags h set follower_count=coalesce((select count(*) from public.hashtag_follows hf where hf.hashtag_id=h.id),0) where h.id=coalesce(new.hashtag_id,old.hashtag_id);
@@ -102,9 +107,6 @@ end; $$;
 drop trigger if exists hashtag_follows_sync_count on public.hashtag_follows;
 create trigger hashtag_follows_sync_count after insert or update or delete on public.hashtag_follows for each row execute function public.sync_hashtag_follow_count();
 
--- Preserve the production TABLE return contract. PostgreSQL 42P13 occurs when an existing
--- TABLE-returning function is replaced with jsonb. The 3-argument overload filters the existing
--- 2-argument search implementation, keeping native + Fediverse search unified.
 create or replace function public.search_everything(p_query text,p_limit integer default 40,p_type text default 'all')
 returns table(kind text,id text,score real,title text,subtitle text,content text,url text,source text,created_at timestamptz,actor_uri text)
 language sql security definer set search_path=public as $$
