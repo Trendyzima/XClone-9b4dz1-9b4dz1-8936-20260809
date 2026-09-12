@@ -28,8 +28,6 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - name: Ensure application router dependency is materialized
-        run: npm install react-router-dom@6.30.1 --no-save
       - name: Typecheck application and serverless functions
         run: npm run typecheck
       - name: Build Vite application
