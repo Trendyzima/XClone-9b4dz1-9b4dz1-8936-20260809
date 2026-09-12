@@ -15,6 +15,7 @@ async function send(local:any,inbox:string,activity:any){
   return fetch(inbox,{method:"POST",body,headers:{Date:date,Digest:digest,Host:u.host,Accept:"application/activity+json, application/ld+json","Content-Type":"application/activity+json",Signature:`keyId=\"${local.uri || local.actor_url}#main-key\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"${sig}\"`,'User-Agent':'Testagram-Federation/4.0'}});
 }
 Deno.serve(async req=>{
+  if(req.method==="GET") return new Response(JSON.stringify({ok:true,service:"testagram-federation-delivery-worker",version:"5.0",queue:true}),{status:200,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
   if(req.method!=="POST") return new Response(JSON.stringify({error:"POST required"}),{status:405,headers:{"Content-Type":"application/json"}});
   const supplied=req.headers.get("x-federation-worker-key")||"";
   const expected=Deno.env.get("FEDERATION_WORKER_KEY")||"";
@@ -24,7 +25,8 @@ Deno.serve(async req=>{
   if(error) return new Response(JSON.stringify({error:error.message}),{status:500});
   let delivered=0,failed=0;
   for(const job of jobs||[]){
-    await admin.from("federation_deliveries").update({status:"in_flight",attempt_count:(job.attempt_count||0)+1,last_attempt_at:new Date().toISOString(),locked_at:new Date().toISOString()}).eq("id",job.id).in("status",["pending","retry"]);
+    const claim=await admin.from("federation_deliveries").update({status:"in_flight",attempt_count:(job.attempt_count||0)+1,last_attempt_at:new Date().toISOString(),locked_at:new Date().toISOString()}).eq("id",job.id).in("status",["pending","retry"]).select("id").maybeSingle();
+    if(claim.error || !claim.data?.id) continue;
     try{
       const activity=job.activity_payload;
       if(!activity) throw new Error("missing activity payload");
@@ -33,11 +35,11 @@ Deno.serve(async req=>{
       if(!local) throw new Error("local actor not found");
       const r=await send(local,job.target_inbox,activity); const body=(await r.text()).slice(0,1000);
       if(!r.ok) throw new Error(`HTTP ${r.status}: ${body}`);
-      await admin.from("federation_deliveries").update({status:"delivered",last_status_code:r.status,last_error:null,delivered_at:new Date().toISOString(),locked_at:null}).eq("id",job.id);
+      await admin.from("federation_deliveries").update({status:"delivered",last_status_code:r.status,last_error:null,delivered_at:new Date().toISOString(),locked_at:null}).eq("id",job.id).eq("status","in_flight");
       delivered++;
     }catch(e){
       const attempts=(job.attempt_count||0)+1; const dead=attempts>=8; const delay=Math.min(3600,30*Math.pow(2,Math.max(0,attempts-1)));
-      await admin.from("federation_deliveries").update({status:dead?"dead":"retry",next_attempt_at:new Date(Date.now()+delay*1000).toISOString(),last_error:e instanceof Error?e.message:String(e),locked_at:null}).eq("id",job.id);
+      await admin.from("federation_deliveries").update({status:dead?"dead":"retry",next_attempt_at:new Date(Date.now()+delay*1000).toISOString(),last_error:e instanceof Error?e.message:String(e),locked_at:null}).eq("id",job.id).eq("status","in_flight");
       failed++;
     }
   }
