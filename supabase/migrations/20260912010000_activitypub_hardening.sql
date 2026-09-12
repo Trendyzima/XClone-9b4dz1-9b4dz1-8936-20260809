@@ -32,3 +32,8 @@ begin
   get diagnostics n = row_count;
   return n;
 end $$;
+
+revoke execute on function public.recover_stale_federation_delivery_locks(interval) from public, anon, authenticated;
+revoke execute on function public.recover_stale_federation_processing(interval) from public, anon, authenticated;
+grant execute on function public.recover_stale_federation_delivery_locks(interval) to service_role;
+grant execute on function public.recover_stale_federation_processing(interval) to service_role;
