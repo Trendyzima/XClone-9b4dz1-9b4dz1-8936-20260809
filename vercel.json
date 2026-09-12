@@ -10,11 +10,16 @@
     }
   },
   "rewrites": [
-    { "source": "/.well-known/webfinger", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/.well-known/webfinger" },
-    { "source": "/.well-known/nodeinfo", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/.well-known/nodeinfo" },
-    { "source": "/nodeinfo/2.1", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/nodeinfo/2.1" },
-    { "source": "/users/:username/inbox", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/users/:username/inbox" },
-    { "source": "/users/:username", "destination": "https://zcjtvykwwplnzyyslnop.supabase.co/functions/v1/federation-public/users/:username" },
+    { "source": "/.well-known/webfinger", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/fedify-federation/.well-known/webfinger" },
+    { "source": "/.well-known/nodeinfo", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/fedify-federation/.well-known/nodeinfo" },
+    { "source": "/nodeinfo/2.1", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/fedify-federation/nodeinfo/2.1" },
+    { "source": "/inbox", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/federation-inbox" },
+    { "source": "/users/:username/inbox", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/federation-inbox" },
+    { "source": "/users/:username/outbox", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/fedify-federation/users/:username/outbox" },
+    { "source": "/users/:username/followers", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/fedify-federation/users/:username/followers" },
+    { "source": "/users/:username/following", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/fedify-federation/users/:username/following" },
+    { "source": "/users/:username", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/fedify-federation/users/:username" },
+    { "source": "/objects/:id", "destination": "https://aepbqfrmheihfsauzcby.supabase.co/functions/v1/fedify-federation/objects/:id" },
     { "source": "/api/media/:id", "destination": "https://api.testagram.site/api/media/:id" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],

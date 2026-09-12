@@ -3,14 +3,13 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const URL=Deno.env.get('SUPABASE_URL')!;
 const SERVICE=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')||Deno.env.get('SUPABASE_SECRET_KEY')!;
 const ANON=Deno.env.get('SUPABASE_ANON_KEY')||Deno.env.get('SUPABASE_PUBLISHABLE_KEY')!;
-const FED='https://federation.testagram.site';
+const FED=Deno.env.get('FEDERATION_ORIGIN')||'https://testagram.site';
 const PUBLIC='https://www.w3.org/ns/activitystreams#Public';
 const AP='application/ld+json; profile="https://www.w3.org/ns/activitystreams", application/activity+json';
 const CTX=['https://www.w3.org/ns/activitystreams','https://w3id.org/security/v1'];
 const CORS={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization,apikey,content-type','Access-Control-Allow-Methods':'POST,OPTIONS'};
 const json=(v:unknown,s=200)=>new Response(JSON.stringify(v),{status:s,headers:{...CORS,'Content-Type':'application/json'}});
 const admin=createClient(URL,SERVICE,{auth:{persistSession:false,autoRefreshToken:false}});
-const enc=(x:string)=>encodeURIComponent(x);
 const b64=(x:ArrayBuffer|Uint8Array)=>btoa(String.fromCharCode(...new Uint8Array(x)));
 async function federatePublicPost(userId:string,post:any){
   try{
@@ -21,12 +20,12 @@ async function federatePublicPost(userId:string,post:any){
     if(!targets.length)return {attempted:0,delivered:0};
     const actorRows=await admin.from('federation_remote_actors').select('actor_url,inbox_url,shared_inbox_url,actor').in('actor_url',targets);
     const remoteByUrl=new Map((actorRows.data??[]).map((r:any)=>[r.actor_url,r]));
-    const noteId=`${local.actor_url}/notes/${post.id}`;
+    const noteId=`${FED}/objects/${encodeURIComponent(post.id)}`;
     const note:any={'@context':CTX,id:noteId,type:'Note',attributedTo:local.actor_url,url:noteId,content:String(post.content||''),published:post.created_at||new Date().toISOString(),to:[PUBLIC],cc:[`${local.actor_url}/followers`],sensitive:false,attachment:Array.isArray(post.media_urls)?post.media_urls.map((url:string)=>({type:'Document',mediaType:'application/octet-stream',url})):[]};
     const results=await Promise.allSettled(targets.map(async remoteUrl=>{
       const row=remoteByUrl.get(remoteUrl);let inbox=row?.shared_inbox_url||row?.inbox_url||row?.actor?.endpoints?.sharedInbox||row?.actor?.inbox;
       if(!inbox){const ar=await fetch(remoteUrl,{headers:{Accept:AP,'User-Agent':'Testagram-Federation/3.2'}});if(!ar.ok)throw new Error(`remote actor ${ar.status}`);const a=await ar.json();inbox=a.endpoints?.sharedInbox||a.inbox;if(!inbox)throw new Error('remote actor has no inbox');await admin.from('federation_remote_actors').upsert({actor_url:remoteUrl,acct:a.preferredUsername?`${a.preferredUsername}@${new URL(remoteUrl).hostname}`:null,username:a.preferredUsername||null,domain:new URL(remoteUrl).hostname,inbox_url:a.inbox||null,shared_inbox_url:a.endpoints?.sharedInbox||null,actor:a,fetched_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:'actor_url'});}
-      const activity:any={'@context':CTX,id:`${local.actor_url}/activities/${crypto.randomUUID()}`,type:'Create',actor:local.actor_url,object:note,to:[PUBLIC],cc:[`${local.actor_url}/followers`]};
+      const activity:any={'@context':CTX,id:`${FED}/activities/${crypto.randomUUID()}`,type:'Create',actor:local.actor_url,object:note,to:[PUBLIC],cc:[`${local.actor_url}/followers`]};
       const body=JSON.stringify(activity),u=new URL(inbox),date=new Date().toUTCString(),digest=`sha-256=${b64(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(body)))}`;
       const key=await crypto.subtle.importKey('jwk',local.private_key_jwk,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
       const canonical=`(request-target): post ${u.pathname}${u.search}\nhost: ${u.host}\ndate: ${date}\ndigest: ${digest}\ncontent-type: ${AP}`;
