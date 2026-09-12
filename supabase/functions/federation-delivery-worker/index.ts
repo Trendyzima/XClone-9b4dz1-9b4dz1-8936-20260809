@@ -1,10 +1,122 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { federationFetch } from "../_shared/federation-security.ts";
-const U=Deno.env.get('SUPABASE_URL')!,S=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')||Deno.env.get('SUPABASE_SECRET_KEY')||'';const admin=createClient(U,S,{auth:{persistSession:false,autoRefreshToken:false}});const now=()=>new Date().toISOString();const b64=(x:ArrayBuffer|Uint8Array)=>btoa(String.fromCharCode(...new Uint8Array(x)));
-async function authorized(r:Request){const k=r.headers.get('x-federation-worker-key')||'',e=Deno.env.get('FEDERATION_WORKER_KEY')||'';if(e&&k===e)return true;const t=r.headers.get('x-federation-worker-token')||'';if(!t)return false;const {data}=await admin.from('federation_worker_config').select('token').eq('id',true).maybeSingle();return !!data?.token&&t===data.token}
-async function send(local:any,inbox:string,a:any){const body=JSON.stringify(a),u=new URL(inbox),date=new Date().toUTCString(),digest=`SHA-256=${b64(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(body)))}`,key=await crypto.subtle.importKey('jwk',local.private_key_jwk,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']),sig=b64(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(`(request-target): post ${u.pathname}${u.search}\nhost: ${u.host}\ndate: ${date}\ndigest: ${digest}`)));return federationFetch(inbox,{method:'POST',body,headers:{Date:date,Digest:digest,Host:u.host,Accept:'application/activity+json, application/ld+json','Content-Type':'application/activity+json',Signature:`keyId="${local.uri||local.actor_url}#main-key",algorithm="rsa-sha256",headers="(request-target) host date digest",signature="${sig}"`,'User-Agent':'Testagram-Federation/5.2'}})}
-function referencedActivityUri(a:any){const object=a?.object;if(typeof object==='string')return object;return typeof object?.id==='string'?object.id:null}
-function referencedObjectUri(a:any){const object=a?.object;return typeof object==='string'?object:typeof object?.id==='string'?object.id:null}
-async function syncInteraction(a:any,status:string,error?:string,referenceUri?:string,referenceStatus?:string){const activityUri=a?.id;if(activityUri){await admin.from('federation_remote_interactions').update({status,updated_at:now(),error:error?.slice(0,1000)||null}).eq('activity_uri',activityUri);const active=status==='sent'||status==='undone';await admin.from('federated_object_interactions').update({active,updated_at:now()}).eq('activity_uri',activityUri);for(const table of ['federation_remote_likes','federation_remote_reposts','federation_remote_replies','federation_remote_quotes'])await admin.from(table).update({status,updated_at:now(),error:error?.slice(0,1000)||null}).eq('activity_uri',activityUri)}if(referenceUri){const rs=referenceStatus||status;await admin.from('federation_remote_interactions').update({status:rs,updated_at:now(),error:error?.slice(0,1000)||null}).eq('activity_uri',referenceUri);const active=rs==='sent'||rs==='pending'||rs==='undo_pending'?rs!=='undone'&&rs!=='deleted':false;await admin.from('federated_object_interactions').update({active,updated_at:now()}).eq('activity_uri',referenceUri);for(const table of ['federation_remote_likes','federation_remote_reposts','federation_remote_replies','federation_remote_quotes']){await admin.from(table).update({status:rs,updated_at:now(),error:error?.slice(0,1000)||null}).eq('activity_uri',referenceUri);await admin.from(table).update({status:rs,updated_at:now(),error:error?.slice(0,1000)||null}).eq('object_uri',referenceUri)}}}
-Deno.serve(async req=>{if(req.method==='GET')return new Response(JSON.stringify({ok:true,service:'testagram-federation-delivery-worker',version:'8.3',queue:true}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});if(req.method!=='POST')return new Response(JSON.stringify({error:'POST required'}),{status:405});try{if(!await authorized(req))return new Response(JSON.stringify({error:'Forbidden'}),{status:403});const limit=Math.min(Math.max(Number(new URL(req.url).searchParams.get('limit')||25),1),100),stale=new Date(Date.now()-10*60*1000).toISOString();await admin.from('federation_deliveries').update({status:'retry',next_attempt_at:now(),locked_at:null,last_error:'stale delivery lock recovered'}).eq('status','in_flight').lt('locked_at',stale);const {data:jobs,error}=await admin.from('federation_deliveries').select('*').in('status',['pending','retry']).lte('next_attempt_at',now()).order('next_attempt_at',{ascending:true}).limit(limit);if(error)throw error;let delivered=0,failed=0,processed=0;for(const job of jobs||[]){const claim=await admin.from('federation_deliveries').update({status:'in_flight',attempt_count:(job.attempt_count||0)+1,last_attempt_at:now(),locked_at:now()}).eq('id',job.id).in('status',['pending','retry']).select('*').maybeSingle();if(claim.error||!claim.data?.id)continue;const c=claim.data;processed++;try{const a=c.activity_payload;if(!a?.id||!a?.actor)throw Error('invalid queued ActivityPub payload');const {data:local}=await admin.from('federated_actors').select('*').or(`uri.eq.${encodeURIComponent(a.actor)},actor_url.eq.${encodeURIComponent(a.actor)}`).limit(1).maybeSingle();if(!local)throw Error('local actor not found');const r=await send(local,c.target_inbox,a);const text=(await r.text()).slice(0,1000);if(!r.ok)throw Error(`HTTP ${r.status}: ${text}`);await admin.from('federation_deliveries').update({status:'delivered',last_status_code:r.status,last_error:null,delivered_at:now(),locked_at:null}).eq('id',c.id).eq('status','in_flight');const type=String(a.type||'');if(type==='Undo'){const ref=referencedActivityUri(a);await syncInteraction(a,'sent');if(ref)await syncInteraction({},'undone',undefined,ref,'undone')}else if(type==='Delete'){const ref=referencedObjectUri(a);await syncInteraction(a,'sent');if(ref)await syncInteraction({},'deleted',undefined,ref,'deleted')}else await syncInteraction(a,'sent');delivered++}catch(e){const msg=e instanceof Error?e.message:String(e),n=Number(c.attempt_count||1),dead=n>=8,delay=Math.min(3600,30*Math.pow(2,Math.max(0,n-1))),a=c.activity_payload,type=String(a?.type||'');await admin.from('federation_deliveries').update({status:dead?'dead':'retry',next_attempt_at:dead?null:new Date(Date.now()+delay*1000).toISOString(),last_error:msg,locked_at:null}).eq('id',c.id).eq('status','in_flight');if(type==='Undo'){const ref=referencedActivityUri(a);if(ref)await syncInteraction({},dead?'sent':'undo_pending',msg,ref,dead?'sent':'undo_pending')}else if(type==='Delete'){const ref=referencedObjectUri(a);if(ref)await syncInteraction({},dead?'sent':'pending',msg,ref,dead?'sent':'pending');}else await syncInteraction(a,dead?'failed':'pending',msg);failed++}}await admin.from('federation_replays').delete().lt('expires_at',now());return new Response(JSON.stringify({ok:true,processed,selected:(jobs||[]).length,delivered,failed}),{headers:{'Content-Type':'application/json'}})}catch(e){console.error('[federation-delivery-worker]',e);return new Response(JSON.stringify({error:e instanceof Error?e.message:String(e)}),{status:500,headers:{'Content-Type':'application/json'}})}});
+
+const U = Deno.env.get('SUPABASE_URL')!;
+const S = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SECRET_KEY') || '';
+const admin = createClient(U, S, { auth: { persistSession: false, autoRefreshToken: false } });
+const now = () => new Date().toISOString();
+const b64 = (x: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(x)));
+const FAILURE_THRESHOLD = 5;
+const CIRCUIT_COOLDOWN_MS = 15 * 60 * 1000;
+const PROBE_TIMEOUT_MS = 60 * 1000;
+
+async function authorized(r: Request) {
+  const k = r.headers.get('x-federation-worker-key') || '', e = Deno.env.get('FEDERATION_WORKER_KEY') || '';
+  if (e && k === e) return true;
+  const t = r.headers.get('x-federation-worker-token') || '';
+  if (!t) return false;
+  const { data } = await admin.from('federation_worker_config').select('token').eq('id', true).maybeSingle();
+  return !!data?.token && t === data.token;
+}
+
+async function send(local: any, inbox: string, activity: any) {
+  const body = JSON.stringify(activity), u = new URL(inbox), date = new Date().toUTCString();
+  const digest = `SHA-256=${b64(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)))}`;
+  const key = await crypto.subtle.importKey('jwk', local.private_key_jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const signed = `(request-target): post ${u.pathname}${u.search}\nhost: ${u.host}\ndate: ${date}\ndigest: ${digest}`;
+  const sig = b64(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(signed)));
+  return federationFetch(inbox, { method: 'POST', body, headers: { Date: date, Digest: digest, Host: u.host, Accept: 'application/activity+json, application/ld+json', 'Content-Type': 'application/activity+json', Signature: `keyId=\"${local.uri || local.actor_url}#main-key\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"${sig}\"`, 'User-Agent': 'Testagram-Federation/5.3' } });
+}
+
+function refUri(a: any) { const o = a?.object; return typeof o === 'string' ? o : typeof o?.id === 'string' ? o.id : null; }
+
+async function syncInteraction(a: any, status: string, error?: string, referenceUri?: string, referenceStatus?: string) {
+  const activityUri = a?.id;
+  const apply = async (uri: string, state: string) => {
+    const active = state === 'sent' || state === 'pending' || state === 'undo_pending';
+    const { error: mainError } = await admin.from('federation_remote_interactions').update({ status: state, updated_at: now(), error: error?.slice(0, 1000) || null }).eq('activity_uri', uri);
+    if (mainError) console.error('[federation-delivery] interaction sync failed', mainError.message);
+    await admin.from('federated_object_interactions').update({ active: state !== 'undone' && state !== 'deleted', updated_at: now() }).eq('activity_uri', uri);
+    for (const table of ['federation_remote_likes','federation_remote_reposts','federation_remote_replies','federation_remote_quotes']) await admin.from(table).update({ status: state, updated_at: now(), error: error?.slice(0, 1000) || null }).eq('activity_uri', uri);
+    return active;
+  };
+  if (activityUri) await apply(activityUri, status);
+  if (referenceUri) await apply(referenceUri, referenceStatus || status);
+}
+
+async function health(domain: string) {
+  const { data, error } = await admin.from('federation_instance_health').select('*').eq('domain', domain).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function circuitAllows(domain: string): Promise<boolean> {
+  const h = await health(domain);
+  if (!h) return true;
+  if (h.circuit_state === 'closed') return true;
+  const probe = h.next_probe_at ? Date.parse(h.next_probe_at) : 0;
+  if (h.circuit_state === 'open' && Date.now() < probe) return false;
+  const { error } = await admin.from('federation_instance_health').update({ circuit_state: 'half_open', next_probe_at: new Date(Date.now() + PROBE_TIMEOUT_MS).toISOString(), updated_at: now() }).eq('domain', domain).eq('circuit_state', 'open');
+  if (error) console.error('[federation-delivery] circuit transition failed', error.message);
+  return true;
+}
+
+async function recordHealth(domain: string, success: boolean, statusCode: number, errorMessage?: string) {
+  const current = await health(domain);
+  if (success) {
+    await admin.from('federation_instance_health').upsert({ domain, consecutive_failures: 0, consecutive_successes: Number(current?.consecutive_successes || 0) + 1, circuit_state: 'closed', opened_at: null, next_probe_at: null, last_success_at: now(), last_status_code: statusCode, last_error: null, updated_at: now() }, { onConflict: 'domain' });
+    return;
+  }
+  const failures = Number(current?.consecutive_failures || 0) + 1;
+  const open = failures >= FAILURE_THRESHOLD;
+  const cooldown = Math.min(60, 15 * Math.pow(2, Math.max(0, failures - FAILURE_THRESHOLD)));
+  await admin.from('federation_instance_health').upsert({ domain, consecutive_failures: failures, consecutive_successes: 0, circuit_state: open ? 'open' : (current?.circuit_state || 'closed'), opened_at: open ? (current?.opened_at || now()) : current?.opened_at || null, next_probe_at: open ? new Date(Date.now() + cooldown * 60 * 1000).toISOString() : null, last_failure_at: now(), last_status_code: statusCode || null, last_error: (errorMessage || 'delivery failed').slice(0, 1000), updated_at: now() }, { onConflict: 'domain' });
+}
+
+Deno.serve(async req => {
+  if (req.method === 'GET') return new Response(JSON.stringify({ ok: true, service: 'testagram-federation-delivery-worker', version: '9.0', queue: true, circuitBreaker: true }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'POST required' }), { status: 405 });
+  try {
+    if (!await authorized(req)) return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+    const limit = Math.min(Math.max(Number(new URL(req.url).searchParams.get('limit') || 25), 1), 100);
+    const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    await admin.from('federation_deliveries').update({ status: 'retry', next_attempt_at: now(), locked_at: null, last_error: 'stale delivery lock recovered' }).eq('status', 'in_flight').lt('locked_at', stale);
+    const { data: jobs, error } = await admin.from('federation_deliveries').select('*').in('status', ['pending','retry']).lte('next_attempt_at', now()).order('next_attempt_at', { ascending: true }).limit(limit);
+    if (error) throw error;
+    let delivered = 0, failed = 0, deferred = 0, processed = 0;
+    for (const job of jobs || []) {
+      const domain = String(job.instance_domain || new URL(job.target_inbox).hostname).toLowerCase();
+      if (!await circuitAllows(domain)) { deferred++; continue; }
+      const claim = await admin.from('federation_deliveries').update({ status: 'in_flight', attempt_count: Number(job.attempt_count || 0) + 1, last_attempt_at: now(), locked_at: now() }).eq('id', job.id).in('status', ['pending','retry']).select('*').maybeSingle();
+      if (claim.error || !claim.data?.id) continue;
+      const c = claim.data; processed++;
+      try {
+        const a = c.activity_payload;
+        if (!a?.id || !a?.actor) throw Error('invalid queued ActivityPub payload');
+        const { data: local } = await admin.from('federated_actors').select('*').or(`uri.eq.${encodeURIComponent(a.actor)},actor_url.eq.${encodeURIComponent(a.actor)}`).limit(1).maybeSingle();
+        if (!local) throw Error('local actor not found');
+        const r = await send(local, c.target_inbox, a);
+        const body = (await r.text()).slice(0, 1000);
+        await recordHealth(domain, r.ok, r.status, r.ok ? undefined : `HTTP ${r.status}: ${body}`);
+        if (!r.ok) throw Error(`HTTP ${r.status}: ${body}`);
+        await admin.from('federation_deliveries').update({ status:'delivered', last_status_code:r.status, last_error:null, delivered_at:now(), locked_at:null }).eq('id',c.id).eq('status','in_flight');
+        const type = String(a.type || '');
+        if (type === 'Undo') { const ref = refUri(a); await syncInteraction(a,'sent'); if (ref) await syncInteraction({},'undone',undefined,ref,'undone'); }
+        else if (type === 'Delete') { const ref = refUri(a); await syncInteraction(a,'sent'); if (ref) await syncInteraction({},'deleted',undefined,ref,'deleted'); }
+        else await syncInteraction(a,'sent');
+        delivered++;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e), n = Number(c.attempt_count || 1), dead = n >= 8, delay = Math.min(3600,30*Math.pow(2,Math.max(0,n-1))), a = c.activity_payload, type = String(a?.type || '');
+        await recordHealth(domain, false, 0, msg);
+        await admin.from('federation_deliveries').update({ status:dead?'dead':'retry', next_attempt_at:dead?null:new Date(Date.now()+delay*1000).toISOString(), last_error:msg, locked_at:null }).eq('id',c.id).eq('status','in_flight');
+        if (type === 'Undo') { const ref=refUri(a); if(ref) await syncInteraction({},dead?'sent':'undo_pending',msg,ref,dead?'sent':'undo_pending'); }
+        else if (type === 'Delete') { const ref=refUri(a); if(ref) await syncInteraction({},dead?'sent':'pending',msg,ref,dead?'sent':'pending'); }
+        else await syncInteraction(a,dead?'failed':'pending',msg);
+        failed++;
+      }
+    }
+    await admin.from('federation_replays').delete().lt('expires_at',now());
+    return new Response(JSON.stringify({ok:true,processed,selected:(jobs||[]).length,delivered,failed,deferred,circuitBreaker:true}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+  } catch(e) { console.error('[federation-delivery-worker]',e); return new Response(JSON.stringify({error:e instanceof Error?e.message:String(e)}),{status:500,headers:{'Content-Type':'application/json'}}); }
+});
