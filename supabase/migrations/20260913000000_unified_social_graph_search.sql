@@ -74,9 +74,37 @@ end $$;
 create or replace function public.get_follow_state(p_following_id uuid) returns jsonb language sql security invoker set search_path=public as $$
 select jsonb_build_object('following',coalesce((select f.status='accepted' from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),false),'requested',coalesce((select f.status='pending' from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),false),'followed_by',coalesce((select f.status='accepted' from public.follows f where f.follower_id=p_following_id and f.following_id=(select auth.uid())),false),'status',coalesce((select f.status from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),'none')); $$;
 
+-- Enforce protected-account semantics even for older UI code that inserts into follows directly.
+create or replace function public.enforce_follow_protection() returns trigger language plpgsql security definer set search_path=public as $$
+begin
+ if new.status='accepted' and coalesce((select protected_account from public.profiles where id=new.following_id),false) then new.status:='pending'; new.accepted_at:=null; end if;
+ return new;
+end; $$;
+drop trigger if exists follows_enforce_protection on public.follows;
+create trigger follows_enforce_protection before insert or update on public.follows for each row execute function public.enforce_follow_protection();
+
+-- Keep profile follower/following counters transactionally correct for accepted follows.
+create or replace function public.sync_follow_counters() returns trigger language plpgsql security definer set search_path=public as $$
+begin
+ update public.profiles p set follower_count=coalesce((select count(*) from public.follows f where f.following_id=p.id and f.status='accepted'),0) where p.id in (coalesce(new.following_id,old.following_id));
+ update public.profiles p set following_count=coalesce((select count(*) from public.follows f where f.follower_id=p.id and f.status='accepted'),0) where p.id in (coalesce(new.follower_id,old.follower_id));
+ return coalesce(new,old);
+end; $$;
+drop trigger if exists follows_sync_profile_counters on public.follows;
+create trigger follows_sync_profile_counters after insert or update or delete on public.follows for each row execute function public.sync_follow_counters();
+
+-- Keep hashtag follower counts transactionally correct.
+create or replace function public.sync_hashtag_follow_count() returns trigger language plpgsql security definer set search_path=public as $$
+begin
+ update public.hashtags h set follower_count=coalesce((select count(*) from public.hashtag_follows hf where hf.hashtag_id=h.id),0) where h.id=coalesce(new.hashtag_id,old.hashtag_id);
+ return coalesce(new,old);
+end; $$;
+drop trigger if exists hashtag_follows_sync_count on public.hashtag_follows;
+create trigger hashtag_follows_sync_count after insert or update or delete on public.hashtag_follows for each row execute function public.sync_hashtag_follow_count();
+
 -- Preserve the production TABLE return contract. PostgreSQL 42P13 occurs when an existing
--- TABLE-returning function is replaced with jsonb. The 3-argument overload is filtered from
--- the existing 2-argument search implementation, so native + Fediverse search stays unified.
+-- TABLE-returning function is replaced with jsonb. The 3-argument overload filters the existing
+-- 2-argument search implementation, keeping native + Fediverse search unified.
 create or replace function public.search_everything(p_query text,p_limit integer default 40,p_type text default 'all')
 returns table(kind text,id text,score real,title text,subtitle text,content text,url text,source text,created_at timestamptz,actor_uri text)
 language sql security definer set search_path=public as $$
@@ -93,9 +121,6 @@ where lower(coalesce(p_type,'all'))='all'
 order by r.score desc,r.created_at desc nulls last
 limit least(greatest(coalesce(p_limit,40),1),80);
 $$;
-
--- Keep the existing production get_unified_hashtag_feed() TABLE contract intact. Its current
--- implementation already merges native post_hashtags with canonical and legacy Fediverse objects.
 
 alter table public.follows enable row level security;
 alter table public.hashtag_follows enable row level security;
