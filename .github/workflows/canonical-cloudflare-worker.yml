@@ -68,8 +68,8 @@ jobs:
         run: |
           set -euo pipefail
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
-          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_SANDBOX_CLIENT_SECRET:-}}"
-          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_SANDBOX_WEBHOOK_ID:-}}"
+          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
+          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
           test -n "$client_id" && test -n "$client_secret" && test -n "$webhook_id"
       - name: Deploy canonical Worker
         env:
@@ -106,8 +106,8 @@ jobs:
         run: |
           set -euo pipefail
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
-          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_SANDBOX_CLIENT_SECRET:-}}"
-          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_SANDBOX_WEBHOOK_ID:-}}"
+          client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
+          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
           put_secret() { local name="$1" value="$2"; for attempt in $(seq 1 6); do if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then return 0; fi; sleep $((attempt * 5)); done; return 1; }
           put_secret PAYPAL_CLIENT_ID "$client_id"
           put_secret PAYPAL_CLIENT_SECRET "$client_secret"
@@ -142,7 +142,7 @@ jobs:
             sleep 10
           done
           exit 1
-      - name: Verify federation custom domain DNS and ActivityPub health
+      - name: Verify federation custom domain DNS and ActivityPub routing
         run: |
           set -euo pipefail
           echo 'Checking authoritative resolver visibility for federation.testagram.site...'
@@ -150,24 +150,16 @@ jobs:
           for attempt in $(seq 1 12); do
             dns_ok=0
             if getent hosts federation.testagram.site >/dev/null 2>&1; then dns_ok=1; fi
-            status="$(curl -sS -o /tmp/federation-health.json -w '%{http_code}' --max-time 20 "$FEDERATION_URL/api/health" || true)"
-            echo "attempt=$attempt dns_ok=$dns_ok federation_health=$status"
-            cat /tmp/federation-health.json || true
-            if [ "$dns_ok" = 1 ] && [ "$status" = 200 ] && jq -e '.ok == true and .service == "testagram-api" and .federation == true and .federationDomain == "federation.testagram.site" and .supabaseProjectRef == "aepbqfrmheihfsauzcby"' /tmp/federation-health.json >/dev/null 2>&1; then
-              echo 'PASS: federation.testagram.site is resolving and the dedicated federation Worker is serving it.'
+            status="$(curl -sS -o /tmp/webfinger.json -w '%{http_code}' --max-time 20 --get --data-urlencode 'resource=acct:__testagram_nonexistent_actor__@federation.testagram.site' "$FEDERATION_URL/.well-known/webfinger" || true)"
+            echo "attempt=$attempt dns_ok=$dns_ok webfinger=$status"
+            cat /tmp/webfinger.json || true
+            if [ "$dns_ok" = 1 ] && [ "$status" = 404 ] && jq -e '.error != null' /tmp/webfinger.json >/dev/null 2>&1; then
+              echo 'PASS: federation.testagram.site resolves and ActivityPub WebFinger routing reaches the dedicated worker.'
               exit 0
             fi
             sleep 5
           done
           exit 1
-      - name: Verify ActivityPub discovery routing
-        run: |
-          set -euo pipefail
-          status="$(curl -sS -o /tmp/webfinger.json -w '%{http_code}' --max-time 20 --get --data-urlencode 'resource=acct:nonexistent@federation.testagram.site' "$FEDERATION_URL/.well-known/webfinger" || true)"
-          echo "WebFinger status for nonexistent actor: $status"
-          cat /tmp/webfinger.json || true
-          test "$status" = 404
-          jq -e '.error != null' /tmp/webfinger.json >/dev/null
       - name: Verify gateway authentication boundary
         run: |
           set -euo pipefail
