@@ -14,6 +14,11 @@ interface Env extends PayPalEnv {
   SUPABASE_ANON_KEY: string;
   APP_ORIGIN: string;
   MEDIA: R2Bucket;
+  CF_VERSION_METADATA: {
+    id: string;
+    tag?: string;
+    timestamp: string;
+  };
 }
 
 const GATEWAY_FUNCTION = 'gateway-relay';
@@ -45,6 +50,14 @@ function json(env: Env, payload: unknown, status = 200, id?: string, request?: R
   return new Response(JSON.stringify(payload), { status, headers });
 }
 
+function versionMetadata(env: Env) {
+  return {
+    versionId: env.CF_VERSION_METADATA.id,
+    versionTag: env.CF_VERSION_METADATA.tag || null,
+    versionTimestamp: env.CF_VERSION_METADATA.timestamp
+  };
+}
+
 async function health(env: Env, id?: string, request?: Request): Promise<Response> {
   let databaseStatus = 0, databaseReachable = false, databaseError: string | undefined;
   try {
@@ -59,7 +72,7 @@ async function health(env: Env, id?: string, request?: Request): Promise<Respons
     jwksReachable = jwks.ok;
   } catch (error) { if (!databaseError) databaseError = error instanceof Error ? error.message : 'JWKS request failed'; }
   const r2Binding = Boolean(env.MEDIA), ok = databaseReachable && jwksReachable && r2Binding;
-  return json(env, { ok, service: 'testagram-api', gateway: true, federation: true, federationDomain: 'federation.testagram.site', gatewayEndpoint: 'https://api.testagram.site/api/gateway', database: 'supabase', supabaseProjectRef: env.SUPABASE_PROJECT_REF, databaseReachable, databaseStatus, ...(databaseError ? { databaseError } : {}), jwksReachable, media: 'cloudflare-r2', r2Binding, maxMediaBytes: 20 * 1024 * 1024, edge: 'cloudflare' }, ok ? 200 : 503, id, request);
+  return json(env, { ok, service: 'testagram-api', gateway: true, federation: true, federationDomain: 'federation.testagram.site', gatewayEndpoint: 'https://api.testagram.site/api/gateway', database: 'supabase', supabaseProjectRef: env.SUPABASE_PROJECT_REF, databaseReachable, databaseStatus, ...(databaseError ? { databaseError } : {}), jwksReachable, media: 'cloudflare-r2', r2Binding, maxMediaBytes: 20 * 1024 * 1024, edge: 'cloudflare', ...versionMetadata(env) }, ok ? 200 : 503, id, request);
 }
 async function ready(env: Env, id?: string, request?: Request): Promise<Response> { const h = await health(env, id, request); const body = await h.json() as any; const readyForTraffic = body.ok === true && body.gateway === true; return json(env, { ...body, ready: readyForTraffic }, readyForTraffic ? 200 : 503, id, request); }
 
