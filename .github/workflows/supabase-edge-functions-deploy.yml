@@ -43,7 +43,7 @@ jobs:
       - name: Deploy required Edge Functions
         run: |
           set -euo pipefail
-          functions=(gateway-relay federation-transport federation-inbox federation-delivery-worker search-everything feed-fast post-create media-upload federation-discovery)
+          functions=(gateway-relay federation-transport federation-inbox federation-delivery-worker federation-processing-worker search-everything feed-fast post-create media-upload federation-discovery)
           for fn in "${functions[@]}"; do echo "Deploying $fn"; supabase functions deploy "$fn" --use-api --project-ref "$SUPABASE_PROJECT_REF"; done
       - name: Verify deployed federation inbox endpoint
         run: |
@@ -61,6 +61,14 @@ jobs:
           echo "federation-delivery-worker GET status: $status"; cat "$RUNNER_TEMP/federation-worker-health.json"
           test "$status" = 200
           jq -e '.ok == true and .service == "testagram-federation-delivery-worker"' "$RUNNER_TEMP/federation-worker-health.json" >/dev/null
+      - name: Verify deployed federation processing worker endpoint
+        run: |
+          set -euo pipefail
+          url="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/federation-processing-worker"
+          status="$(curl -sS -o "$RUNNER_TEMP/federation-processing-health.json" -w '%{http_code}' --max-time 20 "$url")"
+          echo "federation-processing-worker GET status: $status"; cat "$RUNNER_TEMP/federation-processing-health.json"
+          test "$status" = 200
+          jq -e '.ok == true and .service == "testagram-federation-processing-worker"' "$RUNNER_TEMP/federation-processing-health.json" >/dev/null
       - name: Verify deployed federation discovery endpoint
         run: |
           set -euo pipefail
