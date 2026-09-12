@@ -68,8 +68,11 @@ export default function FediverseProfilePage() {
         const cachedRows = cached.data ?? [];
         let fresh: any[] = [];
         try {
+          // getFederatedTimeline() is typed as Promise<any[]>; do not branch on an
+          // impossible non-array shape because TypeScript correctly narrows that
+          // branch to never.
           const timeline = await federation.getFederatedTimeline({ limit: 50 });
-          const items = Array.isArray(timeline) ? timeline : timeline?.posts ?? timeline?.data ?? [];
+          const items: any[] = Array.isArray(timeline) ? timeline : [];
           fresh = items.filter((item: any) => {
             const a = firstHttp(item?.actor?.id, item?.actor?.url, item?.actor_url, item?.actor_uri, item?.account?.url);
             return a === canonicalActor || a === actorTarget;
