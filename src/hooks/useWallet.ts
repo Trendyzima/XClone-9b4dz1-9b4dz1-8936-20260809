@@ -13,6 +13,7 @@ export interface Wallet {
   paypal_email: string | null;
   created_at: string;
   updated_at: string;
+  [key: string]: unknown;
 }
 
 export interface WalletTransaction {
@@ -36,25 +37,44 @@ export interface WalletTransaction {
   reference: string | null;
 }
 
+function emptyWallet(userId: string): Wallet {
+  const now = new Date().toISOString();
+  return {
+    id: userId,
+    user_id: userId,
+    balance: 0,
+    currency: 'USD',
+    total_deposited: 0,
+    total_withdrawn: 0,
+    mpesa_phone: null,
+    paypal_email: null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
 export function useWallet() {
   const { user } = useAuth();
-  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [walletState, setWalletState] = useState<Wallet | null>(null);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchWallet = useCallback(async () => {
-    if (!user) { setWallet(null); setTransactions([]); setLoading(false); return; }
+    if (!user) { setWalletState(null); setTransactions([]); setLoading(false); return; }
     try {
       setLoading(true); setError(null);
       const { data, error: walletError } = await supabase.rpc('get_my_wallet');
       if (walletError) throw walletError;
-      setWallet((data as Wallet) || null);
+      const row = Array.isArray(data) ? data[0] : data;
+      setWalletState(row ? (row as Wallet) : emptyWallet(user.id));
     } catch (err: any) {
       console.error('Wallet error:', err);
       setError(err?.message || 'Wallet unavailable');
-      setWallet(null);
+      // Keep wallet pages render-safe even when the wallet RPC is temporarily
+      // unavailable. This is a display fallback only; writes remain guarded.
+      setWalletState(emptyWallet(user.id));
     } finally { setLoading(false); }
   }, [user?.id]);
 
@@ -64,7 +84,7 @@ export function useWallet() {
       setTransactionsLoading(true);
       const { data, error: txError } = await supabase.rpc('get_my_wallet_transactions', { p_limit: limit, p_offset: offset });
       if (txError) throw txError;
-      setTransactions((data as WalletTransaction[]) || []);
+      setTransactions((Array.isArray(data) ? data : []) as WalletTransaction[]);
     } catch (err: any) {
       console.error('Wallet transactions error:', err);
       setError(err?.message || 'Transaction history unavailable');
@@ -76,14 +96,14 @@ export function useWallet() {
   useEffect(() => { void fetchTransactions(); }, [fetchTransactions]);
 
   const updatePaymentMethods = async (mpesaPhone: string, paypalEmail: string) => {
-    if (!user || !wallet) return { success: false, error: 'No wallet found' };
+    if (!user) return { success: false, error: 'Not authenticated' };
     try {
       const { data, error: updateError } = await supabase.rpc('update_wallet_payment_methods', {
         p_mpesa_phone: mpesaPhone || null,
         p_paypal_email: paypalEmail || null,
       });
       if (updateError) throw updateError;
-      setWallet(data as Wallet);
+      if (data) setWalletState(data as Wallet);
       return { success: true };
     } catch (err: any) {
       console.error('Update payment methods error:', err);
@@ -95,5 +115,15 @@ export function useWallet() {
     await Promise.all([fetchWallet(), fetchTransactions()]);
   }, [fetchWallet, fetchTransactions]);
 
-  return { wallet, transactions, loading, transactionsLoading, error, fetchWallet, fetchTransactions, refresh, updatePaymentMethods };
+  return {
+    wallet: user ? (walletState ?? emptyWallet(user.id)) : null,
+    transactions,
+    loading,
+    transactionsLoading,
+    error,
+    fetchWallet,
+    fetchTransactions,
+    refresh,
+    updatePaymentMethods,
+  };
 }
