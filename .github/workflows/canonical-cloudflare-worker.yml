@@ -107,7 +107,7 @@ jobs:
           set -euo pipefail
           client_id="${PAYPAL_CLIENT_ID_PRIMARY:-${PAYPAL_CLIENT_ID_SANDBOX:-}}"
           client_secret="${PAYPAL_CLIENT_SECRET_PRIMARY:-${PAYPAL_CLIENT_SECRET_SANDBOX:-}}"
-          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}"
+          webhook_id="${PAYPAL_WEBHOOK_ID_PRIMARY:-${PAYPAL_SANDBOX_WEBHOOK_ID:-${PAYPAL_WEBHOOK_ID_SANDBOX:-}}}"
           put_secret() { local name="$1" value="$2"; for attempt in $(seq 1 6); do if printf '%s' "$value" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$name" --config cloudflare/wrangler.jsonc; then return 0; fi; sleep $((attempt * 5)); done; return 1; }
           put_secret PAYPAL_CLIENT_ID "$client_id"
           put_secret PAYPAL_CLIENT_SECRET "$client_secret"
@@ -163,10 +163,28 @@ jobs:
       - name: Verify gateway authentication boundary
         run: |
           set -euo pipefail
-          status="$(curl -sS -o /tmp/gateway-auth.json -w '%{http_code}' --max-time 20 -H 'Content-Type: application/json' --data '{"path":"/timeline/home","method":"GET"}' "$GATEWAY_URL/api/gateway" || true)"
-          echo "Unauthenticated gateway HTTP status: $status"
-          cat /tmp/gateway-auth.json || true
-          test "$status" = 401
+          payload='{"path":"/timeline/home","method":"GET"}'
+          last_custom_status=''
+          last_direct_status=''
+          for attempt in $(seq 1 12); do
+            cache_buster="$(date +%s%N)-$attempt"
+            custom_status="$(curl -sS -o /tmp/gateway-auth-custom.json -w '%{http_code}' --max-time 20 -H 'Content-Type: application/json' -H 'Cache-Control: no-cache' --data "$payload" "$GATEWAY_URL/api/gateway?probe=$cache_buster" || true)"
+            direct_status="$(curl -sS -o /tmp/gateway-auth-direct.json -w '%{http_code}' --max-time 20 -H 'Content-Type: application/json' -H 'Cache-Control: no-cache' --data "$payload" "$WORKER_DIRECT_URL/api/gateway?probe=$cache_buster" || true)"
+            last_custom_status="$custom_status"
+            last_direct_status="$direct_status"
+            echo "attempt=$attempt custom=$custom_status direct=$direct_status"
+            echo 'custom response:'
+            cat /tmp/gateway-auth-custom.json || true
+            echo 'direct response:'
+            cat /tmp/gateway-auth-direct.json || true
+            if [ "$custom_status" = 401 ] && [ "$direct_status" = 401 ] && jq -e '.code == "AUTH_REQUIRED" and .ok == false' /tmp/gateway-auth-custom.json >/dev/null 2>&1 && jq -e '.code == "AUTH_REQUIRED" and .ok == false' /tmp/gateway-auth-direct.json >/dev/null 2>&1; then
+              echo 'PASS: gateway rejects unauthenticated requests consistently on both the custom domain and direct Worker URL.'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Gateway authentication verification failed after 12 attempts; last custom=$last_custom_status direct=$last_direct_status"
+          exit 1
       - name: Verify PayPal configuration
         run: |
           set -euo pipefail
