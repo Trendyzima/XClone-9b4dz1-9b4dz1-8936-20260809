@@ -3,8 +3,10 @@ alter table public.federated_activities add column if not exists next_processing
 alter table public.federated_activities add column if not exists processed_at timestamptz;
 alter table public.federated_activities add column if not exists dead_at timestamptz;
 alter table public.federated_activities add column if not exists last_processing_error text;
+alter table public.federated_activities add column if not exists processing_started_at timestamptz;
 update public.federated_activities set processing_state=case when processed_at is not null then 'processed' when processing_error is not null then 'retry' else 'received' end where processing_state='received';
 create index if not exists federated_activities_processing_queue_idx on public.federated_activities(processing_state,next_processing_at,received_at);
+create index if not exists federated_activities_processing_lock_idx on public.federated_activities(processing_state,processing_started_at);
 alter table public.federation_deliveries add column if not exists locked_at timestamptz;
 create index if not exists federation_deliveries_lock_idx on public.federation_deliveries(status,locked_at);
 
@@ -25,8 +27,8 @@ create or replace function public.recover_stale_federation_processing(max_age in
 declare n integer;
 begin
   update federated_activities
-  set processing_state='retry', next_processing_at=now(), processing_error=coalesce(processing_error,'stale processing lock recovered'), last_processing_error=coalesce(last_processing_error,'stale processing lock recovered')
-  where processing_state='processing' and received_at < now()-max_age;
+  set processing_state='retry', next_processing_at=now(), processing_started_at=null, processing_error=coalesce(processing_error,'stale processing lock recovered'), last_processing_error=coalesce(last_processing_error,'stale processing lock recovered')
+  where processing_state='processing' and processing_started_at is not null and processing_started_at < now()-max_age;
   get diagnostics n = row_count;
   return n;
 end $$;
