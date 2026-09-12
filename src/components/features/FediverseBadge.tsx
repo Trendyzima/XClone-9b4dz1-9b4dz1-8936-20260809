@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Globe, Copy, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -8,9 +9,34 @@ interface FediverseBadgeProps {
   compact?: boolean;
 }
 
+function isRemotePostLink(anchor: HTMLAnchorElement): boolean {
+  if (!anchor.href || !/^https?:\/\//i.test(anchor.href)) return false;
+  if (anchor.dataset.fediverseProfile === 'true') return false;
+  if (anchor.closest('[data-fediverse-canonical-profile="true"]')) return false;
+  return Boolean(anchor.target === '_blank' || anchor.rel.includes('noopener'));
+}
+
 export function FediverseBadge({ username, remoteFollowers = 0, compact = false }: FediverseBadgeProps) {
   const [copied, setCopied] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
   const handle = `@${username}@testagram.site`;
+
+  useEffect(() => {
+    if (!location.pathname.startsWith('/fediverse')) return;
+    const onClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest('a') as HTMLAnchorElement | null;
+      if (!anchor || !isRemotePostLink(anchor)) return;
+      const href = anchor.href;
+      if (!href || href.startsWith(window.location.origin)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      navigate(`/fediverse/post?url=${encodeURIComponent(href)}`);
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, [location.pathname, navigate]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(handle).then(() => {
