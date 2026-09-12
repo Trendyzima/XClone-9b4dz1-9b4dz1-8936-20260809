@@ -4,7 +4,6 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SECRET_KEY") || "";
 const ORIGIN = "https://federation.testagram.site";
-const CTX = ["https://www.w3.org/ns/activitystreams", "https://w3id.org/security/v1"];
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,apikey,content-type", "Access-Control-Allow-Methods": "POST,OPTIONS" };
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -30,26 +29,30 @@ async function authenticatedUser(req: Request) {
   return data.user;
 }
 
-async function provision(userId: string) {
-  const { data: profile, error: profileError } = await admin.from("profiles").select("id,username,display_name,avatar_url,bio,cover_url,website,location,created_at,protected_account").eq("id", userId).maybeSingle();
-  if (profileError) throw profileError;
-  if (!profile?.username) throw new Error("A completed Testagram profile is required before federation can be provisioned");
-
+async function createOrRepairActor(profile: any) {
   const actorUrl = `${ORIGIN}/users/${encodeURIComponent(profile.username)}`;
-  const { data: existing, error: existingError } = await admin.from("federation_actors").select("id,user_id,username,actor_url,inbox_url,public_key_pem,private_key_jwk").eq("user_id", userId).maybeSingle();
+  const { data: existing, error: existingError } = await admin
+    .from("federation_actors")
+    .select("id,user_id,username,actor_url,inbox_url,public_key_pem,private_key_jwk")
+    .eq("user_id", profile.id)
+    .maybeSingle();
   if (existingError) throw existingError;
-  if (existing?.private_key_jwk && existing?.public_key_pem && existing.actor_url === actorUrl) {
-    return { created: false, actor: existing };
+
+  if (existing?.private_key_jwk && existing?.public_key_pem && existing.actor_url === actorUrl && existing.username === profile.username) {
+    return { created: false, repaired: false, actor: existing };
   }
 
-  const keyPair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+  const keyPair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"],
+  );
   const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
   const publicSpki = await crypto.subtle.exportKey("spki", keyPair.publicKey);
   const publicPem = pem("PUBLIC KEY", publicSpki);
   const now = new Date().toISOString();
-
   const row = {
-    user_id: userId,
+    user_id: profile.id,
     username: profile.username,
     actor_url: actorUrl,
     inbox_url: `${actorUrl}/inbox`,
@@ -57,10 +60,30 @@ async function provision(userId: string) {
     private_key_jwk: privateJwk,
     updated_at: now,
   };
-  const { data: actor, error } = await admin.from("federation_actors").upsert(row, { onConflict: "user_id", ignoreDuplicates: false }).select("id,user_id,username,actor_url,inbox_url,public_key_pem").single();
+  const { data: actor, error } = await admin
+    .from("federation_actors")
+    .upsert(row, { onConflict: "user_id", ignoreDuplicates: false })
+    .select("id,user_id,username,actor_url,inbox_url,public_key_pem")
+    .single();
   if (error) throw error;
+  return { created: !existing, repaired: Boolean(existing), actor };
+}
 
-  return { created: !existing, actor };
+async function reconcileAllProfiles() {
+  const { data: profiles, error } = await admin.from("profiles").select("id,username").order("created_at", { ascending: true });
+  if (error) throw error;
+  const results = [];
+  for (const profile of profiles || []) {
+    if (!profile?.id || !profile?.username) continue;
+    try {
+      results.push(await createOrRepairActor(profile));
+    } catch (error) {
+      results.push({ created: false, repaired: false, user_id: profile.id, username: profile.username, error: error instanceof Error ? error.message : "actor provisioning failed" });
+    }
+  }
+  const complete = results.filter((item: any) => item.actor && item.actor.public_key_pem).length;
+  const failed = results.filter((item: any) => item.error).length;
+  return { scanned: profiles?.length || 0, complete, failed, results };
 }
 
 Deno.serve(async (req) => {
@@ -69,8 +92,9 @@ Deno.serve(async (req) => {
   try {
     const user = await authenticatedUser(req);
     if (!user) return json({ error: "Authentication required" }, 401);
-    const result = await provision(user.id);
-    return json({ ok: true, protocol: "activitypub", federation_origin: ORIGIN, ...result });
+    const result = await reconcileAllProfiles();
+    const own = result.results.find((item: any) => item.actor?.user_id === user.id || item.user_id === user.id);
+    return json({ ok: result.failed === 0, protocol: "activitypub", federation_origin: ORIGIN, authenticated_user_id: user.id, own, ...result });
   } catch (error) {
     console.error("federation-provision-actor", error);
     return json({ error: error instanceof Error ? error.message : "Federation actor provisioning failed" }, 500);
