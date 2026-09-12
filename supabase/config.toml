@@ -19,6 +19,9 @@ verify_jwt = false
 [functions.federation-processing-worker]
 verify_jwt = false
 
+[functions.federation-reconcile-actors]
+verify_jwt = false
+
 [functions.federation-provision-actor]
 verify_jwt = true
 
