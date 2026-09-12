@@ -1,15 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-const URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SECRET_KEY")!;
 const ORIGIN = "https://federation.testagram.site";
 const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 const CTX = ["https://www.w3.org/ns/activitystreams", "https://w3id.org/security/v1"];
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,apikey,content-type,accept", "Access-Control-Allow-Methods": "GET,OPTIONS" };
-const admin = createClient(URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
+const admin = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { ...CORS, "Content-Type": "application/activity+json; charset=utf-8", "Cache-Control": "public, max-age=30, s-maxage=60" } });
 const enc = (v: string) => encodeURIComponent(v);
-async function db(path: string) { const r = await fetch(`${URL}/rest/v1/${path}`, { headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, Accept: "application/json" } }); if (!r.ok) throw new Error(`database ${r.status}: ${(await r.text()).slice(0,500)}`); return r.json(); }
+async function db(path: string) { const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}`, Accept: "application/json" } }); if (!r.ok) throw new Error(`database ${r.status}: ${(await r.text()).slice(0,500)}`); return r.json(); }
 async function getActor(username: string) { const rows = await db(`federated_actors?or=(username.eq.${enc(username)},preferred_username.eq.${enc(username)})&select=*`) as any[]; if (!rows[0]) return null; const profiles = rows[0].user_id ? await db(`profiles?id=eq.${enc(rows[0].user_id)}&select=username,display_name,avatar_url,bio,cover_url,website,location,created_at,protected_account`) as any[] : []; return { ...rows[0], profile: profiles[0] || {} }; }
 function tags(content: string) { return [...new Set([...content.matchAll(/(^|\s)#([\p{L}\p{N}_-]+)/gu)].map(m=>m[2].toLowerCase()))].map(tag=>({type:"Hashtag",name:`#${tag}`,href:`${ORIGIN}/tags/${enc(tag)}`})); }
 function attachments(media: unknown) { if(!Array.isArray(media)) return []; return media.map((item:any)=>{const url=typeof item==="string"?item:item?.url||item?.publicUrl||item?.media_url;if(!url)return null;const type=typeof item==="object"?item?.mime_type||item?.mimeType||"":"";return {type:type.startsWith("video/")?"Video":type.startsWith("audio/")?"Audio":"Image",mediaType:type||undefined,url};}).filter(Boolean); }
