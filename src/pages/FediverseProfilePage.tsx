@@ -13,7 +13,12 @@ function firstHttp(...values: unknown[]): string { return values.find(v => typeo
 function actorUrlOf(actor: any): string { return firstHttp(actor?.url, actor?.id, actor?.actor_url, actor?.uri); }
 function actorDomain(actor: any, fallback = '') { try { return new URL(actorUrlOf(actor)).hostname; } catch { return fallback; } }
 function actorHandle(actor: any, fallbackDomain = '') { const acct = String(actor?.acct ?? actor?.preferredUsername ?? actor?.username ?? 'unknown').replace(/^@/, ''); if (acct.includes('@')) return acct; const domain = actorDomain(actor, fallbackDomain); return domain ? `${acct}@${domain}` : acct; }
-function mergeActor(value: any, fallback: string): any { const c = [value?.actor, value?.account, value?.author, value?.remote_accounts, value?.remote_account, value?.raw_object?.attributedTo, value].filter(Boolean); const merged = Object.assign({}, ...c.reverse(), ...c); if (!merged.id && !merged.url) merged.id = fallback; return merged; }
+function mergeActor(value: any, fallback: string): any {
+  const c = [value?.actor, value?.account, value?.data, value?.profile, value?.remote_accounts, value?.remote_account, value?.author, value?.raw_object?.attributedTo, value].filter(Boolean);
+  const merged = Object.assign({}, ...c.reverse(), ...c);
+  if (!merged.id && !merged.url && !merged.actor_url && !merged.uri) merged.id = fallback;
+  return merged;
+}
 
 export default function FediverseProfilePage() {
   const location = useLocation();
@@ -29,12 +34,12 @@ export default function FediverseProfilePage() {
   const [followingCount, setFollowingCount] = useState<number | null>(null);
 
   const actorTarget = useMemo(() => new URLSearchParams(location.search).get('actor')?.trim() ?? '', [location.search]);
-  const canonicalActor = actorUrlOf(actor) || actorTarget;
+  const canonicalActor = actorUrlOf(actor) || (firstHttp(actorTarget) ? actorTarget : '');
   const domain = actorDomain(actor, actorTarget.includes('@') ? actorTarget.split('@').pop() || '' : '');
   const username = actor?.preferredUsername ?? actor?.username ?? actorTarget.replace(/^@/, '').split('@')[0] ?? 'unknown';
   const displayName = actor?.name ?? actor?.display_name ?? username;
-  const avatar = actor?.icon?.url ?? actor?.icon?.href ?? actor?.avatar_url ?? actor?.avatar;
-  const header = actor?.image?.url ?? actor?.image?.href ?? actor?.header ?? actor?.header_static;
+  const avatar = firstHttp(actor?.icon?.url, actor?.icon?.href, actor?.avatar_url, actor?.avatar);
+  const header = firstHttp(actor?.image?.url, actor?.image?.href, actor?.header, actor?.header_static);
   const bio = actor?.summary ?? actor?.bio ?? '';
   const handle = actorHandle(actor, domain);
 
@@ -44,8 +49,10 @@ export default function FediverseProfilePage() {
       if (!actorTarget) { setLoading(false); return; }
       setLoading(true);
       try {
+        // Resolve both @user@domain and canonical actor URLs through Testagram's
+        // federation gateway. The remote server is never used as the browser target.
         const resolved = await federation.getUser(actorTarget);
-        const remote = mergeActor(resolved?.actor ?? resolved, actorTarget);
+        const remote = mergeActor(resolved, actorTarget);
         if (!alive) return;
         setActor(remote);
         setFollowers(Number(remote.followers_count ?? remote.followers?.totalItems ?? 0) || null);
@@ -68,9 +75,6 @@ export default function FediverseProfilePage() {
         const cachedRows = cached.data ?? [];
         let fresh: any[] = [];
         try {
-          // getFederatedTimeline() is typed as Promise<any[]>; do not branch on an
-          // impossible non-array shape because TypeScript correctly narrows that
-          // branch to never.
           const timeline = await federation.getFederatedTimeline({ limit: 50 });
           const items: any[] = Array.isArray(timeline) ? timeline : [];
           fresh = items.filter((item: any) => {
