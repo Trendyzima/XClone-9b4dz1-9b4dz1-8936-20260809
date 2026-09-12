@@ -10,6 +10,9 @@ verify_jwt = false
 [functions.federation-discovery]
 verify_jwt = false
 
+[functions.federation-inbox]
+verify_jwt = false
+
 [functions.federation-provision-actor]
 verify_jwt = true
 
