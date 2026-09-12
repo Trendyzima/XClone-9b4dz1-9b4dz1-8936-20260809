@@ -1,14 +1,11 @@
 -- Unified social graph, hashtag following, hashtag indexing and search.
--- Additive/compatibility-first: existing Testagram tables are upgraded in place.
+-- Compatibility-first: existing production RPC return contracts are preserved.
 
 create table if not exists public.follows (
   follower_id uuid not null references public.profiles(id) on delete cascade,
   following_id uuid not null references public.profiles(id) on delete cascade,
-  status text not null default 'accepted',
-  created_at timestamptz not null default now(),
-  accepted_at timestamptz,
-  primary key (follower_id, following_id),
-  check (follower_id <> following_id)
+  status text not null default 'accepted', created_at timestamptz not null default now(), accepted_at timestamptz,
+  primary key (follower_id, following_id), check (follower_id <> following_id)
 );
 alter table public.follows add column if not exists status text not null default 'accepted';
 alter table public.follows add column if not exists accepted_at timestamptz;
@@ -77,22 +74,28 @@ end $$;
 create or replace function public.get_follow_state(p_following_id uuid) returns jsonb language sql security invoker set search_path=public as $$
 select jsonb_build_object('following',coalesce((select f.status='accepted' from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),false),'requested',coalesce((select f.status='pending' from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),false),'followed_by',coalesce((select f.status='accepted' from public.follows f where f.follower_id=p_following_id and f.following_id=(select auth.uid())),false),'status',coalesce((select f.status from public.follows f where f.follower_id=(select auth.uid()) and f.following_id=p_following_id),'none')); $$;
 
--- Existing production RPC has a different return type. PostgreSQL 42P13 forbids changing it with CREATE OR REPLACE, so replace the exact signature.
-drop function if exists public.search_everything(text,integer,text);
-create function public.search_everything(p_query text,p_limit integer default 40,p_type text default 'all') returns jsonb language plpgsql security invoker set search_path=public as $$
-declare q text:=lower(trim(coalesce(p_query,''))); lim integer:=least(greatest(coalesce(p_limit,40),1),80); r jsonb:='[]'::jsonb; x jsonb; begin
- if q='' then return r; end if;
- if p_type in ('all','users') then select coalesce(jsonb_agg(jsonb_build_object('result_type','user','id',p.id,'username',p.username,'display_name',p.display_name,'bio',p.bio,'avatar_url',p.avatar_url,'verified',coalesce(p.verified,false),'followers_count',coalesce(p.follower_count,0),'source','native','url','/profile/'||p.username)),'[]'::jsonb) into x from (select * from public.profiles where lower(coalesce(username,'')) like '%'||q||'%' or lower(coalesce(display_name,'')) like '%'||q||'%' or lower(coalesce(bio,'')) like '%'||q||'%' order by case when lower(username)=q then 0 when lower(username) like q||'%' then 1 else 2 end,coalesce(follower_count,0) desc limit lim) p; r:=r||x; end if;
- if p_type in ('all','hashtags') then select coalesce(jsonb_agg(jsonb_build_object('result_type','hashtag','id',h.id,'tag',h.tag,'usage_count',coalesce(h.usage_count,h.post_count,0),'follower_count',coalesce(h.follower_count,0),'source','native','url','/hashtag/'||h.tag)),'[]'::jsonb) into x from (select * from public.hashtags where lower(tag) like '%'||replace(q,'#','')||'%' order by coalesce(usage_count,post_count,0) desc limit lim) h; r:=r||x; end if;
- if p_type in ('all','posts') then select coalesce(jsonb_agg(jsonb_build_object('result_type','post','id',p.id,'content',coalesce(p.content,p.body,''),'created_at',p.created_at,'author_id',p.author_id,'source','native','url','/post/'||p.id)),'[]'::jsonb) into x from (select * from public.posts where lower(coalesce(content,body,'')) like '%'||q||'%' order by created_at desc limit lim) p; r:=r||x; end if;
- if p_type in ('all','communities') then select coalesce(jsonb_agg(jsonb_build_object('result_type','community','id',c.id,'name',c.name,'display_name',coalesce(to_jsonb(c)->>'display_name',c.name),'description',c.description,'member_count',c.member_count,'source','native','url','/c/'||c.name)),'[]'::jsonb) into x from (select * from public.communities where lower(name) like '%'||q||'%' or lower(coalesce(description,'')) like '%'||q||'%' order by member_count desc limit lim) c; r:=r||x; end if;
- if p_type in ('all','products') then select coalesce(jsonb_agg(jsonb_build_object('result_type','product','id',p.id,'name',p.name,'description',p.description,'image_url',p.image_url,'price_cents',p.price_cents,'source','native')),'[]'::jsonb) into x from (select * from public.products where lower(name) like '%'||q||'%' or lower(coalesce(description,'')) like '%'||q||'%' order by created_at desc limit lim) p; r:=r||x; end if;
- if p_type in ('all','fediverse_users') then select coalesce(jsonb_agg(jsonb_build_object('result_type','fediverse_user','id',a.id,'actor_url',coalesce(a.actor_url,a.uri),'username',coalesce(a.username,a.raw_actor->>'preferredUsername'),'display_name',coalesce(a.raw_actor->>'name',a.username),'domain',split_part(replace(coalesce(a.actor_url,a.uri),'https://',''), '/', 1),'avatar_url',a.raw_actor->'icon'->>'url','source','fediverse')),'[]'::jsonb) into x from (select * from public.federated_actors where lower(coalesce(username,'')) like '%'||replace(q,'@','')||'%' or lower(coalesce(actor_url,uri,'')) like '%'||q||'%' or lower(coalesce(raw_actor->>'name','')) like '%'||q||'%' limit lim) a; r:=r||x; end if;
- if p_type in ('all','fediverse_posts') then select coalesce(jsonb_agg(jsonb_build_object('result_type','fediverse_post','id',o.id,'uri',o.uri,'url',coalesce(o.url,o.uri),'content',coalesce(o.content,''),'published_at',o.published_at,'actor_uri',o.actor_uri,'source','fediverse','_is_federated',true)),'[]'::jsonb) into x from (select * from public.federated_objects where object_type='Note' and deleted_at is null and lower(coalesce(content,'')) like '%'||q||'%' order by published_at desc limit lim) o; r:=r||x; end if;
- return r; end $$;
+-- Preserve the production TABLE return contract. PostgreSQL 42P13 occurs when an existing
+-- TABLE-returning function is replaced with jsonb. The 3-argument overload is filtered from
+-- the existing 2-argument search implementation, so native + Fediverse search stays unified.
+create or replace function public.search_everything(p_query text,p_limit integer default 40,p_type text default 'all')
+returns table(kind text,id text,score real,title text,subtitle text,content text,url text,source text,created_at timestamptz,actor_uri text)
+language sql security definer set search_path=public as $$
+select r.* from public.search_everything(p_query,greatest(coalesce(p_limit,40),80)) r
+where lower(coalesce(p_type,'all'))='all'
+ or (lower(p_type)='users' and r.kind in ('user','fediverse_user'))
+ or (lower(p_type)='posts' and r.kind in ('post','fediverse_post'))
+ or (lower(p_type)='hashtags' and r.kind='hashtag')
+ or (lower(p_type)='instances' and r.kind='instance')
+ or (lower(p_type)='communities' and r.kind='community')
+ or (lower(p_type)='products' and r.kind='product')
+ or (lower(p_type)='fediverse_users' and r.kind='fediverse_user')
+ or (lower(p_type)='fediverse_posts' and r.kind='fediverse_post')
+order by r.score desc,r.created_at desc nulls last
+limit least(greatest(coalesce(p_limit,40),1),80);
+$$;
 
-create or replace function public.get_unified_hashtag_feed(p_tag text,p_limit integer default 40) returns jsonb language sql security invoker set search_path=public as $$
-with lp as (select jsonb_build_object('result_type','post','id',p.id,'content',coalesce(p.content,p.body,''),'created_at',p.created_at,'author_id',p.author_id,'source','native','url','/post/'||p.id) item,p.created_at sort_at from public.posts p join public.post_hashtags ph on ph.post_id=p.id join public.hashtags h on h.id=ph.hashtag_id where h.tag=lower(regexp_replace(trim(p_tag),'^#',''))), rp as (select jsonb_build_object('result_type','fediverse_post','id',o.id,'uri',o.uri,'url',coalesce(o.url,o.uri),'content',coalesce(o.content,''),'published_at',o.published_at,'actor_uri',o.actor_uri,'source','fediverse','_is_federated',true) item,o.published_at sort_at from public.federated_objects o where o.object_type='Note' and o.deleted_at is null and exists(select 1 from jsonb_array_elements(coalesce(o.tags,'[]'::jsonb)) t where lower(trim(both '#' from coalesce(t->>'name',''))) = lower(regexp_replace(trim(p_tag),'^#','')))) select coalesce(jsonb_agg(item order by sort_at desc),'[]'::jsonb) from (select item,sort_at from lp union all select item,sort_at from rp order by sort_at desc limit least(greatest(coalesce(p_limit,40),1),80)) z; $$;
+-- Keep the existing production get_unified_hashtag_feed() TABLE contract intact. Its current
+-- implementation already merges native post_hashtags with canonical and legacy Fediverse objects.
 
 alter table public.follows enable row level security;
 alter table public.hashtag_follows enable row level security;
