@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "installCommand": "sed -i '/^node-options/d' .npmrc && npm install && npm install react-router-dom@6.30.1 --no-save && node _patch-vite.cjs",
+  "installCommand": "sed -i '/^node-options/d' .npmrc && npm install && node _patch-vite.cjs",
   "buildCommand": "node _build.cjs",
   "outputDirectory": "dist",
   "functions": {
