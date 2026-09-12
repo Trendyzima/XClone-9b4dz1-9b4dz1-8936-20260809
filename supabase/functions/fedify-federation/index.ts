@@ -2,7 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { createFederation } from 'npm:@fedify/fedify@2.4.0';
 
-const ORIGIN = Deno.env.get('FEDERATION_ORIGIN') || 'https://testagram.site';
+const ORIGIN = Deno.env.get('FEDERATION_ORIGIN') || 'https://federation.testagram.site';
 const HOST = new URL(ORIGIN).hostname;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SECRET_KEY') ?? '';
@@ -138,16 +138,10 @@ async function relationshipCollection(kind: 'followers' | 'following', username:
   const p = await profile(username);
   if (!p) return null;
   const actor = `${ORIGIN}/users/${encodeURIComponent(username)}`;
-  if (kind === 'followers') {
-    const { data, error } = await db.from('federation_relationships').select('remote_actor_url').eq('user_id', p.id).eq('relationship', 'follower').in('state', ['accepted', 'active']).limit(1000);
-    if (error) throw error;
-    const items = [...new Set((data || []).map((r: any) => r.remote_actor_url).filter(Boolean))];
-    return { '@context': CTX, id: `${actor}/followers`, type: 'OrderedCollection', totalItems: items.length, orderedItems: items };
-  }
-  const { data, error } = await db.from('federation_relationships').select('remote_actor_url').eq('user_id', p.id).eq('relationship', 'following').in('state', ['accepted', 'active']).limit(1000);
+  const { data, error } = await db.from('federation_relationships').select('remote_actor_url').eq('user_id', p.id).eq('relationship', kind === 'followers' ? 'follower' : 'following').in('state', ['accepted', 'active']).limit(1000);
   if (error) throw error;
   const items = [...new Set((data || []).map((r: any) => r.remote_actor_url).filter(Boolean))];
-  return { '@context': CTX, id: `${actor}/following`, type: 'OrderedCollection', totalItems: items.length, orderedItems: items };
+  return { '@context': CTX, id: `${actor}/${kind}`, type: 'OrderedCollection', totalItems: items.length, orderedItems: items };
 }
 
 Deno.serve(async (req) => {
