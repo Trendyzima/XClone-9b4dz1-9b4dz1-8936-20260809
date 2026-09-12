@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Globe, Loader2, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Globe, Loader2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import * as federation from '@/api/federation';
@@ -84,6 +84,5 @@ export default function FediversePostPage() {
 
   if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (!post) return <div className="min-h-screen bg-background p-8 text-center"><Globe className="w-12 h-12 mx-auto mb-3 opacity-30" /><p className="font-semibold">Unable to open this post in Testagram</p><p className="text-sm mt-1">{error || 'The remote post could not be resolved.'}</p><button onClick={() => navigate('/fediverse')} className="mt-5 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold">Back to Fediverse</button></div>;
-  const original = post.object_url || post.url || post.uri;
-  return <div className="min-h-screen bg-background pb-20 md:pb-0"><div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border p-3 flex items-center gap-3"><button onClick={() => navigate(-1)} className="p-2 rounded-full hover:bg-muted" aria-label="Go back"><ArrowLeft className="w-5 h-5" /></button><div><h1 className="font-bold">Post</h1><p className="text-[11px] text-muted-foreground flex items-center gap-1"><Globe className="w-3 h-3" />Fediverse · viewed in Testagram</p></div></div><FederatedPostCard post={post} disableNavigation />{original && <div className="px-4 py-3 text-center"><a href={original} target="_blank" rel="noreferrer" className="text-xs text-primary inline-flex items-center gap-1">Open original Fediverse object <ExternalLink className="w-3 h-3" /></a></div>}</div>;
+  return <div className="min-h-screen bg-background pb-20 md:pb-0"><div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border p-3 flex items-center gap-3"><button onClick={() => navigate(-1)} className="p-2 rounded-full hover:bg-muted" aria-label="Go back"><ArrowLeft className="w-5 h-5" /></button><div><h1 className="font-bold">Post</h1><p className="text-[11px] text-muted-foreground flex items-center gap-1"><Globe className="w-3 h-3" />Fediverse · viewed in Testagram</p></div></div><FederatedPostCard post={post} disableNavigation /></div>;
 }
