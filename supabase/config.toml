@@ -12,3 +12,6 @@ verify_jwt = false
 
 [functions.federation-provision-actor]
 verify_jwt = true
+
+[functions.fedify-federation]
+verify_jwt = false
