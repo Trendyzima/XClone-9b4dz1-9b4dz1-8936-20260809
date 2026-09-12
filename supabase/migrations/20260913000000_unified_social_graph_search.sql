@@ -107,10 +107,10 @@ end; $$;
 drop trigger if exists hashtag_follows_sync_count on public.hashtag_follows;
 create trigger hashtag_follows_sync_count after insert or update or delete on public.hashtag_follows for each row execute function public.sync_hashtag_follow_count();
 
-create or replace function public.search_everything(p_query text,p_limit integer default 40,p_type text default 'all')
+create or replace function public.search_everything_by_type(p_query text,p_limit integer default 40,p_type text default 'all')
 returns table(kind text,id text,score real,title text,subtitle text,content text,url text,source text,created_at timestamptz,actor_uri text)
 language sql security definer set search_path=public as $$
-select r.* from public.search_everything(p_query,greatest(coalesce(p_limit,40),80)) r
+select r.* from public.search_everything(p_query,least(greatest(coalesce(p_limit,40),1),80)) r
 where lower(coalesce(p_type,'all'))='all'
  or (lower(p_type)='users' and r.kind in ('user','fediverse_user'))
  or (lower(p_type)='posts' and r.kind in ('post','fediverse_post'))
@@ -133,7 +133,11 @@ drop policy if exists hashtag_follows_select_own on public.hashtag_follows; crea
 drop policy if exists hashtag_follows_insert_own on public.hashtag_follows; create policy hashtag_follows_insert_own on public.hashtag_follows for insert to authenticated with check ((select auth.uid())=user_id);
 drop policy if exists hashtag_follows_delete_own on public.hashtag_follows; create policy hashtag_follows_delete_own on public.hashtag_follows for delete to authenticated using ((select auth.uid())=user_id);
 
+revoke all on function public.search_everything_by_type(text,integer,text) from public;
+revoke all on function public.enforce_follow_protection() from public;
+revoke all on function public.sync_follow_counters() from public;
+revoke all on function public.sync_hashtag_follow_count() from public;
 grant execute on function public.set_follow_state(uuid,boolean) to authenticated;
 grant execute on function public.get_follow_state(uuid) to authenticated;
-grant execute on function public.search_everything(text,integer,text) to authenticated;
+grant execute on function public.search_everything_by_type(text,integer,text) to authenticated;
 grant execute on function public.get_unified_hashtag_feed(text,integer) to authenticated;
