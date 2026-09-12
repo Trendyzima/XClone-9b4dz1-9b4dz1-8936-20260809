@@ -53,6 +53,16 @@ jobs:
           echo "federation-inbox GET status: $status"; cat "$RUNNER_TEMP/federation-inbox-health.json"
           test "$status" = 405
           jq -e '.error == "POST required"' "$RUNNER_TEMP/federation-inbox-health.json" >/dev/null
+      - name: Verify worker authentication gates
+        run: |
+          set -euo pipefail
+          for fn in federation-delivery-worker federation-processing-worker; do
+            url="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/$fn"
+            status="$(curl -sS -o "$RUNNER_TEMP/$fn-auth.json" -w '%{http_code}' --max-time 20 -X POST -H 'Content-Type: application/json' "$url")"
+            echo "$fn unauthenticated POST status: $status"; cat "$RUNNER_TEMP/$fn-auth.json"
+            test "$status" = 403
+            jq -e '.error == "Forbidden"' "$RUNNER_TEMP/$fn-auth.json" >/dev/null
+          done
       - name: Verify deployed federation delivery worker endpoint
         run: |
           set -euo pipefail
