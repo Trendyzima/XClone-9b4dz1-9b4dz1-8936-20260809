@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Bookmark, Globe, Heart, Loader2, MessageCircle, Quote, Repeat2, Send, Share2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -64,7 +64,6 @@ export function InteractiveFederatedPostCard({ post, compact = false, disableNav
     setBusy(name);
     try { await fn(); } catch (e: any) { toast.error(e?.message ?? `${name} failed`); } finally { setBusy(''); }
   };
-  const openProfile = (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); if (profileHref) navigate(profileHref); };
   const openPost = () => { if (!disableNavigation && objectUrl) navigate(`/fediverse/post?url=${encodeURIComponent(objectUrl)}`, { state: { post } }); };
 
   const toggleLike = () => run('like', async () => {
@@ -102,17 +101,19 @@ export function InteractiveFederatedPostCard({ post, compact = false, disableNav
     try { if (navigator.share) await navigator.share({ title: actor.name ?? username, text: plainContent.slice(0, 180), url }); else { await navigator.clipboard.writeText(url); toast.success('Testagram Fediverse link copied'); } } catch {}
   };
 
+  const profileLink = profileHref || '/fediverse';
+
   return <article className={`${compact ? 'p-3' : 'p-4'} border-b border-border hover:bg-muted/5 transition-colors`}>
     <div className="flex gap-3">
-      <a href={profileHref || '#'} onClick={openProfile} className="shrink-0" aria-label={`Open @${handle} profile`}>
+      <Link to={profileLink} className="shrink-0" aria-label={`Open @${handle} profile`}>
         <div className={`${compact ? 'w-8 h-8' : 'w-10 h-10'} rounded-full bg-muted overflow-hidden`}>
           {avatar ? <img src={avatar} alt={username} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-xs">{username[0]?.toUpperCase()}</div>}
         </div>
-      </a>
+      </Link>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <a href={profileHref || '#'} onClick={openProfile} className="font-semibold text-sm hover:underline truncate">{actor.display_name ?? actor.name ?? username}</a>
-          <a href={profileHref || '#'} onClick={openProfile} className="text-xs text-purple-500 hover:underline flex items-center gap-1"><Globe className="w-3 h-3" />@{handle}</a>
+          <Link to={profileLink} className="font-semibold text-sm hover:underline truncate">{actor.display_name ?? actor.name ?? username}</Link>
+          <Link to={profileLink} className="text-xs text-purple-500 hover:underline flex items-center gap-1"><Globe className="w-3 h-3" />@{handle}</Link>
           {created && <span className="text-xs text-muted-foreground">· {formatDistanceToNow(new Date(created), { addSuffix: true })}</span>}
         </div>
         <button type="button" onClick={openPost} disabled={disableNavigation} className={`block w-full text-left mt-2 ${disableNavigation ? '' : 'cursor-pointer'}`}>
