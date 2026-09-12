@@ -26,11 +26,11 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - run: npm install
       - name: Typecheck application and serverless functions
         run: npm run typecheck
       - name: Build Vite application
         run: npm run build
       - name: Validate Vercel configuration
-        run: node -e "const fs=require('fs'); const v=JSON.parse(fs.readFileSync('vercel.json','utf8')); if(!v.functions?.['api/**/*.ts']) throw new Error('Vercel serverless function runtime is not configured'); if(v.functions['api/**/*.ts'].runtime!=='nodejs20.x') throw new Error('Unexpected Vercel runtime'); console.log('Vercel serverless configuration valid')"
+        run: node -e "const fs=require('fs'); const v=JSON.parse(fs.readFileSync('vercel.json','utf8')); if(!v.functions?.['api/**/*.ts']) throw new Error('Vercel serverless function runtime is not configured'); if(v.functions['api/**/*.ts'].runtime!=='nodejs22.x') throw new Error('Unexpected Vercel runtime'); console.log('Vercel serverless configuration valid')"
