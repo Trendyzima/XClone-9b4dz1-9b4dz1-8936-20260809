@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Globe, Loader2, ExternalLink } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import * as federation from '@/api/federation';
 import { FederatedPostCard } from '@/components/features/FederatedPostCard';
@@ -11,12 +12,14 @@ const unwrap = (v: any): any[] => {
   if (Array.isArray(v)) return v;
   return [v?.items, v?.posts, v?.statuses, v?.data?.items, v?.data?.posts, v?.data?.statuses, v?.data].find(Array.isArray) ?? [];
 };
+const isHttp = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//i.test(v.trim());
+
 function normalizePost(value: any) {
   if (!value) return null;
   const raw = value.raw_object ?? value.object ?? value.activity ?? {};
   const account = value.actor ?? value.account ?? value.author ?? value.remote_accounts ?? raw.attributedTo ?? {};
-  const objectUrl = strings(value.object_url, value.canonical_url, value.uri, value.url, raw.id, raw.url, value.id).find(v => /^https?:\/\//i.test(v)) ?? '';
-  const actorUrl = strings(account.url, account.id, value.actor_url, value.actor_uri, raw.attributedTo?.url, raw.attributedTo?.id).find(v => /^https?:\/\//i.test(v)) ?? '';
+  const objectUrl = strings(value.object_url, value.canonical_url, value.uri, value.url, raw.id, raw.url).find(isHttp) ?? '';
+  const actorUrl = strings(account.url, account.id, value.actor_url, value.actor_uri, raw.attributedTo?.url, raw.attributedTo?.id).find(isHttp) ?? '';
   return {
     ...raw, ...value,
     actor: { ...account, url: actorUrl || account.url, id: actorUrl || account.id, preferredUsername: account.preferredUsername ?? account.username ?? value.actor_username, name: account.name ?? account.display_name ?? value.actor_name, icon: account.icon ?? (account.avatar_url ? { url: account.avatar_url } : undefined) },
@@ -30,11 +33,28 @@ function normalizePost(value: any) {
   };
 }
 
+async function findByCandidate(candidate: string): Promise<any | null> {
+  const tables = [
+    { table: 'remote_posts', select: '*, remote_accounts(*)', fields: ['object_url', 'url', 'uri', 'id'] },
+    { table: 'federation_objects', select: '*', fields: ['object_url', 'url', 'uri', 'id'] },
+    { table: 'federated_objects', select: '*', fields: ['object_url', 'url', 'uri', 'id'] },
+  ];
+  for (const source of tables) {
+    for (const field of source.fields) {
+      const query = supabase.from(source.table).select(source.select).eq(field, candidate).limit(1);
+      const { data, error } = await query;
+      if (!error && data?.[0]) return data[0];
+    }
+  }
+  return null;
+}
+
 export default function FediversePostPage() {
   const location = useLocation(); const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [post, setPost] = useState<any>(() => normalizePost(location.state?.post));
   const [loading, setLoading] = useState(!post); const [error, setError] = useState('');
-  const objectUrl = useMemo(() => new URLSearchParams(location.search).get('url') || post?.object_url || post?.url || post?.uri || '', [location.search, post]);
+  const objectUrl = useMemo(() => searchParams.get('url') || post?.object_url || post?.url || post?.uri || '', [searchParams, post]);
   useSEO({ title: post ? `${post.actor?.name ?? post.actor?.preferredUsername ?? 'Fediverse post'} on Testagram` : 'Fediverse post — Testagram', description: 'View a Fediverse post inside Testagram.', url: `/fediverse/post?url=${encodeURIComponent(objectUrl)}`, type: 'article' });
 
   useEffect(() => {
@@ -44,20 +64,12 @@ export default function FediversePostPage() {
       try {
         const candidates = strings(objectUrl, decodeURIComponent(objectUrl));
         let cached: any = null;
-        for (const candidate of candidates) {
-          const results = await Promise.all([
-            supabase.from('remote_posts').select('*, remote_accounts(*)').or(`object_url.eq.${candidate},url.eq.${candidate},uri.eq.${candidate}`).limit(1),
-            supabase.from('federation_objects').select('*').or(`object_url.eq.${candidate},url.eq.${candidate},uri.eq.${candidate}`).limit(1),
-            supabase.from('federated_objects').select('*').or(`object_url.eq.${candidate},url.eq.${candidate},uri.eq.${candidate}`).limit(1),
-          ]);
-          cached = results.map(r => r.data?.[0]).find(Boolean);
-          if (cached) break;
-        }
+        for (const candidate of candidates) { cached = await findByCandidate(candidate); if (cached) break; }
         if (!cached) {
           const timeline: any = await federation.getFederatedTimeline({ limit: 200 });
           const items = unwrap(timeline);
           cached = items.find(item => {
-            const raw = item.raw_object ?? item.object ?? {};
+            const raw = item.raw_object ?? item.object ?? item.activity ?? {};
             const ids = strings(item.object_url, item.canonical_url, item.uri, item.url, item.id, raw.id, raw.url);
             return candidates.some(c => ids.includes(c));
           });
