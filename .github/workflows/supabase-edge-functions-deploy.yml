@@ -43,7 +43,7 @@ jobs:
       - name: Deploy required Edge Functions
         run: |
           set -euo pipefail
-          functions=(gateway-relay federation-transport federation-inbox federation-delivery-worker federation-processing-worker federation-reconcile-actors search-everything feed-fast post-create media-upload federation-discovery)
+          functions=(gateway-relay federation-transport federation-inbox federation-delivery-worker federation-processing-worker federation-reconcile-actors search-everything feed-fast post-create media-upload federation-discovery federation-remote-sync)
           for fn in "${functions[@]}"; do echo "Deploying $fn"; supabase functions deploy "$fn" --use-api --project-ref "$SUPABASE_PROJECT_REF"; done
       - name: Verify deployed federation inbox endpoint
         run: |
@@ -87,3 +87,11 @@ jobs:
           echo "federation-discovery GET status: $status"; cat "$RUNNER_TEMP/federation-discovery-health.json"
           test "$status" = 200
           jq -e '.ok == true and .service == "testagram-federation-discovery"' "$RUNNER_TEMP/federation-discovery-health.json" >/dev/null
+      - name: Verify remote materialization endpoint
+        run: |
+          set -euo pipefail
+          url="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/federation-remote-sync"
+          status="$(curl -sS -o "$RUNNER_TEMP/federation-remote-sync-health.json" -w '%{http_code}' --max-time 20 "$url")"
+          echo "federation-remote-sync unauthenticated GET status: $status"; cat "$RUNNER_TEMP/federation-remote-sync-health.json"
+          test "$status" = 200
+          jq -e '.ok == true and .service == "testagram-federation-remote-sync"' "$RUNNER_TEMP/federation-remote-sync-health.json" >/dev/null
