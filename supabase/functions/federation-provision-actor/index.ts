@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SECRET_KEY") || "";
-const ORIGIN = Deno.env.get("FEDERATION_ORIGIN") || "https://testagram.site";
+const ORIGIN = Deno.env.get("FEDERATION_ORIGIN") || "https://federation.testagram.site";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization,apikey,content-type", "Access-Control-Allow-Methods": "POST,OPTIONS" };
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -16,9 +16,7 @@ async function createOrRepairActor(profile: any) {
   const actorUrl = `${ORIGIN}/users/${encodeURIComponent(profile.username)}`;
   const { data: existing, error: existingError } = await admin.from("federation_actors").select("id,user_id,username,actor_url,inbox_url,public_key_pem,private_key_jwk").eq("user_id", profile.id).maybeSingle();
   if (existingError) throw existingError;
-  if (existing?.private_key_jwk && existing?.public_key_pem && existing.actor_url === actorUrl && existing.username === profile.username) {
-    return { created: false, repaired: false, actor: { id: existing.id, user_id: existing.user_id, username: existing.username, actor_url: existing.actor_url, inbox_url: existing.inbox_url, public_key_pem: existing.public_key_pem } };
-  }
+  if (existing?.private_key_jwk && existing?.public_key_pem && existing.actor_url === actorUrl && existing.username === profile.username) return { created: false, repaired: false, actor: { id: existing.id, user_id: existing.user_id, username: existing.username, actor_url: existing.actor_url, inbox_url: existing.inbox_url, public_key_pem: existing.public_key_pem } };
   const keyPair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
   const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
   const publicSpki = await crypto.subtle.exportKey("spki", keyPair.publicKey);
