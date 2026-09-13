@@ -56,7 +56,7 @@ jobs:
           jq -e --arg actor "$actor" '.type == "Person" and .id == $actor and .inbox == ($actor + "/inbox") and .outbox == ($actor + "/outbox") and .followers == ($actor + "/followers") and .following == ($actor + "/following") and .publicKey.id == ($actor + "#main-key")' /tmp/actor.json >/dev/null
           for collection in outbox followers following; do
             curl -sS --fail-with-body --max-time 20 -H 'Accept: application/activity+json' "$actor/$collection" >/tmp/$collection.json
-            jq -e '.type == "OrderedCollection"' /tmp/$collection.json >/dev/null
+            jq -e '(.type == "OrderedCollection" or .type == "Collection") and (.totalItems | type == "number")' /tmp/$collection.json >/dev/null
           done
       - name: Note dereference
         env:
